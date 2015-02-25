@@ -1,0 +1,132 @@
+#include <plat/inc/gpio.h>
+#include <plat/inc/usart.h>
+#include <plat/inc/pwr.h>
+#include <usart.h>
+#include <gpio.h>
+
+struct StmUsart {
+  volatile uint16_t SR;
+  uint8_t unused0[2];
+  volatile uint16_t DR;
+  uint8_t unused1[2];
+  volatile uint16_t BRR;
+  uint8_t unused2[2];
+  volatile uint16_t CR1;
+  uint8_t unused3[2];
+  volatile uint16_t CR2;
+  uint8_t unused4[2];
+  volatile uint16_t CR3;
+  uint8_t unused5[2];
+  volatile uint16_t GTPR;
+  uint8_t unused6[2];
+};
+
+static const uint32_t mUsartPorts[] = {
+    USART1_BASE,
+    USART2_BASE,
+    USART3_BASE,
+    UART4_BASE,
+    UART5_BASE,
+    USART6_BASE,
+};
+
+static const uint32_t mUsartPeriphs[] = {
+    PERIPH_APB2_USART1,
+    PERIPH_APB1_USART2,
+    PERIPH_APB1_USART3,
+    PERIPH_APB1_UART4,
+    PERIPH_APB1_UART5,
+    PERIPH_APB2_USART6,
+};
+
+static uint8_t mUsartBusses[] = {
+    PERIPH_BUS_APB2,
+    PERIPH_BUS_APB1,
+    PERIPH_BUS_APB1,
+    PERIPH_BUS_APB1,
+    PERIPH_BUS_APB1,
+    PERIPH_BUS_APB2,
+};
+
+static bool mUsartHasFlowControl[] = {
+    true,
+    true,
+    true,
+    false,
+    false,
+    true,
+};
+
+void usart_open(struct usart* __restrict usart, usart_port_t port,
+                gpio_number_t tx, gpio_number_t rx,
+                uint32_t baud, usart_data_t data_bits,
+                usart_stop_t stop_bits, usart_parity_t parity,
+                usart_flow_control_t flow_control)
+{
+    static const uint16_t stopBitsVals[] = {0x1000, 0x0000, 0x3000, 0x2000}; // indexed by usart_stop_t
+    static const uint16_t wordLengthVals[] = {0x0000, 0x1000}; // indexed by usart_data_t
+    static const uint16_t parityVals[] = {0x0000, 0x0400, 0x0600}; // indexed by usart_parity_t
+    static const uint16_t flowCtrlVals[] = {0x0000, 0x0100, 0x0200, 0x0300}; // indexed by usart_flow_control_t
+    struct StmUsart *block = (struct StmUsart*)mUsartPorts[usart->unit = --port];
+    uint32_t baseClk, div, intPart, fraPart;
+    struct gpio gpio;
+
+
+    /* configure tx/rx gpios */
+    gpio_request(&gpio, rx); /* rx */
+    gpio_configure(&gpio, GPIO_MODE_ALTERNATE, GPIO_PULL_UP);
+    gpio_request(&gpio, tx); /* tx */
+    gpio_configure(&gpio, GPIO_MODE_ALTERNATE, GPIO_PULL_UP);
+
+    //XXX: this needs fixing either ambitiously (a table of all possiblities) ot simply (done elsewhere)
+    /* connect PA2 (which we assume is our TX pin) to USART2.TX (which we assume is the uart in question) */
+    gpio_assign_func(&gpio, GPIO_A2_AFR_USART2);
+
+    /* enable clock */
+    pwrUnitClock(mUsartBusses[port], mUsartPeriphs[port], true);
+
+    /* sanity checks */
+    if (!mUsartHasFlowControl[port])
+        flow_control = USART_FLOW_CONTROL_NONE;
+
+    /* basic config as required + oversample by 8, tx+rx on */
+    block->CR2 = (block->CR2 &~ 0x3000) | stopBitsVals[stop_bits];
+    block->CR1 = (block->CR1 &~ 0x1600) | wordLengthVals[data_bits] | parityVals[parity] | 0x800C;
+    block->CR3 = (block->CR3 &~ 0x0300) | flowCtrlVals[flow_control];
+
+    /* clocking calc */
+    baseClk = pwrGetBusSpeed(mUsartBusses[port]);
+    div = (baseClk * 25) / (baud * 2);
+    intPart = div / 100;
+    fraPart = div % 100;
+
+    /* clocking munging */
+    intPart = intPart << 4;
+    fraPart = ((fraPart * 8 + 50) / 100) & 7;
+    block->BRR = intPart | fraPart;
+ 
+    /* enable */
+    block->CR1 |= 0x2000;
+}
+
+void usart_close(const struct usart* __restrict usart)
+{
+    struct StmUsart *block = (struct StmUsart*)mUsartPorts[usart->unit];
+
+    /* Disable USART */
+    block->CR1 &=~ 0x2000;
+
+    /* Disable USART clock */
+    pwrUnitClock(mUsartBusses[usart->unit], mUsartPeriphs[usart->unit], false);
+}
+
+void usart_putchar(const struct usart* __restrict usart, char c)
+{
+    struct StmUsart *block = (struct StmUsart*)mUsartPorts[usart->unit];
+
+    /* wait for ready */
+    while (!(block->SR & 0x0080));
+
+    /* send */
+    block->DR = (uint8_t)c;
+}

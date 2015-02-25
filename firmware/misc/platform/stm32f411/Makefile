@@ -1,0 +1,29 @@
+DELIVERABLES = $(APP).full.bin $(APP).update.bin
+LKR = misc/platform/$(PLATFORM)/stm32f411.lkr
+
+FLAGS += -I. -fno-unwind-tables -fstack-reuse=all -ffunction-sections -fdata-sections
+FLAGS += -Wl,-T $(LKR) -Wl,--gc-sections
+FLAGS += -Iinc/platform/$(PLATFORM)/cmsis
+
+#platform bootloader
+SRCS += src/platform/$(PLATFORM)/bl.c
+
+#platform runtime
+SRCS +=  src/platform/$(PLATFORM)/crt_$(PLATFORM).c
+
+#platform drivers
+SRCS += src/platform/$(PLATFORM)/platform.c src/platform/$(PLATFORM)/usart.c src/platform/$(PLATFORM)/gpio.c src/platform/$(PLATFORM)/pwr.c
+
+#extra deps
+DEPS += $(wildcard inc/platform/$(PLATFORM)/*.h)
+DEPS += $(wildcard inc/platform/$(PLATFORM)/cmsis/*.h)
+DEPS += $(LKR)
+
+
+#platform-specific rules
+
+%.full.bin : %.elf
+	$(OBJCOPY) -j.bl -j .data -j .text -I elf32-littlearm -O binary $< $@
+
+%.update.bin : %.elf
+	$(OBJCOPY) -j .data -j .text -I elf32-littlearm -O binary $< $@
