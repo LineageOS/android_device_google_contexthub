@@ -1,4 +1,5 @@
 #include <cpu/inc/trylock.h>
+#include <cpu/inc/atomicXchg.h>
 
 
 void trylockInit(struct TryLock *lock)
@@ -13,18 +14,6 @@ void trylockRelease(struct TryLock *lock)
 
 bool trylockTryTake(struct TryLock *lock)
 {
-    uint32_t prevVal, storeFailed;
-
-    do {
-        asm volatile(
-            "ldrexb %0, [%2]     \n"
-            "strexb %1, %3, [%2] \n"
-            :"=r"(prevVal), "=r"(storeFailed)
-            :"r"(&lock->lock), "r"(1)
-            :"memory"
-        );
-    } while (storeFailed);
-
-    return !prevVal;
+    return !atomicXchgByte(&lock->lock, 1);
 }
 

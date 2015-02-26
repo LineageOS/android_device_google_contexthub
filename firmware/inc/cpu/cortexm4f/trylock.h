@@ -5,7 +5,7 @@
 #include <stdbool.h>
 
 struct TryLock {
-    uint8_t lock;
+    volatile uint8_t lock;
 };
 
 #define TRYLOCK_DECL_STATIC(name)   struct TryLock name
