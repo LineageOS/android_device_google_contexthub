@@ -46,6 +46,8 @@ void gpio_assign_func(const struct gpio* __restrict gpio, uint8_t func);
 
 /* a select few alternate assignment bits */
 #define GPIO_A2_AFR_I2C              4
+#define GPIO_A2_AFR_SPI123           5
+#define GPIO_A2_AFR_SPI345           6
 #define GPIO_A2_AFR_USART2           7
 
 #ifdef __cplusplus

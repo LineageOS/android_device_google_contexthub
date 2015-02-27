@@ -13,7 +13,7 @@ FLAGS += -O2 -Wall -Werror -Iinc -Ilinks -g -ggdb3
 FLAGS +=  -Wmissing-declarations -Wlogical-op -Waddress -Wempty-body -Wpointer-arith -Wenum-compare -Wdouble-promotion -Wfloat-equal -Wshadow
 
 #frameworks
-SRCS += src/printf.c src/timer.c src/seos.c src/console.c src/heap.c src/slab.c 
+SRCS += src/printf.c src/timer.c src/seos.c src/console.c src/heap.c src/slab.c src/spi.c 
 
 #app code
 SRCS += app/test_app0.c app/test_app1.c

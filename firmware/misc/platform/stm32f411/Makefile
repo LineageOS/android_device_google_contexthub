@@ -18,7 +18,8 @@ SRCS += src/platform/$(PLATFORM)/platform.c \
 	src/platform/$(PLATFORM)/pwr.c \
 	src/platform/$(PLATFORM)/i2c.c \
 	src/platform/$(PLATFORM)/exti.c \
-	src/platform/$(PLATFORM)/syscfg.c
+	src/platform/$(PLATFORM)/syscfg.c \
+	src/platform/$(PLATFORM)/spi.c
 
 #extra deps
 DEPS += $(wildcard inc/platform/$(PLATFORM)/*.h)
