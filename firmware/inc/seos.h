@@ -136,9 +136,6 @@ bool OS_event_subscribe(task_t *task, event_type_t event_type,
                         nanosec_t drift_ns, nanotime_t period);
 void OS_unsubscribe_to_task(task_t *task, event_type_t);
 
-/* Testing */
-void OS_run_tests(void);
-bool OS_start_sim_file(char *filename);
 
 /* TODO: May want to switch to macros so they can be compiled out. */
 /* Logging */

@@ -18,9 +18,7 @@ bool Console_handle_command(char *command)
     } else if (strcmp(command, "halt") == 0) {
         OS_halt();
         /* Simulate a CPU wake */
-        Platform_wake();
-    } else if (strcmp(command, "unit test") == 0) {
-        OS_run_tests();
+        platWake();
     } else {
         char *token = strtok(command, " ");
         if (token == NULL) {

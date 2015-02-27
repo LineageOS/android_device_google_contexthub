@@ -66,11 +66,11 @@ struct StmTim {
 static struct usart mUsart2;
 static uint64_t mTicks = 0;
 
-static void Platform_initialize_debug();
-static void Platform_initialize_timer(void);
+static void platInitializeDebug();
+static void platInitializeTimer(void);
 
 
-void Platform_initialize(void)
+void platInitialize(void)
 {
     uint32_t i;
 
@@ -87,43 +87,43 @@ void Platform_initialize(void)
                USART_STOP_BITS_1_0, USART_PARITY_NONE,
                USART_FLOW_CONTROL_NONE);
 
-    Platform_initialize_debug();
-    Platform_initialize_timer();
+    platInitializeDebug();
+    platInitializeTimer();
 }
 
-void Platform_uninitialize(void)
+void platUninitialize(void)
 {
     usart_close(&mUsart2);
 }
 
-void Platform_sleep(void)
+void platSleep(void)
 {
     asm volatile ("wfi" :::"memory");
 }
 
-void Platform_wake(void)
+void platWake(void)
 {
     OS_log(LOG_ERROR, "Wake unimplemented.");
 }
 
-void Platform_log(char *string)
+void platLog(char *string)
 {
     while (*string != '\0')
         usart_putchar(&mUsart2, *string++);
     usart_putchar(&mUsart2, '\n');
 }
 
-void Platform_disable_interrupts(void)
+void platDisableInterrupts(void)
 {
     asm volatile("cpsid i");
 }
 
-void Platform_enable_interrupts(void)
+void platEnableInterrupts(void)
 {
     asm volatile("cpsie i");
 }
 
-static void Platform_initialize_debug()
+static void platInitializeDebug()
 {
     struct StmDbg *dbg = (struct StmDbg*)DBG_BASE;
     const uint32_t debugStateInSleepMode = 0x00000001;
@@ -135,7 +135,7 @@ static void Platform_initialize_debug()
 #endif
 }
 
-static void Platform_initialize_timer()
+static void platInitializeTimer()
 {
     struct StmTim *block = (struct StmTim*)TIM2_BASE;
 
@@ -153,7 +153,7 @@ static void Platform_initialize_timer()
 }
 
 ///* Provides a simple console to SEOS */
-//static void *Platform_console_thread_func(void *arg)
+//static void *platConsoleThreadFunc(void *arg)
 //{
 //    char buffer[40];
 //    bool running = true;
@@ -171,7 +171,7 @@ static void Platform_initialize_timer()
 //            OS_system_call(SYSTEM_CALL_HALT, NULL, 0);
 //
 //            /* Simulate a CPU wake */
-//            Platform_wake();
+//            platWake();
 //        }
 //    }
 //
@@ -181,7 +181,7 @@ static void Platform_initialize_timer()
 //}
 //
 ///* Provides some dummy sensor data */
-//static void *Platform_sensor_thread_func(void *arg)
+//static void *platSensorThreadFunc(void *arg)
 //{
 //    while (true) {
 //        /*
@@ -191,7 +191,7 @@ static void Platform_initialize_timer()
 //        OS_system_call(SYSTEM_CALL_SENSOR, NULL, 0);
 //
 //        /* Simulate a CPU wake */
-//        Platform_wake();
+//        platWake();
 //
 //        sleep(10);
 //    }
@@ -200,23 +200,23 @@ static void Platform_initialize_timer()
 //}
 
 /* RTC/alarm */
-unsigned Platform_get_rtc_ms(void)
+unsigned platGetRtcMs(void)
 {
     OS_log(LOG_ERROR, "Unimplemented.");
     return 0;
 }
 
-void Platform_set_alarm(unsigned delay_us)
+void platSetAlarm(unsigned delayUs)
 {
     struct StmTim *block = (struct StmTim*)TIM2_BASE;
 
     /* XXX: assure no alarm already pending in here */
 
-    block->CNT = delay_us;
+    block->CNT = delayUs;
     block->CR1 |= 1;
 }
 
-unsigned Platform_get_systick(void)
+unsigned platGetSystick(void)
 {
     return mTicks;
 }
