@@ -21,7 +21,6 @@ extern void APP_register_task1(struct task_t *task);
 //TODO:  only utilize this until real clock counter implemented.
 extern nanotime_t timer_time;
 
-extern TestFunc _stests[], _etests[];
 
 /* Scheduler is running */
 bool running;
@@ -75,10 +74,10 @@ void __attribute__((noreturn)) OS_main(void)
  */
 void OS_initialize(void)
 {
-    Platform_disable_interrupts();
+    platDisableInterrupts();
 
     Timer_init();
-    Platform_initialize();
+    platInitialize();
 
     OS_log(LOG_INFO, "SEOS Initializing\n");
 
@@ -106,14 +105,14 @@ void OS_initialize(void)
     /* And start the tasks */
     task_list[0]->_APP_start_task(task_list[0]);
     task_list[1]->_APP_start_task(task_list[1]);
-    Platform_enable_interrupts();
+    platEnableInterrupts();
 }
 
 void OS_uninitialize(void)
 {
     OS_log(LOG_INFO, "SEOS shutting down\n");
 
-    Platform_uninitialize();
+    platUninitialize();
 }
 
 void OS_halt(void)
@@ -303,26 +302,15 @@ void OS_idle_end_task(struct task_t *task)
 bool OS_idle_handle_event(struct task_t *task, event_type_t event)
 {
     /* nothing to do, so sleep the platform to save power */
-    Platform_sleep();
+    platSleep();
 
     return true;
-}
-
-void OS_run_tests(void)
-{
-    //TODO: Enable other linker script
-    //    //TODO surround with ifdef TESTBUILD
-    //    TestFunc *t = _stests;
-    //    for (t++; t != _etests && (*t)(); t++);
-    //    if (t != NULL) {
-    //        Platform_log("Test failed.\n");
-    //    }
 }
 
 /* TODO: Enforce logging by level. */
 void OS_log(enum log_level_t level, char *str)
 {
-    Platform_log(str);
+    platLog(str);
 }
 
 struct task_t *OS_get_task(char *taskname)
@@ -342,7 +330,7 @@ struct task_t *OS_get_task(char *taskname)
 /* Return number of system ticks since system has been running. */
 unsigned OS_get_systick(void)
 {
-    Platform_get_systick();
+    platGetSystick();
     return 0;
 }
 

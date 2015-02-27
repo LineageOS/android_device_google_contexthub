@@ -16,30 +16,27 @@ extern "C" {
 #include <stdbool.h>
 #include <seos.h>
 
-/* Test function typedef */
-typedef bool (*TestFunc) (void);
-
-/* Platform life cycle */
-void Platform_initialize(void);
-void Platform_uninitialize(void);
-void Platform_reset(void);
+/* plat life cycle */
+void platInitialize(void);
+void platUninitialize(void);
+void platReset(void);
 
 /* CPU sleep/wake */
-void Platform_sleep(void);
-void Platform_wake(void);
+void platSleep(void);
+void platWake(void);
 
 /* Interrupts */
-void Platform_enable_interrupts(void);
-void Platform_disable_interrupts(void);
+void platEnableInterrupts(void);
+void platDisableInterrupts(void);
 
 /* Logging */
-void Platform_log(char *string);
+void platLog(char *string);
 
 /* RTC/alarm */
-unsigned Platform_get_rtc_ms(void);
-void Platform_set_alarm(unsigned delay_us);
-void Platform_cancel_alarm(void);
-unsigned Platform_get_systick(void);
+unsigned platGetRtcMs(void);
+void platSetAlarm(unsigned delayUs);
+void platCancelAlarm(void);
+unsigned platGetSystick(void);
 
 #ifdef __cplusplus
 }

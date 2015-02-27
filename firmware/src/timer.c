@@ -104,7 +104,7 @@ void Timer_interrupt_handler(void)
         nanotime_t timer_delay = Timer_earliest()->ideal_delay;
         unsigned timer_delay_us = timer_delay.time_s*1000000 +
             timer_delay.time_ns/1000 - TIMER_WAKEUP_BUFFER_US;
-        Platform_set_alarm(timer_delay_us);
+        platSetAlarm(timer_delay_us);
     }
 }
 
@@ -135,8 +135,7 @@ bool Timer_insert_timer(timer_item_t timer)
         }
     }
 
-    Platform_set_alarm(nanotime_to_us(Timer_earliest()->deadline)
-        - TIMER_WAKEUP_BUFFER_US);
+    platSetAlarm(nanotime_to_us(Timer_earliest()->deadline) - TIMER_WAKEUP_BUFFER_US);
     return true;
 }
 
