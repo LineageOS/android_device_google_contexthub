@@ -97,38 +97,11 @@ void platEnableInterrupts(void)
     asm volatile("cpsie i");
 }
 
-static void platInitializeDebug()
-{
-    struct StmDbg *dbg = (struct StmDbg*)DBG_BASE;
-    const uint32_t debugStateInSleepMode = 0x00000001;
-
-#ifdef DEBUG
-    dbg->CR |= debugStateInSleepMode;
-#else
-    dbg->CR &=~ debugStateInSleepMode;
-#endif
-}
-
-static void platInitializeTimer()
-{
-    struct StmTim *block = (struct StmTim*)TIM2_BASE;
-
-    /* Enable clock for timer */
-    pwrUnitClock(PERIPH_BUS_APB1, PERIPH_APB1_TIM2, true);
-
-    /* count down mode with no clock division, disabled */
-    block->CR1 = (block->CR1 &~ 0x03E1) | 0x0010;
-    block->PSC = 15; /* prescale by 16, so that at 16MHz CPU clock, we get 1MHz timer */
-    /* block->ARR is where we'd stash the number of microseconds we want to count down from */
-    block->DIER |= 1; /* interrupt when updated (underflowed) */
-
-    /* int on*/
-    NVIC_EnableIRQ(TIM2_IRQn);
-}
-
-
 void platInitialize(void)
 {
+    const uint32_t debugStateInSleepMode = 0x00000001;
+    struct StmTim *block = (struct StmTim*)TIM2_BASE;
+    struct StmDbg *dbg = (struct StmDbg*)DBG_BASE;
     uint32_t i;
 
     pwrSystemInit();
@@ -146,8 +119,19 @@ void platInitialize(void)
                USART_STOP_BITS_1_0, USART_PARITY_NONE,
                USART_FLOW_CONTROL_NONE);
 
-    platInitializeDebug();
-    platInitializeTimer();
+    /* set up debugging */
+#ifdef DEBUG
+    dbg->CR |= debugStateInSleepMode;
+#else
+    dbg->CR &=~ debugStateInSleepMode;
+#endif
+
+    /* set up timer used for alarms */
+    pwrUnitClock(PERIPH_BUS_APB1, PERIPH_APB1_TIM2, true);
+    block->CR1 = (block->CR1 &~ 0x03E1) | 0x0010; //count down mode with no clock division, disabled
+    block->PSC = 15; // prescale by 16, so that at 16MHz CPU clock, we get 1MHz timer
+    block->DIER |= 1; // interrupt when updated (underflowed)
+    NVIC_EnableIRQ(TIM2_IRQn);
 }
 
 
@@ -155,8 +139,7 @@ void platSetAlarm(unsigned delayUs)
 {
     struct StmTim *block = (struct StmTim*)TIM2_BASE;
 
-    /* XXX: assure no alarm already pending in here */
-
+    //better not have another one pending ad this moment
     block->CNT = delayUs;
     block->CR1 |= 1;
 }
@@ -189,10 +172,31 @@ void SysTick_Handler(void)
     mTicks++;
 }
 
-/* TODO: move this to interrupts.c */
+static void __attribute__((used)) logHardFault(uint32_t *excRegs, uint32_t* otherRegs)
+{
+    osLog(LOG_ERROR, "*HARD FAULT* SR  = %08X\n", excRegs[7]);
+    osLog(LOG_ERROR, "R0  = %08X   R8  = %08X\n", excRegs[0], otherRegs[4]);
+    osLog(LOG_ERROR, "R1  = %08X   R9  = %08X\n", excRegs[1], otherRegs[5]);
+    osLog(LOG_ERROR, "R2  = %08X   R10 = %08X\n", excRegs[2], otherRegs[6]);
+    osLog(LOG_ERROR, "R3  = %08X   R11 = %08X\n", excRegs[3], otherRegs[7]);
+    osLog(LOG_ERROR, "R4  = %08X   R12 = %08X\n", otherRegs[0], excRegs[4]);
+    osLog(LOG_ERROR, "R5  = %08X   SP  = %08X\n", otherRegs[1], (uint32_t)(uintptr_t)(excRegs + 8));
+    osLog(LOG_ERROR, "R6  = %08X   LR  = %08X\n", otherRegs[2], excRegs[5]);
+    osLog(LOG_ERROR, "R6  = %08X   PC  = %08X\n", otherRegs[3], excRegs[6]);
+    osLog(LOG_ERROR, "HFSR= %08X   CFSR= %08X\n", SCB->HFSR, SCB->CFSR);
+    while(1);   
+}
+
 void HardFault_Handler(void);
 void HardFault_Handler(void)
 {
-    while (1){}
+    asm volatile(
+        "tst lr, #4         \n"
+        "ite eq             \n"
+        "mrseq r0, msp      \n"
+        "mrsne r0, psp      \n"
+        "push  {r4-r11}     \n"
+        "b     logHardFault \n"
+    );
 }
 

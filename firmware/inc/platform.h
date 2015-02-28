@@ -34,6 +34,7 @@ void platDisableInterrupts(void);
 void platLogPutchar(char ch);
 
 /* RTC */
+uint64_t platSetRtcMs(void);
 uint64_t platGetRtcMs(void);
 
 /* fast timer */
