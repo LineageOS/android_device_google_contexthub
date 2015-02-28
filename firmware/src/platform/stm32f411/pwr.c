@@ -124,3 +124,11 @@ void pwrDisableBackupDomainWriteAccess(void)
 {
     PWR->CR &= ~PWR_CR_DBP;
 }
+
+void pwrSystemInit(void)
+{
+    RCC->CR |= 1;                             //HSI on
+    while (!(RCC->CR & 2))                    //wait for HSI
+    RCC->CFGR = 0x00000000;                   //all busses at HSI speed
+    RCC->CR &= 0x0000FFF1;                    //HSI on, all else off
+}

@@ -74,6 +74,8 @@ void platInitialize(void)
 {
     uint32_t i;
 
+    pwrSystemInit();
+
     //set ints up for a sane state
     for (i = 0; i < NUM_INTERRUPTS; i++) {
         NVIC_SetPriority(i, 1);
