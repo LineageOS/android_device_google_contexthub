@@ -125,7 +125,6 @@ bool osAddTimerPeriodic(task_t *task,
 void osDeleteTimer(struct task_t *task, timer_handle_t timerHandle);
 
 /* Clocks */
-unsigned osGetSystick(void);
 /* Returns the number of seconds and nanoseconds that have transpired
  * since Epoch (January 1, 1970). */
 nanotime_t osGetTime(void);
@@ -140,13 +139,13 @@ void osUnsubscribeToTask(task_t *task, event_type_t);
 /* TODO: May want to switch to macros so they can be compiled out. */
 /* Logging */
 enum log_level_t {
-    LOG_ERROR,
-    LOG_WARN,
-    LOG_INFO,
-    LOG_DEBUG,
+    LOG_ERROR = 'E',
+    LOG_WARN = 'W',
+    LOG_INFO = 'I',
+    LOG_DEBUG = 'D',
 };
 
-void osLog(enum log_level_t level, char *str);
+void osLog(enum log_level_t level, const char *str, ...);
 
 void osMain(void);
 void osInterruptHandler(enum interrupt interrupt, interrupt_handler_t handler);

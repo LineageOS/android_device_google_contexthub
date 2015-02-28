@@ -62,36 +62,10 @@ struct StmTim {
 };
 
 
-/* Use mUsart2 for kernel logging. */
 static struct usart mUsart2;
 static uint64_t mTicks = 0;
 
-static void platInitializeDebug();
-static void platInitializeTimer(void);
 
-
-void platInitialize(void)
-{
-    uint32_t i;
-
-    pwrSystemInit();
-
-    //set ints up for a sane state
-    for (i = 0; i < NUM_INTERRUPTS; i++) {
-        NVIC_SetPriority(i, 1);
-        NVIC_DisableIRQ(i);
-        NVIC_ClearPendingIRQ(i);
-    }
-
-    /* Open mUsart2 on PA2 and PA3 */
-    usart_open(&mUsart2, 2, GPIO_PA(2), GPIO_PA(3),
-               115200, USART_DATA_BITS_8,
-               USART_STOP_BITS_1_0, USART_PARITY_NONE,
-               USART_FLOW_CONTROL_NONE);
-
-    platInitializeDebug();
-    platInitializeTimer();
-}
 
 void platUninitialize(void)
 {
@@ -108,11 +82,9 @@ void platWake(void)
     osLog(LOG_ERROR, "Wake unimplemented.");
 }
 
-void platLog(char *string)
+void platLogPutchar(char ch)
 {
-    while (*string != '\0')
-        usart_putchar(&mUsart2, *string++);
-    usart_putchar(&mUsart2, '\n');
+     usart_putchar(&mUsart2, ch);
 }
 
 void platDisableInterrupts(void)
@@ -154,59 +126,30 @@ static void platInitializeTimer()
     NVIC_EnableIRQ(TIM2_IRQn);
 }
 
-///* Provides a simple console to SEOS */
-//static void *platConsoleThreadFunc(void *arg)
-//{
-//    char buffer[40];
-//    bool running = true;
-//
-//    while (running) {
-//        printf("$ ");
-//
-//        /* Read and terminate line from stdin */
-//        fgets(buffer, sizeof(buffer), stdin);
-//        buffer[strlen(buffer) - 1] = '\0';
-//
-//        if (strcmp(buffer, "exit") == 0)
-//            running = false;
-//        else if (strcmp(buffer, "halt") == 0) {
-//            osSystemCall(SYSTEMCALLHALT, NULL, 0);
-//
-//            /* Simulate a CPU wake */
-//            platWake();
-//        }
-//    }
-//
-//    printf("Console disconnected\n");
-//
-//    return NULL;
-//}
-//
-///* Provides some dummy sensor data */
-//static void *platSensorThreadFunc(void *arg)
-//{
-//    while (true) {
-//        /*
-//         * Without file descriptors or files, just use
-//         * a syscall to push sensor data over to SEOS
-//         */
-//        osSystemCall(SYSTEMCALLSENSOR, NULL, 0);
-//
-//        /* Simulate a CPU wake */
-//        platWake();
-//
-//        sleep(10);
-//    }
-//
-//    return NULL;
-//}
 
-/* RTC/alarm */
-unsigned platGetRtcMs(void)
+void platInitialize(void)
 {
-    osLog(LOG_ERROR, "Unimplemented.");
-    return 0;
+    uint32_t i;
+
+    pwrSystemInit();
+
+    //set ints up for a sane state
+    for (i = 0; i < NUM_INTERRUPTS; i++) {
+        NVIC_SetPriority(i, 1);
+        NVIC_DisableIRQ(i);
+        NVIC_ClearPendingIRQ(i);
+    }
+
+    /* Open mUsart2 on PA2 and PA3 */
+    usart_open(&mUsart2, 2, GPIO_PA(2), GPIO_PA(3),
+               115200, USART_DATA_BITS_8,
+               USART_STOP_BITS_1_0, USART_PARITY_NONE,
+               USART_FLOW_CONTROL_NONE);
+
+    platInitializeDebug();
+    platInitializeTimer();
 }
+
 
 void platSetAlarm(unsigned delayUs)
 {
@@ -218,7 +161,7 @@ void platSetAlarm(unsigned delayUs)
     block->CR1 |= 1;
 }
 
-unsigned platGetSystick(void)
+uint64_t platGetTicks(void)
 {
     return mTicks;
 }

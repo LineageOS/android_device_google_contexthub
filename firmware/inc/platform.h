@@ -14,6 +14,7 @@ extern "C" {
 #endif
 
 #include <stdbool.h>
+#include <stdint.h>
 #include <seos.h>
 
 /* plat life cycle */
@@ -29,14 +30,16 @@ void platWake(void);
 void platEnableInterrupts(void);
 void platDisableInterrupts(void);
 
-/* Logging */
-void platLog(char *string);
+/* Output */
+void platLogPutchar(char ch);
 
-/* RTC/alarm */
-unsigned platGetRtcMs(void);
+/* RTC */
+uint64_t platGetRtcMs(void);
+
+/* fast timer */
+uint64_t platGetTicks(void);
 void platSetAlarm(unsigned delayUs);
 void platCancelAlarm(void);
-unsigned platGetSystick(void);
 
 #ifdef __cplusplus
 }

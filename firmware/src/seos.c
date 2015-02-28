@@ -1,9 +1,11 @@
-#include <seos.h>
 #include <platform.h>
-#include <timer.h>
-#include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdarg.h>
+#include <printf.h>
+#include <timer.h>
+#include <stdio.h>
+#include <seos.h>
 #include <heap.h>
 
 void osIdleStartTask(struct task_t *task);
@@ -307,10 +309,20 @@ bool osIdleHandleEvent(struct task_t *task, event_type_t event)
     return true;
 }
 
-/* TODO: Enforce logging by level. */
-void osLog(enum log_level_t level, char *str)
+static bool osLogPutcharF(void* userData, char c)
 {
-    platLog(str);
+    platLogPutchar(c);
+    return true;
+}
+
+void osLog(enum log_level_t level, const char *str, ...)
+{
+    va_list vl;
+
+    osLogPutcharF(NULL, level);
+    va_start(vl, str);
+    cvprintf(osLogPutcharF, NULL, str, vl);
+    va_end(vl);
 }
 
 struct task_t *osGetTask(char *taskname)
@@ -326,14 +338,6 @@ struct task_t *osGetTask(char *taskname)
     }
     return NULL;
 }
-
-/* Return number of system ticks since system has been running. */
-unsigned osGetSystick(void)
-{
-    platGetSystick();
-    return 0;
-}
-
 
 /*
  * Returns the number of seconds and nanoseconds that have transpired
