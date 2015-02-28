@@ -6,9 +6,9 @@
 #include <stdlib.h>
 #include <heap.h>
 
-void OS_idle_start_task(struct task_t *task);
-void OS_idle_end_task(struct task_t *task);
-bool OS_idle_handle_event(struct task_t *task, event_type_t event_type);
+void osIdleStartTask(struct task_t *task);
+void osIdleEndTask(struct task_t *task);
+bool osIdleHandleEvent(struct task_t *task, event_type_t eventType);
 
 
 /*
@@ -55,15 +55,15 @@ interrupt_handler_t interrupt_handler[INTERRUPT_MAX];
 /*
  * Main entry point for OS
  */
-void __attribute__((noreturn)) OS_main(void)
+void __attribute__((noreturn)) osMain(void)
 {
     heapInit();
 
-    OS_initialize();
+    osInitialize();
 
-    OS_scheduler();
+    osScheduler();
 
-    OS_uninitialize();
+    osUninitialize();
 
     /* Exiting program undefined in embedded */
     while(1);
@@ -72,14 +72,14 @@ void __attribute__((noreturn)) OS_main(void)
 /*
  * Kernel
  */
-void OS_initialize(void)
+void osInitialize(void)
 {
     platDisableInterrupts();
 
     Timer_init();
     platInitialize();
 
-    OS_log(LOG_INFO, "SEOS Initializing\n");
+    osLog(LOG_INFO, "SEOS Initializing\n");
 
     int i = 0;
     for (i = 0; i < TASK_LIST_SIZE; i++) {
@@ -89,9 +89,9 @@ void OS_initialize(void)
     /* Set up idle task */
     strcpy(idle_task.name, "idle");
     idle_task.event_mask |= EVENT_NULL;
-    idle_task._APP_start_task = OS_idle_start_task;
-    idle_task._APP_end_task = OS_idle_end_task;
-    idle_task._APP_handle_event = OS_idle_handle_event;
+    idle_task._APP_start_task = osIdleStartTask;
+    idle_task._APP_end_task = osIdleEndTask;
+    idle_task._APP_handle_event = osIdleHandleEvent;
 
     /* Set up function pointers for statically linked apps. */
     task_list[0] = heapAlloc(sizeof(struct task_t));
@@ -108,16 +108,16 @@ void OS_initialize(void)
     platEnableInterrupts();
 }
 
-void OS_uninitialize(void)
+void osUninitialize(void)
 {
-    OS_log(LOG_INFO, "SEOS shutting down\n");
+    osLog(LOG_INFO, "SEOS shutting down\n");
 
     platUninitialize();
 }
 
-void OS_halt(void)
+void osHalt(void)
 {
-    OS_log(LOG_ERROR, "OS_halt not implemented.");
+    osLog(LOG_ERROR, "OSHalt not implemented.");
 }
 
 static bool register_subscription(event_type_t event_type,
@@ -125,7 +125,7 @@ static bool register_subscription(event_type_t event_type,
 {
     subscription_bucket_t bucket = subscription_list[event_type];
     if (bucket.items == MAX_SUBSCRIPTIONS) {
-        OS_log(LOG_WARN, "Unable to subscribe.  Max subscriptions reached.");
+        osLog(LOG_WARN, "Unable to subscribe.  Max subscriptions reached.");
         return false;
     }
     bucket.subscriptions[bucket.items] = subscription;
@@ -139,7 +139,7 @@ static task_t *get_producer_task_for_event(event_type_t event_type)
     return subscription_list[event_type].producer;
 }
 
-bool OS_event_subscribe(struct task_t *task, event_type_t event_type,
+bool osEventSubscribe(struct task_t *task, event_type_t event_type,
                         nanosec_t latency_ns, nanosec_t jitter_ns,
                         nanosec_t drift_ns, nanotime_t period)
 {
@@ -149,17 +149,17 @@ bool OS_event_subscribe(struct task_t *task, event_type_t event_type,
     success = register_subscription(event_type, event_subscription);
     task_t *producer = get_producer_task_for_event(event_type);
     if (producer != NULL) {
-        task_wakeup_t task_wakeup = {event_type, EVENT_FLAG_PRODUCER_ENABLE,
-            producer, nanotime_add(OS_get_time(), period)};
-        OS_task_enqueue(task_wakeup);
+        task_wakeup_t taskWakeup = {event_type, EVENT_FLAG_PRODUCER_ENABLE,
+            producer, nanotime_add(osGetTime(), period)};
+        osTaskEnqueue(taskWakeup);
     } else {
-        OS_log(LOG_WARN, "No producer for subscribed event.\n");
+        osLog(LOG_WARN, "No producer for subscribed event.\n");
         success = false;
     }
     return success;
 }
 
-void OS_scheduler(void)
+void osScheduler(void)
 {
     struct task_wakeup_t task_wakeup;
     running = true;
@@ -167,12 +167,12 @@ void OS_scheduler(void)
     while(running) {
 
         /* See if there are any events */
-        while (OS_task_queue_empty()) {
+        while (osTaskQueueEmpty()) {
             /* Nothing else to do, so execute idle task */
             idle_task._APP_handle_event(&idle_task, EVENT_NULL);
         }
         /* Dequeue next event */
-        task_wakeup = OS_task_dequeue();
+        task_wakeup = osTaskDequeue();
 
         if (task_wakeup.event_type == EVENT_HALT) {
             /* Stop the scheduler */
@@ -181,7 +181,7 @@ void OS_scheduler(void)
         }
 
         if (task_wakeup.task == NULL) {
-            OS_log(LOG_ERROR, "NULL tasks should not be dequeued.");
+            osLog(LOG_ERROR, "NULL tasks should not be dequeued.");
             continue;
         }
 
@@ -195,27 +195,27 @@ void OS_scheduler(void)
  */
 //TODO: lock this
 //TODO: swap single event queue out for multiple event queues
-void OS_event_data_enqueue(event_data_t event, event_type_t event_type)
+void osEventDataEnqueue(event_data_t event, event_type_t eventType)
 {
 }
 
 //TODO: lock this
 //TODO: swap single event queue out for multiple event queues
-event_data_t OS_event_data_dequeue(event_type_t event_type)
+event_data_t osEventDataDequeue(event_type_t eventType)
 {
     event_data_t empty_data = {{0}};
     return empty_data;
 }
 
 //TODO: lock this
-void OS_task_enqueue(task_wakeup_t task_wakeup)
+void osTaskEnqueue(task_wakeup_t taskWakeup)
 {
-    task_wakeup_queue[task_wakeup_queue_tail] = task_wakeup;
+    task_wakeup_queue[task_wakeup_queue_tail] = taskWakeup;
     task_wakeup_queue_tail = (task_wakeup_queue_tail + 1) % TASK_WAKEUP_QUEUE_SIZE;
 }
 
 //TODO: lock this
-task_wakeup_t OS_task_dequeue(void)
+task_wakeup_t osTaskDequeue(void)
 {
     task_wakeup_t task_wakeup = task_wakeup_queue[task_wakeup_queue_head];
     task_wakeup_t empty_task_wakeup = {0};
@@ -225,7 +225,7 @@ task_wakeup_t OS_task_dequeue(void)
     return task_wakeup;
 }
 
-bool OS_task_queue_empty(void)
+bool osTaskQueueEmpty(void)
 {
     return (task_wakeup_queue_head == task_wakeup_queue_tail);
 }
@@ -233,14 +233,14 @@ bool OS_task_queue_empty(void)
 /*
  * TODO: revisit interrupts
  */
-void OS_interrupt_handler(enum interrupt interrupt, interrupt_handler_t handler)
+void osInterruptHandler(enum interrupt interrupt, interrupt_handler_t handler)
 {
     if (interrupt < INTERRUPT_MAX) {
         interrupt_handler[interrupt] = handler;
     }
 }
 
-void OS_interrupt(enum interrupt interrupt, void *data, unsigned len)
+void osInterrupt(enum interrupt interrupt, void *data, unsigned len)
 {
     /* call registered handler for this interrupt */
     if (interrupt_handler[interrupt]) {
@@ -251,7 +251,7 @@ void OS_interrupt(enum interrupt interrupt, void *data, unsigned len)
 /*
  * Timer
  */
-bool OS_add_timer_one_shot(task_t *task, nanotime_t delay,
+bool osAddTimerOneShot(task_t *task, nanotime_t delay,
                                      nanosec_t max_drift_ns,
                                      nanosec_t max_jitter_ns)
 {
@@ -263,7 +263,7 @@ bool OS_add_timer_one_shot(task_t *task, nanotime_t delay,
     return success;
 }
 
-bool OS_add_timer_periodic(struct task_t *task,
+bool osAddTimerPeriodic(struct task_t *task,
                                      nanotime_t period,
                                      nanosec_t max_jitter_ns,
                                      nanosec_t max_drift_ns)
@@ -278,7 +278,7 @@ bool OS_add_timer_periodic(struct task_t *task,
     return success;
 }
 
-void OS_cancel_task_timers(struct task_t *task)
+void osCancelTaskTimers(struct task_t *task)
 {
     Timer_clear_timers_for_task(task);
 }
@@ -291,15 +291,15 @@ void OS_cancel_task_timers(struct task_t *task)
  * again, the scheduler will need to figure out what
  * happened and schedule another task.
  */
-void OS_idle_start_task(struct task_t *task)
+void osIdleStartTask(struct task_t *task)
 {
 }
 
-void OS_idle_end_task(struct task_t *task)
+void osIdleEndTask(struct task_t *task)
 {
 }
 
-bool OS_idle_handle_event(struct task_t *task, event_type_t event)
+bool osIdleHandleEvent(struct task_t *task, event_type_t event)
 {
     /* nothing to do, so sleep the platform to save power */
     platSleep();
@@ -308,12 +308,12 @@ bool OS_idle_handle_event(struct task_t *task, event_type_t event)
 }
 
 /* TODO: Enforce logging by level. */
-void OS_log(enum log_level_t level, char *str)
+void osLog(enum log_level_t level, char *str)
 {
     platLog(str);
 }
 
-struct task_t *OS_get_task(char *taskname)
+struct task_t *osGetTask(char *taskname)
 {
     int i;
 
@@ -328,7 +328,7 @@ struct task_t *OS_get_task(char *taskname)
 }
 
 /* Return number of system ticks since system has been running. */
-unsigned OS_get_systick(void)
+unsigned osGetSystick(void)
 {
     platGetSystick();
     return 0;
@@ -340,7 +340,7 @@ unsigned OS_get_systick(void)
  * since Epoch (January 1, 1970).
  */
 //TODO: Set to RTC
-struct nanotime_t OS_get_time(void)
+struct nanotime_t osGetTime(void)
 {
     return timer_time;
 }

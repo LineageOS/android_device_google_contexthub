@@ -4,8 +4,8 @@
  * Author: Simon Wilson
  */
 
-#ifndef _SEOS_H_
-#define _SEOS_H_
+#ifndef _SEosH
+#define _SEosH
 
 #ifdef __cplusplus
 extern "C" {
@@ -94,47 +94,47 @@ struct event_subscription_t {
 } typedef event_subscription_t;
 
 /* Kernel */
-void OS_initialize(void);
-void OS_uninitialize(void);
-void OS_scheduler(void);
-void OS_halt(void);
+void osInitialize(void);
+void osUninitialize(void);
+void osScheduler(void);
+void osHalt(void);
 
 /* Event queue */
 //TODO: Data should be accessed in batches, this API may not capture that
-void OS_event_data_enqueue(event_data_t event_data, event_type_t event_type);
-event_data_t OS_event_data_dequeue(event_type_t event_type);
-task_t *OS_get_task(char *taskname);
+void osEventDataEnqueue(event_data_t eventData, event_type_t eventType);
+event_data_t osEventDataDequeue(event_type_t eventType);
+task_t *osGetTask(char *taskname);
 
 /* Task queue */
-void OS_task_enqueue(task_wakeup_t task_wakeup);
-bool OS_task_queue_empty(void);
-task_wakeup_t OS_task_dequeue(void);
+void osTaskEnqueue(task_wakeup_t taskWakeup);
+bool osTaskQueueEmpty(void);
+task_wakeup_t osTaskDequeue(void);
 
 /* Interrupts */
 typedef void (*interrupt_handler_t)(void *, unsigned);
-void OS_timer_interrupt_handler(void);
+void osTimerInterruptHandler(void);
 
 /* Timer */
-bool OS_add_timer_one_shot(task_t *task, nanotime_t delay,
+bool osAddTimerOneShot(task_t *task, nanotime_t delay,
                            nanosec_t max_drift_ns,
                            nanosec_t window_ns);
-bool OS_add_timer_periodic(task_t *task,
+bool osAddTimerPeriodic(task_t *task,
                            nanotime_t period,
                            nanosec_t max_jitter_ns,
                            nanosec_t max_drift_ns);
-void OS_delete_timer(struct task_t *task, timer_handle_t timer_handle);
+void osDeleteTimer(struct task_t *task, timer_handle_t timerHandle);
 
 /* Clocks */
-unsigned OS_get_systick(void);
+unsigned osGetSystick(void);
 /* Returns the number of seconds and nanoseconds that have transpired
  * since Epoch (January 1, 1970). */
-nanotime_t OS_get_time(void);
+nanotime_t osGetTime(void);
 
 /* Events */
-bool OS_event_subscribe(task_t *task, event_type_t event_type,
+bool osEventSubscribe(task_t *task, event_type_t eventType,
                         nanosec_t latency_ns, nanosec_t jitter_ns,
                         nanosec_t drift_ns, nanotime_t period);
-void OS_unsubscribe_to_task(task_t *task, event_type_t);
+void osUnsubscribeToTask(task_t *task, event_type_t);
 
 
 /* TODO: May want to switch to macros so they can be compiled out. */
@@ -146,12 +146,12 @@ enum log_level_t {
     LOG_DEBUG,
 };
 
-void OS_log(enum log_level_t level, char *str);
+void osLog(enum log_level_t level, char *str);
 
-void OS_main(void);
-void OS_interrupt_handler(enum interrupt interrupt, interrupt_handler_t handler);
-void OS_interrupt(enum interrupt interrupt, void *data, unsigned len);
-void OS_cancel_task_timers(struct task_t *task);
+void osMain(void);
+void osInterruptHandler(enum interrupt interrupt, interrupt_handler_t handler);
+void osInterrupt(enum interrupt interrupt, void *data, unsigned len);
+void osCancelTaskTimers(struct task_t *task);
 
 //TODO: better place for this
 void APP_register_task0(struct task_t *task);

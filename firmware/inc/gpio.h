@@ -13,7 +13,7 @@ typedef enum
     GPIO_MODE_IN = 0,
     GPIO_MODE_OUT,
     GPIO_MODE_ALTERNATE,
-    GPIO_MODE_ANALOG,
+    GPIO_MODE_ANALOG_,
 } gpio_mode_t;
 
 typedef enum

@@ -113,7 +113,7 @@ void __attribute__((noreturn)) ResetISR(void)
         *dst++ = 0;
 
     //call code
-    OS_main();
+    osMain();
 
     //if main returns => bad
     while(1);

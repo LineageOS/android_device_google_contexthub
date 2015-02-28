@@ -19,10 +19,10 @@ nanotime_t timer_time = {0};
 bool nanotime_less_than(nanotime_t time_a, nanotime_t time_b)
 {
     if (time_a.time_ns >= NS_PER_S || time_b.time_ns >= NS_PER_S)
-        OS_log(LOG_WARN, "Comparing nanotime_t's with more than 1 bil ns.");
+        osLog(LOG_WARN, "Comparing nanotime_t's with more than 1 bil ns.");
     if (((time_a.time_s | time_a.time_ns) == 0) ||
             ((time_b.time_s | time_b.time_ns) == 0))
-        OS_log(LOG_DEBUG, "0-valued time being compared.  Could \
+        osLog(LOG_DEBUG, "0-valued time being compared.  Could \
                 it be uninitialized?");
     return (time_a.time_s < time_b.time_s) ||
         (time_a.time_s == time_b.time_s && time_a.time_ns < time_b.time_ns);
@@ -33,7 +33,7 @@ nanotime_t nanotime_add(nanotime_t time_a, nanotime_t time_b)
 {
     nanotime_t sum = {0};
     if ((time_a.time_ns >= NS_PER_S) || (time_b.time_ns >= NS_PER_S)) {
-        OS_log(LOG_WARN, "nanotime_t unit extends beyond a single nanosecond.");
+        osLog(LOG_WARN, "nanotime_t unit extends beyond a single nanosecond.");
         return sum;
     }
     sum.time_ns = time_a.time_ns + time_b.time_ns;
@@ -49,11 +49,11 @@ nanotime_t nanotime_subtract(nanotime_t time_a, nanotime_t time_b)
 {
     nanotime_t diff = {0};
     if ((time_a.time_ns >= NS_PER_S) || (time_b.time_ns >= NS_PER_S)) {
-        OS_log(LOG_WARN, "nanotime_t unit extends beyond a single nanosecond.");
+        osLog(LOG_WARN, "nanotime_t unit extends beyond a single nanosecond.");
         return diff;
     }
     if (time_a.time_s < time_b.time_s || (time_a.time_s == time_b.time_s && time_a.time_ns < time_b.time_s)) {
-        OS_log(LOG_WARN, "Trying to subtract a larger nanotime from smaller.");
+        osLog(LOG_WARN, "Trying to subtract a larger nanotime from smaller.");
         return diff;
     }
 
@@ -82,7 +82,7 @@ void Timer_interrupt_handler(void)
 {
     timer_item_t timer;
     nanotime_t curr_deadline;
-    nanotime_t curr_time = OS_get_time();
+    nanotime_t curr_time = osGetTime();
     bool time_set = false;
     /* expire all expired timers */
     do {
@@ -96,8 +96,8 @@ void Timer_interrupt_handler(void)
             timer.deadline = nanotime_add(timer_time, timer.ideal_delay);
             Timer_insert_timer(timer);
         }
-        task_wakeup_t task_wakeup = {EVENT_TIMER, EVENT_FLAG_NONE, timer.task, curr_deadline};
-        OS_task_enqueue(task_wakeup);
+        task_wakeup_t taskWakeup = {EVENT_TIMER, EVENT_FLAG_NONE, timer.task, curr_deadline};
+        osTaskEnqueue(taskWakeup);
     } while(nanotime_less_than(Timer_earliest()->deadline, curr_time));
     /* Set the next wakeup, if one exists */
     if (items != 0) {
@@ -111,7 +111,7 @@ void Timer_interrupt_handler(void)
 bool Timer_insert(task_t *task, nanotime_t period, nanosec_t max_jitter_ns,
         nanosec_t max_drift_ns, bool one_shot)
 {
-    nanotime_t deadline = nanotime_add(OS_get_time(), period);
+    nanotime_t deadline = nanotime_add(osGetTime(), period);
     timer_item_t timer = {task, deadline, period, max_jitter_ns, max_drift_ns,
         one_shot};
     return Timer_insert_timer(timer);
@@ -123,7 +123,7 @@ bool Timer_insert_timer(timer_item_t timer)
     int i;
 
     if (items == TIMER_LIST_SIZE) {
-        OS_log(LOG_WARN, "Timer insertion failed, timers full.\n");
+        osLog(LOG_WARN, "Timer insertion failed, timers full.\n");
         return false;
     }
 

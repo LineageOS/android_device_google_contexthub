@@ -105,7 +105,7 @@ void platSleep(void)
 
 void platWake(void)
 {
-    OS_log(LOG_ERROR, "Wake unimplemented.");
+    osLog(LOG_ERROR, "Wake unimplemented.");
 }
 
 void platLog(char *string)
@@ -170,7 +170,7 @@ static void platInitializeTimer()
 //        if (strcmp(buffer, "exit") == 0)
 //            running = false;
 //        else if (strcmp(buffer, "halt") == 0) {
-//            OS_system_call(SYSTEM_CALL_HALT, NULL, 0);
+//            osSystemCall(SYSTEMCALLHALT, NULL, 0);
 //
 //            /* Simulate a CPU wake */
 //            platWake();
@@ -190,7 +190,7 @@ static void platInitializeTimer()
 //         * Without file descriptors or files, just use
 //         * a syscall to push sensor data over to SEOS
 //         */
-//        OS_system_call(SYSTEM_CALL_SENSOR, NULL, 0);
+//        osSystemCall(SYSTEMCALLSENSOR, NULL, 0);
 //
 //        /* Simulate a CPU wake */
 //        platWake();
@@ -204,7 +204,7 @@ static void platInitializeTimer()
 /* RTC/alarm */
 unsigned platGetRtcMs(void)
 {
-    OS_log(LOG_ERROR, "Unimplemented.");
+    osLog(LOG_ERROR, "Unimplemented.");
     return 0;
 }
 

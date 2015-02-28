@@ -16,31 +16,31 @@ bool Console_handle_command(char *command)
     if (strcmp(command, "exit") == 0) {
         return false;
     } else if (strcmp(command, "halt") == 0) {
-        OS_halt();
+        osHalt();
         /* Simulate a CPU wake */
         platWake();
     } else {
         char *token = strtok(command, " ");
         if (token == NULL) {
-            OS_log(LOG_WARN, "Invalid command.");
+            osLog(LOG_WARN, "Invalid command.");
             return true;
         }
         if (strcmp(token, "testnode") == 0) {
             token = strtok(NULL, " ");
             if (token == NULL) {
-                OS_log(LOG_WARN, "Improper usage.  Usage:  testnode [node name] [sim filename]");
+                osLog(LOG_WARN, "Improper usage.  Usage:  testnode [node name] [sim filename]");
                 return true;
             }
-            struct task_t *task = OS_get_task(token);
+            struct task_t *task = osGetTask(token);
             if (!task) {
-                OS_log(LOG_WARN, "App not found.");
+                osLog(LOG_WARN, "App not found.");
             } else {
                 task->_APP_start_task(task);
                 token = strtok(NULL, " ");
-                OS_log(LOG_WARN, "WTH is a simulation file???");
+                osLog(LOG_WARN, "WTH is a simulation file???");
             }
         } else {
-            OS_log(LOG_WARN, "Command not found.");
+            osLog(LOG_WARN, "Command not found.");
         }
     }
     return true;
