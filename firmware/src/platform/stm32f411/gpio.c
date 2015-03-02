@@ -48,10 +48,8 @@ void gpio_request(struct gpio *gpio, gpio_number_t number)
 void gpio_configure(const struct gpio* __restrict gpio, gpio_mode_t mode, gpio_pull_t pull)
 {
     struct StmGpio *block = (struct StmGpio*)mGpioBases[gpio->gpio >> GPIO_PORT_SHIFT];
-    const uint32_t shift_1b = gpio->gpio & GPIO_PIN_MASK;
     const uint32_t shift_2b = (gpio->gpio & GPIO_PIN_MASK) * 2;
     const uint32_t mask_2b = (3UL << shift_2b);
-    const uint32_t mask_1b = (1UL << shift_1b);
 
     /* unit clock */
     pwrUnitClock(PERIPH_BUS_AHB1, mGpioPeriphs[gpio->gpio >> GPIO_PORT_SHIFT], true);
@@ -62,11 +60,22 @@ void gpio_configure(const struct gpio* __restrict gpio, gpio_mode_t mode, gpio_p
     /* direction */
     block->MODER = (block->MODER & ~mask_2b) | (((uint32_t)mode) << shift_2b);
 
-    /* all pins configured fo rpush-pull for now */
-    block->OTYPER &= ~mask_1b;
+    gpio_configure_output(gpio, GPIO_OUT_PUSH_PULL);
 
     /* pull ups/downs */
     block->PUPDR = (block->PUPDR& ~mask_2b) | (((uint32_t)pull) << shift_2b);
+}
+
+void gpio_configure_output(const struct gpio* __restrict gpio, gpio_out_mode_t mode)
+{
+    struct StmGpio *block = (struct StmGpio*)mGpioBases[gpio->gpio >> GPIO_PORT_SHIFT];
+    const uint32_t shift_1b = gpio->gpio & GPIO_PIN_MASK;
+    const uint32_t mask_1b = (1UL << shift_1b);
+
+    if (mode == GPIO_OUT_PUSH_PULL)
+        block->OTYPER &= ~mask_1b;
+    else
+        block->OTYPER |= mask_1b;
 }
 
 void gpio_set_value(const struct gpio* __restrict gpio, bool value)
