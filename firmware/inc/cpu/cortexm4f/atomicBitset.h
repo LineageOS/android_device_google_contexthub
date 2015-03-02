@@ -15,6 +15,7 @@ void atomicBitsetInit(struct AtomicBitset *set, uint32_t numBits);
 uint32_t atomicBitsetGetNumBits(const struct AtomicBitset *set);
 bool atomicBitsetGetBit(const struct AtomicBitset *set, uint32_t num);
 void atomicBitsetSetBit(struct AtomicBitset *set, uint32_t num, bool val);
+int32_t atomicBitsetFindClearAndSet(struct AtomicBitset *set);
 
 #endif
 
