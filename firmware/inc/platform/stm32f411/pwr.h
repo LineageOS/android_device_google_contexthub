@@ -108,6 +108,9 @@ extern "C" {
 #define USART3_BASE                   0x40004800UL
 #define UART4_BASE                    0x40004C00UL
 #define UART5_BASE                    0x40005000UL
+#define I2C1_BASE                     0x40005400UL
+#define I2C2_BASE                     0x40005800UL
+#define I2C3_BASE                     0x40005C00UL
 #define USART1_BASE                   0x40011000UL
 #define USART6_BASE                   0x40011400UL
 #define GPIOA_BASE                    0x40020000UL

@@ -12,7 +12,11 @@ SRCS += src/platform/$(PLATFORM)/bl.c
 SRCS +=  src/platform/$(PLATFORM)/crt_$(PLATFORM).c
 
 #platform drivers
-SRCS += src/platform/$(PLATFORM)/platform.c src/platform/$(PLATFORM)/usart.c src/platform/$(PLATFORM)/gpio.c src/platform/$(PLATFORM)/pwr.c
+SRCS += src/platform/$(PLATFORM)/platform.c \
+	src/platform/$(PLATFORM)/usart.c \
+	src/platform/$(PLATFORM)/gpio.c \
+	src/platform/$(PLATFORM)/pwr.c \
+	src/platform/$(PLATFORM)/i2c.c
 
 #extra deps
 DEPS += $(wildcard inc/platform/$(PLATFORM)/*.h)
