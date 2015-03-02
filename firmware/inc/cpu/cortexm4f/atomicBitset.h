@@ -2,6 +2,7 @@
 #define _CM4F_ATOMIC_BITSET_H_
 
 #include <stdint.h>
+#include <stdbool.h>
 
 struct AtomicBitset {
     uint32_t numBits;
