@@ -1,6 +1,7 @@
 #ifndef _CM4F_ATOMIC_BITSET_H_
 #define _CM4F_ATOMIC_BITSET_H_
 
+#include <stdint.h>
 
 struct AtomicBitset {
     uint32_t numBits;
