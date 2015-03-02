@@ -10,6 +10,12 @@ struct AtomicBitset {
 
 #define ATOMIC_BITSET_SZ(numbits)	(sizeof(struct AtomicBitset) + ((numbits) + 31) / 8)
 
+
+void atomicBitsetInit(struct AtomicBitset *set, uint32_t numBits);
+uint32_t atomicBitsetGetNumBits(const struct AtomicBitset *set);
+bool atomicBitsetGetBit(const struct AtomicBitset *set, uint32_t num);
+void atomicBitsetSetBit(struct AtomicBitset *set, uint32_t num, bool val);
+
 #endif
 
 
