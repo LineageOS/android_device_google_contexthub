@@ -55,16 +55,30 @@ struct StmPwr {
 
 static uint32_t gSysClk = 16000000UL;
 
+#define RCC_REG(_bus, _type) ({                                 \
+        static const uint32_t clockRegOfsts[] = {               \
+            offsetof(struct StmRcc, AHB1##_type),               \
+            offsetof(struct StmRcc, AHB2##_type),               \
+            offsetof(struct StmRcc, AHB3##_type),               \
+            offsetof(struct StmRcc, APB1##_type),               \
+            offsetof(struct StmRcc, APB2##_type)                \
+        }; /* indexed by PERIPH_BUS_* */                        \
+        (volatile uint32_t *)(RCC_BASE + clockRegOfsts[_bus]);  \
+    })                                                          \
+
 void pwrUnitClock(uint32_t bus, uint32_t unit, bool on)
 {
-    static const uint32_t clockRegOfsts[] = {
-        offsetof(struct StmRcc, AHB1ENR),
-        offsetof(struct StmRcc, AHB2ENR),
-        offsetof(struct StmRcc, AHB3ENR),
-        offsetof(struct StmRcc, APB1ENR),
-        offsetof(struct StmRcc, APB2ENR)
-    }; //indexed by PERIPH_BUS_*
-    volatile uint32_t *reg = (volatile uint32_t*)(RCC_BASE + clockRegOfsts[bus]);
+    volatile uint32_t *reg = RCC_REG(bus, ENR);
+
+    if (on)
+        *reg |= unit;
+    else
+        *reg &=~ unit;
+}
+
+void pwrUnitReset(uint32_t bus, uint32_t unit, bool on)
+{
+    volatile uint32_t *reg = RCC_REG(bus, RSTR);
 
     if (on)
         *reg |= unit;
