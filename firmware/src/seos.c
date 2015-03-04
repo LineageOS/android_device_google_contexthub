@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <seos.h>
 #include <heap.h>
+#include <cpu.h>
 
 void osIdleStartTask(struct task_t *task);
 void osIdleEndTask(struct task_t *task);
@@ -78,8 +79,9 @@ void osInitialize(void)
 {
     platDisableInterrupts();
 
-    Timer_init();
+    cpuInit();
     platInitialize();
+    Timer_init();
 
     osLog(LOG_INFO, "SEOS Initializing\n");
 

@@ -108,7 +108,7 @@ void platInitialize(void)
 
     //set ints up for a sane state
     for (i = 0; i < NUM_INTERRUPTS; i++) {
-        NVIC_SetPriority(i, 1);
+        NVIC_SetPriority(i, 2);
         NVIC_DisableIRQ(i);
         NVIC_ClearPendingIRQ(i);
     }
