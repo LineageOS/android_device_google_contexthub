@@ -196,6 +196,7 @@ void HardFault_Handler(void)
         "mrseq r0, msp      \n"
         "mrsne r0, psp      \n"
         "push  {r4-r11}     \n"
+        "mov   r1, sp       \n"
         "b     logHardFault \n"
     );
 }
