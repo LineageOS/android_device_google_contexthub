@@ -61,9 +61,4 @@ static bool handle_event(struct task_t *task, event_type_t event_type)
     return true;
 }
 
-void APP_register_task1(struct task_t *task)
-{
-    task->_APP_start_task = start_task;
-    task->_APP_end_task = end_task;
-    task->_APP_handle_event = handle_event;
-}
+APP_INIT(start_task, end_task, handle_event);
