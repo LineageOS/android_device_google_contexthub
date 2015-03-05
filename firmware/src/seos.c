@@ -9,17 +9,12 @@
 #include <heap.h>
 #include <cpu.h>
 
+extern entry_t __app_start;
+extern entry_t __app_end;
+
 void osIdleStartTask(struct task_t *task);
 void osIdleEndTask(struct task_t *task);
 bool osIdleHandleEvent(struct task_t *task, event_type_t eventType);
-
-
-/*
- * TODO Hack: function to set up function pointers for statically
- * linked app. We need an app loader.
- */
-extern void APP_register_task0(struct task_t *task);
-extern void APP_register_task1(struct task_t *task);
 
 //TODO:  only utilize this until real clock counter implemented.
 extern nanotime_t timer_time;
@@ -35,7 +30,11 @@ unsigned num_tasks = 0;
 unsigned cur_task = 0;
 
 /* Idle task */
-struct task_t idle_task;
+struct task_t idle_task = {
+    .funcs.start_task = osIdleStartTask,
+    .funcs.end_task = osIdleEndTask,
+    .funcs.handle_event = osIdleHandleEvent,
+};
 
 #define MAX_SUBSCRIPTIONS 16
 struct subscription_bucket_t {
@@ -78,6 +77,7 @@ void __attribute__((noreturn)) osMain(void)
 void osInitialize(void)
 {
     platDisableInterrupts();
+    entry_t *apps;
 
     cpuInit();
     platInitialize();
@@ -91,24 +91,19 @@ void osInitialize(void)
     }
 
     /* Set up idle task */
-    strcpy(idle_task.name, "idle");
-    idle_task.event_mask |= EVENT_NULL;
-    idle_task._APP_start_task = osIdleStartTask;
-    idle_task._APP_end_task = osIdleEndTask;
-    idle_task._APP_handle_event = osIdleHandleEvent;
+    idle_task.funcs.start_task(&idle_task);
 
-    /* Set up function pointers for statically linked apps. */
-    task_list[0] = heapAlloc(sizeof(struct task_t));
-    APP_register_task0(task_list[0]);
-    num_tasks++;
-
-    task_list[1] = heapAlloc(sizeof(struct task_t));
-    APP_register_task1(task_list[1]);
-    num_tasks++;
+    for (apps = &__app_start;
+         apps < &__app_end && num_tasks < TASK_LIST_SIZE; apps ++, num_tasks++) {
+        task_list[num_tasks] = heapAlloc(sizeof(struct task_t));
+        task_list[num_tasks]->funcs.start_task = apps->start_task;
+        task_list[num_tasks]->funcs.end_task = apps->end_task;
+        task_list[num_tasks]->funcs.handle_event = apps->handle_event;
+    }
 
     /* And start the tasks */
-    task_list[0]->_APP_start_task(task_list[0]);
-    task_list[1]->_APP_start_task(task_list[1]);
+    for (i=0; i<num_tasks; i++)
+        task_list[i]->funcs.start_task(task_list[i]);
     platEnableInterrupts();
 }
 
@@ -173,7 +168,7 @@ void osScheduler(void)
         /* See if there are any events */
         while (osTaskQueueEmpty()) {
             /* Nothing else to do, so execute idle task */
-            idle_task._APP_handle_event(&idle_task, EVENT_NULL);
+            idle_task.funcs.handle_event(&idle_task, EVENT_NULL);
         }
         /* Dequeue next event */
         task_wakeup = osTaskDequeue();
@@ -190,7 +185,7 @@ void osScheduler(void)
         }
 
         /* Call the scheduled task. */
-        task_wakeup.task->_APP_handle_event(task_wakeup.task, task_wakeup.event_type);
+        task_wakeup.task->funcs.handle_event(task_wakeup.task, task_wakeup.event_type);
     }
 }
 
@@ -297,6 +292,9 @@ void osCancelTaskTimers(struct task_t *task)
  */
 void osIdleStartTask(struct task_t *task)
 {
+    /* Set up idle task */
+    strcpy(task->name, "idle");
+    task->event_mask |= EVENT_NULL;
 }
 
 void osIdleEndTask(struct task_t *task)

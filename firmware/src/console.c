@@ -35,7 +35,7 @@ bool Console_handle_command(char *command)
             if (!task) {
                 osLog(LOG_WARN, "App not found.");
             } else {
-                task->_APP_start_task(task);
+                task->funcs.start_task(task);
                 token = strtok(NULL, " ");
                 osLog(LOG_WARN, "WTH is a simulation file???");
             }

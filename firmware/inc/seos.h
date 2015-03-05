@@ -14,7 +14,6 @@ extern "C" {
 #include <stdbool.h>
 #include <list.h>
 
-
 struct task_t;
 struct event_t;
 
@@ -60,6 +59,12 @@ struct nanotime_t {
     nanosec_t time_ns;
 } typedef nanotime_t;
 
+struct entry_t {
+    APP_start_task start_task;
+    APP_end_task end_task;
+    APP_handle_event handle_event;
+} typedef entry_t;
+
 struct task_t {
     /* Do not include spaces in the name.*/
     char name[16];
@@ -68,9 +73,7 @@ struct task_t {
     int event_mask;
 
     /* App entry points */
-    APP_start_task _APP_start_task;
-    APP_end_task _APP_end_task;
-    APP_handle_event _APP_handle_event;
+    struct entry_t funcs;
 } typedef task_t;
 
 struct event_data_t {
@@ -152,13 +155,15 @@ void osInterruptHandler(enum interrupt interrupt, interrupt_handler_t handler);
 void osInterrupt(enum interrupt interrupt, void *data, unsigned len);
 void osCancelTaskTimers(struct task_t *task);
 
-//TODO: better place for this
-void APP_register_task0(struct task_t *task);
-void APP_register_task1(struct task_t *task);
+#define APP_INIT(start, end, event) \
+static entry_t __attribute__((used,section (".app_init"))) app_entry = {\
+    .start_task = (start),\
+    .end_task = (end),\
+    .handle_event = (event)\
+}
 
 #ifdef __cplusplus
 }
 #endif
 
 #endif
-
