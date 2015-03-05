@@ -2,6 +2,7 @@
 #include <plat/inc/usart.h>
 #include <plat/inc/cmsis.h>
 #include <plat/inc/pwr.h>
+#include <plat/inc/rtc.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
@@ -138,6 +139,9 @@ void platInitialize(void)
     block->PSC = 15; // prescale by 16, so that at 16MHz CPU clock, we get 1MHz timer
     block->DIER |= 1; // interrupt when updated (underflowed)
     NVIC_EnableIRQ(TIM2_IRQn);
+
+    /* set up RTC */
+    rtcInit();
 }
 
 

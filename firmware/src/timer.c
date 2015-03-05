@@ -68,7 +68,7 @@ nanotime_t nanotime_subtract(nanotime_t time_a, nanotime_t time_b)
     return diff;
 }
 
-static unsigned nanotime_to_us(nanotime_t time)
+uint64_t nanotime_to_us(nanotime_t time)
 {
     return time.time_s*1000000 + time.time_ns/1000;
 }

@@ -116,14 +116,18 @@ uint32_t pwrGetBusSpeed(uint32_t bus)
 
 void pwrEnableAndClockRtc(void)
 {
-    /* Enable write permission for backup domain */
-    PWR->CR |= PWR_CR_DBP;
     /* Enable power clock */
     RCC->APB1ENR |= PERIPH_APB1_PWR;
     /* Reset backup domain */
     RCC->BDCR |= RCC_BDCR_BDRST;
     /* Exit reset of backup domain */
     RCC->BDCR &= ~RCC_BDCR_BDRST;
+
+
+    /* Enable write permission for backup domain */
+    pwrEnableWriteBackupDomainRegs();
+    /* Prevent compiler reordering across this boundary. */
+    asm volatile("":::"memory");
     /* Set LSE as backup domain clock source */
     RCC->BDCR |= RCC_BDCR_LSEON;
     /* Wait for LSE to be ready */
@@ -134,9 +138,9 @@ void pwrEnableAndClockRtc(void)
     RCC->BDCR |= RCC_BDCR_RTCEN;
 }
 
-void pwrDisableBackupDomainWriteAccess(void)
+void pwrEnableWriteBackupDomainRegs(void)
 {
-    PWR->CR &= ~PWR_CR_DBP;
+    PWR->CR |= PWR_CR_DBP;
 }
 
 void pwrSystemInit(void)

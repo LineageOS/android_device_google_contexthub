@@ -5,7 +5,11 @@
 extern "C" {
 #endif
 
-bool rtcInit(void);
+#include <stdint.h>
+#include <inc/seos.h>
+
+void rtcInit(void);
+int rtcSetWakeupTimer(struct nanotime_t delay, int ppm);
 
 #ifdef __cplusplus
 }

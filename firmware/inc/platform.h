@@ -34,10 +34,6 @@ void platRestoreInterrupts(uint64_t state);
 /* Output */
 void platLogPutchar(char ch);
 
-/* RTC */
-uint64_t platSetRtcMs(void);
-uint64_t platGetRtcMs(void);
-
 /* fast timer */
 uint64_t platGetTicks(void);
 void platSetAlarm(unsigned delayUs);

@@ -14,6 +14,7 @@ extern "C" {
 #endif
 
 #include <stdbool.h>
+#include <stdint.h>
 
 #define NS_PER_S 1000000000ULL
 
@@ -29,6 +30,14 @@ struct timer_item_t
     bool one_shot;
 } typedef timer_item_t;
 
+enum timer_error_t
+{
+    TIMER_ERR_TOO_BIG = 1,
+    TIMER_ERR_TOO_SMALL,
+    TIMER_ERR_ACCURACY_REQUIREMENTS_UNMET,
+    TIMER_ERR_EVERYTHING_IS_TERRIBLE,
+};
+
 void Timer_init(void);
 bool Timer_insert_timer(timer_item_t timer);
 bool Timer_insert(task_t *task, nanotime_t delay, nanosec_t max_jitter_ns,
@@ -43,6 +52,7 @@ void Timer_clear_timers_for_task(task_t *task);
 bool nanotime_less_than(nanotime_t time_a, nanotime_t time_b);
 nanotime_t nanotime_add(nanotime_t time_a, nanotime_t time_b);
 nanotime_t nanotime_subtract(nanotime_t time_a, nanotime_t time_b);
+uint64_t nanotime_to_us(nanotime_t time);
 
 #ifdef __cplusplus
 }
