@@ -113,6 +113,8 @@ extern "C" {
 #define I2C3_BASE                     0x40005C00UL
 #define USART1_BASE                   0x40011000UL
 #define USART6_BASE                   0x40011400UL
+#define SYSCFG_BASE                   0x40013800UL
+#define EXTI_BASE                     0x40013C00UL
 #define GPIOA_BASE                    0x40020000UL
 #define GPIOB_BASE                    0x40020400UL
 #define GPIOC_BASE                    0x40020800UL
