@@ -12,6 +12,7 @@
 #include <timer.h>
 #include <usart.h>
 #include <gpio.h>
+#include <cpu.h>
 
 
 struct StmDbg {
@@ -87,14 +88,19 @@ void platLogPutchar(char ch)
      usart_putchar(&mUsart2, ch);
 }
 
-void platDisableInterrupts(void)
+uint64_t platDisableInterrupts(void)
 {
-    asm volatile("cpsid i");
+    return cpuIntsOff();
 }
 
-void platEnableInterrupts(void)
+uint64_t platEnableInterrupts(void)
 {
-    asm volatile("cpsie i");
+    return cpuIntsOn();
+}
+
+void platRestoreInterrupts(uint64_t state)
+{
+    cpuIntsRestore(state);
 }
 
 void platInitialize(void)

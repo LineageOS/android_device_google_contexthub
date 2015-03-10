@@ -27,8 +27,9 @@ void platSleep(void);
 void platWake(void);
 
 /* Interrupts */
-void platEnableInterrupts(void);
-void platDisableInterrupts(void);
+uint64_t platEnableInterrupts(void);
+uint64_t platDisableInterrupts(void);
+void platRestoreInterrupts(uint64_t state);
 
 /* Output */
 void platLogPutchar(char ch);
