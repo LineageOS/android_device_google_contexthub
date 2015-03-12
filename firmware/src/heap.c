@@ -113,9 +113,6 @@ void* heapAlloc(uint32_t sz)
     ret = best->data;
 
 out:
-    /* merge free chunks in case new ones came up since we already have the lock */
-    heapMergeFreeChunks();
-
     trylockRelease(&gHeapLock);
     return ret;
 }
