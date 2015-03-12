@@ -53,7 +53,11 @@ static void heapMergeFreeChunks(void)
 
             if (!node->used && next && !next->used) { /* merged */
                 node->size += sizeof(struct HeapNode) + next->size;
-                if (gHeapTail == next)
+
+                next = heapPrvGetNext(node);
+                if (next)
+                    next->prev = node;
+                else
                     gHeapTail = node;
             }
             else
