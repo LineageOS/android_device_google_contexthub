@@ -4,30 +4,30 @@
 #include <spi.h>
 #include <seos.h>
 
-struct spi_device {
-    const struct spi_device_ops *ops;
+struct SpiDevice {
+    const struct SpiDevice_ops *ops;
     void *pdata;
 };
 
-struct spi_device_ops {
-    int (*master_start_sync)(struct spi_device *dev, spi_cs_t cs,
-            const struct spi_mode *mode);
-    int (*master_start_async)(struct spi_device *dev, spi_cs_t cs,
-            const struct spi_mode *mode);
+struct SpiDevice_ops {
+    int (*masterStartSync)(struct SpiDevice *dev, spi_cs_t cs,
+            const struct SpiMode *mode);
+    int (*masterStartAsync)(struct SpiDevice *dev, spi_cs_t cs,
+            const struct SpiMode *mode);
 
-    int (*master_rxtx)(struct spi_device *dev, void *rx_buf, const void *tx_buf,
-            size_t size, const struct spi_mode *mode);
+    int (*masterRxTx)(struct SpiDevice *dev, void *rxBuf, const void *txBuf,
+            size_t size, const struct SpiMode *mode);
 
-    int (*master_stop_sync)(struct spi_device *dev);
-    int (*master_stop_async)(struct spi_device *dev);
+    int (*masterStopSync)(struct SpiDevice *dev);
+    int (*masterStopAsync)(struct SpiDevice *dev);
 
-    int (*release)(struct spi_device *dev);
+    int (*release)(struct SpiDevice *dev);
 };
 
-int spi_request(struct spi_device *dev, uint8_t bus_id);
+int spiRequest(struct SpiDevice *dev, uint8_t busId);
 
-void spi_master_start_async_done(struct spi_device *dev, int err);
-void spi_master_rxtx_done(struct spi_device *dev, int err);
-void spi_master_stop_async_done(struct spi_device *dev, int err);
+void spi_masterStartAsync_done(struct SpiDevice *dev, int err);
+void spiMasterRxTxDone(struct SpiDevice *dev, int err);
+void spiMasterStopAsyncDone(struct SpiDevice *dev, int err);
 
 #endif /* __SPI_PRIV_H */

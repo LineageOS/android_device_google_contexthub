@@ -37,7 +37,7 @@
 #define SPI_SR_TXE                  (1 << 1)
 #define SPI_SR_BSY                  (1 << 7)
 
-struct stm_spi_regs {
+struct StmSpi {
     volatile uint32_t CR1;
     volatile uint32_t CR2;
     volatile uint32_t SR;
@@ -49,36 +49,36 @@ struct stm_spi_regs {
     volatile uint32_t I2SPR;
 };
 
-struct stm_spi_state {
-    uint8_t bits_per_word;
+struct StmSpiState {
+    uint8_t bitsPerWord;
     uint16_t words;
 
-    void *rx_buf;
-    uint16_t rx_idx;
+    void *rxBuf;
+    uint16_t rxIdx;
 
-    const void *tx_buf;
-    uint16_t tx_idx;
+    const void *txBuf;
+    uint16_t txIdx;
 };
 
-struct stm_spi_cfg {
-    struct stm_spi_regs *regs;
+struct StmSpiCfg {
+    struct StmSpi *regs;
 
-    uint32_t clock_bus;
-    uint32_t clock_unit;
+    uint32_t clokcBus;
+    uint32_t clockUnit;
 
-    gpio_number_t gpio_miso;
-    gpio_number_t gpio_mosi;
-    gpio_number_t gpio_sck;
-    gpio_number_t gpio_nss;
-    uint8_t gpio_func;
+    gpio_number_t gpioMiso;
+    gpio_number_t gpioMosi;
+    gpio_number_t gpioSclk;
+    gpio_number_t gpioNss;
+    uint8_t gpioFunc;
 
     IRQn_Type irq;
 };
 
-struct stm_spi_dev {
-    struct spi_device *base;
-    const struct stm_spi_cfg cfg;
-    struct stm_spi_state state;
+struct StmSpiDev {
+    struct SpiDevice *base;
+    const struct StmSpiCfg cfg;
+    struct StmSpiState state;
 
     struct gpio miso;
     struct gpio mosi;
@@ -86,17 +86,17 @@ struct stm_spi_dev {
     struct gpio nss;
 };
 
-static int stm_spi_master_start_sync(struct spi_device *dev, spi_cs_t cs,
-        const struct spi_mode *mode)
+static int stmSpiMasterStartSync(struct SpiDevice *dev, spi_cs_t cs,
+        const struct SpiMode *mode)
 {
-    struct stm_spi_dev *pdev = dev->pdata;
-    struct stm_spi_regs *regs = pdev->cfg.regs;
+    struct StmSpiDev *pdev = dev->pdata;
+    struct StmSpi *regs = pdev->cfg.regs;
 
     if (!mode->speed)
         return -EINVAL;
 
-    if (mode->bits_per_word != 8 &&
-            mode->bits_per_word != 16)
+    if (mode->bitsPerWord != 8 &&
+            mode->bitsPerWord != 16)
         return -EINVAL;
 
     uint32_t pclk = pwrGetBusSpeed(PERIPH_BUS_AHB1);
@@ -106,7 +106,7 @@ static int stm_spi_master_start_sync(struct spi_device *dev, spi_cs_t cs,
     else if (div < SPI_CR1_BR_MIN)
         div = SPI_CR1_BR_MIN;
 
-    pwrUnitClock(pdev->cfg.clock_bus, pdev->cfg.clock_unit, true);
+    pwrUnitClock(pdev->cfg.clokcBus, pdev->cfg.clockUnit, true);
 
     regs->CR1 &= ~SPI_CR1_BR_MASK;
     regs->CR1 |= SPI_CR1_BR(div);
@@ -121,7 +121,7 @@ static int stm_spi_master_start_sync(struct spi_device *dev, spi_cs_t cs,
     else
         regs->CR1 |= SPI_CR1_CPHA;
 
-    if (mode->bits_per_word == 8)
+    if (mode->bitsPerWord == 8)
         regs->CR1 &= ~SPI_CR1_DFF;
     else
         regs->CR1 |= SPI_CR1_DFF;
@@ -137,34 +137,34 @@ static int stm_spi_master_start_sync(struct spi_device *dev, spi_cs_t cs,
     return 0;
 }
 
-static void stm_spi_tx_next_byte(struct stm_spi_dev *pdev)
+static void stmSpiTxNExtByte(struct StmSpiDev *pdev)
 {
-    struct stm_spi_regs *regs = pdev->cfg.regs;
-    struct stm_spi_state *state = &pdev->state;
+    struct StmSpi *regs = pdev->cfg.regs;
+    struct StmSpiState *state = &pdev->state;
 
-    if (state->bits_per_word == 8) {
-        const uint8_t *tx_buf8 = state->tx_buf;
-        regs->DR = tx_buf8[state->tx_idx];
+    if (state->bitsPerWord == 8) {
+        const uint8_t *txBuf8 = state->txBuf;
+        regs->DR = txBuf8[state->txIdx];
     } else {
-        const uint16_t *tx_buf16 = state->tx_buf;
-        regs->DR = tx_buf16[state->tx_idx];
+        const uint16_t *txBuf16 = state->txBuf;
+        regs->DR = txBuf16[state->txIdx];
     }
 }
 
-static int stm_spi_master_rxtx(struct spi_device *dev, void *rx_buf,
-        const void *tx_buf, size_t size, const struct spi_mode *mode)
+static int stmSpiMasterRxTx(struct SpiDevice *dev, void *rxBuf,
+        const void *txBuf, size_t size, const struct SpiMode *mode)
 {
-    struct stm_spi_dev *pdev = dev->pdata;
-    struct stm_spi_regs *regs = pdev->cfg.regs;
-    struct stm_spi_state *state = &pdev->state;
+    struct StmSpiDev *pdev = dev->pdata;
+    struct StmSpi *regs = pdev->cfg.regs;
+    struct StmSpiState *state = &pdev->state;
 
-    state->bits_per_word = mode->bits_per_word;
-    state->rx_buf = rx_buf;
-    state->rx_idx = 0;
-    state->tx_buf = tx_buf;
-    state->tx_idx = 0;
+    state->bitsPerWord = mode->bitsPerWord;
+    state->rxBuf = rxBuf;
+    state->rxIdx = 0;
+    state->txBuf = txBuf;
+    state->txIdx = 0;
 
-    if (mode->bits_per_word == 8)
+    if (mode->bitsPerWord == 8)
         state->words = size;
     else
         state->words = size / 2;
@@ -172,13 +172,13 @@ static int stm_spi_master_rxtx(struct spi_device *dev, void *rx_buf,
     regs->CR2 &= ~SPI_CR2_INT_MASK;
     regs->CR2 |= SPI_CR2_ERRIE;
 
-    if (rx_buf)
+    if (rxBuf)
         regs->CR2 |= SPI_CR2_RXNEIE;
 
-    if (tx_buf) {
+    if (txBuf) {
         regs->CR1 &= ~SPI_CR1_RXONLY;
         regs->CR2 |= SPI_CR2_TXEIE;
-        stm_spi_tx_next_byte(pdev);
+        stmSpiTxNExtByte(pdev);
     } else {
         regs->CR1 |= SPI_CR1_RXONLY;
     }
@@ -187,82 +187,82 @@ static int stm_spi_master_rxtx(struct spi_device *dev, void *rx_buf,
     return 0;
 }
 
-static int stm_spi_master_stop_sync(struct spi_device *dev)
+static int stmSpiMasterStopSync(struct SpiDevice *dev)
 {
-    struct stm_spi_dev *pdev = dev->pdata;
+    struct StmSpiDev *pdev = dev->pdata;
 
-    pwrUnitClock(pdev->cfg.clock_bus, pdev->cfg.clock_unit, false);
+    pwrUnitClock(pdev->cfg.clokcBus, pdev->cfg.clockUnit, false);
     return 0;
 }
 
-static void stm_spi_done(struct stm_spi_dev *pdev)
+static void stmSpiDone(struct StmSpiDev *pdev)
 {
-    struct stm_spi_regs *regs = pdev->cfg.regs;
-    struct stm_spi_state *state = &pdev->state;
+    struct StmSpi *regs = pdev->cfg.regs;
+    struct StmSpiState *state = &pdev->state;
 
-    if (state->tx_buf)
+    if (state->txBuf)
         while (regs->SR & SPI_SR_BSY)
             ;
 
     regs->CR1 &= ~SPI_CR1_SPE;
-    spi_master_rxtx_done(pdev->base, 0);
+    spiMasterRxTxDone(pdev->base, 0);
 }
 
-static void stm_spi_rx_done(struct stm_spi_dev *pdev)
+static void stmSpiRxDone(struct StmSpiDev *pdev)
 {
-    struct stm_spi_regs *regs = pdev->cfg.regs;
+    struct StmSpi *regs = pdev->cfg.regs;
 
     regs->CR2 &= ~SPI_CR2_RXNEIE;
-    stm_spi_done(pdev);
+    stmSpiDone(pdev);
 }
 
-static void stm_spi_tx_done(struct stm_spi_dev *pdev)
+static void stmSpiTxDone(struct StmSpiDev *pdev)
 {
-    struct stm_spi_regs *regs = pdev->cfg.regs;
-    struct stm_spi_state *state = &pdev->state;
+    struct StmSpi *regs = pdev->cfg.regs;
+    struct StmSpiState *state = &pdev->state;
 
     regs->CR2 &= ~SPI_CR2_TXEIE;
-    if (!state->rx_buf)
-        stm_spi_done(pdev);
+    if (!state->rxBuf)
+        stmSpiDone(pdev);
 }
 
-static void stm_spi_txe(struct stm_spi_dev *pdev)
+static void stmSpiTxe(struct StmSpiDev *pdev)
 {
-    struct stm_spi_state *state = &pdev->state;
+    struct StmSpiState *state = &pdev->state;
 
-    state->tx_idx++;
-    if (state->tx_idx == state->words)
-        stm_spi_tx_done(pdev);
+    state->txIdx++;
+    if (state->txIdx == state->words)
+        stmSpiTxDone(pdev);
     else
-        stm_spi_tx_next_byte(pdev);
+        stmSpiTxNExtByte(pdev);
 }
 
-static void stm_spi_rxne(struct stm_spi_dev *pdev)
+static void stmSpiRxne(struct StmSpiDev *pdev)
 {
-    struct stm_spi_regs *regs = pdev->cfg.regs;
-    struct stm_spi_state *state = &pdev->state;
+    struct StmSpi *regs = pdev->cfg.regs;
+    struct StmSpiState *state = &pdev->state;
 
-    if (state->bits_per_word == 8) {
-        uint8_t *rx_buf8 = state->rx_buf;
-        rx_buf8[state->rx_idx] = regs->DR;
+    if (state->bitsPerWord == 8) {
+        uint8_t *rxBuf8 = state->rxBuf;
+        rxBuf8[state->rxIdx] = regs->DR;
     } else {
-        uint16_t *rx_buf16 = state->rx_buf;
-        rx_buf16[state->rx_idx] = regs->DR;
+        uint16_t *rxBuf16 = state->rxBuf;
+        rxBuf16[state->rxIdx] = regs->DR;
     }
 
-    state->rx_idx++;
-    if (state->rx_idx == state->words)
-        stm_spi_rx_done(pdev);
+    state->rxIdx++;
+    if (state->rxIdx == state->words)
+        stmSpiRxDone(pdev);
 }
 
-static void stm_spi_isr(struct stm_spi_dev *pdev)
+static void stmSpiIsr(struct StmSpiDev *pdev)
 {
-    struct stm_spi_regs *regs = pdev->cfg.regs;
+    struct StmSpi *regs = pdev->cfg.regs;
 
     if (regs->SR & SPI_SR_RXNE) {
-        stm_spi_rxne(pdev);
+        stmSpiRxne(pdev);
     } else if (regs->SR & SPI_SR_TXE) {
-        stm_spi_txe(pdev);
+        stmSpiTxe(pdev);
     } else {
         /* TODO */
     }
@@ -272,28 +272,28 @@ static void stm_spi_isr(struct stm_spi_dev *pdev)
     void SPI##_n##_IRQHandler();            \
     void SPI##_n##_IRQHandler()             \
     {                                       \
-        stm_spi_isr(&stm_spi_devs[_n - 1]); \
+        stmSpiIsr(&mStmSpiDevs[_n - 1]); \
     }
 
-const struct spi_device_ops stm_spi_ops = {
-    .master_start_sync = stm_spi_master_start_sync,
-    .master_rxtx = stm_spi_master_rxtx,
-    .master_stop_sync = stm_spi_master_stop_sync,
+const struct SpiDevice_ops mStmSpiOps = {
+    .masterStartSync = stmSpiMasterStartSync,
+    .masterRxTx = stmSpiMasterRxTx,
+    .masterStopSync = stmSpiMasterStopSync,
 };
 
-static struct stm_spi_dev stm_spi_devs[] = {
+static struct StmSpiDev mStmSpiDevs[] = {
     [0] = {
         .cfg = {
-            .regs = (struct stm_spi_regs *)SPI1_BASE,
+            .regs = (struct StmSpi *)SPI1_BASE,
 
-            .clock_bus = PERIPH_BUS_APB2,
-            .clock_unit = PERIPH_APB2_SPI1,
+            .clokcBus = PERIPH_BUS_APB2,
+            .clockUnit = PERIPH_APB2_SPI1,
 
-            .gpio_miso = GPIO_PA(6),
-            .gpio_mosi = GPIO_PA(7),
-            .gpio_sck = GPIO_PA(5),
-            .gpio_nss = GPIO_PA(4),
-            .gpio_func = GPIO_A2_AFR_SPI123,
+            .gpioMiso = GPIO_PA(6),
+            .gpioMosi = GPIO_PA(7),
+            .gpioSclk = GPIO_PA(5),
+            .gpioNss = GPIO_PA(4),
+            .gpioFunc = GPIO_A2_AFR_SPI123,
 
             .irq = SPI1_IRQn,
         },
@@ -301,7 +301,7 @@ static struct stm_spi_dev stm_spi_devs[] = {
 };
 DECLARE_IRQ_HANDLER(1)
 
-static inline void stm_spi_gpio_init(struct gpio *gpio,
+static inline void stmSpiGpioInit(struct gpio *gpio,
         gpio_number_t number, uint8_t func)
 {
     gpio_request(gpio, number);
@@ -309,31 +309,31 @@ static inline void stm_spi_gpio_init(struct gpio *gpio,
     gpio_assign_func(gpio, func);
 }
 
-static void stm_spi_init(struct stm_spi_dev *pdev, struct spi_device *dev)
+static void stmSpiInit(struct StmSpiDev *pdev, struct SpiDevice *dev)
 {
-    const struct stm_spi_cfg *cfg = &pdev->cfg;
+    const struct StmSpiCfg *cfg = &pdev->cfg;
 
-    stm_spi_gpio_init(&pdev->miso, cfg->gpio_miso, cfg->gpio_func);
-    stm_spi_gpio_init(&pdev->mosi, cfg->gpio_mosi, cfg->gpio_func);
-    stm_spi_gpio_init(&pdev->sck, cfg->gpio_sck, cfg->gpio_func);
-    stm_spi_gpio_init(&pdev->nss, cfg->gpio_nss, cfg->gpio_func);
+    stmSpiGpioInit(&pdev->miso, cfg->gpioMiso, cfg->gpioFunc);
+    stmSpiGpioInit(&pdev->mosi, cfg->gpioMosi, cfg->gpioFunc);
+    stmSpiGpioInit(&pdev->sck, cfg->gpioSclk, cfg->gpioFunc);
+    stmSpiGpioInit(&pdev->nss, cfg->gpioNss, cfg->gpioFunc);
 
     NVIC_EnableIRQ(cfg->irq);
 
     pdev->base = dev;
 }
 
-int spi_request(struct spi_device *dev, uint8_t bus_id)
+int spiRequest(struct SpiDevice *dev, uint8_t busId)
 {
-    if (bus_id >= ARRAY_SIZE(stm_spi_devs))
+    if (busId >= ARRAY_SIZE(mStmSpiDevs))
         return -ENODEV;
 
-    struct stm_spi_dev *pdev = &stm_spi_devs[bus_id];
+    struct StmSpiDev *pdev = &mStmSpiDevs[busId];
     if (!pdev->base)
-        stm_spi_init(&stm_spi_devs[bus_id], dev);
+        stmSpiInit(&mStmSpiDevs[busId], dev);
 
     memset(&pdev->state, 0, sizeof(pdev->state));
-    dev->ops = &stm_spi_ops;
+    dev->ops = &mStmSpiOps;
     dev->pdata = pdev;
     return 0;
 }

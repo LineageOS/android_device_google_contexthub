@@ -5,14 +5,14 @@
 #include <seos.h>
 #include <stdlib.h>
 
-struct spi_device;
+struct SpiDevice;
 
 typedef uint8_t spi_cs_t;
-typedef uint32_t spi_speed_t;
+typedef uint32_t SpiSpeed;
 
-typedef void (*spi_master_callback)(void *cookie, int err);
+typedef void (*SpiMasterCbkF)(void *cookie, int err);
 
-struct spi_mode {
+struct SpiMode {
     enum {
         SPI_CPOL_IDLE_LO,
         SPI_CPOL_IDLE_HI,
@@ -23,39 +23,39 @@ struct spi_mode {
         SPI_CPHA_TRAILING_EDGE,
     } cpha;
 
-    uint8_t bits_per_word;
+    uint8_t bitsPerWord;
     enum {
         SPI_FORMAT_LSB_FIRST,
         SPI_FORMAT_MSB_FIRST,
     } format;
 
-    spi_speed_t speed;
+    SpiSpeed speed;
 };
 
-int spi_master_rxtx(uint8_t bus_id, spi_cs_t cs,
-        void *rx_buf[], const void *tx_buf[], size_t size[], size_t n,
-        const struct spi_mode *mode, spi_master_callback callback,
+int spiMasterRxTx(uint8_t busId, spi_cs_t cs,
+        void *rxBuf[], const void *txBuf[], size_t size[], size_t n,
+        const struct SpiMode *mode, SpiMasterCbkF callback,
         void *cookie);
 
-static inline int spi_master_rx(uint8_t bus_id, spi_cs_t cs,
-        void *buf, size_t size, const struct spi_mode *mode,
-        spi_master_callback callback, void *cookie)
+static inline int spiMasterRx(uint8_t busId, spi_cs_t cs,
+        void *buf, size_t size, const struct SpiMode *mode,
+        SpiMasterCbkF callback, void *cookie)
 {
-    void *rx_buf[1] = {buf};
-    const void *tx_buf[1] = {NULL};
+    void *rxBuf[1] = {buf};
+    const void *txBuf[1] = {NULL};
     size_t sizes[1] = {size};
-    return spi_master_rxtx(bus_id, cs, rx_buf, tx_buf, sizes, 1, mode,
+    return spiMasterRxTx(busId, cs, rxBuf, txBuf, sizes, 1, mode,
             callback, cookie);
 }
 
-static inline int spi_master_tx(uint8_t bus_id, spi_cs_t cs,
-        const void *buf, size_t size, const struct spi_mode *mode,
-        spi_master_callback callback, void *cookie)
+static inline int spiMasterTx(uint8_t busId, spi_cs_t cs,
+        const void *buf, size_t size, const struct SpiMode *mode,
+        SpiMasterCbkF callback, void *cookie)
 {
-    void *rx_buf[1] = {NULL};
-    const void *tx_buf[1] = {buf};
+    void *rxBuf[1] = {NULL};
+    const void *txBuf[1] = {buf};
     size_t sizes[1] = {size};
-    return spi_master_rxtx(bus_id, cs, rx_buf, tx_buf, sizes, 1, mode,
+    return spiMasterRxTx(busId, cs, rxBuf, txBuf, sizes, 1, mode,
             callback, cookie);
 }
 
