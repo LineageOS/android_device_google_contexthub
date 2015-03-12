@@ -66,10 +66,10 @@ struct StmSpiCfg {
     uint32_t clokcBus;
     uint32_t clockUnit;
 
-    gpio_number_t gpioMiso;
-    gpio_number_t gpioMosi;
-    gpio_number_t gpioSclk;
-    gpio_number_t gpioNss;
+    GpioNum gpioMiso;
+    GpioNum gpioMosi;
+    GpioNum gpioSclk;
+    GpioNum gpioNss;
     uint8_t gpioFunc;
 
     IRQn_Type irq;
@@ -80,10 +80,10 @@ struct StmSpiDev {
     const struct StmSpiCfg cfg;
     struct StmSpiState state;
 
-    struct gpio miso;
-    struct gpio mosi;
-    struct gpio sck;
-    struct gpio nss;
+    struct Gpio miso;
+    struct Gpio mosi;
+    struct Gpio sck;
+    struct Gpio nss;
 };
 
 static int stmSpiMasterStartSync(struct SpiDevice *dev, spi_cs_t cs,
@@ -301,11 +301,11 @@ static struct StmSpiDev mStmSpiDevs[] = {
 };
 DECLARE_IRQ_HANDLER(1)
 
-static inline void stmSpiGpioInit(struct gpio *gpio,
-        gpio_number_t number, uint8_t func)
+static inline void stmSpiGpioInit(struct Gpio *gpio,
+        GpioNum number, uint8_t func)
 {
-    gpio_request(gpio, number);
-    gpio_configure(gpio, GPIO_MODE_ALTERNATE, GPIO_PULL_NONE);
+    gpioRequest(gpio, number);
+    gpioConfig(gpio, GPIO_MODE_ALTERNATE, GPIO_PULL_NONE);
     gpio_assign_func(gpio, func);
 }
 

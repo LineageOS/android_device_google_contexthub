@@ -40,12 +40,12 @@ static const uint32_t mGpioBases[] = {
     GPIOI_BASE,
 };
 
-void gpio_request(struct gpio *gpio, gpio_number_t number)
+void gpioRequest(struct Gpio *gpio, GpioNum number)
 {
     gpio->gpio = number;
 }
 
-void gpio_configure(const struct gpio* __restrict gpio, gpio_mode_t mode, gpio_pull_t pull)
+void gpioConfig(const struct Gpio* __restrict gpio, GpioMode mode, GpioPullMode pull)
 {
     struct StmGpio *block = (struct StmGpio*)mGpioBases[gpio->gpio >> GPIO_PORT_SHIFT];
     const uint32_t shift_2b = (gpio->gpio & GPIO_PIN_MASK) * 2;
@@ -60,13 +60,13 @@ void gpio_configure(const struct gpio* __restrict gpio, gpio_mode_t mode, gpio_p
     /* direction */
     block->MODER = (block->MODER & ~mask_2b) | (((uint32_t)mode) << shift_2b);
 
-    gpio_configure_output(gpio, GPIO_OUT_PUSH_PULL);
+    gpioConfig_output(gpio, GPIO_OUT_PUSH_PULL);
 
     /* pull ups/downs */
     block->PUPDR = (block->PUPDR& ~mask_2b) | (((uint32_t)pull) << shift_2b);
 }
 
-void gpio_configure_output(const struct gpio* __restrict gpio, gpio_out_mode_t mode)
+void gpioConfig_output(const struct Gpio* __restrict gpio, GpioOpenDrainMode mode)
 {
     struct StmGpio *block = (struct StmGpio*)mGpioBases[gpio->gpio >> GPIO_PORT_SHIFT];
     const uint32_t shift_1b = gpio->gpio & GPIO_PIN_MASK;
@@ -78,7 +78,7 @@ void gpio_configure_output(const struct gpio* __restrict gpio, gpio_out_mode_t m
         block->OTYPER |= mask_1b;
 }
 
-void gpio_set_value(const struct gpio* __restrict gpio, bool value)
+void gpioSet(const struct Gpio* __restrict gpio, bool value)
 {
     struct StmGpio *block = (struct StmGpio*)mGpioBases[gpio->gpio >> GPIO_PORT_SHIFT];
     const uint32_t shift_1b = gpio->gpio & GPIO_PIN_MASK;
@@ -88,7 +88,7 @@ void gpio_set_value(const struct gpio* __restrict gpio, bool value)
     block->BSRR = value ? mask_set_1b : mask_clr_1b;
 }
 
-bool gpio_get_value(const struct gpio* __restrict gpio)
+bool gpioGet(const struct Gpio* __restrict gpio)
 {
     struct StmGpio *block = (struct StmGpio*)mGpioBases[gpio->gpio >> GPIO_PORT_SHIFT];
     const uint32_t shift_1b = gpio->gpio & GPIO_PIN_MASK;
@@ -98,7 +98,7 @@ bool gpio_get_value(const struct gpio* __restrict gpio)
     return !!(block->IDR & mask_1b);
 }
 
-void gpio_assign_func(const struct gpio* __restrict gpio, uint8_t func)
+void gpio_assign_func(const struct Gpio* __restrict gpio, uint8_t func)
 {
     struct StmGpio *block = (struct StmGpio*)mGpioBases[gpio->gpio >> GPIO_PORT_SHIFT];
     const uint32_t pinNo = gpio->gpio & GPIO_PIN_MASK;

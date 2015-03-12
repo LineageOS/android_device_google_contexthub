@@ -35,12 +35,12 @@ extern "C" {
 
 #define GPIO_PIN_MASK 0xf
 
-struct gpio
+struct Gpio
 {
     uint8_t gpio;
 };
 
-void gpio_assign_func(const struct gpio* __restrict gpio, uint8_t func);
+void gpio_assign_func(const struct Gpio* __restrict gpio, uint8_t func);
 
 
 

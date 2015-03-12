@@ -11,7 +11,7 @@ struct StmSyscfg
     volatile uint32_t CMPCR;
 };
 
-void syscfgSetExtiPort(const struct gpio *__restrict gpio)
+void syscfgSetExtiPort(const struct Gpio *__restrict gpio)
 {
     struct StmSyscfg *block = (struct StmSyscfg *)SYSCFG_BASE;
     const uint32_t bankNo = gpio->gpio >> GPIO_PORT_SHIFT;

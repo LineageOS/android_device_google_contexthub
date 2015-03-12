@@ -57,26 +57,26 @@ static bool mUsartHasFlowControl[] = {
     true,
 };
 
-void usart_open(struct usart* __restrict usart, usart_port_t port,
-                gpio_number_t tx, gpio_number_t rx,
-                uint32_t baud, usart_data_t data_bits,
-                usart_stop_t stop_bits, usart_parity_t parity,
-                usart_flow_control_t flow_control)
+void usartOpen(struct usart* __restrict usart, UsartPort port,
+                GpioNum tx, GpioNum rx,
+                uint32_t baud, UsartDataBitsCfg data_bits,
+                UsatStopBitsCfg stop_bits, UsartParityCfg parity,
+                UsartFlowControlCfg flow_control)
 {
-    static const uint16_t stopBitsVals[] = {0x1000, 0x0000, 0x3000, 0x2000}; // indexed by usart_stop_t
-    static const uint16_t wordLengthVals[] = {0x0000, 0x1000}; // indexed by usart_data_t
-    static const uint16_t parityVals[] = {0x0000, 0x0400, 0x0600}; // indexed by usart_parity_t
-    static const uint16_t flowCtrlVals[] = {0x0000, 0x0100, 0x0200, 0x0300}; // indexed by usart_flow_control_t
+    static const uint16_t stopBitsVals[] = {0x1000, 0x0000, 0x3000, 0x2000}; // indexed by UsatStopBitsCfg
+    static const uint16_t wordLengthVals[] = {0x0000, 0x1000}; // indexed by UsartDataBitsCfg
+    static const uint16_t parityVals[] = {0x0000, 0x0400, 0x0600}; // indexed by UsartParityCfg
+    static const uint16_t flowCtrlVals[] = {0x0000, 0x0100, 0x0200, 0x0300}; // indexed by UsartFlowControlCfg
     struct StmUsart *block = (struct StmUsart*)mUsartPorts[usart->unit = --port];
     uint32_t baseClk, div, intPart, fraPart;
-    struct gpio gpio;
+    struct Gpio gpio;
 
 
     /* configure tx/rx gpios */
-    gpio_request(&gpio, rx); /* rx */
-    gpio_configure(&gpio, GPIO_MODE_ALTERNATE, GPIO_PULL_UP);
-    gpio_request(&gpio, tx); /* tx */
-    gpio_configure(&gpio, GPIO_MODE_ALTERNATE, GPIO_PULL_UP);
+    gpioRequest(&gpio, rx); /* rx */
+    gpioConfig(&gpio, GPIO_MODE_ALTERNATE, GPIO_PULL_UP);
+    gpioRequest(&gpio, tx); /* tx */
+    gpioConfig(&gpio, GPIO_MODE_ALTERNATE, GPIO_PULL_UP);
 
     //XXX: this needs fixing either ambitiously (a table of all possiblities) ot simply (done elsewhere)
     /* connect PA2 (which we assume is our TX pin) to USART2.TX (which we assume is the uart in question) */
@@ -109,7 +109,7 @@ void usart_open(struct usart* __restrict usart, usart_port_t port,
     block->CR1 |= 0x2000;
 }
 
-void usart_close(const struct usart* __restrict usart)
+void usartClose(const struct usart* __restrict usart)
 {
     struct StmUsart *block = (struct StmUsart*)mUsartPorts[usart->unit];
 
@@ -120,7 +120,7 @@ void usart_close(const struct usart* __restrict usart)
     pwrUnitClock(mUsartBusses[usart->unit], mUsartPeriphs[usart->unit], false);
 }
 
-void usart_putchar(const struct usart* __restrict usart, char c)
+void usartPutchat(const struct usart* __restrict usart, char c)
 {
     struct StmUsart *block = (struct StmUsart*)mUsartPorts[usart->unit];
 

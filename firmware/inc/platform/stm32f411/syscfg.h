@@ -7,7 +7,7 @@
 extern "C" {
 #endif
 
-void syscfgSetExtiPort(const struct gpio *__restrict gpio);
+void syscfgSetExtiPort(const struct Gpio *__restrict gpio);
 
 #ifdef __cplusplus
 }

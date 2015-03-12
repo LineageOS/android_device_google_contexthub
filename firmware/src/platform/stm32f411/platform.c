@@ -70,7 +70,7 @@ static uint64_t mTicks = 0;
 
 void platUninitialize(void)
 {
-    usart_close(&mUsart2);
+    usartClose(&mUsart2);
 }
 
 void platSleep(void)
@@ -85,7 +85,7 @@ void platWake(void)
 
 void platLogPutchar(char ch)
 {
-     usart_putchar(&mUsart2, ch);
+     usartPutchat(&mUsart2, ch);
 }
 
 uint64_t platDisableInterrupts(void)
@@ -120,7 +120,7 @@ void platInitialize(void)
     }
 
     /* Open mUsart2 on PA2 and PA3 */
-    usart_open(&mUsart2, 2, GPIO_PA(2), GPIO_PA(3),
+    usartOpen(&mUsart2, 2, GPIO_PA(2), GPIO_PA(3),
                115200, USART_DATA_BITS_8,
                USART_STOP_BITS_1_0, USART_PARITY_NONE,
                USART_FLOW_CONTROL_NONE);

@@ -11,7 +11,7 @@ struct StmExti
     volatile uint32_t PR;
 };
 
-void extiEnableInt(const struct gpio *__restrict gpio, ExtiTrigger trigger)
+void extiEnableInt(const struct Gpio *__restrict gpio, ExtiTrigger trigger)
 {
     struct StmExti *block = (struct StmExti *)EXTI_BASE;
     const uint8_t pinNo = gpio->gpio & GPIO_PIN_MASK;
@@ -32,7 +32,7 @@ void extiEnableInt(const struct gpio *__restrict gpio, ExtiTrigger trigger)
     block->IMR |= (1UL << pinNo);
 }
 
-void extiDisableInt(const struct gpio *__restrict gpio)
+void extiDisableInt(const struct Gpio *__restrict gpio)
 {
     struct StmExti *block = (struct StmExti *)(EXTI_BASE);
     const uint8_t pinNo = gpio->gpio & GPIO_PIN_MASK;
@@ -40,7 +40,7 @@ void extiDisableInt(const struct gpio *__restrict gpio)
     block->IMR &= ~(1UL << pinNo);
 }
 
-void extiClearPending(const struct gpio *__restrict gpio)
+void extiClearPending(const struct Gpio *__restrict gpio)
 {
     struct StmExti *block = (struct StmExti *)(EXTI_BASE);
     const uint8_t pinNo = gpio->gpio & GPIO_PIN_MASK;

@@ -133,8 +133,8 @@ struct StmI2cCfg {
 
     uint32_t clock;
 
-    gpio_number_t gpio_scl;
-    gpio_number_t gpio_sda;
+    GpioNum gpio_scl;
+    GpioNum gpio_sda;
 
     IRQn_Type irq_ev;
     IRQn_Type irq_er;
@@ -146,8 +146,8 @@ struct StmI2cDev {
 
     I2cAddr addr;
 
-    struct gpio scl;
-    struct gpio sda;
+    struct Gpio scl;
+    struct Gpio sda;
 };
 
 static inline void i2cStmAckEnable(struct StmI2cDev *pdev)
@@ -516,11 +516,11 @@ static struct StmI2cDev mDevs[] = {
 };
 DECLARE_IRQ_HANDLERS(1)
 
-static inline void stmI2cGpioInit(struct gpio *gpio, gpio_number_t num)
+static inline void stmI2cGpioInit(struct Gpio *gpio, GpioNum num)
 {
-    gpio_request(gpio, num);
-    gpio_configure(gpio, GPIO_MODE_ALTERNATE, GPIO_PULL_NONE);
-    gpio_configure_output(gpio, GPIO_OUT_OPEN_DRAIN);
+    gpioRequest(gpio, num);
+    gpioConfig(gpio, GPIO_MODE_ALTERNATE, GPIO_PULL_NONE);
+    gpioConfig_output(gpio, GPIO_OUT_OPEN_DRAIN);
     gpio_assign_func(gpio, GPIO_A2_AFR_I2C);
 }
 
@@ -578,8 +578,8 @@ int i2cMasterRelease(uint8_t busId)
 }
 
 int i2cMasterTxRx(uint8_t busId, uint8_t addr,
-        const void *tx_buf, size_t tx_size,
-        void *rx_buf, size_t rx_size, I2cCallbackF callback, void *cookie)
+        const void *txBuf, size_t tx_size,
+        void *rxBuf, size_t rx_size, I2cCallbackF callback, void *cookie)
 {
     if (busId >= ARRAY_SIZE(mDevs))
         return -EINVAL;
@@ -592,12 +592,12 @@ int i2cMasterTxRx(uint8_t busId, uint8_t addr,
 
     if (pdev->state.mode == STM_I2C_MASTER) {
         pdev->addr = addr;
-        state->tx.cbuf = tx_buf;
+        state->tx.cbuf = txBuf;
         state->tx.offset = 0;
         state->tx.size = tx_size;
         state->tx.callback = callback;
         state->tx.cookie = cookie;
-        state->rx.buf = rx_buf;
+        state->rx.buf = rxBuf;
         state->rx.offset = 0;
         state->rx.size = rx_size;
         state->rx.callback = NULL;
@@ -648,7 +648,7 @@ int i2cSlaveRelease(uint8_t busId)
     }
 }
 
-void i2cSlaveEnableRx(uint8_t busId, void *rx_buf, size_t size,
+void i2cSlaveEnableRx(uint8_t busId, void *rxBuf, size_t size,
         I2cCallbackF callback, void *cookie)
 {
     struct StmI2cDev *pdev = &mDevs[busId];
@@ -656,7 +656,7 @@ void i2cSlaveEnableRx(uint8_t busId, void *rx_buf, size_t size,
     struct I2cStmState *state = &pdev->state;
 
     if (pdev->state.mode == STM_I2C_SLAVE) {
-        state->rx.buf = rx_buf;
+        state->rx.buf = rxBuf;
         state->rx.offset = 0;
         state->rx.size = size;
         state->rx.callback = callback;
