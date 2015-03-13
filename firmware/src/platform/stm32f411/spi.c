@@ -298,8 +298,25 @@ static struct StmSpiDev mStmSpiDevs[] = {
             .irq = SPI1_IRQn,
         },
     },
+    [1] = {
+        .cfg = {
+            .regs = (struct StmSpi *)SPI2_BASE,
+
+            .clokcBus = PERIPH_BUS_APB1,
+            .clockUnit = PERIPH_APB1_SPI2,
+
+            .gpioMiso = GPIO_PB(14),
+            .gpioMosi = GPIO_PB(15),
+            .gpioSclk = GPIO_PB(13),
+            .gpioNss = GPIO_PB(12),
+            .gpioFunc = GPIO_A2_AFR_SPI123,
+
+            .irq = SPI2_IRQn,
+        },
+    },
 };
 DECLARE_IRQ_HANDLER(1)
+DECLARE_IRQ_HANDLER(2)
 
 static inline void stmSpiGpioInit(struct Gpio *gpio,
         GpioNum number, uint8_t func)
