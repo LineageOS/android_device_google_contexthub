@@ -5,12 +5,17 @@ APP = nanohub
 MAKE_PLAT = misc/platform/$(PLATFORM)/Makefile
 MAKE_CPU = misc/cpu/$(CPU)/Makefile
 
+real: all
+
 include $(MAKE_PLAT)
 include $(MAKE_CPU)
 
 FLAGS += -O2 -Wall -Werror -Iinc -Ilinks -g -ggdb3
 #help avoid commmon embedded C mistakes
-FLAGS +=  -Wmissing-declarations -Wlogical-op -Waddress -Wempty-body -Wpointer-arith -Wenum-compare -Wdouble-promotion -Wfloat-equal -Wshadow
+FLAGS += -Wmissing-declarations -Wlogical-op -Waddress -Wempty-body -Wpointer-arith -Wenum-compare -Wdouble-promotion -Wfloat-equal -Wshadow
+
+#debug mode
+FLAGS += -DDEBUG
 
 #frameworks
 SRCS += src/printf.c src/timer.c src/seos.c src/console.c src/heap.c src/slab.c src/spi.c 
