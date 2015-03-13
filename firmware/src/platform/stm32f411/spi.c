@@ -77,7 +77,7 @@ struct StmSpiCfg {
 
 struct StmSpiDev {
     struct SpiDevice *base;
-    const struct StmSpiCfg cfg;
+    const struct StmSpiCfg *cfg;
     struct StmSpiState state;
 
     struct Gpio miso;
@@ -90,7 +90,7 @@ static int stmSpiMasterStartSync(struct SpiDevice *dev, spi_cs_t cs,
         const struct SpiMode *mode)
 {
     struct StmSpiDev *pdev = dev->pdata;
-    struct StmSpi *regs = pdev->cfg.regs;
+    struct StmSpi *regs = pdev->cfg->regs;
 
     if (!mode->speed)
         return -EINVAL;
@@ -106,7 +106,7 @@ static int stmSpiMasterStartSync(struct SpiDevice *dev, spi_cs_t cs,
     else if (div < SPI_CR1_BR_MIN)
         div = SPI_CR1_BR_MIN;
 
-    pwrUnitClock(pdev->cfg.clokcBus, pdev->cfg.clockUnit, true);
+    pwrUnitClock(pdev->cfg->clokcBus, pdev->cfg->clockUnit, true);
 
     regs->CR1 &= ~SPI_CR1_BR_MASK;
     regs->CR1 |= SPI_CR1_BR(div);
@@ -139,7 +139,7 @@ static int stmSpiMasterStartSync(struct SpiDevice *dev, spi_cs_t cs,
 
 static void stmSpiTxNExtByte(struct StmSpiDev *pdev)
 {
-    struct StmSpi *regs = pdev->cfg.regs;
+    struct StmSpi *regs = pdev->cfg->regs;
     struct StmSpiState *state = &pdev->state;
 
     if (state->bitsPerWord == 8) {
@@ -155,7 +155,7 @@ static int stmSpiMasterRxTx(struct SpiDevice *dev, void *rxBuf,
         const void *txBuf, size_t size, const struct SpiMode *mode)
 {
     struct StmSpiDev *pdev = dev->pdata;
-    struct StmSpi *regs = pdev->cfg.regs;
+    struct StmSpi *regs = pdev->cfg->regs;
     struct StmSpiState *state = &pdev->state;
 
     state->bitsPerWord = mode->bitsPerWord;
@@ -191,13 +191,13 @@ static int stmSpiMasterStopSync(struct SpiDevice *dev)
 {
     struct StmSpiDev *pdev = dev->pdata;
 
-    pwrUnitClock(pdev->cfg.clokcBus, pdev->cfg.clockUnit, false);
+    pwrUnitClock(pdev->cfg->clokcBus, pdev->cfg->clockUnit, false);
     return 0;
 }
 
 static void stmSpiDone(struct StmSpiDev *pdev)
 {
-    struct StmSpi *regs = pdev->cfg.regs;
+    struct StmSpi *regs = pdev->cfg->regs;
     struct StmSpiState *state = &pdev->state;
 
     if (state->txBuf)
@@ -210,7 +210,7 @@ static void stmSpiDone(struct StmSpiDev *pdev)
 
 static void stmSpiRxDone(struct StmSpiDev *pdev)
 {
-    struct StmSpi *regs = pdev->cfg.regs;
+    struct StmSpi *regs = pdev->cfg->regs;
 
     regs->CR2 &= ~SPI_CR2_RXNEIE;
     stmSpiDone(pdev);
@@ -218,7 +218,7 @@ static void stmSpiRxDone(struct StmSpiDev *pdev)
 
 static void stmSpiTxDone(struct StmSpiDev *pdev)
 {
-    struct StmSpi *regs = pdev->cfg.regs;
+    struct StmSpi *regs = pdev->cfg->regs;
     struct StmSpiState *state = &pdev->state;
 
     regs->CR2 &= ~SPI_CR2_TXEIE;
@@ -239,7 +239,7 @@ static void stmSpiTxe(struct StmSpiDev *pdev)
 
 static void stmSpiRxne(struct StmSpiDev *pdev)
 {
-    struct StmSpi *regs = pdev->cfg.regs;
+    struct StmSpi *regs = pdev->cfg->regs;
     struct StmSpiState *state = &pdev->state;
 
     if (state->bitsPerWord == 8) {
@@ -257,7 +257,7 @@ static void stmSpiRxne(struct StmSpiDev *pdev)
 
 static void stmSpiIsr(struct StmSpiDev *pdev)
 {
-    struct StmSpi *regs = pdev->cfg.regs;
+    struct StmSpi *regs = pdev->cfg->regs;
 
     if (regs->SR & SPI_SR_RXNE) {
         stmSpiRxne(pdev);
@@ -281,22 +281,20 @@ const struct SpiDevice_ops mStmSpiOps = {
     .masterStopSync = stmSpiMasterStopSync,
 };
 
-static struct StmSpiDev mStmSpiDevs[] = {
+static const struct StmSpiCfg mStmSpiCfgs[] = {
     [0] = {
-        .cfg = {
-            .regs = (struct StmSpi *)SPI1_BASE,
+        .regs = (struct StmSpi *)SPI1_BASE,
 
-            .clokcBus = PERIPH_BUS_APB2,
-            .clockUnit = PERIPH_APB2_SPI1,
+        .clokcBus = PERIPH_BUS_APB2,
+        .clockUnit = PERIPH_APB2_SPI1,
 
-            .gpioMiso = GPIO_PA(6),
-            .gpioMosi = GPIO_PA(7),
-            .gpioSclk = GPIO_PA(5),
-            .gpioNss = GPIO_PA(4),
-            .gpioFunc = GPIO_A2_AFR_SPI123,
+        .gpioMiso = GPIO_PA(6),
+        .gpioMosi = GPIO_PA(7),
+        .gpioSclk = GPIO_PA(5),
+        .gpioNss = GPIO_PA(4),
+        .gpioFunc = GPIO_A2_AFR_SPI123,
 
-            .irq = SPI1_IRQn,
-        },
+        .irq = SPI1_IRQn,
     },
     [1] = {
         .cfg = {
@@ -315,6 +313,8 @@ static struct StmSpiDev mStmSpiDevs[] = {
         },
     },
 };
+
+static struct StmSpiDev mStmSpiDevs[ARRAY_SIZE(mStmSpiCfgs)];
 DECLARE_IRQ_HANDLER(1)
 DECLARE_IRQ_HANDLER(2)
 
@@ -326,10 +326,9 @@ static inline void stmSpiGpioInit(struct Gpio *gpio,
     gpio_assign_func(gpio, func);
 }
 
-static void stmSpiInit(struct StmSpiDev *pdev, struct SpiDevice *dev)
+static void stmSpiInit(struct StmSpiDev *pdev, const struct StmSpiCfg *cfg,
+        struct SpiDevice *dev)
 {
-    const struct StmSpiCfg *cfg = &pdev->cfg;
-
     stmSpiGpioInit(&pdev->miso, cfg->gpioMiso, cfg->gpioFunc);
     stmSpiGpioInit(&pdev->mosi, cfg->gpioMosi, cfg->gpioFunc);
     stmSpiGpioInit(&pdev->sck, cfg->gpioSclk, cfg->gpioFunc);
@@ -338,6 +337,7 @@ static void stmSpiInit(struct StmSpiDev *pdev, struct SpiDevice *dev)
     NVIC_EnableIRQ(cfg->irq);
 
     pdev->base = dev;
+    pdev->cfg = cfg;
 }
 
 int spiRequest(struct SpiDevice *dev, uint8_t busId)
@@ -346,8 +346,9 @@ int spiRequest(struct SpiDevice *dev, uint8_t busId)
         return -ENODEV;
 
     struct StmSpiDev *pdev = &mStmSpiDevs[busId];
+    const struct StmSpiCfg *cfg = &mStmSpiCfgs[busId];
     if (!pdev->base)
-        stmSpiInit(&mStmSpiDevs[busId], dev);
+        stmSpiInit(pdev, cfg, dev);
 
     memset(&pdev->state, 0, sizeof(pdev->state));
     dev->ops = &mStmSpiOps;
