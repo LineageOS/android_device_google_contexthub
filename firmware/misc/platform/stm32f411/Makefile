@@ -1,3 +1,5 @@
+M3DEBUG ?= m3debug
+
 DELIVERABLES = $(APP).full.bin $(APP).update.bin
 LKR = misc/platform/$(PLATFORM)/stm32f411.lkr
 
@@ -34,3 +36,6 @@ DEPS += $(LKR)
 
 %.update.bin : %.elf
 	$(OBJCOPY) -j .data -j .text -I elf32-littlearm -O binary $< $@
+
+flash: $(APP).full.bin
+	echo -e "attach\nscript misc/platform/$(PLATFORM)/m3debug.script\nflash $(APP).full.bin 08000000\n" | $(M3DEBUG)

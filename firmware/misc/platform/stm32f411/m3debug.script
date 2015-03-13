@@ -1,0 +1,35 @@
+set flash-start  08000000
+set flash-size   00080000
+set flash-block  00000400
+set flash-buffer 20000200
+
+function flash-setup
+	attach
+	reset-stop
+        stop
+        stop
+
+        #prepare for erase
+	download misc/platform/stm32f411/flash_script/tool.bin 20000100
+        wr sp 200000fc
+	wr psr 01000000
+	wr 200000fc be00be00
+	wr lr 200000fd
+
+        #do erase
+        wr pc 20000100
+        go
+end
+
+
+function flash-erase
+	#nothing since setup did the erase
+end
+
+function flash-write
+	wr r0 $1
+        wr r1 $flash-buffer
+	wr pc 20000104
+	go
+end
+
