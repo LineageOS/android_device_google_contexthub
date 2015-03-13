@@ -105,7 +105,7 @@ void platRestoreInterrupts(uint64_t state)
 
 void platInitialize(void)
 {
-    const uint32_t debugStateInSleepMode = 0x00000001;
+    const uint32_t debugStateInSleepMode = 0x00000007; /* debug in all modes */
     struct StmTim *block = (struct StmTim*)TIM2_BASE;
     struct StmDbg *dbg = (struct StmDbg*)DBG_BASE;
     uint32_t i;
