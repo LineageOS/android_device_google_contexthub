@@ -63,7 +63,7 @@ struct StmSpiState {
 struct StmSpiCfg {
     struct StmSpi *regs;
 
-    uint32_t clokcBus;
+    uint32_t clockBus;
     uint32_t clockUnit;
 
     GpioNum gpioMiso;
@@ -106,7 +106,7 @@ static int stmSpiMasterStartSync(struct SpiDevice *dev, spi_cs_t cs,
     else if (div < SPI_CR1_BR_MIN)
         div = SPI_CR1_BR_MIN;
 
-    pwrUnitClock(pdev->cfg->clokcBus, pdev->cfg->clockUnit, true);
+    pwrUnitClock(pdev->cfg->clockBus, pdev->cfg->clockUnit, true);
 
     regs->CR1 &= ~SPI_CR1_BR_MASK;
     regs->CR1 |= SPI_CR1_BR(div);
@@ -191,7 +191,7 @@ static int stmSpiMasterStopSync(struct SpiDevice *dev)
 {
     struct StmSpiDev *pdev = dev->pdata;
 
-    pwrUnitClock(pdev->cfg->clokcBus, pdev->cfg->clockUnit, false);
+    pwrUnitClock(pdev->cfg->clockBus, pdev->cfg->clockUnit, false);
     return 0;
 }
 
@@ -285,7 +285,7 @@ static const struct StmSpiCfg mStmSpiCfgs[] = {
     [0] = {
         .regs = (struct StmSpi *)SPI1_BASE,
 
-        .clokcBus = PERIPH_BUS_APB2,
+        .clockBus = PERIPH_BUS_APB2,
         .clockUnit = PERIPH_APB2_SPI1,
 
         .gpioMiso = GPIO_PA(6),
