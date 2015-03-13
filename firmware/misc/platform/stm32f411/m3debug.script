@@ -30,6 +30,7 @@ function flash-write
 	wr r0 $1
         wr r1 $flash-buffer
 	wr pc 20000104
+	wr lr 200000fd
 	go
 end
 
