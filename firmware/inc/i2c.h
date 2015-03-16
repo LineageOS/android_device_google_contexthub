@@ -6,6 +6,7 @@ extern "C" {
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <stddef.h>
 
 typedef uint8_t I2cAddr;
 typedef uint32_t I2cSpeed;
