@@ -130,7 +130,9 @@ extern "C" {
 #define GPIOG_BASE                    0x40021800UL
 #define GPIOH_BASE                    0x40021C00UL
 #define GPIOI_BASE                    0x40022000UL
+#define CRC_BASE                      0x40023000UL
 #define RCC_BASE                      0x40023800UL
+#define FLASH_BASE                    0x40023C00UL
 #define DBG_BASE                      0xE0042000UL
 
 
