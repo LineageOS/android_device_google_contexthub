@@ -8,23 +8,31 @@ extern "C" {
 #include <stdbool.h>
 #include <stddef.h>
 
+typedef uint8_t I2cBus;
 typedef uint8_t I2cAddr;
 typedef uint32_t I2cSpeed;
 
 typedef void (*I2cCallbackF)(void *cookie, int tx, int rx);
 
-int i2cMasterRequest(uint8_t busId, I2cSpeed speed);
-int i2cMasterRelease(uint8_t busId);
-int i2cMasterTxRx(uint8_t busId, uint8_t addr,
-        const void *txBuf, size_t tx_size,
-        void *rxBuf, size_t rx_len, I2cCallbackF callback, void *cookie);
+int i2cMasterRequest(I2cBus busId, I2cSpeed speed);
+int i2cMasterRelease(I2cBus busId);
+int i2cMasterTxRx(I2cBus busId, I2cAddr addr, const void *txBuf, size_t txSize,
+        void *rxBuf, size_t rxSize, I2cCallbackF callback, void *cookie);
+static inline int i2cMasterTx(I2cBus busId, I2cAddr addr,
+        const void *txBuf, size_t txSize, I2cCallbackF callback, void *cookie)
+{
+    return i2cMasterTxRx(busId, addr, txBuf, txSize, NULL, 0, callback, cookie);}
+static inline int i2cMasterRx(I2cBus busId, I2cAddr addr,
+        void *rxBuf, size_t rxSize, I2cCallbackF callback, void *cookie)
+{
+    return i2cMasterTxRx(busId, addr, NULL, 0, rxBuf, rxSize, callback, cookie);
+}
 
-int i2cSlaveRequest(uint8_t busId, I2cAddr addr);
-int i2cSlaveRelease(uint8_t busId);
-void i2cSlaveEnableRx(uint8_t busId, void *rxBuf, size_t size,
+int i2cSlaveRequest(I2cBus busId, I2cAddr addr);
+int i2cSlaveRelease(I2cBus busId);
+void i2cSlaveEnableRx(I2cBus busId, void *rxBuf, size_t rxSize,
         I2cCallbackF callback, void *cookie);
-void i2cSlaveDisable(uint8_t busId);
-int i2cSlaveTx(uint8_t busId, const void *buf, size_t size,
+int i2cSlaveTx(I2cBus busId, const void *txBuf, size_t txSize,
         I2cCallbackF callback, void *cookie);
 
 #ifdef __cplusplus
@@ -32,4 +40,3 @@ int i2cSlaveTx(uint8_t busId, const void *buf, size_t size,
 #endif
 
 #endif
-

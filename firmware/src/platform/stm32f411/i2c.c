@@ -133,15 +133,18 @@ struct StmI2cCfg {
 
     uint32_t clock;
 
-    GpioNum gpio_scl;
-    GpioNum gpio_sda;
+    GpioNum gpioScl;
+    uint8_t gpioSclAf;
+    GpioNum gpioSda;
+    uint8_t gpioSdaAf;
+    GpioPullMode gpioPull;
 
-    IRQn_Type irq_ev;
-    IRQn_Type irq_er;
+    IRQn_Type irqEv;
+    IRQn_Type irqEr;
 };
 
 struct StmI2cDev {
-    const struct StmI2cCfg cfg;
+    const struct StmI2cCfg *cfg;
     struct I2cStmState state;
 
     I2cAddr addr;
@@ -152,45 +155,45 @@ struct StmI2cDev {
 
 static inline void i2cStmAckEnable(struct StmI2cDev *pdev)
 {
-    pdev->cfg.regs->CR1 |= I2C_CR1_ACK;
+    pdev->cfg->regs->CR1 |= I2C_CR1_ACK;
 }
 
 static inline void i2cStmAckDisable(struct StmI2cDev *pdev)
 {
-    pdev->cfg.regs->CR1 &= ~I2C_CR1_ACK;
+    pdev->cfg->regs->CR1 &= ~I2C_CR1_ACK;
 }
 
 static inline void i2cStmStopEnable(struct StmI2cDev *pdev)
 {
-    pdev->cfg.regs->CR1 |= I2C_CR1_STOP;
+    pdev->cfg->regs->CR1 |= I2C_CR1_STOP;
 }
 
 static inline void i2cStmIrqEnable(struct StmI2cDev *pdev,
         uint32_t mask)
 {
-    pdev->cfg.regs->CR2 |= mask;
+    pdev->cfg->regs->CR2 |= mask;
 }
 
 static inline void i2cStmIrqDisable(struct StmI2cDev *pdev,
         uint32_t mask)
 {
-    pdev->cfg.regs->CR2 &= ~mask;
+    pdev->cfg->regs->CR2 &= ~mask;
 }
 
 static inline void stmI2cEnable(struct StmI2cDev *pdev)
 {
-    pdev->cfg.regs->CR1 |= I2C_CR1_PE;
+    pdev->cfg->regs->CR1 |= I2C_CR1_PE;
 }
 
 static inline void stmI2cDisable(struct StmI2cDev *pdev)
 {
-    pdev->cfg.regs->CR1 &= ~I2C_CR1_PE;
+    pdev->cfg->regs->CR1 &= ~I2C_CR1_PE;
 }
 
 static inline void stmI2cSpeedSet(struct StmI2cDev *pdev,
         const I2cSpeed speed)
 {
-    struct StmI2c *regs = pdev->cfg.regs;
+    struct StmI2c *regs = pdev->cfg->regs;
     int ccr, ccr_1, ccr_2;
     int apb1_clk;
 
@@ -265,7 +268,7 @@ static inline void i2cStmTxRxDone(struct StmI2cDev *pdev)
 static void i2cStmTxNextByte(struct StmI2cDev *pdev)
 {
     struct I2cStmState *state = &pdev->state;
-    struct StmI2c *regs = pdev->cfg.regs;
+    struct StmI2c *regs = pdev->cfg->regs;
 
     if (state->tx.offset < state->tx.size) {
         regs->DR = state->tx.cbuf[state->tx.offset];
@@ -278,7 +281,7 @@ static void i2cStmTxNextByte(struct StmI2cDev *pdev)
 static void i2cStmSlaveAddrMatched(struct StmI2cDev *pdev)
 {
     struct I2cStmState *state = &pdev->state;
-    struct StmI2c *regs = pdev->cfg.regs;
+    struct StmI2c *regs = pdev->cfg->regs;
 
     i2c_log_debug("addr");
 
@@ -292,7 +295,7 @@ static void i2cStmSlaveAddrMatched(struct StmI2cDev *pdev)
 
 static void i2cStmSlaveStopRxed(struct StmI2cDev *pdev)
 {
-    struct StmI2c *regs = pdev->cfg.regs;
+    struct StmI2c *regs = pdev->cfg->regs;
 
     i2c_log_debug("stopf");
 
@@ -307,7 +310,7 @@ static void i2cStmSlaveStopRxed(struct StmI2cDev *pdev)
 static inline void i2cStmSlaveRxBufNotEmpty(struct StmI2cDev *pdev)
 {
     struct I2cStmState *state = &pdev->state;
-    struct StmI2c *regs = pdev->cfg.regs;
+    struct StmI2c *regs = pdev->cfg->regs;
     uint8_t data = regs->DR;
 
     i2c_log_debug("rxne");
@@ -341,7 +344,7 @@ static void i2cStmSlaveTxBufEmpty(struct StmI2cDev *pdev)
 static void i2cStmSlaveNakRxed(struct StmI2cDev *pdev)
 {
     struct I2cStmState *state = &pdev->state;
-    struct StmI2c *regs = pdev->cfg.regs;
+    struct StmI2c *regs = pdev->cfg->regs;
 
     i2c_log_debug("af");
 
@@ -356,7 +359,7 @@ static void i2cStmSlaveNakRxed(struct StmI2cDev *pdev)
 static void i2cStmMasterSentStart(struct StmI2cDev *pdev)
 {
     struct I2cStmState *state = &pdev->state;
-    struct StmI2c *regs = pdev->cfg.regs;
+    struct StmI2c *regs = pdev->cfg->regs;
 
     if (state->masterState == STM_I2C_MASTER_START) {
         if (state->tx.size > 0) {
@@ -373,7 +376,7 @@ static void i2cStmMasterSentStart(struct StmI2cDev *pdev)
 static void i2cStmMasterSentAddr(struct StmI2cDev *pdev)
 {
     struct I2cStmState *state = &pdev->state;
-    struct StmI2c *regs = pdev->cfg.regs;
+    struct StmI2c *regs = pdev->cfg->regs;
 
     if (state->masterState == STM_I2C_MASTER_TX_ADDR) {
         regs->SR2; // Clear ADDR
@@ -393,7 +396,7 @@ static void i2cStmMasterSentAddr(struct StmI2cDev *pdev)
 static void i2cStmMasterTxRx(struct StmI2cDev *pdev)
 {
     struct I2cStmState *state = &pdev->state;
-    struct StmI2c *regs = pdev->cfg.regs;
+    struct StmI2c *regs = pdev->cfg->regs;
 
     if (state->masterState == STM_I2C_MASTER_TX_DATA) {
         if (state->tx.offset == state->tx.size) {
@@ -426,7 +429,7 @@ static void i2cStmMasterTxRx(struct StmI2cDev *pdev)
 static void i2cStmMasterNakRxed(struct StmI2cDev *pdev)
 {
     struct I2cStmState *state = &pdev->state;
-    struct StmI2c *regs = pdev->cfg.regs;
+    struct StmI2c *regs = pdev->cfg->regs;
 
     if ((state->masterState == STM_I2C_MASTER_TX_ADDR ||
          state->masterState == STM_I2C_MASTER_TX_DATA ||
@@ -441,7 +444,7 @@ static void i2cStmMasterNakRxed(struct StmI2cDev *pdev)
 
 static void stmI2cIsrEvent(struct StmI2cDev *pdev)
 {
-    struct StmI2c *regs = pdev->cfg.regs;
+    struct StmI2c *regs = pdev->cfg->regs;
     uint16_t sr1 = regs->SR1;
 
     if (pdev->state.mode == STM_I2C_SLAVE) {
@@ -472,7 +475,7 @@ static void stmI2cIsrEvent(struct StmI2cDev *pdev)
 
 static void stmI2cIsrError(struct StmI2cDev *pdev)
 {
-    struct StmI2c *regs = pdev->cfg.regs;
+    struct StmI2c *regs = pdev->cfg->regs;
     uint16_t sr1 = regs->SR1;
 
     if (pdev->state.mode == STM_I2C_SLAVE) {
@@ -491,51 +494,58 @@ static void stmI2cIsrError(struct StmI2cDev *pdev)
                                                 \
     extern void I2C##_n##_EV_IRQHandler()       \
     {                                           \
-        stmI2cIsrEvent(&mDevs[_n - 1]);  \
+        stmI2cIsrEvent(&mStmI2cDevs[_n - 1]);  \
     }                                           \
                                                 \
     extern void I2C##_n##_ER_IRQHandler()       \
     {                                           \
-        stmI2cIsrError(&mDevs[_n - 1]);  \
+        stmI2cIsrError(&mStmI2cDevs[_n - 1]);  \
     }
 
-static struct StmI2cDev mDevs[] = {
+static const struct StmI2cCfg mStmI2cCfgs[] = {
     [0] = {
-        .cfg = {
-            .regs = (struct StmI2c *)I2C1_BASE,
+        .regs = (struct StmI2c *)I2C1_BASE,
 
-            .clock = PERIPH_APB1_I2C1,
+        .clock = PERIPH_APB1_I2C1,
 
-            .gpio_scl = GPIO_PB(8),
-            .gpio_sda = GPIO_PB(9),
+        .gpioScl = GPIO_PB(8),
+        .gpioSclAf = GPIO_PB8_AF_I2C1_SCL,
+        .gpioSda = GPIO_PB(9),
+        .gpioSdaAf = GPIO_PB9_AF_I2C1_SDA,
+        .gpioPull = GPIO_PULL_NONE,
 
-            .irq_ev = I2C1_EV_IRQn,
-            .irq_er = I2C1_ER_IRQn,
-        },
+        .irqEv = I2C1_EV_IRQn,
+        .irqEr = I2C1_ER_IRQn,
     },
 };
-DECLARE_IRQ_HANDLERS(1)
 
-static inline void stmI2cGpioInit(struct Gpio *gpio, GpioNum num)
+static struct StmI2cDev mStmI2cDevs[ARRAY_SIZE(mStmI2cCfgs)];
+DECLARE_IRQ_HANDLERS(1);
+
+static inline void stmI2cGpioInit(struct Gpio *gpio, GpioNum num,
+        GpioPullMode pull, uint8_t af)
 {
     gpioRequest(gpio, num);
-    gpioConfig(gpio, GPIO_MODE_ALTERNATE, GPIO_PULL_NONE);
+    gpioConfig(gpio, GPIO_MODE_ALTERNATE, pull);
     gpioConfig_output(gpio, GPIO_OUT_OPEN_DRAIN);
-    gpio_assign_func(gpio, GPIO_A2_AFR_I2C);
+    gpio_assign_func(gpio, af);
 }
 
-int i2cMasterRequest(uint8_t busId, I2cSpeed speed)
+int i2cMasterRequest(I2cBus busId, I2cSpeed speed)
 {
-    if (busId >= ARRAY_SIZE(mDevs))
+    if (busId >= ARRAY_SIZE(mStmI2cDevs))
         return -EINVAL;
 
-    struct StmI2cDev *pdev = &mDevs[busId];
-    const struct StmI2cCfg *cfg = &pdev->cfg;
+    struct StmI2cDev *pdev = &mStmI2cDevs[busId];
+    const struct StmI2cCfg *cfg = &mStmI2cCfgs[busId];
 
     if (pdev->state.mode == STM_I2C_DISABLED) {
         pdev->state.mode = STM_I2C_MASTER;
-        stmI2cGpioInit(&pdev->scl, cfg->gpio_scl);
-        stmI2cGpioInit(&pdev->sda, cfg->gpio_sda);
+
+        pdev->cfg = cfg;
+
+        stmI2cGpioInit(&pdev->scl, cfg->gpioScl, cfg->gpioPull, cfg->gpioSclAf);
+        stmI2cGpioInit(&pdev->sda, cfg->gpioSda, cfg->gpioPull, cfg->gpioSdaAf);
 
         pwrUnitClock(PERIPH_BUS_APB1, cfg->clock, true);
 
@@ -548,8 +558,8 @@ int i2cMasterRequest(uint8_t busId, I2cSpeed speed)
         stmI2cSpeedSet(pdev, speed);
         pdev->state.masterState = STM_I2C_MASTER_IDLE;
 
-        NVIC_EnableIRQ(cfg->irq_er);
-        NVIC_EnableIRQ(cfg->irq_ev);
+        NVIC_EnableIRQ(cfg->irqEr);
+        NVIC_EnableIRQ(cfg->irqEv);
 
         stmI2cEnable(pdev);
         return 0;
@@ -558,13 +568,13 @@ int i2cMasterRequest(uint8_t busId, I2cSpeed speed)
     }
 }
 
-int i2cMasterRelease(uint8_t busId)
+int i2cMasterRelease(I2cBus busId)
 {
-    if (busId >= ARRAY_SIZE(mDevs))
+    if (busId >= ARRAY_SIZE(mStmI2cDevs))
         return -EINVAL;
 
-    struct StmI2cDev *pdev = &mDevs[busId];
-    const struct StmI2cCfg *cfg = &pdev->cfg;
+    struct StmI2cDev *pdev = &mStmI2cDevs[busId];
+    const struct StmI2cCfg *cfg = pdev->cfg;
 
     if (pdev->state.mode == STM_I2C_MASTER && pdev->state.masterState == STM_I2C_MASTER_IDLE) {
         pdev->state.mode = STM_I2C_DISABLED;
@@ -577,29 +587,29 @@ int i2cMasterRelease(uint8_t busId)
     }
 }
 
-int i2cMasterTxRx(uint8_t busId, uint8_t addr,
-        const void *txBuf, size_t tx_size,
-        void *rxBuf, size_t rx_size, I2cCallbackF callback, void *cookie)
+int i2cMasterTxRx(I2cBus busId, I2cAddr addr,
+        const void *txBuf, size_t txSize, void *rxBuf, size_t rxSize,
+        I2cCallbackF callback, void *cookie)
 {
-    if (busId >= ARRAY_SIZE(mDevs))
+    if (busId >= ARRAY_SIZE(mStmI2cDevs))
         return -EINVAL;
     else if (addr & 0x80)
         return -ENXIO;
 
-    struct StmI2cDev *pdev = &mDevs[busId];
+    struct StmI2cDev *pdev = &mStmI2cDevs[busId];
     struct I2cStmState *state = &pdev->state;
-    struct StmI2c *regs = pdev->cfg.regs;
+    struct StmI2c *regs = pdev->cfg->regs;
 
     if (pdev->state.mode == STM_I2C_MASTER) {
         pdev->addr = addr;
         state->tx.cbuf = txBuf;
         state->tx.offset = 0;
-        state->tx.size = tx_size;
+        state->tx.size = txSize;
         state->tx.callback = callback;
         state->tx.cookie = cookie;
         state->rx.buf = rxBuf;
         state->rx.offset = 0;
-        state->rx.size = rx_size;
+        state->rx.size = rxSize;
         state->rx.callback = NULL;
         state->rx.cookie = NULL;
         state->masterState = STM_I2C_MASTER_START;
@@ -611,21 +621,22 @@ int i2cMasterTxRx(uint8_t busId, uint8_t addr,
     }
 }
 
-int i2cSlaveRequest(uint8_t busId, I2cAddr addr)
+int i2cSlaveRequest(I2cBus busId, I2cAddr addr)
 {
-    if (busId >= ARRAY_SIZE(mDevs))
+    if (busId >= ARRAY_SIZE(mStmI2cDevs))
         return -EINVAL;
 
-    struct StmI2cDev *pdev = &mDevs[busId];
-    const struct StmI2cCfg *cfg = &pdev->cfg;
+    struct StmI2cDev *pdev = &mStmI2cDevs[busId];
+    const struct StmI2cCfg *cfg = &mStmI2cCfgs[busId];
 
     if (pdev->state.mode == STM_I2C_DISABLED) {
         pdev->state.mode = STM_I2C_SLAVE;
 
         pdev->addr = addr;
+        pdev->cfg = cfg;
 
-        stmI2cGpioInit(&pdev->scl, cfg->gpio_scl);
-        stmI2cGpioInit(&pdev->sda, cfg->gpio_sda);
+        stmI2cGpioInit(&pdev->scl, cfg->gpioScl, cfg->gpioPull, cfg->gpioSclAf);
+        stmI2cGpioInit(&pdev->sda, cfg->gpioSda, cfg->gpioPull, cfg->gpioSdaAf);
 
         return 0;
     } else {
@@ -633,32 +644,37 @@ int i2cSlaveRequest(uint8_t busId, I2cAddr addr)
     }
 }
 
-int i2cSlaveRelease(uint8_t busId)
+int i2cSlaveRelease(I2cBus busId)
 {
-    if (busId >= ARRAY_SIZE(mDevs))
+    if (busId >= ARRAY_SIZE(mStmI2cDevs))
         return -EINVAL;
 
-    struct StmI2cDev *pdev = &mDevs[busId];
+    struct StmI2cDev *pdev = &mStmI2cDevs[busId];
+    const struct StmI2cCfg *cfg = pdev->cfg;
 
     if (pdev->state.mode == STM_I2C_SLAVE) {
         pdev->state.mode = STM_I2C_DISABLED;
+        i2cStmIrqDisable(pdev, I2C_CR2_ITBUFEN | I2C_CR2_ITERREN | I2C_CR2_ITEVTEN);
+        i2cStmAckDisable(pdev);
+        stmI2cDisable(pdev);
+        pwrUnitClock(PERIPH_BUS_APB1, cfg->clock, false);
         return 0;
     } else {
         return -EBUSY;
     }
 }
 
-void i2cSlaveEnableRx(uint8_t busId, void *rxBuf, size_t size,
+void i2cSlaveEnableRx(I2cBus busId, void *rxBuf, size_t rxSize,
         I2cCallbackF callback, void *cookie)
 {
-    struct StmI2cDev *pdev = &mDevs[busId];
-    const struct StmI2cCfg *cfg = &pdev->cfg;
+    struct StmI2cDev *pdev = &mStmI2cDevs[busId];
+    const struct StmI2cCfg *cfg = pdev->cfg;
     struct I2cStmState *state = &pdev->state;
 
     if (pdev->state.mode == STM_I2C_SLAVE) {
         state->rx.buf = rxBuf;
         state->rx.offset = 0;
-        state->rx.size = size;
+        state->rx.size = rxSize;
         state->rx.callback = callback;
         state->rx.cookie = cookie;
         state->slaveState = STM_I2C_SLAVE_RX_ARMED;
@@ -667,8 +683,8 @@ void i2cSlaveEnableRx(uint8_t busId, void *rxBuf, size_t size,
         pwrUnitReset(PERIPH_BUS_APB1, cfg->clock, true);
         pwrUnitReset(PERIPH_BUS_APB1, cfg->clock, false);
 
-        NVIC_EnableIRQ(cfg->irq_er);
-        NVIC_EnableIRQ(cfg->irq_ev);
+        NVIC_EnableIRQ(cfg->irqEr);
+        NVIC_EnableIRQ(cfg->irqEv);
 
         stmI2cEnable(pdev);
         cfg->regs->OAR1 = I2C_OAR1_ADD7(pdev->addr);
@@ -677,19 +693,19 @@ void i2cSlaveEnableRx(uint8_t busId, void *rxBuf, size_t size,
     }
 }
 
-int i2cSlaveTx(uint8_t busId, const void *buf, size_t size,
+int i2cSlaveTx(I2cBus busId, const void *txBuf, size_t txSize,
         I2cCallbackF callback, void *cookie)
 {
-    struct StmI2cDev *pdev = &mDevs[busId];
+    struct StmI2cDev *pdev = &mStmI2cDevs[busId];
     struct I2cStmState *state = &pdev->state;
 
     if (pdev->state.mode == STM_I2C_SLAVE) {
         if (state->slaveState != STM_I2C_SLAVE_TX_ARMED)
             return -EBUSY;
 
-        state->tx.cbuf = buf;
+        state->tx.cbuf = txBuf;
         state->tx.offset = 0;
-        state->tx.size = size;
+        state->tx.size = txSize;
         state->tx.callback = callback;
         state->tx.cookie = cookie;
         state->slaveState = STM_I2C_SLAVE_TX;
@@ -700,18 +716,5 @@ int i2cSlaveTx(uint8_t busId, const void *buf, size_t size,
         return 0;
     } else {
         return -EBUSY;
-    }
-}
-
-void i2cSlaveDisable(uint8_t busId)
-{
-    struct StmI2cDev *pdev = &mDevs[busId];
-    const struct StmI2cCfg *cfg = &pdev->cfg;
-
-    if (pdev->state.mode == STM_I2C_SLAVE) {
-        i2cStmIrqDisable(pdev, I2C_CR2_ITBUFEN | I2C_CR2_ITERREN | I2C_CR2_ITEVTEN);
-        i2cStmAckDisable(pdev);
-        stmI2cDisable(pdev);
-        pwrUnitClock(PERIPH_BUS_APB1, cfg->clock, false);
     }
 }
