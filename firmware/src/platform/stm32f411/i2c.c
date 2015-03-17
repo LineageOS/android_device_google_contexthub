@@ -517,10 +517,33 @@ static const struct StmI2cCfg mStmI2cCfgs[] = {
         .irqEv = I2C1_EV_IRQn,
         .irqEr = I2C1_ER_IRQn,
     },
+    [1] = {
+        .regs = (struct StmI2c *)I2C2_BASE,
+
+        .clock = PERIPH_APB1_I2C2,
+
+        .irqEv = I2C2_EV_IRQn,
+        .irqEr = I2C2_ER_IRQn,
+    },
+    [2] = {
+        .regs = (struct StmI2c *)I2C3_BASE,
+
+        .clock = PERIPH_APB1_I2C3,
+
+        .gpioScl = GPIO_PA(8),
+        .gpioSclAf = GPIO_PA8_AF_I2C3_SCL,
+        .gpioSda = GPIO_PB(4),
+        .gpioSdaAf = GPIO_PB4_AF_I2C3_SDA,
+        .gpioPull = GPIO_PULL_NONE,
+
+        .irqEv = I2C3_EV_IRQn,
+        .irqEr = I2C3_ER_IRQn,
+    },
 };
 
 static struct StmI2cDev mStmI2cDevs[ARRAY_SIZE(mStmI2cCfgs)];
 DECLARE_IRQ_HANDLERS(1);
+DECLARE_IRQ_HANDLERS(3);
 
 static inline void stmI2cGpioInit(struct Gpio *gpio, GpioNum num,
         GpioPullMode pull, uint8_t af)
