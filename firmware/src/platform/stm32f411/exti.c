@@ -11,39 +11,55 @@ struct StmExti
     volatile uint32_t PR;
 };
 
-void extiEnableInt(const struct Gpio *__restrict gpio, ExtiTrigger trigger)
+#define EXTI ((struct StmExti*)EXTI_BASE)
+
+void extiEnableIntGpio(const struct Gpio *__restrict gpio, ExtiTrigger trigger)
 {
-    struct StmExti *block = (struct StmExti *)EXTI_BASE;
     const uint8_t pinNo = gpio->gpio & GPIO_PIN_MASK;
+    extiEnableIntLine(pinNo, trigger);
+}
+
+void extiEnableIntLine(uint32_t line, ExtiTrigger trigger)
+{
 
     if (trigger == EXTI_TRIGGER_BOTH) {
-        block->RTSR |= (1UL << pinNo);
-        block->FTSR |= (1UL << pinNo);
+        EXTI->RTSR |= (1UL << line);
+        EXTI->FTSR |= (1UL << line);
     } else if (trigger == EXTI_TRIGGER_RISING) {
-        block->RTSR |= (1UL << pinNo);
-        block->FTSR &= ~(1UL << pinNo);
+        EXTI->RTSR |= (1UL << line);
+        EXTI->FTSR &= ~(1UL << line);
     } else if (trigger == EXTI_TRIGGER_FALLING) {
-        block->RTSR &= ~(1UL << pinNo);
-        block->FTSR |= (1UL << pinNo);
+        EXTI->RTSR &= ~(1UL << line);
+        EXTI->FTSR |= (1UL << line);
     }
 
-    extiClearPending(gpio);
+    /* Clear pending interrupt */
+    EXTI->PR |= (1UL << line);
 
-    block->IMR |= (1UL << pinNo);
+    /* Enable hardware interrupt */
+    EXTI->IMR |= (1UL << line);
 }
 
-void extiDisableInt(const struct Gpio *__restrict gpio)
+void extiDisableIntGpio(const struct Gpio *__restrict gpio)
 {
-    struct StmExti *block = (struct StmExti *)(EXTI_BASE);
     const uint8_t pinNo = gpio->gpio & GPIO_PIN_MASK;
 
-    block->IMR &= ~(1UL << pinNo);
+    extiDisableIntLine(pinNo);
 }
 
-void extiClearPending(const struct Gpio *__restrict gpio)
+void extiDisableIntLine(uint32_t line)
 {
-    struct StmExti *block = (struct StmExti *)(EXTI_BASE);
+    EXTI->IMR &= ~(1UL << line);
+}
+
+void extiClearPendingGpio(const struct Gpio *__restrict gpio)
+{
     const uint8_t pinNo = gpio->gpio & GPIO_PIN_MASK;
 
-    block->PR |= (1UL << pinNo);
+    EXTI->PR |= (1UL << pinNo);
+}
+
+void extiClearPendingLine(uint32_t line)
+{
+    EXTI->PR |= (1UL << line);
 }
