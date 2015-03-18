@@ -14,9 +14,12 @@ typedef enum
     EXTI_TRIGGER_BOTH,
 } ExtiTrigger;
 
-void extiEnableInt(const struct Gpio *__restrict gpio, ExtiTrigger trigger);
-void extiDisableInt(const struct Gpio *__restrict gpio);
-void extiClearPending(const struct Gpio *__restrict gpio);
+void extiEnableIntGpio(const struct Gpio *__restrict gpio, ExtiTrigger trigger);
+void extiEnableIntLine(uint32_t line, ExtiTrigger trigger);
+void extiDisableIntGpio(const struct Gpio *__restrict gpio);
+void extiDisableIntLine(uint32_t line);
+void extiClearPendingGpio(const struct Gpio *__restrict gpio);
+void extiClearPendingLine(uint32_t line);
 
 #ifdef __cplusplus
 }
