@@ -52,7 +52,7 @@ nanotime_t nanotime_subtract(nanotime_t time_a, nanotime_t time_b)
         osLog(LOG_WARN, "nanotime_t unit extends beyond a single nanosecond.");
         return diff;
     }
-    if (time_a.time_s < time_b.time_s || (time_a.time_s == time_b.time_s && time_a.time_ns < time_b.time_s)) {
+    if (time_a.time_s < time_b.time_s || (time_a.time_s == time_b.time_s && time_a.time_ns < time_b.time_ns)) {
         osLog(LOG_WARN, "Trying to subtract a larger nanotime from smaller.");
         return diff;
     }
@@ -82,14 +82,15 @@ void Timer_interrupt_handler(void)
 {
     timer_item_t timer;
     nanotime_t curr_deadline;
-    nanotime_t curr_time = osGetTime();
+    nanotime_t curr_time;
     bool time_set = false;
+    unsigned next_delay_us = 0;
     /* expire all expired timers */
     do {
         timer = Timer_expire_next();
         curr_deadline = timer.deadline;
         if (!time_set) {
-            timer_time = nanotime_add(timer_time, timer.ideal_delay);
+            curr_time = timer_time = timer.deadline;
             time_set = true;
         }
         if(!timer.one_shot) {
@@ -98,13 +99,15 @@ void Timer_interrupt_handler(void)
         }
         task_wakeup_t taskWakeup = {EVENT_TIMER, EVENT_FLAG_NONE, timer.task, curr_deadline};
         osTaskEnqueue(taskWakeup);
-    } while(nanotime_less_than(Timer_earliest()->deadline, curr_time));
+
+        /* calculate delay for next earliest task */
+        timer_item_t *next_timer = Timer_earliest();
+        if (!next_timer) break;
+        next_delay_us = nanotime_to_us(nanotime_subtract(next_timer->deadline, curr_time));
+    } while(next_delay_us <= TIMER_WAKEUP_BUFFER_US);
     /* Set the next wakeup, if one exists */
     if (items != 0) {
-        nanotime_t timer_delay = Timer_earliest()->ideal_delay;
-        unsigned timer_delay_us = timer_delay.time_s*1000000 +
-            timer_delay.time_ns/1000 - TIMER_WAKEUP_BUFFER_US;
-        platSetAlarm(timer_delay_us);
+        platSetAlarm(next_delay_us - TIMER_WAKEUP_BUFFER_US);
     }
 }
 
