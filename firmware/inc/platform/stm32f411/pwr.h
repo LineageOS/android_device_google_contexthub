@@ -134,6 +134,8 @@ extern "C" {
 #define CRC_BASE                      0x40023000UL
 #define RCC_BASE                      0x40023800UL
 #define FLASH_BASE                    0x40023C00UL
+#define DMA1_BASE                     0x40026000UL
+#define DMA2_BASE                     0x40026400UL
 #define DBG_BASE                      0xE0042000UL
 
 
