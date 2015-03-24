@@ -1,5 +1,5 @@
-#include <cpu/inc/trylock.h>
-#include <cpu/inc/atomicXchg.h>
+#include <trylock.h>
+#include <atomic.h>
 
 
 void trylockInit(struct TryLock *lock)

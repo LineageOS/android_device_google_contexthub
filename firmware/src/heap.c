@@ -1,5 +1,5 @@
-#include <cpu/inc/atomicXchg.h>
-#include <cpu/inc/trylock.h>
+#include <trylock.h>
+#include <atomic.h>
 #include <stdio.h>
 #include <heap.h>
 

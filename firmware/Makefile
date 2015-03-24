@@ -18,7 +18,7 @@ FLAGS += -Wmissing-declarations -Wlogical-op -Waddress -Wempty-body -Wpointer-ar
 FLAGS += -DDEBUG
 
 #frameworks
-SRCS += src/printf.c src/timer.c src/seos.c src/console.c src/heap.c src/slab.c src/spi.c 
+SRCS += src/printf.c src/timer.c src/seos.c src/console.c src/heap.c src/slab.c src/spi.c src/trylock.c 
 
 #app code
 SRCS += app/test_app0.c app/test_app1.c
