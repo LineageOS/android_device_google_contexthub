@@ -1,50 +1,26 @@
-/*
- * Sample SEOS application
- */
-
 #include <stdlib.h>
 #include <string.h>
 
 #include <seos.h>
 #include <accelerometer.h>
 
-static void start_task(struct task_t *task)
+static void start_task(uint32_t myTid)
 {
-    strcpy(task->name, "test_app0");
-    nanotime_t period = {1, 0};
-    osEventSubscribe(task, EVENT_SENSOR, 100000, 100000, 100000, period);
-    osAddTimerPeriodic(task, period, 100000, 10000);
+    //todo
 }
 
-static void end_task(struct task_t *task)
+static void end_task(void)
 {
-    //osUnsubscribeToSensor(task, SENSORTYPEACCELEROMETER);
+    //todo
 }
 
-static bool handle_event(struct task_t *task, event_type_t event_type)
+static void handle_event(uint32_t evtType, const void* evtData)
 {
-//    const char *sensorLog = "Test app 0: sensor event received!";
-    const char *timerLog = "Test app 0: timer event received!";
-
-    switch(event_type) {
-    case EVENT_TIMER:
-        osLog(LOG_DEBUG, (void *)timerLog);
-
-        break;
-
-    case EVENT_SENSOR:
-        //TODO: Register sensor ISRs in a data struct and call here.
-        break;
-
-    case EVENT_RESET:
-        // Tells the OS that we're ready to exit
-        return false;
-
-    default:
-        break;
-    }
-
-    return true;
+    //todo
 }
 
 APP_INIT(start_task, end_task, handle_event);
+
+
+
+

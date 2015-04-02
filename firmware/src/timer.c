@@ -1,203 +1,162 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <seos.h>
+#include <cpu/inc/atomicBitset.h>
+#include <atomicBitset.h>
 #include <platform.h>
+#include <atomic.h>
+#include <stdlib.h>
+#include <stdio.h>
 #include <timer.h>
+#include <seos.h>
 
-#include <string.h>
 
-#define TIMER_LIST_SIZE 16
-#define TIMER_WAKEUP_BUFFER_US 100
+struct Timer {
+    uint64_t      expires; /* time of next expiration */
+    uint32_t      period;  /* 0 for oneshot */
+    uint32_t      id;      /* 0 for disabled */
+    TimTimerCbkF  cbk;
+    uint32_t      jitterPpm;
+    uint32_t      driftPpm;
+    TimTimerCbkF  cbkF;
+    void         *cbkData;
+};
 
-static struct timer_item_t timer_list[TIMER_LIST_SIZE] = {{0}};
-static unsigned items = 0;
 
-//TODO:  Eliminate this once clock counter enabled
-nanotime_t timer_time = {0};
+ATOMIC_BITSET_DECL(mTimersValid, MAX_TIMERS, static);
+static struct Timer mTimers[MAX_TIMERS];
+static volatile uint32_t mNextTimerId = 0;
 
-/* nanotime_t should not contain nanosec_t values of greater than NS_PER_S */
-bool nanotime_less_than(nanotime_t time_a, nanotime_t time_b)
+
+uint64_t timGetTime(void)
 {
-    if (time_a.time_ns >= NS_PER_S || time_b.time_ns >= NS_PER_S)
-        osLog(LOG_WARN, "Comparing nanotime_t's with more than 1 bil ns.");
-    if (((time_a.time_s | time_a.time_ns) == 0) ||
-            ((time_b.time_s | time_b.time_ns) == 0))
-        osLog(LOG_DEBUG, "0-valued time being compared.  Could \
-                it be uninitialized?");
-    return (time_a.time_s < time_b.time_s) ||
-        (time_a.time_s == time_b.time_s && time_a.time_ns < time_b.time_ns);
+    return platGetTicks();
 }
 
-/* For nanotimes to be added, nanosecond member must be less than NS_PER_S */
-nanotime_t nanotime_add(nanotime_t time_a, nanotime_t time_b)
+static struct Timer *timFindTimerById(uint32_t timId) /* no locks taken. be careful what you do with this */
 {
-    nanotime_t sum = {0};
-    if ((time_a.time_ns >= NS_PER_S) || (time_b.time_ns >= NS_PER_S)) {
-        osLog(LOG_WARN, "nanotime_t unit extends beyond a single nanosecond.");
-        return sum;
-    }
-    sum.time_ns = time_a.time_ns + time_b.time_ns;
-    bool carry = (sum.time_ns >= NS_PER_S);
-    if (carry)
-        sum.time_ns -= NS_PER_S;
-    sum.time_s = time_a.time_s + time_b.time_s +
-        (carry ? 1 : 0);
-    return sum;
+    uint32_t i;
+
+    for (i = 0; i < MAX_TIMERS; i++)
+        if (mTimers[i].id == timId)
+            return mTimers + i;
+
+    return NULL;
 }
 
-nanotime_t nanotime_subtract(nanotime_t time_a, nanotime_t time_b)
+static bool timerSetAlarms(uint64_t nextTimer, uint64_t curTime, uint32_t maxJitterPpm, uint32_t maxDriftPpm, uint32_t maxErrTotalPpm)
 {
-    nanotime_t diff = {0};
-    if ((time_a.time_ns >= NS_PER_S) || (time_b.time_ns >= NS_PER_S)) {
-        osLog(LOG_WARN, "nanotime_t unit extends beyond a single nanosecond.");
-        return diff;
-    }
-    if (time_a.time_s < time_b.time_s || (time_a.time_s == time_b.time_s && time_a.time_ns < time_b.time_ns)) {
-        osLog(LOG_WARN, "Trying to subtract a larger nanotime from smaller.");
-        return diff;
-    }
+    //here the code to set next timer of some variety will live
+    //note that maxErrTotalPpm != maxDriftPpm + maxJitterPpm is quite possible since it is possible to have:
+    // timer A allowing 300ppm of jitter and 10pp of drift and timer B allowing 20ppm of jitter and 500ppm of drift
+    // in that case we'd see maxJitterPpm = 200, maxDriftPpm = 500, maxErrTotalPpm = 520  (MAX of all timers' allowable error totals)
+    //return true if timer was set. false if you failed (you will be called right back though. so false is usually reserved for cases
+    // like "it is too soon to set a timer")
 
-    diff.time_s = time_a.time_s - time_b.time_s;
-
-    if (time_b.time_ns > time_a.time_ns) {
-        diff.time_s--;
-        time_a.time_ns += NS_PER_S;
-    }
-    diff.time_ns = time_a.time_ns - time_b.time_ns;
-
-    return diff;
+    //todo
+    return false;
 }
 
-uint64_t nanotime_to_us(nanotime_t time)
+static void timFireAsNeededAndUpdateAlarms(void)
 {
-    return time.time_s*1000000 + time.time_ns/1000;
-}
+    uint32_t maxDrift = 0, maxJitter = 0, maxErrTotal = 0;
+    bool somethingDone = false;
+    uint64_t nextTimer = 0;
+    TimTimerCbkF cbkF;
+    uint64_t curTime;
+    uint32_t i, id;
+    void *cbkD;
 
-
-void Timer_init(void)
-{
-}
-
-void Timer_interrupt_handler(void)
-{
-    timer_item_t timer;
-    nanotime_t curr_deadline;
-    nanotime_t curr_time;
-    bool time_set = false;
-    unsigned next_delay_us = 0;
-    /* expire all expired timers */
     do {
-        timer = Timer_expire_next();
-        curr_deadline = timer.deadline;
-        if (!time_set) {
-            curr_time = timer_time = timer.deadline;
-            time_set = true;
+
+        for (i = 0; i < MAX_TIMERS; i++) {
+            if (!mTimers[i].id)
+                continue;
+
+            if (mTimers[i].expires <= timGetTime()) {
+                somethingDone = true;
+                cbkF = mTimers[i].cbkF;
+                cbkD = mTimers[i].cbkData;
+                id = mTimers[i].id;
+                if (mTimers[i].period)
+                    mTimers[i].expires += mTimers[i].period;
+                else {
+                    mTimers[i].id = 0;
+                    atomicBitsetClearBit(mTimersValid, i);
+                }
+                cbkF(id, cbkD);
+            }
+            else {
+                if (mTimers[i].jitterPpm > maxJitter)
+                    maxJitter = mTimers[i].jitterPpm;
+                if (mTimers[i].driftPpm > maxDrift)
+                    maxDrift = mTimers[i].driftPpm;
+                if (mTimers[i].driftPpm + mTimers[i].jitterPpm > maxErrTotal)
+                    maxErrTotal = mTimers[i].driftPpm + mTimers[i].jitterPpm;
+                if (!nextTimer || nextTimer > mTimers[i].expires)
+                    nextTimer = mTimers[i].expires;
+            }
         }
-        if(!timer.one_shot) {
-            timer.deadline = nanotime_add(timer_time, timer.ideal_delay);
-            Timer_insert_timer(timer);
-        }
-        task_wakeup_t taskWakeup = {EVENT_TIMER, EVENT_FLAG_NONE, timer.task, curr_deadline};
-        osTaskEnqueue(taskWakeup);
-
-        /* calculate delay for next earliest task */
-        timer_item_t *next_timer = Timer_earliest();
-        if (!next_timer) break;
-        next_delay_us = nanotime_to_us(nanotime_subtract(next_timer->deadline, curr_time));
-    } while(next_delay_us <= TIMER_WAKEUP_BUFFER_US);
-    /* Set the next wakeup, if one exists */
-    if (items != 0) {
-        platSetAlarm(next_delay_us - TIMER_WAKEUP_BUFFER_US);
-    }
+        curTime = timGetTime();
+    } while (somethingDone || curTime <= nextTimer || !timerSetAlarms(nextTimer, curTime, maxJitter, maxDrift, maxErrTotal));
 }
 
-bool Timer_insert(task_t *task, nanotime_t period, nanosec_t max_jitter_ns,
-        nanosec_t max_drift_ns, bool one_shot)
+uint32_t timTimerSet(uint64_t length, uint32_t jitterPpm, uint32_t driftPpm, TimTimerCbkF cbk, void* data, bool oneShot)
 {
-    nanotime_t deadline = nanotime_add(osGetTime(), period);
-    timer_item_t timer = {task, deadline, period, max_jitter_ns, max_drift_ns,
-        one_shot};
-    return Timer_insert_timer(timer);
+    uint64_t curTime = timGetTime();
+    int32_t idx = atomicBitsetFindClearAndSet(mTimersValid);
+    struct Timer *t;
+    uint32_t timId;
+
+    if (idx < 0) /* no free timers */
+        return 0;
+
+    /* generate next timer ID */
+    do {
+        timId = atomicAdd(&mNextTimerId, 1);
+    } while (!timId || timFindTimerById(timId));
+
+    /* grab our struct & fill it in */
+    t = mTimers + idx;
+    t->expires = curTime + length;
+    t->period = oneShot ? 0 : length;
+    t->jitterPpm = jitterPpm;
+    t->driftPpm = driftPpm;
+    t->cbkF = cbk;
+    t->cbkData = data;
+
+    /* as soon as we write timer Id, it becomes valid and might fire */
+    t->id = timId;
+
+    /* fire as needed & recalc alarms*/
+    timFireAsNeededAndUpdateAlarms();
+
+    /* woo hoo - done */
+    return timId;
 }
 
-//TODO If naive iteration of timers proves inefficient, switch to heap
-bool Timer_insert_timer(timer_item_t timer)
+bool timTimerCancel(uint32_t timerId)
 {
-    int i;
+    uint64_t intState = platDisableInterrupts();
+    struct Timer *t = timFindTimerById(timerId);
 
-    if (items == TIMER_LIST_SIZE) {
-        osLog(LOG_WARN, "Timer insertion failed, timers full.\n");
-        return false;
+    if (t)
+        t->id = 0; /* this disables it */
+
+    platRestoreInterrupts(intState);
+
+    /* this frees struct */
+    if (t) {
+        atomicBitsetClearBit(mTimersValid, t - mTimers);
+        return true;
     }
 
-    for(i = 0; i < TIMER_LIST_SIZE; i++) {
-        if(timer_list[i].task == NULL) {
-            timer_list[i] = timer;
-            items++;
-            break;
-        }
-    }
-
-    platSetAlarm(nanotime_to_us(Timer_earliest()->deadline) - TIMER_WAKEUP_BUFFER_US);
-    return true;
+    return false;
 }
 
-timer_item_t Timer_expire_next(void)
+void timIntHandler(void)
 {
-    timer_item_t *next;
-    timer_item_t empty_timer = {0};
-    timer_item_t temp = {0};
-
-    if (items == 0)
-        return empty_timer;
-
-    /* Remove earliest deadline */
-    next  = Timer_earliest();
-    temp = *next;
-    *next = empty_timer;
-    items--;
-
-    return temp;
+    timFireAsNeededAndUpdateAlarms();
 }
 
-bool Timer_is_active(void)
-{
-    return (items > 0);
-}
 
-//TODO: does access to timers need to be locked?
-timer_item_t *Timer_earliest(void)
-{
-    int i;
 
-    /* Return earliest deadline */
-    timer_item_t *min = NULL;
-    if (items == 0) {
-        return min;
-    }
-    for (i = 0; i < TIMER_LIST_SIZE; i++) {
-        if (timer_list[i].task != NULL) {
-            if (min == NULL)
-                min = &timer_list[i];
-            else if (nanotime_less_than(timer_list[i].deadline,
-                        min->deadline))
-                min = &timer_list[i];
-        }
-    }
-    return min;
-}
 
-void Timer_clear_timers_for_task(struct task_t *task)
-{
-    int i;
-
-    timer_item_t empty_timer_item = {0};
-    for (i = 0; i < TIMER_LIST_SIZE; i++) {
-        if (timer_list[i].task == task) {
-            /* Remove timer */
-            timer_list[i] = empty_timer_item;
-            items--;
-        }
-    }
-}
 

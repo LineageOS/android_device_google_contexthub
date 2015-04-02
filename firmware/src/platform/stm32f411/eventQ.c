@@ -144,14 +144,14 @@ bool evtQueueDequeue(struct EvtQueue* q, uint32_t *evtTypeP, void **evtDataP, Ev
             "    ldr %0, [%5]          \n"
             "    cmp %0, #0            \n"
             "    bne 4f                \n"
-            "    bl platformSleep      \n" /* should be interruptible */
+            "    bl platSleep          \n" /* should be interruptible */
             "2:                        \n"
             "3:                        \n"
-            "    bl platformWake       \n" /* should handle undoing whatever interrupted platformSleep() did */
+            "    bl platWake           \n" /* should handle undoing whatever interrupted platformSleep() did */
             "4:                        \n"
             "    pop {r0-r3, r12, lr}  \n"
             :"=r"(rec)
-            :"r"(&mEvtDequeueStartPc), "r"(&mEvtDequeueEndPc), "r"(&mEvtDequeueCancelPc), "r"((uint32_t)intSta), "r"(&q->head)
+            :"0"(rec), "r"(&mEvtDequeueStartPc), "r"(&mEvtDequeueEndPc), "r"(&mEvtDequeueCancelPc), "r"((uint32_t)intSta), "r"(&q->head)
             :"memory","cc"
         );
     }

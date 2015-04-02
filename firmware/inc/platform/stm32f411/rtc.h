@@ -8,8 +8,13 @@ extern "C" {
 #include <stdint.h>
 #include <inc/seos.h>
 
+#define RTC_ERR_TOO_BIG         -1
+#define RTC_ERR_TOO_SMALL       -2
+#define RTC_ERR_INTERNAL        -3
+#define RTC_ERR_ACCURACY_UNMET  -4
+
 void rtcInit(void);
-int rtcSetWakeupTimer(struct nanotime_t delay, int ppm);
+int rtcSetWakeupTimer(uint64_t delay, int ppm);
 
 #ifdef __cplusplus
 }

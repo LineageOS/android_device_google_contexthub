@@ -176,7 +176,7 @@ void TIM2_IRQHandler(void)
     block->CR1 &=~ 1;
 
     /* tell the caller */
-    Timer_interrupt_handler();
+    timIntHandler();
 }
 
 /* SysTick interrupt handler */

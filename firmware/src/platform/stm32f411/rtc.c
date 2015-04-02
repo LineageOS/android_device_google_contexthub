@@ -122,49 +122,48 @@ void rtcInit(void)
     rtcSetDefaultDateTimeAndPrescalar();
 }
 
-/* Set calendar alarm to go off after delay has expired. nanotime_t delay must
- * be in valid nanotime_t format and must be less than 32 s.  A negative value
+/* Set calendar alarm to go off after delay has expired. uint64_t delay must
+ * be in valid uint64_t format and must be less than 32 s.  A negative value
  * for the 'ppm' param indicates the alarm has no accuracy requirements. */
-int rtcSetWakeupTimer(struct nanotime_t delay, int ppm)
+int rtcSetWakeupTimer(uint64_t delay, int ppm)
 {
-    if (delay.time_s >= 32) {
-        return TIMER_ERR_TOO_BIG;
+    if (delay >= 32000000000ULL) { /* 32 second limit */
+        return RTC_ERR_TOO_BIG;
     }
 
-    uint64_t delayNs = delay.time_ns + delay.time_s * (uint64_t)NS_PER_S;
     uint32_t wakeupClock;
     uint32_t periodNs;
 
     /* Minimum wakeup interrupt period is 122 us */
-    if (delayNs < (RTC_DIV2_PERIOD_NS * 2)) {
-        return TIMER_ERR_TOO_SMALL;
+    if (delay < (RTC_DIV2_PERIOD_NS * 2)) {
+        return RTC_ERR_TOO_SMALL;
     }
 
     /* Get appropriate clock period for delay size.  Wakeup clock = RTC/x. */
-    if (delayNs < (RTC_DIV2_PERIOD_NS * RTC_WKUP_DOWNCOUNT_MAX)) {
+    if (delay < (RTC_DIV2_PERIOD_NS * RTC_WKUP_DOWNCOUNT_MAX)) {
         wakeupClock = RTC_CR_WUCKSEL_2DIV;
         periodNs = RTC_DIV2_PERIOD_NS;
-    } else if (delayNs < ((unsigned long long)RTC_DIV4_PERIOD_NS *
+    } else if (delay < ((unsigned long long)RTC_DIV4_PERIOD_NS *
                 RTC_WKUP_DOWNCOUNT_MAX)) {
         wakeupClock = RTC_CR_WUCKSEL_4DIV;
         periodNs = RTC_DIV4_PERIOD_NS;
-    } else if (delayNs < ((unsigned long long)RTC_DIV8_PERIOD_NS *
+    } else if (delay < ((unsigned long long)RTC_DIV8_PERIOD_NS *
                 RTC_WKUP_DOWNCOUNT_MAX)) {
         wakeupClock = RTC_CR_WUCKSEL_8DIV;
         periodNs = RTC_DIV8_PERIOD_NS;
-    } else if (delayNs < ((unsigned long long)RTC_DIV16_PERIOD_NS *
+    } else if (delay < ((unsigned long long)RTC_DIV16_PERIOD_NS *
                 RTC_WKUP_DOWNCOUNT_MAX)) {
         wakeupClock = RTC_CR_WUCKSEL_16DIV;
         periodNs = RTC_DIV16_PERIOD_NS;
     } else {
-        osLog(LOG_ERROR, "Y U NO RETURN ERROR?");
-        return TIMER_ERR_EVERYTHING_IS_TERRIBLE;
+        osLog(LOG_ERROR, "RTC delay impossinble");
+        return RTC_ERR_INTERNAL;
     }
 
     /* If PPM for OS timer is less than PPM of wakeup timer, can't use.
      * PPM of timer is calculated as jitter/(delay * 1,000,000) + drift PPM */
-    if ((ppm - RTC_PPM) * delayNs < (periodNs + RTC_WUT_NOISE_NS)* 1000000)
-        return TIMER_ERR_ACCURACY_REQUIREMENTS_UNMET;
+    if ((ppm - RTC_PPM) * delay < (periodNs + RTC_WUT_NOISE_NS)* 1000000)
+        return RTC_ERR_ACCURACY_UNMET;
 
     platDisableInterrupts();
 
@@ -191,7 +190,7 @@ int rtcSetWakeupTimer(struct nanotime_t delay, int ppm)
     RTC->CR |= wakeupClock;
     /* Downcounter value for wakeup clock.  Wakeup flag is set every
      * RTC->WUTR[15:0] + 1 cycles of the WUT clock. */
-    RTC->WUTR = delayNs / periodNs - 1;
+    RTC->WUTR = delay / periodNs - 1;
 
     /* Enable wakeup interrupts */
     RTC->CR |= RTC_CR_WUTIE;

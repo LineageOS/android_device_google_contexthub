@@ -9,6 +9,8 @@ struct AtomicBitset;
 
 //static size calc:
 //	ATOMIC_BITSET_SZ(numbits)
+//static alloc
+//      ATOMIC_BITSET_DECL(nam, numbits, [static]);
 //dynamic init:
 //	uint32_t sz = atomicBitsetSize(uint32_t numBits);
 //	struct AtomicBitset *set = (struct AtomicBitset*)heapAlloc(sz);
@@ -18,7 +20,7 @@ struct AtomicBitset;
 void atomicBitsetInit(struct AtomicBitset *set, uint32_t numBits); //inited state is all zeroes
 uint32_t atomicBitsetGetNumBits(const struct AtomicBitset *set);
 bool atomicBitsetGetBit(const struct AtomicBitset *set, uint32_t num);
-void atomicBitsetSetBit(struct AtomicBitset *set, uint32_t num, bool val);
+void atomicBitsetClearBit(struct AtomicBitset *set, uint32_t num);
 
 //find a clear bit and set it atomically.
 // returns bit number or negative if none.
