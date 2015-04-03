@@ -77,7 +77,8 @@ void platUninitialize(void)
 
 void platSleep(void)
 {
-    asm volatile ("wfi" :::"memory");
+    asm volatile ("wfi\n"
+            "nop" :::"memory");
 }
 
 void platWake(void)
