@@ -58,7 +58,7 @@ void slabAllocatorFree(struct SlabAllocator *allocator, void* ptrP)
     if ((itemOffset % allocator->itemSz) || (itemIdx >= atomicBitsetGetNumBits(&allocator->bitset)) || !atomicBitsetGetBit(&allocator->bitset, itemIdx))
         return;
 
-    atomicBitsetSetBit(&allocator->bitset, itemIdx, false);
+    atomicBitsetClearBit(&allocator->bitset, itemIdx);
 }
 
 

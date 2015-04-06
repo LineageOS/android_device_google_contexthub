@@ -25,9 +25,10 @@ bool atomicBitsetGetBit(const struct AtomicBitset *set, uint32_t num)
     return !!((set->words[num / 32]) & (1UL << (num & 31)));
 }
 
-void atomicBitsetSetBit(struct AtomicBitset *set, uint32_t num, bool val)
+void atomicBitsetClearBit(struct AtomicBitset *set, uint32_t num)
 {
     uint32_t idx = num / 32, mask = 1UL << (num & 31), status, tmp;
+    uint32_t *wordPtr = set->words + idx;
 
     if (num >= set->numBits)
         return;
@@ -37,8 +38,8 @@ void atomicBitsetSetBit(struct AtomicBitset *set, uint32_t num, bool val)
             "    ldrex %0, [%2]       \n"
             "    bic   %0, %3         \n"
             "    strex %1, %0, [%2]   \n"
-            :"=r"(tmp), "=r"(status)
-            :"r"(set->words + idx), "r"(mask)
+            :"=r"(tmp), "=r"(status), "=r"(wordPtr), "=r"(mask)
+            :"2"(wordPtr), "3"(mask)
             :"cc","memory"
         );
     } while (status);
@@ -48,8 +49,9 @@ int32_t atomicBitsetFindClearAndSet(struct AtomicBitset *set)
 {
     uint32_t idx, numWords = (set->numBits + 31) / 32;
     uint32_t scratch1, scratch2, scratch3, bit = 32;
+    uint32_t *wordPtr = set->words;
 
-    for (idx = 0; idx < numWords && bit == 32; idx++) {
+    for (idx = 0; idx < numWords && bit == 32; idx++, wordPtr++) {
         asm volatile(
             "1:                       \n"
             "    ldrex %0, [%4]       \n"
@@ -63,13 +65,13 @@ int32_t atomicBitsetFindClearAndSet(struct AtomicBitset *set)
             "    cmp   %3, #0         \n"
             "    bne   1b             \n"
             "1:                       \n"
-            :"=r"(scratch1), "=r"(bit), "=r"(scratch2), "=r"(scratch3)
-            :"r"(set->words + idx), "1"(32), "2"(1)
+            :"=r"(scratch1), "=r"(bit), "=r"(scratch2), "=r"(scratch3), "=r"(wordPtr)
+            :"1"(32), "2"(1), "4"(wordPtr)
             :"cc", "memory"
         );
     }
 
-    return (idx == numWords) ? -1 : (idx * 32) + bit;
+    return (idx == numWords) ? -1 : ((idx - 1) * 32) + bit;
 }
 
 
