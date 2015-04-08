@@ -10,6 +10,7 @@ struct AtomicBitset {
 };
 
 #define ATOMIC_BITSET_SZ(numbits)	(sizeof(struct AtomicBitset) + ((numbits) + 31) / 8)
+#define ATOMIC_BITSET_DECL(nam, numbits, extra_keyword)    extra_keyword uint8_t _##nam##_store [ATOMIC_BITSET_SZ(numbits)] __attribute__((aligned(4))); extra_keyword struct AtomicBitset *nam = (struct AtomicBitset*)_##nam##_store
 
 
 void atomicBitsetInit(struct AtomicBitset *set, uint32_t numBits);
