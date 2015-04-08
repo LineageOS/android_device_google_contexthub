@@ -69,9 +69,12 @@ int32_t atomicBitsetFindClearAndSet(struct AtomicBitset *set)
             :"1"(32), "2"(1), "4"(wordPtr)
             :"cc", "memory"
         );
+
+        if (bit != 32)
+            return (idx * 32) + bit;
     }
 
-    return (idx == numWords) ? -1 : ((idx - 1) * 32) + bit;
+    return -1;
 }
 
 
