@@ -13,6 +13,7 @@
 #include <timer.h>
 #include <usart.h>
 #include <gpio.h>
+#include <mpu.h>
 #include <cpu.h>
 
 
@@ -132,6 +133,9 @@ void platInitialize(void)
 #else
     dbg->CR &=~ debugStateInSleepMode;
 #endif
+
+    /* enable MPU */
+    mpuStart();
 
     /* set up timer used for alarms */
     pwrUnitClock(PERIPH_BUS_APB1, PERIPH_APB1_TIM2, true);
