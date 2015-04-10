@@ -24,6 +24,7 @@ SRCS += src/platform/$(PLATFORM)/platform.c \
 	src/platform/$(PLATFORM)/spi.c \
 	src/platform/$(PLATFORM)/rtc.c \
 	src/platform/$(PLATFORM)/eventQ.c \
+	src/platform/$(PLATFORM)/mpu.c \
 	src/platform/$(PLATFORM)/dma.c
 
 #extra deps
