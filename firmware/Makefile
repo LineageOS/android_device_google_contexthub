@@ -20,6 +20,10 @@ FLAGS += -DDEBUG
 #frameworks
 SRCS += src/printf.c src/timer.c src/seos.c src/heap.c src/slab.c src/spi.c src/trylock.c 
 
+ifndef PLATFORM_HAS_HARDWARE_CRC
+SRCS += src/softcrc.c
+endif
+
 #app code
 SRCS += app/test_app0.c app/test_app1.c
 

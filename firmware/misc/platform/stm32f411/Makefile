@@ -25,13 +25,16 @@ SRCS += src/platform/$(PLATFORM)/platform.c \
 	src/platform/$(PLATFORM)/rtc.c \
 	src/platform/$(PLATFORM)/eventQ.c \
 	src/platform/$(PLATFORM)/mpu.c \
-	src/platform/$(PLATFORM)/dma.c
+	src/platform/$(PLATFORM)/dma.c \
+	src/platform/$(PLATFORM)/crc.c
 
 #extra deps
 DEPS += $(wildcard inc/platform/$(PLATFORM)/*.h)
 DEPS += $(wildcard inc/platform/$(PLATFORM)/cmsis/*.h)
 DEPS += $(LKR)
 
+#platform flags
+PLATFORM_HAS_HARDWARE_CRC = true
 
 #platform-specific rules
 
