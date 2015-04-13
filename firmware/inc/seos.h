@@ -16,6 +16,7 @@ extern "C" {
 
 #define EVT_NO_FIRST_USER_EVENT          0x00000100    //all events lower than this are reserved for the OS. all of them are nondiscardable necessarily!
 
+#define OS_VER                           0x0000
 
 struct AppEntry {
     /* lifescycle */
