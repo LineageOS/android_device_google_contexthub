@@ -42,7 +42,8 @@ enum LogLevel {
     LOG_DEBUG = 'D',
 };
 
-void osLog(enum LogLevel level, const char *str, ...);
+void osLog(enum LogLevel level, const char *str, ...)
+    __attribute__((format(printf, 2, 3)));
 
 #define APP_INIT(_start, _end, _event) \
 static const struct AppEntry __attribute__((used,section (".app_init"))) mAppEntry = {\
