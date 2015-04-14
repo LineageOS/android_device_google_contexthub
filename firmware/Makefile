@@ -25,7 +25,7 @@ SRCS += src/softcrc.c
 endif
 
 #app code
-SRCS += app/test_app0.c app/test_app1.c
+SRCS += app/test_app0.c app/test_app1.c app/hostIntfApp.c
 
 
 #extra deps
