@@ -2,6 +2,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <mpu.h>
+#include <plat/inc/bl.h>
 
 struct CortexMpu {
     volatile uint32_t CTRL;
@@ -36,7 +37,6 @@ struct CortexMpu {
 #define MPU_BIT_ENABLE  1UL
 
 /* these define rom */
-extern uint8_t __bl_start[];
 extern uint8_t __shared_end[];
 extern uint8_t __ram_start[];
 extern uint8_t __ram_end[];
@@ -76,7 +76,7 @@ static void mpuRegionCfg(uint32_t regionNo, uint32_t start, uint32_t len, uint32
 
 static void mpuCfgRom(bool allowSvcWrite)
 {
-    mpuRegionCfg(MPU_REG_ROM, (uint32_t)&__bl_start, __shared_end - __bl_start, MPU_SRD_BITS | MPU_TYPE_MEMORY | (allowSvcWrite ? MPU_U_RO_S_RW : MPU_U_RO_S_RO));
+    mpuRegionCfg(MPU_REG_ROM, (uint32_t)&BL, __shared_end - (uint8_t*)&BL, MPU_SRD_BITS | MPU_TYPE_MEMORY | (allowSvcWrite ? MPU_U_RO_S_RW : MPU_U_RO_S_RO));
 }
 
 static void mpuCfgRam(bool allowSvcExecute)

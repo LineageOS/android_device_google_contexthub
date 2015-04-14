@@ -112,7 +112,6 @@ typedef void (*flashWrite)(volatile uint8_t *, uint8_t, volatile uint32_t *);
 extern char __stack_top[];
 extern char __ram_start[];
 extern char __ram_end[];
-extern char __bl_start[];
 extern char __eedata_start[];
 extern char __eedata_end[];
 extern char __code_start[];
@@ -162,7 +161,7 @@ void BOOTLOADER __blEntry(void)
 
     //make sure we're the vector table and no ints happen (BL does not use them)
     __blDisableInts();
-    SCB->VTOR = (uint32_t)&__bl_start;
+    SCB->VTOR = (uint32_t)&BL;
 
     __blCopyShared();
 
@@ -286,7 +285,7 @@ static const BOOTLOADER_RO struct blFlashTable
     uint32_t type;
 } __blFlashTable[] =
 {
-    { (uint8_t *)(__bl_start),               0x04000, BL_FLASH_BL     },
+    { (uint8_t *)(&BL),                      0x04000, BL_FLASH_BL     },
     { (uint8_t *)(__eedata_start),           0x04000, BL_FLASH_EEDATA },
     { (uint8_t *)(__eedata_start + 0x04000), 0x04000, BL_FLASH_EEDATA },
     { (uint8_t *)(__code_start),             0x04000, BL_FLASH_KERNEL },

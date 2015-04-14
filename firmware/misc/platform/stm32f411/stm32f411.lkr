@@ -12,7 +12,7 @@ SECTIONS
 {
 	/* bootloader */
 	.bl : {
-		__bl_start = ABSOLUTE(.);
+		BL = ABSOLUTE(.);
 		KEEP (*(.blvec) ) ;
 		*(.bltext) *(.bltext.*) ;
 		*(.blrodata) *(.blrodata.*) ;
