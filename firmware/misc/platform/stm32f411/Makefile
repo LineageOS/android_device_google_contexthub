@@ -26,7 +26,8 @@ SRCS += src/platform/$(PLATFORM)/platform.c \
 	src/platform/$(PLATFORM)/eventQ.c \
 	src/platform/$(PLATFORM)/mpu.c \
 	src/platform/$(PLATFORM)/dma.c \
-	src/platform/$(PLATFORM)/crc.c
+	src/platform/$(PLATFORM)/crc.c \
+	src/platform/$(PLATFORM)/hostIntf.c
 
 #extra deps
 DEPS += $(wildcard inc/platform/$(PLATFORM)/*.h)
@@ -35,6 +36,8 @@ DEPS += $(LKR)
 
 #platform flags
 PLATFORM_HAS_HARDWARE_CRC = true
+FLAGS += -DPLATFORM_HOST_INTF_I2C_BUS=0
+FLAGS += -DPLATFORM_HW_TYPE=0xF411 -DPLATFORM_HW_VER=0
 
 #platform-specific rules
 
