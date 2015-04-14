@@ -13,15 +13,8 @@ struct StmExti
 
 #define EXTI ((struct StmExti*)EXTI_BASE)
 
-void extiEnableIntGpio(const struct Gpio *__restrict gpio, ExtiTrigger trigger)
+void extiEnableIntLine(const enum ExtiLine line, enum ExtiTrigger trigger)
 {
-    const uint8_t pinNo = gpio->gpio & GPIO_PIN_MASK;
-    extiEnableIntLine(pinNo, trigger);
-}
-
-void extiEnableIntLine(uint32_t line, ExtiTrigger trigger)
-{
-
     if (trigger == EXTI_TRIGGER_BOTH) {
         EXTI->RTSR |= (1UL << line);
         EXTI->FTSR |= (1UL << line);
@@ -34,32 +27,23 @@ void extiEnableIntLine(uint32_t line, ExtiTrigger trigger)
     }
 
     /* Clear pending interrupt */
-    EXTI->PR |= (1UL << line);
+    extiClearPendingLine(line);
 
     /* Enable hardware interrupt */
     EXTI->IMR |= (1UL << line);
 }
 
-void extiDisableIntGpio(const struct Gpio *__restrict gpio)
-{
-    const uint8_t pinNo = gpio->gpio & GPIO_PIN_MASK;
-
-    extiDisableIntLine(pinNo);
-}
-
-void extiDisableIntLine(uint32_t line)
+void extiDisableIntLine(const enum ExtiLine line)
 {
     EXTI->IMR &= ~(1UL << line);
 }
 
-void extiClearPendingGpio(const struct Gpio *__restrict gpio)
-{
-    const uint8_t pinNo = gpio->gpio & GPIO_PIN_MASK;
-
-    EXTI->PR |= (1UL << pinNo);
-}
-
-void extiClearPendingLine(uint32_t line)
+void extiClearPendingLine(const enum ExtiLine line)
 {
     EXTI->PR |= (1UL << line);
+}
+
+bool extiIsPendingLine(const enum ExtiLine line)
+{
+    return (EXTI->PR & (1UL << line)) ? true : false;
 }

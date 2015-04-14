@@ -55,7 +55,6 @@ struct StmRtc
 
 /* RTC internal values */
 #define RTC_FREQ_HZ                 32768UL
-#define RTC_WKUP_EXTI_LINE          22UL
 #define RTC_WKUP_DOWNCOUNT_MAX      0x10000UL
 
 /* TODO: Reset to crystal PPM once known */
@@ -112,7 +111,7 @@ static void rtcSetDefaultDateTimeAndPrescalar(void)
      * 4 RTC cycles after set - must poll RSF before read DR or TR */
     RTC->WPR = 0xFF;
 
-    extiEnableIntLine(RTC_WKUP_EXTI_LINE, EXTI_TRIGGER_RISING);
+    extiEnableIntLine(EXTI_LINE_RTC_WKUP, EXTI_TRIGGER_RISING);
     NVIC_EnableIRQ(RTC_WKUP_IRQn);
 }
 
@@ -194,7 +193,7 @@ int rtcSetWakeupTimer(uint64_t delay, int ppm)
 
     /* Enable wakeup interrupts */
     RTC->CR |= RTC_CR_WUTIE;
-    extiClearPendingLine(RTC_WKUP_EXTI_LINE);
+    extiClearPendingLine(EXTI_LINE_RTC_WKUP);
     /* Enable wakeup timer */
     RTC->CR |= RTC_CR_WUTE;
     /* Exit init mode */
@@ -212,5 +211,5 @@ int rtcSetWakeupTimer(uint64_t delay, int ppm)
 void EXTI22_RTC_WKUP_IRQHandler(void);
 void EXTI22_RTC_WKUP_IRQHandler(void)
 {
-    extiClearPendingLine(RTC_WKUP_EXTI_LINE);
+    extiClearPendingLine(EXTI_LINE_RTC_WKUP);
 }
