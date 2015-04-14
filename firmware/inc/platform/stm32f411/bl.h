@@ -36,8 +36,7 @@ struct BlVecTable {
 };
 
 //for using outside of bootloader
-extern char __bl_start[];
-#define BL    ((struct BlVecTable*)&__bl_start)
+extern struct BlVecTable BL;
 
 #ifdef __cplusplus
 }
