@@ -129,7 +129,7 @@ uint32_t cvprintf(printf_write_c putc_f, void* userData, const char* fmtStr, va_
         }
         else if (c == '%') {
 
-            bool zeroExtend = false, useLong = false, useLongLong = false, bail = false, caps = false;
+            bool zeroExtend = false, useLong = false, useLongLong = false, useSizeT = false, bail = false, caps = false;
             uint32_t padToLength = 0, len, i;
             const char* str;
 
@@ -196,9 +196,21 @@ more_fmt:
                     padToLength = (padToLength * 10) + c - '0';
                     goto more_fmt;
 
+#define GET_UVAL64() \
+        useSizeT ? va_arg(vl, size_t) :                 \
+        useLongLong ? va_arg(vl, unsigned long long) :  \
+        useLong ? va_arg(vl, unsigned long) :           \
+        va_arg(vl, unsigned int)
+
+#define GET_SVAL64() \
+        useSizeT ? va_arg(vl, size_t) :                 \
+        useLongLong ? va_arg(vl, signed long long) :    \
+        useLong ? va_arg(vl, signed long) :             \
+        va_arg(vl, signed int)
+
                 case 'u':
 
-                    val64 = useLongLong ? va_arg(vl, unsigned long long) : (useLong ? va_arg(vl,unsigned long) : va_arg(vl,unsigned int));
+                    val64 = GET_UVAL64();
                     numPrinted += StrPrvPrintfEx_number(putc_f, userData,val64,10,zeroExtend,0,padToLength,0,&bail);
                     if (bail)
                         goto out;
@@ -207,7 +219,7 @@ more_fmt:
                 case 'd':
                 case 'i':
 
-                    val64 = useLongLong ? va_arg(vl, signed long long) : (useLong ? va_arg(vl,signed long) : va_arg(vl,signed int));
+                    val64 = GET_SVAL64();
                     numPrinted += StrPrvPrintfEx_number(putc_f, userData, val64, 10, zeroExtend, true, padToLength, false, &bail);
                     if (bail)
                         goto out;
@@ -218,7 +230,7 @@ more_fmt:
 
                 case 'x':
 
-                    val64 = useLongLong ? va_arg(vl, unsigned long long) : (useLong ? va_arg(vl,unsigned long) : va_arg(vl,unsigned int));
+                    val64 = GET_UVAL64();
                     numPrinted += StrPrvPrintfEx_number(putc_f, userData, val64, 16, zeroExtend, false, padToLength, caps, &bail);
                     if (bail)
                         goto out;
@@ -226,17 +238,24 @@ more_fmt:
 
                 case 'b':
 
-                    val64 = useLongLong ? va_arg(vl, unsigned long long) : (useLong ? va_arg(vl,unsigned long) : va_arg(vl,unsigned int));
+                    val64 = GET_UVAL64();
                     numPrinted += StrPrvPrintfEx_number(putc_f, userData, val64, 2, zeroExtend, false, padToLength, false ,&bail);
                     if (bail)
                         goto out;
                     break;
+
+#undef GET_UVAL64
+#undef GET_SVAL64
 
                 case 'L':
                 case 'l':
                     if (useLong)
                         useLongLong = true;
                     useLong = true;
+                    goto more_fmt;
+
+                case 'z':
+                    useSizeT = true;
                     goto more_fmt;
 
                 default:
