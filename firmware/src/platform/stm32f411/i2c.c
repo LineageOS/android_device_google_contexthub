@@ -242,7 +242,7 @@ static inline void i2cStmRxDone(struct StmI2cDev *pdev)
 
     i2cStmAckDisable(pdev);
     state->rx.offset = 0;
-    state->rx.callback(state->rx.cookie, 0, rxOffst);
+    state->rx.callback(state->rx.cookie, 0, rxOffst, 0);
 }
 
 static inline void i2cStmTxDone(struct StmI2cDev *pdev)
@@ -251,7 +251,7 @@ static inline void i2cStmTxDone(struct StmI2cDev *pdev)
     size_t txOffst = state->tx.offset;
 
     stmI2cSlaveIdle(pdev);
-    state->tx.callback(state->tx.cookie, txOffst, 0);
+    state->tx.callback(state->tx.cookie, txOffst, 0, 0);
 }
 
 static inline void i2cStmTxRxDone(struct StmI2cDev *pdev)
@@ -262,7 +262,7 @@ static inline void i2cStmTxRxDone(struct StmI2cDev *pdev)
 
     state->tx.offset = 0;
     state->rx.offset = 0;
-    state->tx.callback(state->tx.cookie, txOffst, rxOffst);
+    state->tx.callback(state->tx.cookie, txOffst, rxOffst, 0);
 }
 
 static void i2cStmTxNextByte(struct StmI2cDev *pdev)

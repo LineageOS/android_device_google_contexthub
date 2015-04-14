@@ -12,7 +12,7 @@ typedef uint8_t I2cBus;
 typedef uint8_t I2cAddr;
 typedef uint32_t I2cSpeed;
 
-typedef void (*I2cCallbackF)(void *cookie, int tx, int rx);
+typedef void (*I2cCallbackF)(void *cookie, size_t tx, size_t rx, int err);
 
 int i2cMasterRequest(I2cBus busId, I2cSpeed speed);
 int i2cMasterRelease(I2cBus busId);
