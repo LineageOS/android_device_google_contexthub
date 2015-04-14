@@ -13,7 +13,7 @@
 #define I2C_VERBOSE_DEBUG 0
 
 #if I2C_VERBOSE_DEBUG
-#define i2c_log_debug(x) osLog(LOG_DEBUG, x)
+#define i2c_log_debug(x) osLog(LOG_DEBUG, x "\n")
 #else
 #define i2c_log_debug(x) do {} while(0)
 #endif
@@ -96,9 +96,11 @@ struct I2cStmState {
         union {
             uint8_t *buf;
             const uint8_t *cbuf;
+            uint8_t byte;
         };
         size_t size;
         size_t offset;
+        bool preamble;
 
         I2cCallbackF callback;
         void *cookie;
@@ -270,11 +272,16 @@ static void i2cStmTxNextByte(struct StmI2cDev *pdev)
     struct I2cStmState *state = &pdev->state;
     struct StmI2c *regs = pdev->cfg->regs;
 
-    if (state->tx.offset < state->tx.size) {
+    if (state->tx.preamble) {
+        regs->DR = state->tx.byte;
+        state->tx.offset++;
+    } else if (state->tx.offset < state->tx.size) {
         regs->DR = state->tx.cbuf[state->tx.offset];
         state->tx.offset++;
     } else {
-        /* TODO: error on overflow */
+        state->slaveState = STM_I2C_SLAVE_TX_ARMED;
+        i2cStmIrqDisable(pdev, I2C_CR2_ITBUFEN);
+        state->tx.callback(state->tx.cookie, state->tx.offset, 0, 0);
     }
 }
 
@@ -716,28 +723,49 @@ void i2cSlaveEnableRx(I2cBus busId, void *rxBuf, size_t rxSize,
     }
 }
 
-int i2cSlaveTx(I2cBus busId, const void *txBuf, size_t txSize,
-        I2cCallbackF callback, void *cookie)
+static int i2cSlaveTx(I2cBus busId, const void *txBuf, uint8_t byte,
+        size_t txSize, I2cCallbackF callback, void *cookie)
 {
     struct StmI2cDev *pdev = &mStmI2cDevs[busId];
     struct I2cStmState *state = &pdev->state;
 
     if (pdev->state.mode == STM_I2C_SLAVE) {
-        if (state->slaveState != STM_I2C_SLAVE_TX_ARMED)
+        if (state->slaveState != STM_I2C_SLAVE_TX_ARMED &&
+                state->slaveState != STM_I2C_SLAVE_TX)
             return -EBUSY;
 
-        state->tx.cbuf = txBuf;
+        if (txBuf) {
+            state->tx.cbuf = txBuf;
+            state->tx.preamble = false;
+        } else {
+            state->tx.byte = byte;
+            state->tx.preamble = true;
+        }
         state->tx.offset = 0;
         state->tx.size = txSize;
         state->tx.callback = callback;
         state->tx.cookie = cookie;
-        state->slaveState = STM_I2C_SLAVE_TX;
 
-        i2cStmTxNextByte(pdev);
-        i2cStmIrqEnable(pdev, I2C_CR2_ITBUFEN);
+        if (state->slaveState == STM_I2C_SLAVE_TX_ARMED) {
+            state->slaveState = STM_I2C_SLAVE_TX;
+            i2cStmTxNextByte(pdev);
+            i2cStmIrqEnable(pdev, I2C_CR2_ITBUFEN);
+        }
 
         return 0;
     } else {
         return -EBUSY;
     }
+}
+
+int i2cSlaveTxPreamble(I2cBus busId, uint8_t byte, I2cCallbackF callback,
+        void *cookie)
+{
+    return i2cSlaveTx(busId, NULL, byte, 0, callback, cookie);
+}
+
+int i2cSlaveTxPacket(I2cBus busId, const void *txBuf, size_t txSize,
+        I2cCallbackF callback, void *cookie)
+{
+    return i2cSlaveTx(busId, txBuf, 0, txSize, callback, cookie);
 }

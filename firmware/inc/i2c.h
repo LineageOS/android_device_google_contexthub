@@ -1,4 +1,5 @@
 #ifndef _I2C_H_
+#define _I2C_H_
 
 #ifdef __cplusplus
 extern "C" {
@@ -30,13 +31,16 @@ static inline int i2cMasterRx(I2cBus busId, I2cAddr addr,
 
 int i2cSlaveRequest(I2cBus busId, I2cAddr addr);
 int i2cSlaveRelease(I2cBus busId);
+
 void i2cSlaveEnableRx(I2cBus busId, void *rxBuf, size_t rxSize,
         I2cCallbackF callback, void *cookie);
-int i2cSlaveTx(I2cBus busId, const void *txBuf, size_t txSize,
+int i2cSlaveTxPreamble(I2cBus busId, uint8_t byte,
+        I2cCallbackF callback, void *cookie);
+int i2cSlaveTxPacket(I2cBus busId, const void *txBuf, size_t txSize,
         I2cCallbackF callback, void *cookie);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif
+#endif /* _I2C_H_ */
