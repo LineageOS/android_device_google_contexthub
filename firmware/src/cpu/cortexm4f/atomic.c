@@ -1,6 +1,5 @@
 #include <atomic.h>
 
-
 uint32_t atomicAdd(volatile uint32_t *val, uint32_t addend)
 {
     uint32_t prevVal, storeFailed, tmp;
@@ -18,7 +17,6 @@ uint32_t atomicAdd(volatile uint32_t *val, uint32_t addend)
 
     return prevVal;
 }
-
 
 uint32_t atomicXchgByte(volatile uint8_t *byte, uint32_t newVal)
 {
@@ -54,4 +52,54 @@ uint32_t atomicXchg32bits(volatile uint32_t *word, uint32_t newVal)
     return prevVal;
 }
 
+bool atomicCmpXchgByte(volatile uint8_t *byte, uint32_t prevVal, uint32_t newVal)
+{
+    uint32_t currVal, storeFailed;
 
+    do {
+        asm volatile(
+            "ldrexb %0,     [%1] \n"
+            :"=r"(currVal), "=r"(byte)
+            :"1"(byte)
+            :"memory"
+        );
+
+        if (currVal != prevVal)
+            return false;
+
+        asm volatile(
+            "strexb %0, %1, [%2] \n"
+            :"=r"(storeFailed), "=r"(newVal), "=r"(byte)
+            :"1"(newVal), "2"(byte)
+            :"memory"
+        );
+    } while (storeFailed);
+
+    return true;
+}
+
+bool atomicCmpXchg32bits(volatile uint32_t *word, uint32_t prevVal, uint32_t newVal)
+{
+    uint32_t currVal, storeFailed;
+
+    do {
+        asm volatile(
+            "ldrex %0,     [%1] \n"
+            :"=r"(currVal), "=r"(word)
+            :"1"(word)
+            :"memory"
+        );
+
+        if (currVal != prevVal)
+            return false;
+
+        asm volatile(
+            "strex %0, %1, [%2] \n"
+            :"=r"(storeFailed), "=r"(newVal), "=r"(word)
+            :"1"(newVal), "2"(word)
+            :"memory"
+        );
+    } while (storeFailed);
+
+    return true;
+}
