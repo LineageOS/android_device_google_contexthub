@@ -51,19 +51,21 @@ int32_t atomicBitsetFindClearAndSet(struct AtomicBitset *set)
     uint32_t scratch1, scratch2, scratch3, bit = 32;
     uint32_t *wordPtr = set->words;
 
-    for (idx = 0; idx < numWords && bit == 32; idx++, wordPtr++) {
+    for (idx = 0; idx < numWords; idx++, wordPtr++) {
         asm volatile(
             "1:                       \n"
             "    ldrex %0, [%4]       \n"
-            "    mvns  %1, %0         \n"
+            "    mvns  %3, %0         \n"
             "    beq   1f             \n"
-            "    clz   %1, %1         \n"
+            "    clz   %1, %3         \n"
             "    rsb   %1, #31        \n"
             "    lsl   %3, %2, %1     \n"
             "    orr   %0, %3         \n"
             "    strex %3, %0, [%4]   \n"
             "    cmp   %3, #0         \n"
-            "    bne   1b             \n"
+            "    beq   1f             \n"
+            "    mov   %1, #32        \n"
+            "    b     1b             \n"
             "1:                       \n"
             :"=r"(scratch1), "=r"(bit), "=r"(scratch2), "=r"(scratch3), "=r"(wordPtr)
             :"1"(32), "2"(1), "4"(wordPtr)
