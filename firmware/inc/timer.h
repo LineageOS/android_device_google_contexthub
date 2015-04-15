@@ -26,6 +26,9 @@ bool timTimerCancel(uint32_t timerId);
 void timIntHandler(void);
 
 
+//init subsystem
+void timInit(void);
+
 
 
 

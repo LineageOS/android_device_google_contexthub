@@ -156,7 +156,10 @@ void timIntHandler(void)
     timFireAsNeededAndUpdateAlarms();
 }
 
-
+void timInit(void)
+{
+    atomicBitsetInit(mTimersValid, MAX_TIMERS);
+}
 
 
 
