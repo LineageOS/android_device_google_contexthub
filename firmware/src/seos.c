@@ -165,6 +165,7 @@ void __attribute__((noreturn)) osMain(void)
     void *evtData;
 
     platDisableInterrupts();
+    timInit();
     osInit();
     osStartTasks();
     platEnableInterrupts();
