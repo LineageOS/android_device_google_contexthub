@@ -1,3 +1,4 @@
+#include <cpu/inc/barrier.h>
 #include <plat/inc/rtc.h>
 #include <plat/inc/pwr.h>
 #include <inc/timer.h>
@@ -88,7 +89,7 @@ static void rtcSetDefaultDateTimeAndPrescalar(void)
     /* Enter RTC init mode */
     RTC->ISR |= RTC_ISR_INIT;
 
-    asm volatile("":::"memory");
+    mem_reorder_barrier();
     /* Wait for initialization mode to be entered. */
     while ((RTC->ISR & RTC_ISR_INITF) == 0);
 

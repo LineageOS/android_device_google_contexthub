@@ -1,3 +1,4 @@
+#include <cpu/inc/barrier.h>
 #include <plat/inc/pwr.h>
 #include <stddef.h>
 
@@ -127,7 +128,7 @@ void pwrEnableAndClockRtc(void)
     /* Enable write permission for backup domain */
     pwrEnableWriteBackupDomainRegs();
     /* Prevent compiler reordering across this boundary. */
-    asm volatile("":::"memory");
+    mem_reorder_barrier();
     /* Set LSE as backup domain clock source */
     RCC->BDCR |= RCC_BDCR_LSEON;
     /* Wait for LSE to be ready */

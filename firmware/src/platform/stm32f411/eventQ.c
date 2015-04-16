@@ -114,8 +114,10 @@ bool evtQueueEnqueue(struct EvtQueue* q, uint32_t evtType, void *evtData, EventF
 
 bool evtQueueDequeue(struct EvtQueue* q, uint32_t *evtTypeP, void **evtDataP, EventFreeF *evtFreeFP, bool sleepIfNone)
 {
+    uint32_t *mEvtDequeueStartPcP = &mEvtDequeueStartPc, *mEvtDequeueEndPcP = &mEvtDequeueEndPc, *mEvtDequeueCancelPcP = &mEvtDequeueCancelPc;
     struct EvtRecord *rec = NULL;
-    uint64_t intSta;
+    struct EvtRecord **headP;
+    uint32_t intSta; /* 32 and not 64 since we know that for THIS platform int status is 32 bits */
 
     while(1) {
         intSta = cpuIntsOff();
@@ -130,6 +132,8 @@ bool evtQueueDequeue(struct EvtQueue* q, uint32_t *evtTypeP, void **evtDataP, Ev
             break;
         } else if (!sleepIfNone)
             break;
+
+        headP = &q->head;
         /* we need to restore ints & then atomically check for events, and go to sleep. let's try that now */
         asm volatile(
             "    push {r0-r3, r12, lr} \n"
@@ -150,8 +154,8 @@ bool evtQueueDequeue(struct EvtQueue* q, uint32_t *evtTypeP, void **evtDataP, Ev
             "    bl platWake           \n" /* should handle undoing whatever interrupted platformSleep() did */
             "4:                        \n"
             "    pop {r0-r3, r12, lr}  \n"
-            :"=r"(rec)
-            :"0"(rec), "r"(&mEvtDequeueStartPc), "r"(&mEvtDequeueEndPc), "r"(&mEvtDequeueCancelPc), "r"((uint32_t)intSta), "r"(&q->head)
+            :"=r"(rec), "=r"(mEvtDequeueStartPcP), "=r"(mEvtDequeueEndPcP), "=r"(mEvtDequeueCancelPcP), "=r"(intSta), "=r"(headP)
+            :"0"(rec), "1"(mEvtDequeueStartPcP), "2"(mEvtDequeueEndPcP), "3"(mEvtDequeueCancelPcP), "4"(intSta), "5"(headP)
             :"memory","cc"
         );
     }

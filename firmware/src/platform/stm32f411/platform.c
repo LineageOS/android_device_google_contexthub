@@ -203,7 +203,8 @@ static void __attribute__((used)) logHardFault(uint32_t *excRegs, uint32_t* othe
 }
 
 void HardFault_Handler(void);
-void HardFault_Handler(void)
+
+void __attribute__((naked)) HardFault_Handler(void)
 {
     asm volatile(
         "tst lr, #4         \n"
