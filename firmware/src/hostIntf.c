@@ -97,6 +97,7 @@ static inline const struct NanohubCommand *hostIntfFindHandler(uint8_t *buf, siz
         return NULL;
     }
 
+    gSeq = packet->seq;
     packetReason = le32toh(packet->reason);
     for (i = 0; i < ARRAY_SIZE(gBuiltinCommands); i++) {
         const struct NanohubCommand *cmd = &gBuiltinCommands[i];
