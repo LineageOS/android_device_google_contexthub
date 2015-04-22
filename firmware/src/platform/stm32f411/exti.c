@@ -1,4 +1,4 @@
-#include <exti.h>
+#include <plat/inc/exti.h>
 #include <plat/inc/pwr.h>
 
 struct StmExti

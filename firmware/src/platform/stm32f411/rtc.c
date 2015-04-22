@@ -3,7 +3,7 @@
 #include <plat/inc/pwr.h>
 #include <inc/timer.h>
 #include <inc/platform.h>
-#include <inc/exti.h>
+#include <plat/inc/exti.h>
 #include <plat/inc/cmsis.h>
 
 #ifndef NS_PER_S
