@@ -35,6 +35,8 @@ static I2cBus gI2cBusId;
 static uint8_t gRxBuf[NANOHUB_PACKET_SIZE_MAX];
 static size_t gRxSize;
 static uint8_t gTxBuf[NANOHUB_PACKET_SIZE_MAX];
+static size_t gTxSize;
+static uint8_t *gTxBufPtr;
 static uint32_t gSeq;
 static const struct NanohubCommand *gRxCmd;
 
@@ -140,8 +142,23 @@ static void hostIntfTxPacket(__le32 reason, uint8_t len, I2cCallbackF callback)
     struct NanohubPacketFooter *txFooter = hostIntfGetFooter(gTxBuf);
     txFooter->crc = hostIntfComputeCrc(gTxBuf);
 
-    i2cSlaveTxPacket(gI2cBusId, gTxBuf, NANOHUB_PACKET_SIZE(len),
-            callback, NULL);
+    gTxSize = NANOHUB_PACKET_SIZE(len);
+    gTxBufPtr = gTxBuf;
+    i2cSlaveTxPacket(gI2cBusId, gTxBufPtr, gTxSize, callback, NULL);
+}
+
+static inline void hostIntfTxPacketDone(int err, size_t tx,
+        I2cCallbackF callback)
+{
+    if (err < 0 || tx >= gTxSize) {
+        i2cSlaveTxPreamble(gI2cBusId, NANOHUB_PREAMBLE_BYTE,
+                hostIntfTxPreambleDone, NULL);
+    } else {
+        gTxSize -= tx;
+        gTxBufPtr += tx;
+
+        i2cSlaveTxPacket(gI2cBusId, gTxBufPtr, gTxSize, callback, NULL);
+    }
 }
 
 void hostIntfRequest()
@@ -180,8 +197,7 @@ static void hostIntfGenerateAck(void *cookie)
 
 static void hostIntfTxAckDone(void *cookie, size_t tx, size_t rx, int err)
 {
-    i2cSlaveTxPreamble(gI2cBusId, NANOHUB_PREAMBLE_BYTE,
-            hostIntfTxPreambleDone, NULL);
+    hostIntfTxPacketDone(err, tx, hostIntfTxAckDone);
 
     if (err) {
         osLog(LOG_ERROR, "%s: failed to ACK request: %d\n", __func__, err);
@@ -205,8 +221,7 @@ static void hostIntfGenerateResponse(void *cookie)
 
 static void hostIntfTxPayloadDone(void *cookie, size_t tx, size_t rx, int err)
 {
-    i2cSlaveTxPreamble(gI2cBusId, NANOHUB_PREAMBLE_BYTE,
-            hostIntfTxPreambleDone, NULL);
+    hostIntfTxPacketDone(err, tx, hostIntfTxPayloadDone);
 
     if (err)
         osLog(LOG_ERROR, "%s: failed to send response: %d\n", __func__, err);
