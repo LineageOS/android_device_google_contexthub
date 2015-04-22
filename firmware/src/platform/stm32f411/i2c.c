@@ -327,7 +327,6 @@ static inline void i2cStmRxDone(struct StmI2cDev *pdev)
     struct I2cStmState *state = &pdev->state;
     size_t rxOffst = state->rx.offset;
 
-    i2cStmAckDisable(pdev);
     state->rx.offset = 0;
     state->rx.callback(state->rx.cookie, 0, rxOffst, 0);
 }
@@ -413,6 +412,8 @@ static void i2cStmSlaveAddrMatched(struct StmI2cDev *pdev)
     if (state->slaveState == STM_I2C_SLAVE_RX_ARMED) {
         state->slaveState = STM_I2C_SLAVE_RX;
         i2cStmIrqEnable(pdev, I2C_CR2_ITBUFEN | I2C_CR2_ITERREN);
+    } else if (state->slaveState == STM_I2C_SLAVE_TX) {
+        i2cStmIrqEnable(pdev, I2C_CR2_ITBUFEN | I2C_CR2_ITERREN);
     }
     /* clear ADDR by doing a dummy reads from SR1 (already read) then SR2 */
     (void)regs->SR2;
@@ -428,8 +429,8 @@ static void i2cStmSlaveStopRxed(struct StmI2cDev *pdev)
     stmI2cEnable(pdev);
     /* clear STOPF by doing a dummy read from SR1 and strobing the PE bit */
 
-    i2cStmRxDone(pdev);
     stmI2cSlaveIdle(pdev);
+    i2cStmRxDone(pdev);
 }
 
 static inline void i2cStmSlaveRxBufNotEmpty(struct StmI2cDev *pdev)
@@ -458,6 +459,7 @@ static void i2cStmSlaveTxBufEmpty(struct StmI2cDev *pdev)
     if (state->slaveState == STM_I2C_SLAVE_RX) {
         state->slaveState = STM_I2C_SLAVE_TX_ARMED;
         i2cStmIrqDisable(pdev, I2C_CR2_ITBUFEN);
+        i2cStmAckDisable(pdev);
         i2cStmRxDone(pdev);
         /* i2cStmTxNextByte() will happen when the task provides a
            TX buffer; the I2C controller will stretch the clock until then */
@@ -474,8 +476,10 @@ static void i2cStmSlaveNakRxed(struct StmI2cDev *pdev)
     i2c_log_debug("af");
 
     if (state->slaveState == STM_I2C_SLAVE_TX) {
-        /* TODO: confirm we're actually at the end of transmission
-           (ack failures at the end of transmission are expected) */
+        state->tx.offset--;
+        /* NACKs seem to be preceded by a spurious TXNE, so adjust the offset to
+           compensate (the corresponding byte written to DR was never actually
+           transmitted) */
         i2cStmTxDone(pdev);
     }
     regs->SR1 &= ~I2C_SR1_AF;
@@ -575,8 +579,6 @@ static void stmI2cIsrEvent(struct StmI2cDev *pdev)
     if (pdev->state.mode == STM_I2C_SLAVE) {
         if (sr1 & I2C_SR1_ADDR) {
             i2cStmSlaveAddrMatched(pdev);
-        } else if (sr1 & I2C_SR1_STOPF) {
-            i2cStmSlaveStopRxed(pdev);
         } else if (sr1 & I2C_SR1_RXNE) {
             i2cStmSlaveRxBufNotEmpty(pdev);
         } else if (sr1 & I2C_SR1_TXE) {
@@ -586,6 +588,8 @@ static void stmI2cIsrEvent(struct StmI2cDev *pdev)
                 i2cStmSlaveTxBufEmpty(pdev);
            else
                 i2cStmSlaveRxBufNotEmpty(pdev);
+        } else if (sr1 & I2C_SR1_STOPF) {
+            i2cStmSlaveStopRxed(pdev);
         }
         /* TODO: other flags */
     } else if (pdev->state.mode == STM_I2C_MASTER) {
@@ -851,8 +855,7 @@ static int i2cSlaveTx(I2cBus busId, const void *txBuf, uint8_t byte,
     struct I2cStmState *state = &pdev->state;
 
     if (pdev->state.mode == STM_I2C_SLAVE) {
-        if (state->slaveState != STM_I2C_SLAVE_TX_ARMED &&
-                state->slaveState != STM_I2C_SLAVE_TX)
+        if (state->slaveState == STM_I2C_SLAVE_RX)
             return -EBUSY;
 
         if (txBuf) {
@@ -871,6 +874,8 @@ static int i2cSlaveTx(I2cBus busId, const void *txBuf, uint8_t byte,
             state->slaveState = STM_I2C_SLAVE_TX;
             i2cStmTxNextByte(pdev);
             i2cStmIrqEnable(pdev, I2C_CR2_ITBUFEN);
+        } else {
+            state->slaveState = STM_I2C_SLAVE_TX;
         }
 
         return 0;
