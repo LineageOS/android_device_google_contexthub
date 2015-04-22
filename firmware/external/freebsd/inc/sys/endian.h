@@ -30,29 +30,32 @@
 #define _SYS_ENDIAN_H_
 
 #include <sys/cdefs.h>
-#include <sys/_types.h>
-#include <machine/endian.h>
+#ifdef PLAT_HAS_NO_U_TYPES_H
+ #include <stdint.h>
+#else
+ #include <sys/_types.h>
+ #include <machine/endian.h>
+ #ifndef _UINT8_T_DECLARED
+ typedef	__uint8_t	uint8_t;
+ #define	_UINT8_T_DECLARED
+ #endif
 
-#ifndef _UINT8_T_DECLARED
-typedef	__uint8_t	uint8_t;
-#define	_UINT8_T_DECLARED
+ #ifndef _UINT16_T_DECLARED
+ typedef	__uint16_t	uint16_t;
+ #define	_UINT16_T_DECLARED
+ #endif
+
+ #ifndef _UINT32_T_DECLARED
+ typedef	__uint32_t	uint32_t;
+ #define	_UINT32_T_DECLARED
+ #endif
+
+ #ifndef _UINT64_T_DECLARED
+ typedef	__uint64_t	uint64_t;
+ #define	_UINT64_T_DECLARED
+ #endif
 #endif
- 
-#ifndef _UINT16_T_DECLARED
-typedef	__uint16_t	uint16_t;
-#define	_UINT16_T_DECLARED
-#endif
- 
-#ifndef _UINT32_T_DECLARED
-typedef	__uint32_t	uint32_t;
-#define	_UINT32_T_DECLARED
-#endif
- 
-#ifndef _UINT64_T_DECLARED
-typedef	__uint64_t	uint64_t;
-#define	_UINT64_T_DECLARED
-#endif
- 
+
 /*
  * General byte order swapping functions.
  */
