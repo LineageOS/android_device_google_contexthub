@@ -162,8 +162,8 @@ int spiMasterRxTx(uint8_t busId, spi_cs_t cs,
     state->cookie = cookie;
 
     ret = spiMasterStart(state, cs, mode);
-    if (ret < 0)
-        return 0;
+    if (ret >= 0)
+        goto done;
 
 err_alloc:
     heapFree(state->rxBuf);
@@ -174,5 +174,6 @@ err_opsupp:
         dev->ops->release(dev);
 err_request:
     heapFree(state);
+done:
     return ret;
 }
