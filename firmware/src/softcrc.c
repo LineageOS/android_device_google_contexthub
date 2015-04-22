@@ -1,8 +1,45 @@
 #include <stdint.h>
 #include <crc.h>
 
+/* this implements crc32 as crc.h defines it. It is not a normal CRC by any measure, so be careful with it */
+
+static const uint32_t crctab[] =
+{
+        0x00000000, 0x04C11DB7, 0x09823B6E, 0x0D4326D9,
+        0x130476DC ,0x17C56B6B ,0x1A864DB2 ,0x1E475005,
+        0x2608EDB8, 0x22C9F00F, 0x2F8AD6D6, 0x2B4BCB61,
+        0x350C9B64, 0x31CD86D3, 0x3C8EA00A, 0x384FBDBD
+};
+
+static uint32_t crcOneWord(uint32_t crc, uint32_t data, int cnt)
+{
+        uint32_t i;
+
+        crc = crc ^ data;
+        for (i = 0; i < cnt; i++)
+                crc = (crc << 4) ^ crctab[crc >> 28];
+
+        return crc;
+}
+
 uint32_t crc32(const void *buf, size_t size)
 {
-    //TODO
-    return 0;
+        const uint32_t *data32 = (const uint32_t *)buf;
+        const uint8_t *data8;
+        uint32_t word, i, crc = ~0;
+
+        // word by word crc32
+        for (i = 0; i < size / 4; i++)
+                crc = crcOneWord(crc, *data32++, 8);
+
+        data8 = (const uint8_t*)data32;
+
+        // zero pad last word if required
+        if (size & 0x3) {
+                for (i *= 4, word = 0; i < size; i++)
+                        word |= (*data8++) << ((i & 0x3) * 8);
+                crc = crcOneWord(crc, word, 8);
+        }
+
+        return crc;
 }
