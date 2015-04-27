@@ -14,22 +14,21 @@
  * limitations under the License.
  */
 
-#ifndef _I2C_H_
-#define _I2C_H_
+#ifndef _SPI_H_
+#define _SPI_H_
 
 #include "stm32_bl.h"
 
-typedef struct i2c_handle
+typedef struct spi_handle
 {
     handle_t handle;
     int fd;
-    uint8_t addr;
-} i2c_handle_t;
+} spi_handle_t;
 
-uint8_t i2c_write_data(handle_t *handle, uint8_t *buffer, int length);
-uint8_t i2c_write_cmd(handle_t *handle, uint8_t cmd);
-uint8_t i2c_read_data(handle_t *handle, uint8_t *data, int length);
-uint8_t i2c_read_ack(handle_t *handle);
-int i2c_init(handle_t *handle);
+uint8_t spi_write_data(handle_t *handle, uint8_t *buffer, int length);
+uint8_t spi_write_cmd(handle_t *handle, uint8_t cmd);
+uint8_t spi_read_data(handle_t *handle, uint8_t *data, int length);
+uint8_t spi_read_ack(handle_t *handle);
+int spi_init(handle_t *handle);
 
-#endif /* _I2C_H_ */
+#endif /* _SPI_H_ */
