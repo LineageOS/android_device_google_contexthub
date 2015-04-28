@@ -76,7 +76,7 @@ static void osInit(void)
         return;
     }
 
-    mDeferedActionsSlab = slabAllocatorNew(sizeof(union DeferredAction), 1, 32 /* for now? */);
+    mDeferedActionsSlab = slabAllocatorNew(sizeof(union DeferredAction), 4, 32 /* for now? */);
     if (!mDeferedActionsSlab) {
         osLog(LOG_INFO, "deferred actions list failed to init\n");
         return;
@@ -267,9 +267,3 @@ void osLog(enum LogLevel level, const char *str, ...)
     cvprintf(osLogPutcharF, NULL, str, vl);
     va_end(vl);
 }
-
-
-
-
-
-
