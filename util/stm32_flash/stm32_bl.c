@@ -105,11 +105,11 @@ uint8_t erase_sector(handle_t *handle, uint16_t sector)
     handle->write_cmd(handle, handle->cmd_erase);
     ret = handle->read_ack(handle);
     if (ret == CMD_ACK)
-        ret = write_cnt(handle, 0x0000);
+        write_cnt(handle, 0x0000);
     if (ret == CMD_ACK)
         ret = read_ack_loop(handle);
     if (ret == CMD_ACK)
-        ret = write_cnt(handle, sector);
+        write_cnt(handle, sector);
     if (ret == CMD_ACK)
         ret = read_ack_loop(handle);
 

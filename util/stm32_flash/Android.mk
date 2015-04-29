@@ -4,11 +4,10 @@ include $(CLEAR_VARS)
 
 LOCAL_SHARED_LIBRARIES := libcutils libc
 
-LOCAL_LDFLAGS += -Wl,--hash-style=sysv
-
 LOCAL_SRC_FILES := \
         flash.c \
         i2c.c \
+        spi.c \
         stm32_bl.c \
         stm32f4_crc.c
 
