@@ -1,12 +1,16 @@
+#find build target
 PLATFORM ?= stm32f411
 CPU ?= cortexm4f
 APP = nanohub
 
+#find makefiles
 MAKE_PLAT = misc/platform/$(PLATFORM)/Makefile
 MAKE_CPU = misc/cpu/$(CPU)/Makefile
 
+#top make target
 real: all
 
+#include makefiles for plat and cpu
 include $(MAKE_PLAT)
 include $(MAKE_CPU)
 
@@ -25,7 +29,7 @@ SRCS += src/softcrc.c
 endif
 
 #app code
-SRCS += app/test_app0.c app/test_app1.c app/hostIntfApp.c
+include $(wildcard app/*/Makefile)
 
 
 #extra deps
