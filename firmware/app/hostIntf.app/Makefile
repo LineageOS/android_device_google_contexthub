@@ -5,7 +5,3 @@ SELF_DIR := $(SELF_MKFILE:Makefile=)
 SELF_FILES := $(wildcard $(SELF_DIR)*.c)
 
 SRCS += $(SELF_FILES)
-
-$(warning $(SELF_FILES))
-$(warning $(SRCS))
-
