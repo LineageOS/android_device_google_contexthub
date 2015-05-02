@@ -8,6 +8,7 @@ MAKE_PLAT = misc/platform/$(PLATFORM)/Makefile
 MAKE_CPU = misc/cpu/$(CPU)/Makefile
 
 #top make target
+SRCS := 
 real: all
 
 #include makefiles for plat and cpu
