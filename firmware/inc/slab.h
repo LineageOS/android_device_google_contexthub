@@ -14,6 +14,7 @@ void slabAllocatorDestroy(struct SlabAllocator *allocator);
 void* slabAllocatorAlloc(struct SlabAllocator *allocator);
 void slabAllocatorFree(struct SlabAllocator *allocator, void *ptr);
 
+void* slabAllocatorGetNth(struct SlabAllocator *allocator, uint32_t idx); // -> pointer or NULL if that slot is empty   may be not int-safe. YMMV
 
 #endif
 

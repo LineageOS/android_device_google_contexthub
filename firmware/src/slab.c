@@ -61,5 +61,12 @@ void slabAllocatorFree(struct SlabAllocator *allocator, void* ptrP)
     atomicBitsetClearBit(&allocator->bitset, itemIdx);
 }
 
+void* slabAllocatorGetNth(struct SlabAllocator *allocator, uint32_t idx)
+{
+    if (!atomicBitsetGetBit(&allocator->bitset, idx))
+        return NULL;
+
+    return allocator->dataChunks + allocator->itemSz * idx;
+}
 
 
