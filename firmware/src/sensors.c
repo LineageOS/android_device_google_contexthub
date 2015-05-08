@@ -111,7 +111,10 @@ bool sensorUnregister(uint32_t handle)
 
 static void sensorReconfig(struct Sensor* s, uint32_t newHwRate)
 {
-    if (s->currentRate == SENSOR_RATE_OFF) {
+    if (s->currentRate == newHwRate) {
+        /* do nothing */
+    }
+    else if (s->currentRate == SENSOR_RATE_OFF) {
         /* if it was off or is off, tell it to come on */
         s->currentRate = SENSOR_RATE_POWERING_ON;
         s->si->ops.sensorPower(true);
@@ -167,8 +170,14 @@ static uint64_t sensorCalcLeastCommonMultiple(uint64_t a, uint64_t b)
 
 static uint32_t sensorCalcHwRate(struct Sensor* s, uint32_t extraReqedRate, uint32_t removedRate)
 {
-    uint64_t lcm = extraReqedRate;
+    bool haveUsers = false;
+    uint64_t lcm = 0;
     uint32_t i;
+
+    if (extraReqedRate) {
+         haveUsers = true;
+         lcm = (extraReqedRate == SENSOR_RATE_ONDEMAND || extraReqedRate == SENSOR_RATE_ONCHANGE) ? 0 : extraReqedRate;
+    }
 
     for (i = 0; i < MAX_CLI_SENS_MATRIX_SZ; i++) {
         struct SensorsClientRequest *req = slabAllocatorGetNth(mCliSensMatrix, i);
@@ -183,11 +192,17 @@ static uint32_t sensorCalcHwRate(struct Sensor* s, uint32_t extraReqedRate, uint
             continue;
         }
 
+        haveUsers = true;
+
+        /* we can always do ondemand and if we see an on-change then we already checked and do allow it */
+        if (req->rate == SENSOR_RATE_ONDEMAND || req->rate == SENSOR_RATE_ONCHANGE)
+            continue;
+
         lcm = lcm ? sensorCalcLeastCommonMultiple(lcm, req->rate) : req->rate;
     }
 
     if (!lcm)   /* no requests -> we can definitely do that */
-        return SENSOR_RATE_OFF;
+        return haveUsers ? SENSOR_RATE_OFF : SENSOR_RATE_ONDEMAND;
 
     if (lcm >> 32) /* too much to even try? */
         return SENSOR_RATE_IMPOSSIBLE;
@@ -207,11 +222,8 @@ static void sensorInternalFwStateChanged(void *evtP)
             s->si->ops.sensorPower(false);
         }
         else if (s->currentRate == SENSOR_RATE_FW_UPLOADING) {    //we're up
-            uint32_t desiredRate = sensorCalcHwRate(s, 0, 0);
-
             s->currentRate = evt->value;
-            if (evt->value != desiredRate)
-                sensorReconfig(s, desiredRate);
+            sensorReconfig(s, sensorCalcHwRate(s, 0, 0));
         }
         else if (s->currentRate == SENSOR_RATE_POWERING_OFF) {    //we need to power off
             s->si->ops.sensorPower(false);
