@@ -30,6 +30,7 @@ struct SensorsClientRequest {
     uint32_t handle;
     uint32_t clientId;
     uint32_t rate;
+    uint32_t decimationCounter; /* set to nonzero for ondemand sensors number of requested sensings */
 };
 
 static struct Sensor mSensors[MAX_REGISTERED_SENSORS];
@@ -309,6 +310,7 @@ static bool sensorAddRequestor(uint32_t sensorHandle, uint32_t clientId, uint32_
 
     req->handle = sensorHandle;
     req->clientId = clientId;
+    req->decimationCounter = 0;
     mem_reorder_barrier();
     req->rate = rate;
 
@@ -431,16 +433,70 @@ bool sensorRelease(uint32_t clientId, uint32_t sensorHandle)
     return true;
 }
 
-bool sensorTriggerOndemand(uint32_t sensorHandle)
+bool sensorTriggerOndemand(uint32_t clientId, uint32_t sensorHandle)
 {
     struct Sensor* s = sensorFindByHandle(sensorHandle);
+    uint32_t i;
 
     if (!s)
         return false;
 
-    return s->si->ops.sensorTriggerOndemand();
+    for (i = 0; i < MAX_CLI_SENS_MATRIX_SZ; i++) {
+        struct SensorsClientRequest *req = slabAllocatorGetNth(mCliSensMatrix, i);
+
+        if (req && req->handle == sensorHandle && req->clientId == clientId) {
+
+            if (req->rate == SENSOR_RATE_ONDEMAND)
+                req->decimationCounter++;
+
+            return s->si->ops.sensorTriggerOndemand();
+        }
+    }
+
+    // not found -> do not report
+    return false;
 }
 
+bool sensorDecimate(uint32_t clientId, uint32_t sensorHandle)
+{
+    struct Sensor* s = sensorFindByHandle(sensorHandle);
+    uint32_t i;
+
+    if (!s)
+        return false;
+
+    for (i = 0; i < MAX_CLI_SENS_MATRIX_SZ; i++) {
+        struct SensorsClientRequest *req = slabAllocatorGetNth(mCliSensMatrix, i);
+
+        if (req && req->handle == sensorHandle && req->clientId == clientId) {
+            uint32_t decimationTop = s->currentRate / req->rate;
+
+            if (req->rate == SENSOR_RATE_OFF)
+                return  false;
+            if (req->rate == SENSOR_RATE_ONDEMAND) {
+                if (!req->decimationCounter)
+                    return false;
+                req->decimationCounter--;
+                return true;
+            }
+
+            if (req->rate == SENSOR_RATE_ONCHANGE)
+                return true;
+
+            decimationTop = s->currentRate / req->rate;
+
+            if (++req->decimationCounter >= decimationTop) {
+                req->decimationCounter = 0;
+                return true;
+           }
+
+           return false;
+        }
+    }
+
+    // not found -> do not report
+    return false;
+}
 
 
 

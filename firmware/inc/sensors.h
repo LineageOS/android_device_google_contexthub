@@ -76,11 +76,8 @@ const struct SensorInfo* sensorFind(uint32_t sensorType, uint32_t idx); //enumer
 bool sensorRequest(uint32_t clientId, uint32_t sensorHandle, uint32_t rate);
 bool sensorRequestRateChange(uint32_t clientId, uint32_t sensorHandle, uint32_t newRate);
 bool sensorRelease(uint32_t clientId, uint32_t sensorHandle);
-bool sensorTriggerOndemand(uint32_t sensorHandle);
-
-
-
-
+bool sensorTriggerOndemand(uint32_t clientId, uint32_t sensorHandle);
+bool sensorDecimate(uint32_t clientId, uint32_t sensorHandle); // -> true if we shoudl deliver a sensor report to this client
 
 
 #ifdef __cplusplus
