@@ -21,6 +21,8 @@
 
 #define SPI_CR1_SPE                 (1 << 6)
 #define SPI_CR1_LSBFIRST            (1 << 7)
+#define SPI_CR1_SSI                 (1 << 8)
+#define SPI_CR1_SSM                 (1 << 9)
 #define SPI_CR1_RXONLY              (1 << 10)
 #define SPI_CR1_DFF                 (1 << 11)
 #define SPI_CR1_BIDIOE              (1 << 14)
@@ -87,6 +89,13 @@ struct StmSpiDev {
     struct Gpio nss;
 };
 
+static inline void stmSpiGpioInit(struct Gpio *gpio,
+        GpioNum number, enum GpioAltFunc func)
+{
+    gpioRequest(gpio, number);
+    gpioConfigAlt(gpio, GPIO_PULL_NONE, GPIO_OUT_PUSH_PULL, func);
+}
+
 static inline int stmSpiEnable(struct StmSpiDev *pdev,
         const struct SpiMode *mode, bool master)
 {
@@ -136,12 +145,10 @@ static inline int stmSpiEnable(struct StmSpiDev *pdev,
     else
         regs->CR1 |= SPI_CR1_LSBFIRST;
 
-    if (master) {
-        regs->CR2 |= SPI_CR2_SSOE;
-        regs->CR1 |= SPI_CR1_MSTR;
-    } else {
-        regs->CR1 &= ~SPI_CR1_MSTR;
-    }
+    if (master)
+        regs->CR1 |= SPI_CR1_SSI | SPI_CR1_SSM | SPI_CR1_MSTR;
+    else
+        regs->CR1 &= ~(SPI_CR1_SSM | SPI_CR1_MSTR);
 
     return 0;
 }
@@ -150,13 +157,22 @@ static int stmSpiMasterStartSync(struct SpiDevice *dev, spi_cs_t cs,
         const struct SpiMode *mode)
 {
     struct StmSpiDev *pdev = dev->pdata;
-    return stmSpiEnable(pdev, mode, true);
+
+    int err = stmSpiEnable(pdev, mode, true);
+    if (err < 0)
+        return err;
+
+    gpioRequest(&pdev->nss, cs);
+    gpioConfigOutput(&pdev->nss, GPIO_PULL_NONE, GPIO_OUT_PUSH_PULL, 0);
+
+    return 0;
 }
 
 static int stmSpiSlaveStartSync(struct SpiDevice *dev,
         const struct SpiMode *mode)
 {
     struct StmSpiDev *pdev = dev->pdata;
+    stmSpiGpioInit(&pdev->nss, pdev->cfg->gpioNss, pdev->cfg->gpioFunc);
     return stmSpiEnable(pdev, mode, false);
 }
 
@@ -230,16 +246,30 @@ static int stmSpiSlaveIdle(struct SpiDevice *dev, const struct SpiMode *mode)
     return stmSpiEnableTransfer(dev, NULL, NULL, 0, mode);
 }
 
-static int stmSpiStopSync(struct SpiDevice *dev)
+static inline void stmSpiDisable(struct SpiDevice *dev, bool master)
 {
     struct StmSpiDev *pdev = dev->pdata;
     struct StmSpi *regs = pdev->cfg->regs;
 
     while (regs->SR & SPI_SR_BSY)
         ;
+
+    if (master)
+        gpioSet(&pdev->nss, 1);
+
     regs->CR1 &= ~SPI_CR1_SPE;
     pwrUnitClock(pdev->cfg->clockBus, pdev->cfg->clockUnit, false);
+}
 
+static int stmSpiMasterStopSync(struct SpiDevice *dev)
+{
+    stmSpiDisable(dev, true);
+    return 0;
+}
+
+static int stmSpiSlaveStopSync(struct SpiDevice *dev)
+{
+    stmSpiDisable(dev, false);
     return 0;
 }
 
@@ -320,12 +350,12 @@ static int stmSpiRelease(struct SpiDevice *dev)
 const struct SpiDevice_ops mStmSpiOps = {
     .masterStartSync = stmSpiMasterStartSync,
     .masterRxTx = stmSpiRxTx,
-    .masterStopSync = stmSpiStopSync,
+    .masterStopSync = stmSpiMasterStopSync,
 
     .slaveStartSync = stmSpiSlaveStartSync,
     .slaveIdle = stmSpiSlaveIdle,
     .slaveRxTx = stmSpiRxTx,
-    .slaveStopSync = stmSpiStopSync,
+    .slaveStopSync = stmSpiSlaveStopSync,
 
     .release = stmSpiRelease,
 };
@@ -365,20 +395,12 @@ static struct StmSpiDev mStmSpiDevs[ARRAY_SIZE(mStmSpiCfgs)];
 DECLARE_IRQ_HANDLER(1)
 DECLARE_IRQ_HANDLER(2)
 
-static inline void stmSpiGpioInit(struct Gpio *gpio,
-        GpioNum number, enum GpioAltFunc func)
-{
-    gpioRequest(gpio, number);
-    gpioConfigAlt(gpio, GPIO_PULL_NONE, GPIO_OUT_PUSH_PULL, func);
-}
-
 static void stmSpiInit(struct StmSpiDev *pdev, const struct StmSpiCfg *cfg,
         struct SpiDevice *dev)
 {
     stmSpiGpioInit(&pdev->miso, cfg->gpioMiso, cfg->gpioFunc);
     stmSpiGpioInit(&pdev->mosi, cfg->gpioMosi, cfg->gpioFunc);
     stmSpiGpioInit(&pdev->sck, cfg->gpioSclk, cfg->gpioFunc);
-    stmSpiGpioInit(&pdev->nss, cfg->gpioNss, cfg->gpioFunc);
 
     NVIC_EnableIRQ(cfg->irq);
 
