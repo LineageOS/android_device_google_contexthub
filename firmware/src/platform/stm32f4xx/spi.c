@@ -54,9 +54,8 @@ struct StmSpiState {
     uint16_t words;
 
     void *rxBuf;
-    uint16_t rxIdx;
-
     const void *txBuf;
+    uint16_t rxIdx;
     uint16_t txIdx;
 
     uint16_t txWord;
@@ -88,30 +87,34 @@ struct StmSpiDev {
     struct Gpio nss;
 };
 
-static int stmSpiMasterStartSync(struct SpiDevice *dev, spi_cs_t cs,
-        const struct SpiMode *mode)
+static inline int stmSpiEnable(struct StmSpiDev *pdev,
+        const struct SpiMode *mode, bool master)
 {
-    struct StmSpiDev *pdev = dev->pdata;
     struct StmSpi *regs = pdev->cfg->regs;
-
-    if (!mode->speed)
-        return -EINVAL;
 
     if (mode->bitsPerWord != 8 &&
             mode->bitsPerWord != 16)
         return -EINVAL;
 
-    uint32_t pclk = pwrGetBusSpeed(PERIPH_BUS_AHB1);
-    unsigned int div = pclk / mode->speed;
-    if (div > SPI_CR1_BR_MAX)
-        return -EINVAL;
-    else if (div < SPI_CR1_BR_MIN)
-        div = SPI_CR1_BR_MIN;
+    unsigned int div;
+    if (master) {
+        if (!mode->speed)
+            return -EINVAL;
+
+        uint32_t pclk = pwrGetBusSpeed(PERIPH_BUS_AHB1);
+        div = pclk / mode->speed;
+        if (div > SPI_CR1_BR_MAX)
+            return -EINVAL;
+        else if (div < SPI_CR1_BR_MIN)
+            div = SPI_CR1_BR_MIN;
+    }
 
     pwrUnitClock(pdev->cfg->clockBus, pdev->cfg->clockUnit, true);
 
-    regs->CR1 &= ~SPI_CR1_BR_MASK;
-    regs->CR1 |= SPI_CR1_BR(div);
+    if (master) {
+        regs->CR1 &= ~SPI_CR1_BR_MASK;
+        regs->CR1 |= SPI_CR1_BR(div);
+    }
 
     if (mode->cpol == SPI_CPOL_IDLE_LO)
         regs->CR1 &= ~SPI_CR1_CPOL;
@@ -133,16 +136,36 @@ static int stmSpiMasterStartSync(struct SpiDevice *dev, spi_cs_t cs,
     else
         regs->CR1 |= SPI_CR1_LSBFIRST;
 
-    regs->CR2 |= SPI_CR2_SSOE;
-    regs->CR1 |= SPI_CR1_MSTR;
+    if (master) {
+        regs->CR2 |= SPI_CR2_SSOE;
+        regs->CR1 |= SPI_CR1_MSTR;
+    } else {
+        regs->CR1 &= ~SPI_CR1_MSTR;
+    }
 
     return 0;
 }
 
-static void stmSpiTxNExtByte(struct StmSpiDev *pdev)
+static int stmSpiMasterStartSync(struct SpiDevice *dev, spi_cs_t cs,
+        const struct SpiMode *mode)
+{
+    struct StmSpiDev *pdev = dev->pdata;
+    return stmSpiEnable(pdev, mode, true);
+}
+
+static int stmSpiSlaveStartSync(struct SpiDevice *dev,
+        const struct SpiMode *mode)
+{
+    struct StmSpiDev *pdev = dev->pdata;
+    return stmSpiEnable(pdev, mode, false);
+}
+
+static void stmSpiTxNextByte(struct StmSpiDev *pdev)
 {
     struct StmSpi *regs = pdev->cfg->regs;
     struct StmSpiState *state = &pdev->state;
+
+    /* TODO: something has gone wrong if txBuf && txIdx > words */
 
     if (!state->txBuf) {
         regs->DR = state->txWord;
@@ -153,14 +176,24 @@ static void stmSpiTxNExtByte(struct StmSpiDev *pdev)
         const uint16_t *txBuf16 = state->txBuf;
         regs->DR = txBuf16[state->txIdx];
     }
+
+    state->txIdx++;
 }
 
-static int stmSpiMasterRxTx(struct SpiDevice *dev, void *rxBuf,
+static inline bool stmSpiIsMaster(struct StmSpiDev *pdev)
+{
+    struct StmSpi *regs = pdev->cfg->regs;
+    return !!(regs->CR1 & SPI_CR1_MSTR);
+}
+
+static inline int stmSpiEnableTransfer(struct SpiDevice *dev, void *rxBuf,
         const void *txBuf, size_t size, const struct SpiMode *mode)
 {
     struct StmSpiDev *pdev = dev->pdata;
     struct StmSpi *regs = pdev->cfg->regs;
     struct StmSpiState *state = &pdev->state;
+
+    NVIC_DisableIRQ(pdev->cfg->irq);
 
     state->bitsPerWord = mode->bitsPerWord;
     state->rxBuf = rxBuf;
@@ -174,66 +207,53 @@ static int stmSpiMasterRxTx(struct SpiDevice *dev, void *rxBuf,
     else
         state->words = size / 2;
 
-    regs->CR2 &= ~SPI_CR2_INT_MASK;
-    regs->CR2 |= SPI_CR2_ERRIE;
-
-    if (rxBuf)
-        regs->CR2 |= SPI_CR2_RXNEIE;
-
     regs->CR1 &= ~SPI_CR1_RXONLY;
-    regs->CR2 |= SPI_CR2_TXEIE;
-    stmSpiTxNExtByte(pdev);
+    regs->CR2 |= SPI_CR2_ERRIE | SPI_CR2_RXNEIE | SPI_CR2_TXEIE;
+
+    if (stmSpiIsMaster(pdev))
+        stmSpiTxNextByte(pdev);
 
     regs->CR1 |= SPI_CR1_SPE;
+    NVIC_EnableIRQ(pdev->cfg->irq);
+
     return 0;
 }
 
-static int stmSpiMasterStopSync(struct SpiDevice *dev)
+static int stmSpiRxTx(struct SpiDevice *dev, void *rxBuf, const void *txBuf,
+        size_t size, const struct SpiMode *mode)
+{
+    return stmSpiEnableTransfer(dev, rxBuf, txBuf, size, mode);
+}
+
+static int stmSpiSlaveIdle(struct SpiDevice *dev, const struct SpiMode *mode)
+{
+    return stmSpiEnableTransfer(dev, NULL, NULL, 0, mode);
+}
+
+static int stmSpiStopSync(struct SpiDevice *dev)
 {
     struct StmSpiDev *pdev = dev->pdata;
+    struct StmSpi *regs = pdev->cfg->regs;
 
+    while (regs->SR & SPI_SR_BSY)
+        ;
+    regs->CR1 &= ~SPI_CR1_SPE;
     pwrUnitClock(pdev->cfg->clockBus, pdev->cfg->clockUnit, false);
+
     return 0;
 }
 
 static void stmSpiDone(struct StmSpiDev *pdev)
 {
-    struct StmSpi *regs = pdev->cfg->regs;
-
-    while (regs->SR & SPI_SR_BSY)
-        ;
-
-    regs->CR1 &= ~SPI_CR1_SPE;
-    spiMasterRxTxDone(pdev->base, 0);
-}
-
-static void stmSpiRxDone(struct StmSpiDev *pdev)
-{
-    struct StmSpi *regs = pdev->cfg->regs;
-
-    regs->CR2 &= ~SPI_CR2_RXNEIE;
-    stmSpiDone(pdev);
-}
-
-static void stmSpiTxDone(struct StmSpiDev *pdev)
-{
-    struct StmSpi *regs = pdev->cfg->regs;
-    struct StmSpiState *state = &pdev->state;
-
-    regs->CR2 &= ~SPI_CR2_TXEIE;
-    if (!state->rxBuf)
-        stmSpiDone(pdev);
-}
-
-static void stmSpiTxe(struct StmSpiDev *pdev)
-{
-    struct StmSpiState *state = &pdev->state;
-
-    state->txIdx++;
-    if (state->txIdx == state->words)
-        stmSpiTxDone(pdev);
+    if (stmSpiIsMaster(pdev))
+        spiMasterRxTxDone(pdev->base, 0);
     else
-        stmSpiTxNExtByte(pdev);
+        spiSlaveRxTxDone(pdev->base, 0);
+}
+
+static inline void stmSpiTxe(struct StmSpiDev *pdev)
+{
+    stmSpiTxNextByte(pdev);
 }
 
 static void stmSpiRxne(struct StmSpiDev *pdev)
@@ -241,7 +261,11 @@ static void stmSpiRxne(struct StmSpiDev *pdev)
     struct StmSpi *regs = pdev->cfg->regs;
     struct StmSpiState *state = &pdev->state;
 
-    if (state->bitsPerWord == 8) {
+    /* TODO: something has gone wrong if rxBuf && rxIdx > words */
+
+    if (!state->rxBuf) {
+        (void)regs->DR;
+    } else if (state->bitsPerWord == 8) {
         uint8_t *rxBuf8 = state->rxBuf;
         rxBuf8[state->rxIdx] = regs->DR;
     } else {
@@ -250,8 +274,15 @@ static void stmSpiRxne(struct StmSpiDev *pdev)
     }
 
     state->rxIdx++;
-    if (state->rxIdx == state->words)
-        stmSpiRxDone(pdev);
+
+    /**
+     * state->words == 0 means the device is idle (check just in case
+     * state->rxIdx has wrapped back around to 0)
+     */
+    if (state->words && state->rxIdx == state->words) {
+        state->rxBuf = NULL;
+        stmSpiDone(pdev);
+    }
 }
 
 static void stmSpiIsr(struct StmSpiDev *pdev)
@@ -260,11 +291,13 @@ static void stmSpiIsr(struct StmSpiDev *pdev)
 
     if (regs->SR & SPI_SR_RXNE) {
         stmSpiRxne(pdev);
-    } else if (regs->SR & SPI_SR_TXE) {
-        stmSpiTxe(pdev);
-    } else {
-        /* TODO */
     }
+
+    if (regs->SR & SPI_SR_TXE) {
+        stmSpiTxe(pdev);
+    }
+
+    /* TODO: error conditions */
 }
 
 static int stmSpiRelease(struct SpiDevice *dev)
@@ -286,8 +319,14 @@ static int stmSpiRelease(struct SpiDevice *dev)
 
 const struct SpiDevice_ops mStmSpiOps = {
     .masterStartSync = stmSpiMasterStartSync,
-    .masterRxTx = stmSpiMasterRxTx,
-    .masterStopSync = stmSpiMasterStopSync,
+    .masterRxTx = stmSpiRxTx,
+    .masterStopSync = stmSpiStopSync,
+
+    .slaveStartSync = stmSpiSlaveStartSync,
+    .slaveIdle = stmSpiSlaveIdle,
+    .slaveRxTx = stmSpiRxTx,
+    .slaveStopSync = stmSpiStopSync,
+
     .release = stmSpiRelease,
 };
 
