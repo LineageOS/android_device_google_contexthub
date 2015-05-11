@@ -1,7 +1,6 @@
 #include <stdio.h>
 #include <printf.h>
 
-
 static uint32_t StrPrvPrintfEx_number(printf_write_c putc_, void* userData, uint64_t number, uint32_t base, bool zeroExtend, bool isSigned, uint32_t padToLength, bool caps, bool* bail)
 {
     char buf[64];
@@ -112,6 +111,7 @@ uint32_t cvprintf(printf_write_c putc_f, void* userData, const char* fmtStr, va_
 
     char c, t;
     uint32_t numPrinted = 0;
+    uint32_t val32;
     uint64_t val64;
 
 #define putc_(_ud,_c)                \
@@ -240,6 +240,16 @@ more_fmt:
 
                     val64 = GET_UVAL64();
                     numPrinted += StrPrvPrintfEx_number(putc_f, userData, val64, 2, zeroExtend, false, padToLength, false ,&bail);
+                    if (bail)
+                        goto out;
+                    break;
+
+                case 'p':
+                    putc_(userData,'0');
+                    putc_(userData,'x');
+                    numPrinted += 2;
+                    val32 = va_arg(vl, unsigned long);
+                    numPrinted += StrPrvPrintfEx_number(putc_f, userData, val32, 16, zeroExtend, false, padToLength, caps, &bail);
                     if (bail)
                         goto out;
                     break;
