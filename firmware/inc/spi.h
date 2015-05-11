@@ -29,6 +29,8 @@ struct SpiMode {
         SPI_FORMAT_MSB_FIRST,
     } format;
 
+    uint16_t txWord;
+
     SpiSpeed speed;
 };
 

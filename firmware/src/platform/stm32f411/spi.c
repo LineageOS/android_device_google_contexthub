@@ -58,6 +58,8 @@ struct StmSpiState {
 
     const void *txBuf;
     uint16_t txIdx;
+
+    uint16_t txWord;
 };
 
 struct StmSpiCfg {
@@ -142,7 +144,9 @@ static void stmSpiTxNExtByte(struct StmSpiDev *pdev)
     struct StmSpi *regs = pdev->cfg->regs;
     struct StmSpiState *state = &pdev->state;
 
-    if (state->bitsPerWord == 8) {
+    if (!state->txBuf) {
+        regs->DR = state->txWord;
+    } else if (state->bitsPerWord == 8) {
         const uint8_t *txBuf8 = state->txBuf;
         regs->DR = txBuf8[state->txIdx];
     } else {
@@ -163,6 +167,7 @@ static int stmSpiMasterRxTx(struct SpiDevice *dev, void *rxBuf,
     state->rxIdx = 0;
     state->txBuf = txBuf;
     state->txIdx = 0;
+    state->txWord = mode->txWord;
 
     if (mode->bitsPerWord == 8)
         state->words = size;
@@ -175,13 +180,9 @@ static int stmSpiMasterRxTx(struct SpiDevice *dev, void *rxBuf,
     if (rxBuf)
         regs->CR2 |= SPI_CR2_RXNEIE;
 
-    if (txBuf) {
-        regs->CR1 &= ~SPI_CR1_RXONLY;
-        regs->CR2 |= SPI_CR2_TXEIE;
-        stmSpiTxNExtByte(pdev);
-    } else {
-        regs->CR1 |= SPI_CR1_RXONLY;
-    }
+    regs->CR1 &= ~SPI_CR1_RXONLY;
+    regs->CR2 |= SPI_CR2_TXEIE;
+    stmSpiTxNExtByte(pdev);
 
     regs->CR1 |= SPI_CR1_SPE;
     return 0;
@@ -198,11 +199,9 @@ static int stmSpiMasterStopSync(struct SpiDevice *dev)
 static void stmSpiDone(struct StmSpiDev *pdev)
 {
     struct StmSpi *regs = pdev->cfg->regs;
-    struct StmSpiState *state = &pdev->state;
 
-    if (state->txBuf)
-        while (regs->SR & SPI_SR_BSY)
-            ;
+    while (regs->SR & SPI_SR_BSY)
+        ;
 
     regs->CR1 &= ~SPI_CR1_SPE;
     spiMasterRxTxDone(pdev->base, 0);
