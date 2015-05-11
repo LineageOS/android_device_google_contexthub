@@ -70,7 +70,7 @@ struct StmSpiCfg {
     GpioNum gpioMosi;
     GpioNum gpioSclk;
     GpioNum gpioNss;
-    uint8_t gpioFunc;
+    enum GpioAltFunc gpioFunc;
 
     IRQn_Type irq;
 };
@@ -303,7 +303,7 @@ static const struct StmSpiCfg mStmSpiCfgs[] = {
         .gpioMosi = GPIO_PA(7),
         .gpioSclk = GPIO_PA(5),
         .gpioNss = GPIO_PA(4),
-        .gpioFunc = GPIO_A2_AFR_SPI123,
+        .gpioFunc = GPIO_AF_SPI1,
 
         .irq = SPI1_IRQn,
     },
@@ -317,7 +317,7 @@ static const struct StmSpiCfg mStmSpiCfgs[] = {
         .gpioMosi = GPIO_PB(15),
         .gpioSclk = GPIO_PB(13),
         .gpioNss = GPIO_PB(12),
-        .gpioFunc = GPIO_A2_AFR_SPI123,
+        .gpioFunc = GPIO_AF_SPI2_A,
 
         .irq = SPI2_IRQn,
     },
@@ -328,11 +328,10 @@ DECLARE_IRQ_HANDLER(1)
 DECLARE_IRQ_HANDLER(2)
 
 static inline void stmSpiGpioInit(struct Gpio *gpio,
-        GpioNum number, uint8_t func)
+        GpioNum number, enum GpioAltFunc func)
 {
     gpioRequest(gpio, number);
-    gpioConfig(gpio, GPIO_MODE_ALTERNATE, GPIO_PULL_NONE);
-    gpio_assign_func(gpio, func);
+    gpioConfigAlt(gpio, GPIO_PULL_NONE, GPIO_OUT_PUSH_PULL, func);
 }
 
 static void stmSpiInit(struct StmSpiDev *pdev, const struct StmSpiCfg *cfg,

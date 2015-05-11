@@ -8,26 +8,28 @@ extern "C" {
 #include <stdint.h>
 #include <stdbool.h>
 
-typedef enum
+#include <plat/inc/gpio.h>
+
+enum GpioMode
 {
     GPIO_MODE_IN = 0,
     GPIO_MODE_OUT,
     GPIO_MODE_ALTERNATE,
     GPIO_MODE_ANALOG,
-} GpioMode;
+};
 
-typedef enum
+enum GpioOpenDrainMode
 {
     GPIO_OUT_PUSH_PULL = 0,
     GPIO_OUT_OPEN_DRAIN,
-} GpioOpenDrainMode;
+};
 
-typedef enum
+enum GpioPullMode
 {
     GPIO_PULL_NONE = 0,
     GPIO_PULL_UP,
     GPIO_PULL_DOWN,
-} GpioPullMode;
+};
 
 typedef uint8_t GpioNum;
 struct Gpio;
@@ -36,8 +38,9 @@ struct Gpio;
 void gpioRequest(struct Gpio* __restrict gpio, GpioNum number);
 
 /* Configures the direction and pull type of a GPIO */
-void gpioConfig(const struct Gpio* __restrict gpio, GpioMode mode, GpioPullMode pull);
-void gpioConfig_output(const struct Gpio* __restrict gpio, GpioOpenDrainMode mode);
+void gpioConfigInput(const struct Gpio* __restrict gpio, enum GpioPullMode pull);
+void gpioConfigOutput(const struct Gpio* __restrict gpio, enum GpioPullMode pull, enum GpioOpenDrainMode output, bool value);
+void gpioConfigAlt(const struct Gpio* __restrict gpio, enum GpioPullMode pull, enum GpioOpenDrainMode output, enum GpioAltFunc func);
 
 /* Sets and gets a value for a specific GPIO pin */
 void gpioSet(const struct Gpio* __restrict gpio, bool value);
@@ -48,4 +51,3 @@ bool gpioGet(const struct Gpio* __restrict gpio);
 #endif
 
 #endif
-

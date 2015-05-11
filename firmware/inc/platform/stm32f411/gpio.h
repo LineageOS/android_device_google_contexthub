@@ -40,22 +40,64 @@ struct Gpio
     uint8_t gpio;
 };
 
-void gpio_assign_func(const struct Gpio* __restrict gpio, uint8_t func);
-
-
-
-/* a select few alternate assignment bits */
-#define GPIO_PA8_AF_I2C3_SCL        4
-#define GPIO_PB4_AF_I2C3_SDA        9
-#define GPIO_PB8_AF_I2C1_SCL        4
-#define GPIO_PB9_AF_I2C1_SDA        4
-#define GPIO_A2_AFR_SPI123          5
-#define GPIO_A2_AFR_SPI345          6
-#define GPIO_A2_AFR_USART2          7
+enum GpioAltFunc
+{
+    GPIO_AF00 = 0,
+    GPIO_AF01,
+    GPIO_AF02,
+    GPIO_AF03,
+    GPIO_AF04,
+    GPIO_AF05,
+    GPIO_AF06,
+    GPIO_AF07,
+    GPIO_AF08,
+    GPIO_AF09,
+    GPIO_AF10,
+    GPIO_AF11,
+    GPIO_AF12,
+    GPIO_AF13,
+    GPIO_AF14,
+    GPIO_AF15,
+    GPIO_AF_SYS = GPIO_AF00,
+    GPIO_AF_TIM1 = GPIO_AF01,
+    GPIO_AF_TIM2 = GPIO_AF01,
+    GPIO_AF_TIM3 = GPIO_AF02,
+    GPIO_AF_TIM4 = GPIO_AF02,
+    GPIO_AF_TIM5 = GPIO_AF02,
+    GPIO_AF_TIM9 = GPIO_AF03,
+    GPIO_AF_TIM10 = GPIO_AF03,
+    GPIO_AF_TIM11 = GPIO_AF03,
+    GPIO_AF_I2C1 = GPIO_AF04,
+    GPIO_AF_I2C2_A = GPIO_AF04,
+    GPIO_AF_I2C3_A = GPIO_AF04,
+    GPIO_AF_SPI1 = GPIO_AF05,
+    GPIO_AF_I2S1 = GPIO_AF05,
+    GPIO_AF_SPI2_A = GPIO_AF05,
+    GPIO_AF_I2S2_A = GPIO_AF05,
+    GPIO_AF_SPI3_A = GPIO_AF05,
+    GPIO_AF_I2S3_A = GPIO_AF05,
+    GPIO_AF_SPI2_B = GPIO_AF06,
+    GPIO_AF_I2S2_B = GPIO_AF06,
+    GPIO_AF_SPI3_B = GPIO_AF06,
+    GPIO_AF_I2S3_B = GPIO_AF06,
+    GPIO_AF_SPI4_B = GPIO_AF06,
+    GPIO_AF_I2S4_B = GPIO_AF06,
+    GPIO_AF_SPI5_B = GPIO_AF06,
+    GPIO_AF_I2S5_B = GPIO_AF06,
+    GPIO_AF_SPI3_C = GPIO_AF07,
+    GPIO_AF_I2S3_C = GPIO_AF07,
+    GPIO_AF_USART1 = GPIO_AF07,
+    GPIO_AF_USART2 = GPIO_AF07,
+    GPIO_AF_USART6 = GPIO_AF08,
+    GPIO_AF_I2C2_B = GPIO_AF09,
+    GPIO_AF_I2C3_B = GPIO_AF09,
+    GPIO_AF_OTG1 = GPIO_AF10,
+    GPIO_AF_SDIO = GPIO_AF12,
+    GPIO_AF_EVENT = GPIO_AF15,
+};
 
 #ifdef __cplusplus
 }
 #endif
 
 #endif
-

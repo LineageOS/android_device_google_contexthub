@@ -148,7 +148,7 @@ struct StmI2cCfg {
     uint8_t gpioSclAf;
     GpioNum gpioSda;
     uint8_t gpioSdaAf;
-    GpioPullMode gpioPull;
+    enum GpioPullMode gpioPull;
 
     IRQn_Type irqEv;
     IRQn_Type irqEr;
@@ -174,9 +174,9 @@ static const struct StmI2cCfg mStmI2cCfgs[] = {
         .clock = PERIPH_APB1_I2C1,
 
         .gpioScl = GPIO_PB(8),
-        .gpioSclAf = GPIO_PB8_AF_I2C1_SCL,
+        .gpioSclAf = GPIO_AF_I2C1,
         .gpioSda = GPIO_PB(9),
-        .gpioSdaAf = GPIO_PB9_AF_I2C1_SDA,
+        .gpioSdaAf = GPIO_AF_I2C1,
         .gpioPull = GPIO_PULL_NONE,
 
         .irqEv = I2C1_EV_IRQn,
@@ -196,9 +196,9 @@ static const struct StmI2cCfg mStmI2cCfgs[] = {
         .clock = PERIPH_APB1_I2C3,
 
         .gpioScl = GPIO_PA(8),
-        .gpioSclAf = GPIO_PA8_AF_I2C3_SCL,
+        .gpioSclAf = GPIO_AF_I2C3_A,
         .gpioSda = GPIO_PB(4),
-        .gpioSdaAf = GPIO_PB4_AF_I2C3_SDA,
+        .gpioSdaAf = GPIO_AF_I2C3_B,
         .gpioPull = GPIO_PULL_NONE,
 
         .irqEv = I2C3_EV_IRQn,
@@ -635,12 +635,10 @@ DECLARE_IRQ_HANDLERS(1);
 DECLARE_IRQ_HANDLERS(3);
 
 static inline void stmI2cGpioInit(struct Gpio *gpio, GpioNum num,
-        GpioPullMode pull, uint8_t af)
+        enum GpioPullMode pull, enum GpioAltFunc func)
 {
     gpioRequest(gpio, num);
-    gpioConfig(gpio, GPIO_MODE_ALTERNATE, pull);
-    gpioConfig_output(gpio, GPIO_OUT_OPEN_DRAIN);
-    gpio_assign_func(gpio, af);
+    gpioConfigAlt(gpio, pull, GPIO_OUT_OPEN_DRAIN, func);
 }
 
 int i2cMasterRequest(I2cBus busId, I2cSpeed speed)

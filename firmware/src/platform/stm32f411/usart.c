@@ -57,6 +57,15 @@ static bool mUsartHasFlowControl[] = {
     true,
 };
 
+static enum GpioAltFunc mUsartAlt[] = {
+    GPIO_AF_USART1,
+    GPIO_AF_USART2,
+    GPIO_AF00,
+    GPIO_AF00,
+    GPIO_AF00,
+    GPIO_AF_USART6,
+};
+
 void usartOpen(struct usart* __restrict usart, UsartPort port,
                 GpioNum tx, GpioNum rx,
                 uint32_t baud, UsartDataBitsCfg data_bits,
@@ -71,16 +80,12 @@ void usartOpen(struct usart* __restrict usart, UsartPort port,
     uint32_t baseClk, div, intPart, fraPart;
     struct Gpio gpio;
 
-
     /* configure tx/rx gpios */
-    gpioRequest(&gpio, rx); /* rx */
-    gpioConfig(&gpio, GPIO_MODE_ALTERNATE, GPIO_PULL_UP);
-    gpioRequest(&gpio, tx); /* tx */
-    gpioConfig(&gpio, GPIO_MODE_ALTERNATE, GPIO_PULL_UP);
 
-    //XXX: this needs fixing either ambitiously (a table of all possiblities) ot simply (done elsewhere)
-    /* connect PA2 (which we assume is our TX pin) to USART2.TX (which we assume is the uart in question) */
-    gpio_assign_func(&gpio, GPIO_A2_AFR_USART2);
+    gpioRequest(&gpio, rx); /* rx */
+    gpioConfigAlt(&gpio, GPIO_PULL_UP, GPIO_OUT_PUSH_PULL, mUsartAlt[port]);
+    gpioRequest(&gpio, tx); /* tx */
+    gpioConfigAlt(&gpio, GPIO_PULL_UP, GPIO_OUT_PUSH_PULL, mUsartAlt[port]);
 
     /* enable clock */
     pwrUnitClock(mUsartBusses[port], mUsartPeriphs[port], true);
