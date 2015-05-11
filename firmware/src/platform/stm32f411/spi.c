@@ -268,6 +268,16 @@ static void stmSpiIsr(struct StmSpiDev *pdev)
     }
 }
 
+static int stmSpiRelease(struct SpiDevice *dev)
+{
+    struct StmSpiDev *pdev = dev->pdata;
+
+    NVIC_DisableIRQ(pdev->cfg->irq);
+
+    pdev->base = NULL;
+    return 0;
+}
+
 #define DECLARE_IRQ_HANDLER(_n)             \
     void SPI##_n##_IRQHandler();            \
     void SPI##_n##_IRQHandler()             \
@@ -279,6 +289,7 @@ const struct SpiDevice_ops mStmSpiOps = {
     .masterStartSync = stmSpiMasterStartSync,
     .masterRxTx = stmSpiMasterRxTx,
     .masterStopSync = stmSpiMasterStopSync,
+    .release = stmSpiRelease,
 };
 
 static const struct StmSpiCfg mStmSpiCfgs[] = {
