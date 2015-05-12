@@ -14,6 +14,7 @@ extern "C" {
 #define MAX_TASKS                        16
 #define MAX_EMBEDDED_EVT_SUBS            6 /*tradeoff, no wrong answer */
 
+#define EVT_BOOT_COMPLETED               0x000000FF    //all apps' init code has run
 #define EVT_NO_FIRST_SENSOR_EVENT        0x00000100    //sensor type SENSOR_TYPE_x produces events of type EVT_NO_FIRST_SENSOR_EVENT + SENSOR_TYPE_x for all Google-defined sensors
 #define EVT_NO_FIRST_USER_EVENT          0x00000200    //all events lower than this are reserved for the OS. all of them are nondiscardable necessarily!
 

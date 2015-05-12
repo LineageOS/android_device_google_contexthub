@@ -170,6 +170,9 @@ void __attribute__((noreturn)) osMain(void)
     osStartTasks();
     platEnableInterrupts();
 
+    //broadcast boot completed
+    (void)osEnqueueEvt(EVT_BOOT_COMPLETED, NULL, NULL, false);
+
     while (true) {
 
         /* get an event */
