@@ -30,7 +30,6 @@ struct SensorsClientRequest {
     uint32_t handle;
     uint32_t clientId;
     uint32_t rate;
-    uint32_t decimationCounter; /* set to nonzero for ondemand sensors number of requested sensings */
 };
 
 static struct Sensor mSensors[MAX_REGISTERED_SENSORS];
@@ -138,46 +137,15 @@ static void sensorReconfig(struct Sensor* s, uint32_t newHwRate)
     }
 }
 
-static bool sensorCanDoRate(const struct SensorInfo* si, uint32_t rate)
-{
-    const uint32_t *rateP = si->supportedRates;
-
-    while (*rateP) {
-        if (*rateP == rate)
-            return true;
-        rateP++;
-    }
-
-    return false;
-}
-
-static uint64_t sensorCalcLeastCommonMultiple(uint64_t a, uint64_t b)
-{
-    /* range limits of 64-bit will hurt us here in some cases - watch out */
-    /* LCM(a, b) = a * b / GCD (a, b) */
-
-    /* calculate gcd usng euclidean algo */
-    uint64_t gcd = a > b ? a : b, t1 = a > b ? b : a, t2;
-
-    while (t1) {
-        t2 = t1;
-        t1 = gcd % t1;
-        gcd = t2;
-    }
-
-    /* use it */
-    return a * b / gcd;
-}
-
 static uint32_t sensorCalcHwRate(struct Sensor* s, uint32_t extraReqedRate, uint32_t removedRate)
 {
-    bool haveUsers = false;
-    uint64_t lcm = 0;
+    bool haveUsers = false, haveOnChange = extraReqedRate == SENSOR_RATE_ONCHANGE;
+    uint32_t highestReq = 0;
     uint32_t i;
 
     if (extraReqedRate) {
          haveUsers = true;
-         lcm = (extraReqedRate == SENSOR_RATE_ONDEMAND || extraReqedRate == SENSOR_RATE_ONCHANGE) ? 0 : extraReqedRate;
+         highestReq = (extraReqedRate == SENSOR_RATE_ONDEMAND || extraReqedRate == SENSOR_RATE_ONCHANGE) ? 0 : extraReqedRate;
     }
 
     for (i = 0; i < MAX_CLI_SENS_MATRIX_SZ; i++) {
@@ -196,19 +164,31 @@ static uint32_t sensorCalcHwRate(struct Sensor* s, uint32_t extraReqedRate, uint
         haveUsers = true;
 
         /* we can always do ondemand and if we see an on-change then we already checked and do allow it */
-        if (req->rate == SENSOR_RATE_ONDEMAND || req->rate == SENSOR_RATE_ONCHANGE)
+        if (req->rate == SENSOR_RATE_ONDEMAND)
             continue;
+        if (req->rate == SENSOR_RATE_ONCHANGE) {
+            haveOnChange = true;
+            continue;
+        }
 
-        lcm = lcm ? sensorCalcLeastCommonMultiple(lcm, req->rate) : req->rate;
+        if (highestReq < req->rate)
+            highestReq = req->rate;
     }
 
-    if (!lcm)   /* no requests -> we can definitely do that */
-        return haveUsers ? SENSOR_RATE_OFF : SENSOR_RATE_ONDEMAND;
+    if (!highestReq) {   /* no requests -> we can definitely do that */
+        if (!haveUsers)
+            return SENSOR_RATE_OFF;
+        else if (haveOnChange)
+            return SENSOR_RATE_ONCHANGE;
+        else
+            return SENSOR_RATE_ONDEMAND;
+    }
 
-    if (lcm >> 32) /* too much to even try? */
-        return SENSOR_RATE_IMPOSSIBLE;
+    for (i = 0; s->si->supportedRates[i]; i++);
+        if (s->si->supportedRates[i] >= highestReq)
+            return s->si->supportedRates[i];
 
-    return sensorCanDoRate(s->si, lcm) ? lcm : SENSOR_RATE_IMPOSSIBLE;
+    return SENSOR_RATE_IMPOSSIBLE;
 }
 
 static void sensorInternalFwStateChanged(void *evtP)
@@ -310,7 +290,6 @@ static bool sensorAddRequestor(uint32_t sensorHandle, uint32_t clientId, uint32_
 
     req->handle = sensorHandle;
     req->clientId = clientId;
-    req->decimationCounter = 0;
     mem_reorder_barrier();
     req->rate = rate;
 
@@ -376,7 +355,8 @@ bool sensorRequest(uint32_t clientId, uint32_t sensorHandle, uint32_t rate)
         return false;
 
     /* verify the rate is possible */
-    if (!sensorCanDoRate(s->si, rate) || (newSensorRate = sensorCalcHwRate(s, 0, rate)) == SENSOR_RATE_IMPOSSIBLE)
+    newSensorRate = sensorCalcHwRate(s, 0, rate);
+    if (newSensorRate == SENSOR_RATE_IMPOSSIBLE)
         return false;
 
     /* record the request */
@@ -396,9 +376,6 @@ bool sensorRequestRateChange(uint32_t clientId, uint32_t sensorHandle, uint32_t 
     if (!s)
         return false;
 
-    /* verify the rate is possible */
-    if (!sensorCanDoRate(s->si, newRate))
-        return false;
 
     /* get current rate */
     if (!sensorGetCurRequestorRate(sensorHandle, clientId, &oldRate))
@@ -444,61 +421,20 @@ bool sensorTriggerOndemand(uint32_t clientId, uint32_t sensorHandle)
     for (i = 0; i < MAX_CLI_SENS_MATRIX_SZ; i++) {
         struct SensorsClientRequest *req = slabAllocatorGetNth(mCliSensMatrix, i);
 
-        if (req && req->handle == sensorHandle && req->clientId == clientId) {
-
-            if (req->rate == SENSOR_RATE_ONDEMAND)
-                req->decimationCounter++;
-
+        if (req && req->handle == sensorHandle && req->clientId == clientId)
             return s->si->ops.sensorTriggerOndemand();
-        }
     }
 
     // not found -> do not report
     return false;
 }
 
-bool sensorDecimate(uint32_t clientId, uint32_t sensorHandle)
+uint32_t sensorGetCurRate(uint32_t sensorHandle)
 {
     struct Sensor* s = sensorFindByHandle(sensorHandle);
-    uint32_t i;
 
-    if (!s)
-        return false;
-
-    for (i = 0; i < MAX_CLI_SENS_MATRIX_SZ; i++) {
-        struct SensorsClientRequest *req = slabAllocatorGetNth(mCliSensMatrix, i);
-
-        if (req && req->handle == sensorHandle && req->clientId == clientId) {
-            uint32_t decimationTop = s->currentRate / req->rate;
-
-            if (req->rate == SENSOR_RATE_OFF)
-                return  false;
-            if (req->rate == SENSOR_RATE_ONDEMAND) {
-                if (!req->decimationCounter)
-                    return false;
-                req->decimationCounter--;
-                return true;
-            }
-
-            if (req->rate == SENSOR_RATE_ONCHANGE)
-                return true;
-
-            decimationTop = s->currentRate / req->rate;
-
-            if (++req->decimationCounter >= decimationTop) {
-                req->decimationCounter = 0;
-                return true;
-           }
-
-           return false;
-        }
-    }
-
-    // not found -> do not report
-    return false;
+    return s ? s->currentRate : SENSOR_RATE_OFF;
 }
-
-
 
 
 
