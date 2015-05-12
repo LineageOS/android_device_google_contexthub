@@ -57,7 +57,7 @@ static bool timerSetAlarms(uint64_t nextTimer, uint64_t curTime, uint32_t maxJit
 static void timFireAsNeededAndUpdateAlarms(void)
 {
     uint32_t maxDrift = 0, maxJitter = 0, maxErrTotal = 0;
-    bool somethingDone = false;
+    bool somethingDone;
     uint64_t nextTimer = 0;
     TimTimerCbkF cbkF;
     uint64_t curTime;
@@ -65,6 +65,7 @@ static void timFireAsNeededAndUpdateAlarms(void)
     void *cbkD;
 
     do {
+        somethingDone = false;
 
         for (i = 0; i < MAX_TIMERS; i++) {
             if (!mTimers[i].id)
@@ -95,7 +96,7 @@ static void timFireAsNeededAndUpdateAlarms(void)
             }
         }
         curTime = timGetTime();
-    } while (somethingDone || curTime <= nextTimer || !timerSetAlarms(nextTimer, curTime, maxJitter, maxDrift, maxErrTotal));
+    } while (somethingDone || (nextTimer && (curTime >= nextTimer || !timerSetAlarms(nextTimer, curTime, maxJitter, maxDrift, maxErrTotal))));
 }
 
 uint32_t timTimerSet(uint64_t length, uint32_t jitterPpm, uint32_t driftPpm, TimTimerCbkF cbk, void* data, bool oneShot)
@@ -160,6 +161,3 @@ void timInit(void)
 {
     atomicBitsetInit(mTimersValid, MAX_TIMERS);
 }
-
-
-
