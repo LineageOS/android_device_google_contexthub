@@ -5,7 +5,13 @@
 
 const struct HostIntfComm *platHostIntfInit()
 {
+#if defined(PLATFORM_HOST_INTF_I2C_BUS)
     return hostIntfI2cInit(PLATFORM_HOST_INTF_I2C_BUS);
+#elif defined(PLATFORM_HOST_INTF_SPI_BUS)
+    return hostIntfSpiInit(PLATFORM_HOST_INTF_SPI_BUS);
+#else
+#error "No host interface bus specified"
+#endif
 }
 
 uint16_t platHwType(void)
