@@ -5,8 +5,9 @@
 extern "C" {
 #endif
 
-#include <stdint.h>
 #include <stdbool.h>
+#include <stdint.h>
+#include <seos.h>
 
 
 #define MAX_REGISTERED_SENSORS  8 /* this may need to be revisted later */
@@ -68,6 +69,9 @@ uint32_t sensorRegister(const struct SensorInfo *si); /* returns handle, copy is
 bool sensorUnregister(uint32_t handle); /* your job to be sure it is off already */
 bool sensorSignalInternalEvt(uint32_t handle, uint32_t intEvtNum, uint32_t value);
 
+static inline uint32_t sensorGetMyEventType(uint32_t sensorType) {
+    return EVT_NO_FIRST_SENSOR_EVENT + sensorType;
+}
 
 /*
  * api for using sensors (enum is not synced with sensor sub/unusb, this is ok since we do not expect a lot of dynamic sub/unsub)
