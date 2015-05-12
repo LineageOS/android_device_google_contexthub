@@ -26,6 +26,11 @@ struct HostIntfComm {
  */
 const struct HostIntfComm *hostIntfI2cInit(I2cBus busId);
 
+/**
+ * Returns a HostIntfOps backed by SPI
+ */
+const struct HostIntfComm *hostIntfSpiInit(uint8_t busId);
+
 
 /**
  * Platform-internal hostIntf API
