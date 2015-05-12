@@ -8,8 +8,6 @@ extern "C" {
 #include <stdint.h>
 #include <stdbool.h>
 
-#include <plat/inc/gpio.h>
-
 enum GpioMode
 {
     GPIO_MODE_IN = 0,
@@ -31,6 +29,7 @@ enum GpioPullMode
     GPIO_PULL_DOWN,
 };
 
+enum GpioAltFunc;
 typedef uint8_t GpioNum;
 struct Gpio;
 
