@@ -3,9 +3,9 @@
 #include <variant/inc/variant.h>
 #include <plat/inc/bl.h>
 
-I2cBus platHostIntfI2cBus(void)
+const struct HostIntfComm *platHostIntfInit()
 {
-    return PLATFORM_HOST_INTF_I2C_BUS;
+    return hostIntfI2cInit(PLATFORM_HOST_INTF_I2C_BUS);
 }
 
 uint16_t platHwType(void)

@@ -3,15 +3,12 @@
 #include <sys/endian.h>
 
 #include <crc.h>
-#include <i2c.h>
 #include <hostIntf.h>
 #include <hostIntf_priv.h>
 #include <nanohubPacket.h>
 #include <plat/inc/pwr.h>
 #include <seos.h>
 #include <util.h>
-
-#define NANOHUB_I2C_SLAVE_ADDRESS     0x55
 
 struct NanohubCommand {
     uint32_t reason;
@@ -30,8 +27,8 @@ const struct NanohubCommand gBuiltinCommands[] = {
                 struct NanohubOsHwVersionsRequest),
 };
 
+static const struct HostIntfComm *gComm;
 
-static I2cBus gI2cBusId;
 static uint8_t gRxBuf[NANOHUB_PACKET_SIZE_MAX];
 static size_t gRxSize;
 static uint8_t gTxBuf[NANOHUB_PACKET_SIZE_MAX];
@@ -41,17 +38,15 @@ static uint32_t gSeq;
 static const struct NanohubCommand *gRxCmd;
 
 static void hostIntfTxPacket(uint32_t reason, uint8_t len,
-        I2cCallbackF callback);
+        HostIntfCommCallbackF callback);
 
-static void hostIntfRxDone(void *cookie, size_t tx, size_t rx, int err);
+static void hostIntfRxDone(size_t rx, int err);
 static void hostIntfGenerateAck(void *cookie);
 
-static void hostIntfTxAckDone(void *cookie, size_t tx, size_t rx, int err);
+static void hostIntfTxAckDone(size_t tx, int err);
 static void hostIntfGenerateResponse(void *cookie);
 
-static void hostIntfTxPayloadDone(void *cookie, size_t tx, size_t rx, int err);
-static void hostIntfTxPreambleDone(void *cookie, size_t tx, size_t rx, int err);
-
+static void hostIntfTxPayloadDone(size_t tx, int err);
 
 static inline void *hostIntfGetPayload(uint8_t *buf)
 {
@@ -131,7 +126,8 @@ static size_t hostIntfGetOsHwVersion(void *payload)
     return sizeof(*resp);
 }
 
-static void hostIntfTxPacket(__le32 reason, uint8_t len, I2cCallbackF callback)
+static void hostIntfTxPacket(__le32 reason, uint8_t len,
+        HostIntfCommCallbackF callback)
 {
     struct NanohubPacket *txPacket = (struct NanohubPacket *)gTxBuf;
     txPacket->reason = reason;
@@ -144,35 +140,33 @@ static void hostIntfTxPacket(__le32 reason, uint8_t len, I2cCallbackF callback)
 
     gTxSize = NANOHUB_PACKET_SIZE(len);
     gTxBufPtr = gTxBuf;
-    i2cSlaveTxPacket(gI2cBusId, gTxBufPtr, gTxSize, callback, NULL);
+    gComm->txPacket(gTxBufPtr, gTxSize, callback);
 }
 
 static inline void hostIntfTxPacketDone(int err, size_t tx,
-        I2cCallbackF callback)
+        HostIntfCommCallbackF callback)
 {
-    if (err < 0 || tx >= gTxSize) {
-        i2cSlaveTxPreamble(gI2cBusId, NANOHUB_PREAMBLE_BYTE,
-                hostIntfTxPreambleDone, NULL);
-    } else {
+    if (!err && tx < gTxSize) {
         gTxSize -= tx;
         gTxBufPtr += tx;
 
-        i2cSlaveTxPacket(gI2cBusId, gTxBufPtr, gTxSize, callback, NULL);
+        gComm->txPacket(gTxBufPtr, gTxSize, callback);
     }
 }
 
 void hostIntfRequest()
 {
-    gI2cBusId = platHostIntfI2cBus();
-    i2cSlaveRequest(gI2cBusId, NANOHUB_I2C_SLAVE_ADDRESS);
-    i2cSlaveEnableRx(gI2cBusId, gRxBuf, sizeof(gRxBuf), hostIntfRxDone, NULL);
+    gComm = platHostIntfInit();
+    if (gComm) {
+        int err = gComm->request();
+        if (!err)
+            gComm->rxPacket(gRxBuf, sizeof(gRxBuf), hostIntfRxDone);
+    }
 }
 
-static void hostIntfRxDone(void *cookie, size_t tx, size_t rx, int err)
+static void hostIntfRxDone(size_t rx, int err)
 {
     gRxSize = rx;
-    i2cSlaveTxPreamble(gI2cBusId, NANOHUB_PREAMBLE_BYTE,
-            hostIntfTxPreambleDone, NULL);
 
     if (err != 0) {
         osLog(LOG_ERROR, "%s: failed to receive request: %d\n", __func__, err);
@@ -195,7 +189,7 @@ static void hostIntfGenerateAck(void *cookie)
     hostIntfTxPacket(reason, 0, hostIntfTxAckDone);
 }
 
-static void hostIntfTxAckDone(void *cookie, size_t tx, size_t rx, int err)
+static void hostIntfTxAckDone(size_t tx, int err)
 {
     hostIntfTxPacketDone(err, tx, hostIntfTxAckDone);
 
@@ -219,7 +213,7 @@ static void hostIntfGenerateResponse(void *cookie)
     hostIntfTxPacket(gRxCmd->reason, respLen, hostIntfTxPayloadDone);
 }
 
-static void hostIntfTxPayloadDone(void *cookie, size_t tx, size_t rx, int err)
+static void hostIntfTxPayloadDone(size_t tx, int err)
 {
     hostIntfTxPacketDone(err, tx, hostIntfTxPayloadDone);
 
@@ -227,11 +221,7 @@ static void hostIntfTxPayloadDone(void *cookie, size_t tx, size_t rx, int err)
         osLog(LOG_ERROR, "%s: failed to send response: %d\n", __func__, err);
 }
 
-static void hostIntfTxPreambleDone(void *cookie, size_t tx, size_t rx, int err)
-{
-}
-
 void hostIntfRelease()
 {
-    i2cSlaveRelease(gI2cBusId);
+    gComm->release();
 }

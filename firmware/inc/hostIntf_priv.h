@@ -3,15 +3,39 @@
 
 #include <i2c.h>
 #include <stdint.h>
+#include <stddef.h>
+
+
+/**
+ * hostIntf communication abstraction layer
+ */
+
+typedef void (*HostIntfCommCallbackF)(size_t bytesTransferred, int err);
+struct HostIntfComm {
+    int (*request)(void);
+
+    int (*rxPacket)(void *rxBuf, size_t rxSize, HostIntfCommCallbackF callback);
+    int (*txPacket)(const void *txBuf, size_t txSize,
+            HostIntfCommCallbackF callback);
+
+    int (*release)(void);
+};
+
+/**
+ * Returns a HostIntfOps backed by I2C
+ */
+const struct HostIntfComm *hostIntfI2cInit(I2cBus busId);
+
 
 /**
  * Platform-internal hostIntf API
  */
 
 /**
- * Returns the I2C bus used by the host interface
+ * Returns the platform's communication implementation.  The platform should
+ * delegate this to hostIntfI2cInit() or hostIntfSpiInit() as appropriate.
  */
-I2cBus platHostIntfI2cBus(void);
+const struct HostIntfComm *platHostIntfInit();
 
 /**
  * Returns the platform's hardware type (16-bit, host byte order)
