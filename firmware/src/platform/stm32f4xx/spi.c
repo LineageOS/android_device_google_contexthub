@@ -96,6 +96,12 @@ static inline void stmSpiGpioInit(struct Gpio *gpio,
     gpioConfigAlt(gpio, GPIO_PULL_NONE, GPIO_OUT_PUSH_PULL, func);
 }
 
+static inline void stmSpiSckPullMode(struct StmSpiDev *pdev,
+        enum GpioPullMode sckPull)
+{
+    gpioConfigAlt(&pdev->sck, sckPull, GPIO_OUT_PUSH_PULL, pdev->cfg->gpioFunc);
+}
+
 static inline int stmSpiEnable(struct StmSpiDev *pdev,
         const struct SpiMode *mode, bool master)
 {
@@ -161,6 +167,8 @@ static int stmSpiMasterStartSync(struct SpiDevice *dev, spi_cs_t cs,
     int err = stmSpiEnable(pdev, mode, true);
     if (err < 0)
         return err;
+
+    stmSpiSckPullMode(pdev, mode->cpol ? GPIO_PULL_UP : GPIO_PULL_DOWN);
 
     gpioRequest(&pdev->nss, cs);
     gpioConfigOutput(&pdev->nss, GPIO_PULL_NONE, GPIO_OUT_PUSH_PULL, 0);
@@ -254,8 +262,10 @@ static inline void stmSpiDisable(struct SpiDevice *dev, bool master)
     while (regs->SR & SPI_SR_BSY)
         ;
 
-    if (master)
+    if (master) {
         gpioSet(&pdev->nss, 1);
+        stmSpiSckPullMode(pdev, GPIO_PULL_NONE);
+    }
 
     regs->CR1 &= ~SPI_CR1_SPE;
     pwrUnitClock(pdev->cfg->clockBus, pdev->cfg->clockUnit, false);
