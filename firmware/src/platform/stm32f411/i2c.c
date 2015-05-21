@@ -692,8 +692,8 @@ int i2cMasterRelease(I2cBus busId)
     const struct StmI2cCfg *cfg = pdev->cfg;
 
     if (state->mode == STM_I2C_MASTER) {
-        if (atomicCmpXchgByte((uint8_t *)&state->masterState,
-                STM_I2C_MASTER_IDLE, STM_I2C_DISABLED)) {
+        if (atomicReadByte(&state->masterState) == STM_I2C_MASTER_IDLE) {
+            state->mode = STM_I2C_DISABLED;
             i2cStmIrqDisable(pdev, I2C_CR2_ITBUFEN | I2C_CR2_ITERREN | I2C_CR2_ITEVTEN);
             stmI2cDisable(pdev);
             pwrUnitClock(PERIPH_BUS_APB1, cfg->clock, false);
