@@ -531,12 +531,12 @@ static void i2cStmMasterTxRx(struct StmI2cDev *pdev)
 
     if (masterState == STM_I2C_MASTER_TX_DATA) {
         if (state->tx.offset == state->tx.size) {
-            i2cStmStopEnable(pdev);
             state->tx.size = 0;
             if (state->rx.size > 0) {
                 atomicWriteByte(&state->masterState, STM_I2C_MASTER_START);
                 regs->CR1 |= I2C_CR1_START;
             } else {
+                i2cStmStopEnable(pdev);
                 i2cStmTxRxDone(pdev);
             }
         } else {
