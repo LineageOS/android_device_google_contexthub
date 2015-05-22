@@ -68,6 +68,9 @@ int spiSlaveRxTx(struct SpiDevice *dev,
         void *rxBuf[], const void *txBuf[], size_t size[], size_t n,
         SpiCbkF callback, void *cookie);
 
+int spiSlaveWaitForInactive(struct SpiDevice *dev, SpiCbkF callback,
+        void *cookie);
+
 int spiSlaveRelease(struct SpiDevice *dev);
 
 static inline int spiSlaveRx(struct SpiDevice *dev,

@@ -28,6 +28,9 @@ struct SpiDevice_ops {
     int (*slaveRxTx)(struct SpiDevice *dev, void *rxBuf, const void *txBuf,
             size_t size, const struct SpiMode *mode);
 
+    void (*slaveSetCsInterrupt)(struct SpiDevice *dev, bool enabled);
+    bool (*slaveCsIsActive)(struct SpiDevice *dev);
+
     int (*slaveStopSync)(struct SpiDevice *dev);
     int (*slaveStopAsync)(struct SpiDevice *dev);
 
@@ -42,6 +45,7 @@ void spiMasterStopAsyncDone(struct SpiDevice *dev, int err);
 
 void spiSlaveStartAsyncDone(struct SpiDevice *dev, int err);
 void spiSlaveRxTxDone(struct SpiDevice *dev, int err);
+void spiSlaveCsInactive(struct SpiDevice *dev);
 void spiSlaveStopAsyncDone(struct SpiDevice *dev, int err);
 
 #endif /* __SPI_PRIV_H */

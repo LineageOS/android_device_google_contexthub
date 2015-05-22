@@ -2,6 +2,7 @@
 #include <heap.h>
 #include <string.h>
 
+#include <cpu.h>
 #include <spi.h>
 #include <spi_priv.h>
 
@@ -14,8 +15,12 @@ struct SpiDeviceState {
     size_t n;
     size_t currentBuf;
     struct SpiMode mode;
-    SpiCbkF callback;
-    void *cookie;
+
+    SpiCbkF rxTxCallback;
+    void *rxTxCookie;
+
+    SpiCbkF finishCallback;
+    void *finishCookie;
 
     int err;
 };
@@ -114,8 +119,8 @@ void spiMasterStopAsyncDone(struct SpiDevice *dev, int err)
 static void spiMasterDone(struct SpiDeviceState *state, int err)
 {
     struct SpiDevice *dev = &state->dev;
-    SpiCbkF callback = state->callback;
-    void *cookie = state->cookie;
+    SpiCbkF callback = state->rxTxCallback;
+    void *cookie = state->rxTxCookie;
 
     spiBufsFree(state);
     if (dev->ops->release)
@@ -164,6 +169,25 @@ void spiSlaveRxTxDone(struct SpiDevice *dev, int err)
     }
 }
 
+void spiSlaveCsInactive(struct SpiDevice *dev)
+{
+    struct SpiDeviceState *state = SPI_DEVICE_TO_STATE(dev);
+
+    dev->ops->slaveSetCsInterrupt(dev, false);
+
+    if (!state->finishCallback) {
+        osLog(LOG_WARN, "%s called without callback\n", __func__);
+        return;
+    }
+
+    SpiCbkF callback = state->finishCallback;
+    void *cookie = state->finishCookie;
+    state->finishCallback = NULL;
+    state->finishCookie = NULL;
+
+    callback(cookie, 0);
+}
+
 static void spiSlaveNext(struct SpiDeviceState *state)
 {
     struct SpiDevice *dev = &state->dev;
@@ -187,8 +211,8 @@ static void spiSlaveNext(struct SpiDeviceState *state)
 static void spiSlaveIdle(struct SpiDeviceState *state, int err)
 {
     struct SpiDevice *dev = &state->dev;
-    SpiCbkF callback = state->callback;
-    void *cookie = state->cookie;
+    SpiCbkF callback = state->rxTxCallback;
+    void *cookie = state->rxTxCookie;
 
     if (!err)
         err = dev->ops->slaveIdle(dev, &state->mode);
@@ -230,8 +254,8 @@ static int spiSetupRxTx(struct SpiDeviceState *state,
     memcpy(state->size, size, n * sizeof(*size));
     state->n = n;
     state->currentBuf = 0;
-    state->callback = callback;
-    state->cookie = cookie;
+    state->rxTxCallback = callback;
+    state->rxTxCookie = cookie;
 
     return 0;
 }
@@ -344,6 +368,48 @@ int spiSlaveRxTx(struct SpiDevice *dev,
 
     return dev->ops->slaveRxTx(dev, state->rxBuf[0], state->txBuf[0],
             state->size[0], &state->mode);
+}
+
+int spiSlaveWaitForInactive(struct SpiDevice *dev, SpiCbkF callback,
+        void *cookie)
+{
+    struct SpiDeviceState *state = SPI_DEVICE_TO_STATE(dev);
+
+    if (!dev->ops->slaveSetCsInterrupt || !dev->ops->slaveCsIsActive)
+        return -EOPNOTSUPP;
+
+    state->finishCallback = callback;
+    state->finishCookie = cookie;
+
+    uint64_t flags = cpuIntsOff();
+    dev->ops->slaveSetCsInterrupt(dev, true);
+
+    /* CS may already be inactive before enabling the interrupt.  In this case
+     * roll back and fire the callback immediately.
+     *
+     * Interrupts must be off while checking for this.  Otherwise there is a
+     * (very unlikely) race where the CS interrupt fires between calling
+     * slaveSetCsInterrupt(true) and the rollback
+     * slaveSetCsInterrupt(false), causing the event to be handled twice.
+     *
+     * Likewise the check must come after enabling the interrupt.  Otherwise
+     * there is an (also unlikely) race where CS goes inactive between reading
+     * CS and enabling the interrupt, causing the event to be lost.
+     */
+
+    bool cs = dev->ops->slaveCsIsActive(dev);
+    if (!cs) {
+        dev->ops->slaveSetCsInterrupt(dev, false);
+        cpuIntsRestore(flags);
+
+        state->finishCallback = NULL;
+        state->finishCookie = NULL;
+        callback(cookie, 0);
+        return 0;
+    }
+
+    cpuIntsRestore(flags);
+    return 0;
 }
 
 int spiSlaveRelease(struct SpiDevice *dev)
