@@ -37,6 +37,7 @@ static uint8_t *gTxBufPtr;
 static uint32_t gSeq;
 static const struct NanohubCommand *gRxCmd;
 
+static void hostIntfRxPacket();
 static void hostIntfTxPacket(uint32_t reason, uint8_t len,
         HostIntfCommCallbackF callback);
 
@@ -160,8 +161,13 @@ void hostIntfRequest()
     if (gComm) {
         int err = gComm->request();
         if (!err)
-            gComm->rxPacket(gRxBuf, sizeof(gRxBuf), hostIntfRxDone);
+            hostIntfRxPacket();
     }
+}
+
+static inline void hostIntfRxPacket()
+{
+    gComm->rxPacket(gRxBuf, sizeof(gRxBuf), hostIntfRxDone);
 }
 
 static void hostIntfRxDone(size_t rx, int err)
@@ -170,6 +176,7 @@ static void hostIntfRxDone(size_t rx, int err)
 
     if (err != 0) {
         osLog(LOG_ERROR, "%s: failed to receive request: %d\n", __func__, err);
+        hostIntfRxPacket();
         return;
     }
 
@@ -195,10 +202,12 @@ static void hostIntfTxAckDone(size_t tx, int err)
 
     if (err) {
         osLog(LOG_ERROR, "%s: failed to ACK request: %d\n", __func__, err);
+        hostIntfRxPacket();
         return;
     }
     if (!gRxCmd) {
         osLog(LOG_DEBUG, "%s: NACKed invalid request\n", __func__);
+        hostIntfRxPacket();
         return;
     }
 
@@ -219,6 +228,8 @@ static void hostIntfTxPayloadDone(size_t tx, int err)
 
     if (err)
         osLog(LOG_ERROR, "%s: failed to send response: %d\n", __func__, err);
+
+    hostIntfRxPacket();
 }
 
 void hostIntfRelease()
