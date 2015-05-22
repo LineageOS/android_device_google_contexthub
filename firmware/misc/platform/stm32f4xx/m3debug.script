@@ -10,7 +10,7 @@ function flash-setup
         stop
 
         #prepare for erase
-	download misc/platform/stm32f411/flash_script/tool.bin 20000100
+	download misc/platform/stm32f4xx/flash_script/tool.bin 20000100
         wr sp 200000fc
 	wr psr 01000000
 	wr 200000fc be00be00

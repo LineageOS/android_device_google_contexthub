@@ -1,7 +1,11 @@
 M3DEBUG ?= m3debug
 
+ifneq ($(CPU),cortexm4f)
+        $(error "stm32f4xx cplatform only supports Cortex-M4F CPUs")
+endif
+
 DELIVERABLES = $(APP).full.bin $(APP).update.bin
-LKR = misc/platform/$(PLATFORM)/stm32f411.lkr
+LKR = misc/platform/$(PLATFORM)/stm32f4xx.lkr
 
 FLAGS += -I. -fno-unwind-tables -fstack-reuse=all -ffunction-sections -fdata-sections
 FLAGS += -Wl,-T $(LKR) -Wl,--gc-sections
@@ -37,7 +41,7 @@ DEPS += $(LKR)
 #platform flags
 PLATFORM_HAS_HARDWARE_CRC = true
 FLAGS += -DPLATFORM_HOST_INTF_I2C_BUS=0
-FLAGS += -DPLATFORM_HW_TYPE=0xF411 -DPLATFORM_HW_VER=0
+FLAGS += -DPLATFORM_HW_VER=0
 
 #platform-specific rules
 

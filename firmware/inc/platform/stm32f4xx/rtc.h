@@ -1,5 +1,5 @@
-#ifndef _STM32F411_RTC_H_
-#define _STM32F411_RTC_H_
+#ifndef _STM32F4XX_RTC_H_
+#define _STM32F4XX_RTC_H_
 
 #ifdef __cplusplus
 extern "C" {

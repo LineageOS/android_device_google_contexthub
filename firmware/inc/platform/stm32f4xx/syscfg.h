@@ -1,5 +1,5 @@
-#ifndef _STM32F411_SYSCFG_H_
-#define _STM32F411_SYSCFG_H_
+#ifndef _STM32F4XX_SYSCFG_H_
+#define _STM32F4XX_SYSCFG_H_
 
 #include <plat/inc/gpio.h>
 

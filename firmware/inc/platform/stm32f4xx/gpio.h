@@ -1,5 +1,5 @@
-#ifndef _STM32F411_GPIO_H_
-#define _STM32F411_GPIO_H_
+#ifndef _STM32F4XX_GPIO_H_
+#define _STM32F4XX_GPIO_H_
 
 #ifdef __cplusplus
 extern "C" {

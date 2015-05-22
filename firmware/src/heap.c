@@ -13,7 +13,7 @@ struct HeapNode {
     uint8_t  data[];
 };
 
-static uint8_t __attribute__ ((aligned (8))) gHeap[102400]; /* 100K heap */
+static uint8_t __attribute__ ((aligned (8))) gHeap[HEAP_SIZE];
 static TRYLOCK_DECL_STATIC(gHeapLock) = TRYLOCK_INIT_STATIC();
 static volatile uint8_t gNeedFreeMerge = false; /* cannot be bool since its size is ill defined */
 static struct HeapNode *gHeapTail;
