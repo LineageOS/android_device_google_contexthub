@@ -9,6 +9,8 @@
 #include <plat/inc/cmsis.h>
 #include <plat/inc/gpio.h>
 #include <plat/inc/pwr.h>
+#include <plat/inc/exti.h>
+#include <plat/inc/syscfg.h>
 
 #define SPI_CR1_CPHA                (1 << 0)
 #define SPI_CR1_CPOL                (1 << 1)
@@ -61,6 +63,8 @@ struct StmSpiState {
     uint16_t txIdx;
 
     uint16_t txWord;
+
+    struct ChainedIsr isrNss;
 };
 
 struct StmSpiCfg {
@@ -76,6 +80,7 @@ struct StmSpiCfg {
     enum GpioAltFunc gpioFunc;
 
     IRQn_Type irq;
+    IRQn_Type irqNss;
 };
 
 struct StmSpiDev {
@@ -283,6 +288,42 @@ static int stmSpiSlaveStopSync(struct SpiDevice *dev)
     return 0;
 }
 
+static bool stmSpiExtiIsr(struct ChainedIsr *isr)
+{
+    struct StmSpiState *state = container_of(isr, struct StmSpiState, isrNss);
+    struct StmSpiDev *pdev = container_of(state, struct StmSpiDev, state);
+
+    if (!extiIsPendingGpio(&pdev->nss))
+        return false;
+
+    spiSlaveCsInactive(pdev->base);
+    extiClearPendingGpio(&pdev->nss);
+    return true;
+}
+
+static void stmSpiSlaveSetCsInterrupt(struct SpiDevice *dev, bool enabled)
+{
+    struct StmSpiDev *pdev = dev->pdata;
+    struct ChainedIsr *isr = &pdev->state.isrNss;
+
+    if (enabled) {
+        isr->func = stmSpiExtiIsr;
+
+        syscfgSetExtiPort(&pdev->nss);
+        extiEnableIntGpio(&pdev->nss, EXTI_TRIGGER_RISING);
+        extiChainIsr(pdev->cfg->irqNss, isr);
+    } else {
+        extiUnchainIsr(pdev->cfg->irqNss, isr);
+        extiDisableIntGpio(&pdev->nss);
+    }
+}
+
+static bool stmSpiSlaveCsIsActive(struct SpiDevice *dev)
+{
+    struct StmSpiDev *pdev = dev->pdata;
+    return gpioGet(&pdev->nss) == 0;
+}
+
 static void stmSpiDone(struct StmSpiDev *pdev)
 {
     if (stmSpiIsMaster(pdev))
@@ -367,6 +408,9 @@ const struct SpiDevice_ops mStmSpiOps = {
     .slaveRxTx = stmSpiRxTx,
     .slaveStopSync = stmSpiSlaveStopSync,
 
+    .slaveSetCsInterrupt = stmSpiSlaveSetCsInterrupt,
+    .slaveCsIsActive = stmSpiSlaveCsIsActive,
+
     .release = stmSpiRelease,
 };
 
@@ -384,6 +428,7 @@ static const struct StmSpiCfg mStmSpiCfgs[] = {
         .gpioFunc = GPIO_AF_SPI1,
 
         .irq = SPI1_IRQn,
+        .irqNss = EXTI4_IRQn,
     },
     [1] = {
         .regs = (struct StmSpi *)SPI2_BASE,
@@ -398,6 +443,7 @@ static const struct StmSpiCfg mStmSpiCfgs[] = {
         .gpioFunc = GPIO_AF_SPI2_A,
 
         .irq = SPI2_IRQn,
+        .irqNss = EXTI15_10_IRQn,
     },
 };
 
