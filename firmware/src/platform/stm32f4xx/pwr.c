@@ -45,14 +45,18 @@ struct StmPwr {
 #define PWR ((struct StmPwr*)PWR_BASE)
 
 /* RCC bit definitions */
-#define  RCC_BDCR_LSEON 0x00000001UL
-#define RCC_BDCR_LSERDY 0x00000002UL
+#define RCC_BDCR_LSEON      0x00000001UL
+#define RCC_BDCR_LSERDY     0x00000002UL
 #define RCC_BDCR_RTCSEL_LSE 0x00000100UL
-#define RCC_BDCR_RTCEN 0x00008000UL
-#define RCC_BDCR_BDRST 0x00010000UL
+#define RCC_BDCR_RTCSEL_LSI 0x00000200UL
+#define RCC_BDCR_RTCEN      0x00008000UL
+#define RCC_BDCR_BDRST      0x00010000UL
+
+#define RCC_CSR_LSION       0x00000001UL
+#define RCC_CSR_LSIRDY      0x00000002UL
 
 /* PWR bit definitions */
-#define PWR_CR_DBP 0x00000100UL
+#define PWR_CR_DBP          0x00000100UL
 
 static uint32_t gSysClk = 16000000UL;
 
@@ -115,7 +119,7 @@ uint32_t pwrGetBusSpeed(uint32_t bus)
     return 0;
 }
 
-void pwrEnableAndClockRtc(void)
+void pwrEnableAndClockRtc(bool lse)
 {
     /* Enable power clock */
     RCC->APB1ENR |= PERIPH_APB1_PWR;
@@ -124,17 +128,25 @@ void pwrEnableAndClockRtc(void)
     /* Exit reset of backup domain */
     RCC->BDCR &= ~RCC_BDCR_BDRST;
 
-
     /* Enable write permission for backup domain */
     pwrEnableWriteBackupDomainRegs();
     /* Prevent compiler reordering across this boundary. */
     mem_reorder_barrier();
-    /* Set LSE as backup domain clock source */
-    RCC->BDCR |= RCC_BDCR_LSEON;
-    /* Wait for LSE to be ready */
-    while ((RCC->BDCR & RCC_BDCR_LSERDY) == 0);
-    /* Set LSE as RTC clock source */
-    RCC->BDCR |= RCC_BDCR_RTCSEL_LSE;
+    if (lse) {
+        /* Set LSE as backup domain clock source */
+        RCC->BDCR |= RCC_BDCR_LSEON;
+        /* Wait for LSE to be ready */
+        while ((RCC->BDCR & RCC_BDCR_LSERDY) == 0);
+        /* Set LSE as RTC clock source */
+        RCC->BDCR |= RCC_BDCR_RTCSEL_LSE;
+    } else {
+        /* Set LSI as backup domain clock source */
+        RCC->CSR |= RCC_CSR_LSION;
+        /* Wait for LSI to be ready */
+        while ((RCC->CSR & RCC_CSR_LSIRDY) == 0);
+        /* Set LSI as RTC clock source */
+        RCC->BDCR |= RCC_BDCR_RTCSEL_LSI;
+    }
     /* Enable RTC */
     RCC->BDCR |= RCC_BDCR_RTCEN;
 }

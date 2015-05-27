@@ -118,7 +118,7 @@ static void rtcSetDefaultDateTimeAndPrescalar(void)
 
 void rtcInit(void)
 {
-    pwrEnableAndClockRtc();
+    pwrEnableAndClockRtc(HAVE_LSE);
     rtcSetDefaultDateTimeAndPrescalar();
 }
 

@@ -148,7 +148,7 @@ void pwrSystemInit(void);
 void pwrUnitClock(uint32_t bus, uint32_t unit, bool on);
 void pwrUnitReset(uint32_t bus, uint32_t unit, bool on);
 uint32_t pwrGetBusSpeed(uint32_t bus);
-void pwrEnableAndClockRtc(void);
+void pwrEnableAndClockRtc(bool lse);
 void pwrEnableWriteBackupDomainRegs(void);
 
 #ifdef __cplusplus
