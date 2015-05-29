@@ -5,6 +5,7 @@
 #include <inc/platform.h>
 #include <plat/inc/exti.h>
 #include <plat/inc/cmsis.h>
+#include <variant/inc/variant.h>
 
 #ifndef NS_PER_S
 #define NS_PER_S                    1000000000UL
