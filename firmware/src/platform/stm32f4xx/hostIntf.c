@@ -1,6 +1,6 @@
 #include <hostIntf.h>
 #include <hostIntf_priv.h>
-
+#include <variant/inc/variant.h>
 #include <plat/inc/bl.h>
 
 I2cBus platHostIntfI2cBus(void)

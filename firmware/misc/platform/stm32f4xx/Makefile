@@ -38,7 +38,6 @@ DEPS += $(wildcard inc/platform/$(PLATFORM)/cmsis/*.h)
 
 #platform flags
 PLATFORM_HAS_HARDWARE_CRC = true
-FLAGS += -DPLATFORM_HOST_INTF_I2C_BUS=0
 FLAGS += -DPLATFORM_HW_VER=0
 
 #platform-specific rules
