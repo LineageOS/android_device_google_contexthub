@@ -65,8 +65,8 @@ struct StmTim {
 };
 
 
-#ifdef HAVE_USART2
-static struct usart mUsart2;
+#ifdef DEBUG_UART_UNITNO
+static struct usart mDbgUart;
 #endif
 static uint64_t mTicks = 0;
 
@@ -74,8 +74,8 @@ static uint64_t mTicks = 0;
 
 void platUninitialize(void)
 {
-#ifdef HAVE_USART2
-    usartClose(&mUsart2);
+#ifdef DEBUG_UART_UNITNO
+    usartClose(&mDbgUart);
 #endif
 }
 
@@ -92,8 +92,8 @@ void platWake(void)
 
 void platLogPutchar(char ch)
 {
-#ifdef HAVE_USART2
-     usartPutchat(&mUsart2, ch);
+#ifdef DEBUG_UART_UNITNO
+     usartPutchat(&mDbgUart, ch);
 #endif
 }
 
@@ -128,9 +128,9 @@ void platInitialize(void)
         NVIC_ClearPendingIRQ(i);
     }
 
-#ifdef HAVE_USART2
-    /* Open mUsart2 on PA2 and PA3 */
-    usartOpen(&mUsart2, 2, GPIO_PA(2), GPIO_PA(3),
+#ifdef DEBUG_UART_UNITNO
+    /* Open mDbgUart on PA2 and PA3 */
+    usartOpen(&mDbgUart, DEBUG_UART_UNITNO, DEBUG_UART_GPIO_TX, DEBUG_UART_GPIO_RX,
                115200, USART_DATA_BITS_8,
                USART_STOP_BITS_1_0, USART_PARITY_NONE,
                USART_FLOW_CONTROL_NONE);
