@@ -41,13 +41,13 @@ struct StmTim {
     volatile uint16_t CCMR1;
     uint8_t unused6[2];
     volatile uint16_t CCMR2;
-    uint8_t unused7[2];   
+    uint8_t unused7[2];
     volatile uint16_t CCER;
-    uint8_t unused8[2];   
-    volatile uint32_t CNT; 
-    volatile uint16_t PSC;  
-    uint8_t unused9[2];   
-    volatile uint32_t ARR;  
+    uint8_t unused8[2];
+    volatile uint32_t CNT;
+    volatile uint16_t PSC;
+    uint8_t unused9[2];
+    volatile uint32_t ARR;
     volatile uint16_t RCR;
     uint8_t unused10[2];
     volatile uint32_t CCR1;
@@ -204,9 +204,9 @@ static void __attribute__((used)) logHardFault(uint32_t *excRegs, uint32_t* othe
     osLog(LOG_ERROR, "R4  = %08lX   R12 = %08lX\n", otherRegs[0], excRegs[4]);
     osLog(LOG_ERROR, "R5  = %08lX   SP  = %08lX\n", otherRegs[1], (uint32_t)(uintptr_t)(excRegs + 8));
     osLog(LOG_ERROR, "R6  = %08lX   LR  = %08lX\n", otherRegs[2], excRegs[5]);
-    osLog(LOG_ERROR, "R6  = %08lX   PC  = %08lX\n", otherRegs[3], excRegs[6]);
+    osLog(LOG_ERROR, "R7  = %08lX   PC  = %08lX\n", otherRegs[3], excRegs[6]);
     osLog(LOG_ERROR, "HFSR= %08lX   CFSR= %08lX\n", SCB->HFSR, SCB->CFSR);
-    while(1);   
+    while(1);
 }
 
 void HardFault_Handler(void);
@@ -223,4 +223,3 @@ void __attribute__((naked)) HardFault_Handler(void)
         "b     logHardFault \n"
     );
 }
-
