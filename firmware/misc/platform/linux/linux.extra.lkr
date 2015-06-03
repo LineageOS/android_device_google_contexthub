@@ -1,0 +1,12 @@
+SECTIONS
+{
+    .appinfo : {
+		. = ALIGN(4);
+		__app_start = ABSOLUTE(.);
+		KEEP (*(.app_init) ) ;
+		__app_end = ABSOLUTE(.);
+		. = ALIGN(4);
+    }
+}
+INSERT AFTER .text;
+

@@ -1,0 +1,8 @@
+*.out
+*.a
+*.elf
+*.o
+*~
+*.d
+*.bin
+firmware/links
