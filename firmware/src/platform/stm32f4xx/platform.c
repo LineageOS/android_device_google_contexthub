@@ -87,7 +87,6 @@ void platSleep(void)
 
 void platWake(void)
 {
-    osLog(LOG_ERROR, "Wake unimplemented.");
 }
 
 void platLogPutchar(char ch)
