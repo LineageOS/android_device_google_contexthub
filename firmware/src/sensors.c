@@ -13,7 +13,7 @@
 #define SENSOR_RATE_POWERING_ON   0xFFFFFFF0UL /* used in sensor state machine */
 #define SENSOR_RATE_POWERING_OFF  0xFFFFFFF1UL /* used in sensor state machine */
 #define SENSOR_RATE_FW_UPLOADING  0xFFFFFFF2UL /* used in sensor state machine */
-#define SENSOR_RATE_IMPOSSIBLE    0xFFFFFFF3UL /* use din rate calc to indicate impossible combinations */
+#define SENSOR_RATE_IMPOSSIBLE    0xFFFFFFF3UL /* used in rate calc to indicate impossible combinations */
 
 struct Sensor {
     const struct SensorInfo *si;
@@ -43,6 +43,8 @@ static uint32_t mNextSensorHandle;
 
 bool sensorsInit(void)
 {
+    atomicBitsetInit(mSensorsUsed, MAX_REGISTERED_SENSORS);
+
     mInternalEvents = slabAllocatorNew(sizeof(struct SensorsInternalEvent), 4, MAX_INTERNAL_EVENTS);
     if (!mInternalEvents)
         return false;
@@ -184,7 +186,7 @@ static uint32_t sensorCalcHwRate(struct Sensor* s, uint32_t extraReqedRate, uint
             return SENSOR_RATE_ONDEMAND;
     }
 
-    for (i = 0; s->si->supportedRates[i]; i++);
+    for (i = 0; s->si->supportedRates[i]; i++)
         if (s->si->supportedRates[i] >= highestReq)
             return s->si->supportedRates[i];
 
@@ -355,7 +357,7 @@ bool sensorRequest(uint32_t clientId, uint32_t sensorHandle, uint32_t rate)
         return false;
 
     /* verify the rate is possible */
-    newSensorRate = sensorCalcHwRate(s, 0, rate);
+    newSensorRate = sensorCalcHwRate(s, rate, 0);
     if (newSensorRate == SENSOR_RATE_IMPOSSIBLE)
         return false;
 
@@ -382,7 +384,7 @@ bool sensorRequestRateChange(uint32_t clientId, uint32_t sensorHandle, uint32_t 
         return false;
 
     /* verify the new rate is possible given all othe rongoing requests */
-    newSensorRate = sensorCalcHwRate(s, oldRate, newRate);
+    newSensorRate = sensorCalcHwRate(s, newRate, oldRate);
     if (newSensorRate == SENSOR_RATE_IMPOSSIBLE)
         return false;
 
@@ -435,7 +437,3 @@ uint32_t sensorGetCurRate(uint32_t sensorHandle)
 
     return s ? s->currentRate : SENSOR_RATE_OFF;
 }
-
-
-
-
