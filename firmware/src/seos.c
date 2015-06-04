@@ -1,4 +1,5 @@
 #include <platform.h>
+#include <syscall.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stdarg.h>
@@ -158,6 +159,71 @@ static void osInternalEvtHandle(uint32_t evtType, void *evtData)
     }
 }
 
+
+static void osExpApiEvtqSubscribe(uint32_t *retValP, va_list args)
+{
+    //todo
+}
+
+static void osExpApiEvtqUnsubscribe(uint32_t *retValP, va_list args)
+{
+    //todo
+}
+
+static void osExpApiEvtqEnqueue(uint32_t *retValP, va_list args)
+{
+    //todo
+}
+
+static void osExpApiEvtqFuncDefer(uint32_t *retValP, va_list args)
+{
+    //todo
+}
+
+static void osExpApiLogLog(uint32_t *retValP, va_list args)
+{
+    //todo
+}
+
+
+
+static void osExportApi(void)
+{
+    static const struct SyscallTable osMainEvtqTable = {
+        .numEntries = SYSCALL_OS_MAIN_EVTQ_LAST,
+        .entry = {
+            [SYSCALL_OS_MAIN_EVTQ_SUBCRIBE]   = { .func = osExpApiEvtqSubscribe,   },
+            [SYSCALL_OS_MAIN_EVTQ_UNSUBCRIBE] = { .func = osExpApiEvtqUnsubscribe, },
+            [SYSCALL_OS_MAIN_EVTQ_ENQUEUE]    = { .func = osExpApiEvtqEnqueue,     },
+            [SYSCALL_OS_MAIN_EVTQ_FUNC_DEFER] = { .func = osExpApiEvtqFuncDefer,   },
+        },
+    };
+
+    static const struct SyscallTable osMainLogTable = {
+        .numEntries = SYSCALL_OS_MAIN_LOG_LAST,
+        .entry = {
+            [SYSCALL_OS_MAIN_LOG_LOG]   = { .func = osExpApiLogLog,   },
+        },
+    };
+
+    static const struct SyscallTable osMainTable = {
+        .numEntries = SYSCALL_OS_MAIN_LAST,
+        .entry = {
+            [SYSCALL_OS_MAIN_EVENTQ] =  { .subtable = (struct SyscallTable*)&osMainEvtqTable, },
+            [SYSCALL_OS_MAIN_LOGGING] = { .subtable = (struct SyscallTable*)&osMainLogTable,  },
+        },
+    };
+    static const struct SyscallTable osTable = {
+        .numEntries = SYSCALL_OS_LAST,
+        .entry = {
+            [SYSCALL_OS_MAIN] = { .subtable = (struct SyscallTable*)&osMainTable, },
+        },
+    };
+
+    if (!syscallAddTable(SYSCALL_DOMAIN_OS, 0, (struct SyscallTable*)&osTable))
+        osLog(LOG_ERROR, "Failed to export OS base API");
+}
+
 void __attribute__((noreturn)) osMain(void)
 {
     EventFreeF evtFree;
@@ -167,6 +233,7 @@ void __attribute__((noreturn)) osMain(void)
     platDisableInterrupts();
     timInit();
     osInit();
+    osExportApi();
     osStartTasks();
     platEnableInterrupts();
 
