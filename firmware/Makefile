@@ -27,7 +27,7 @@ FLAGS += -Wmissing-declarations -Wlogical-op -Waddress -Wempty-body -Wpointer-ar
 FLAGS += -DDEBUG
 
 #frameworks
-SRCS += src/printf.c src/timer.c src/seos.c src/heap.c src/slab.c src/spi.c src/trylock.c src/hostIntf.c src/sensors.c
+SRCS += src/printf.c src/timer.c src/seos.c src/heap.c src/slab.c src/spi.c src/trylock.c src/hostIntf.c src/sensors.c src/syscall.c
 
 ifndef PLATFORM_HAS_HARDWARE_CRC
 SRCS += src/softcrc.c
