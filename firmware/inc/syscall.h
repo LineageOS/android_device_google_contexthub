@@ -21,10 +21,15 @@ extern "C" {
  * third level determines subsystem, and the last level determines desired function.
  */
 
-#define SYSCALL_BITS_LEVEL_0      5
-#define SYSCALL_BITS_LEVEL_1      10
-#define SYSCALL_BITS_LEVEL_2      8
-#define SYSCALL_BITS_LEVEL_3      9
+#define SYSCALL_BITS_LEVEL_0      5  /* domain */
+#define SYSCALL_BITS_LEVEL_1      10 /* family */
+#define SYSCALL_BITS_LEVEL_2      8  /* genus */
+#define SYSCALL_BITS_LEVEL_3      9  /* species */
+
+
+//level 0 indices:
+#define SYSCALL_DOMAIN_SEOS       0
+#define SYSCALL_DOMAIN_DRIVERS    1
 
 
 typedef uint32_t (*SyscallFunc)(va_list args); /* you better know what args you need */
@@ -42,9 +47,11 @@ void syscallInit(void);
 
 //add a complete table
 bool syscallAddTable(uint32_t path, uint32_t level, struct SyscallTable *table);
-bool syscallAddFunc(uint32_t path, SyscallFunc *func);
 
-SyscallFunc* syscallGetHandler(uint32_t path); // NULL if none
+//this will only work if th ebacking table exists...this is intentional to avoid auto growth in scary ways
+bool syscallAddFunc(uint32_t path, SyscallFunc func);
+
+SyscallFunc syscallGetHandler(uint32_t path); // NULL if none
 
 
 #ifdef __cplusplus
