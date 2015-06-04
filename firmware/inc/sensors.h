@@ -76,7 +76,7 @@ static inline uint32_t sensorGetMyEventType(uint32_t sensorType) {
 /*
  * api for using sensors (enum is not synced with sensor sub/unusb, this is ok since we do not expect a lot of dynamic sub/unsub)
  */
-const struct SensorInfo* sensorFind(uint32_t sensorType, uint32_t idx); //enumerate all sensors of a type
+const struct SensorInfo* sensorFind(uint32_t sensorType, uint32_t idx, uint32_t *handleP); //enumerate all sensors of a type
 bool sensorRequest(uint32_t clientId, uint32_t sensorHandle, uint32_t rate);
 bool sensorRequestRateChange(uint32_t clientId, uint32_t sensorHandle, uint32_t newRate);
 bool sensorRelease(uint32_t clientId, uint32_t sensorHandle);
