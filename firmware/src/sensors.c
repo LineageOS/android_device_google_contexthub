@@ -272,13 +272,17 @@ bool sensorSignalInternalEvt(uint32_t handle, uint32_t intEvtNum, uint32_t value
     return false;
 }
 
-const struct SensorInfo* sensorFind(uint32_t sensorType, uint32_t idx)
+const struct SensorInfo* sensorFind(uint32_t sensorType, uint32_t idx, uint32_t *handleP)
 {
     uint32_t i;
 
-    for (i = 0; i < MAX_REGISTERED_SENSORS; i++)
-        if (mSensors[i].handle && mSensors[i].si->sensorType == sensorType && !idx--)
+    for (i = 0; i < MAX_REGISTERED_SENSORS; i++) {
+        if (mSensors[i].handle && mSensors[i].si->sensorType == sensorType && !idx--) {
+            if (handleP)
+                *handleP = mSensors[i].handle;
             return mSensors[i].si;
+        }
+    }
 
     return NULL;
 }
