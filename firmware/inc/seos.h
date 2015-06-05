@@ -7,6 +7,7 @@ extern "C" {
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdarg.h>
 #include "eventQ.h"
 
 
@@ -44,6 +45,7 @@ enum LogLevel {
     LOG_DEBUG = 'D',
 };
 
+void osLogv(enum LogLevel level, const char *str, va_list vl);
 void osLog(enum LogLevel level, const char *str, ...)
     __attribute__((format(printf, 2, 3)));
 

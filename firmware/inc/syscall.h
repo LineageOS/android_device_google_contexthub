@@ -32,7 +32,7 @@ extern "C" {
 #define SYSCALL_DOMAIN_DRIVERS    1
 
 
-typedef void (*SyscallFunc)(uint32_t *retValP, va_list args); /* you better know what args you need */
+typedef void (*SyscallFunc)(uintptr_t *retValP, va_list args); /* you better know what args you need */
 
 struct SyscallTable {
     uint32_t numEntries;
@@ -48,11 +48,33 @@ void syscallInit(void);
 //add a complete table
 bool syscallAddTable(uint32_t path, uint32_t level, struct SyscallTable *table);
 
-//this will only work if th ebacking table exists...this is intentional to avoid auto growth in scary ways
+//this will only work if the backing table exists...this is intentional to avoid auto growth in scary ways
 bool syscallAddFunc(uint32_t path, SyscallFunc func);
 
 SyscallFunc syscallGetHandler(uint32_t path); // NULL if none
 
+
+/*
+ * Userspace callbacks are a complicated topic. They allow us to call back to a userspace
+ * piece of code in userspace context. This is rather complicated, and so these functions
+ * exist to simplify it. The callbacks are allowed up to 4 params, of uintptr_t size. They
+ * are also allowed a single uintptr_t return value. First, one must create a callback
+ * state. The function syscallUserspaceCallbackAlloc() can be used for that. It takes in
+ * the callback function pointer as well as up to four params. It creates a reusable state
+ * structure that can be used to call this callback as many times as one wishes. The params
+ * are saved in the struct, as is the function pointer. The inverse of this function is
+ * syscallUserspaceCallbackFree(). It frees the state. To actually call the callback, use
+ * syscallUserspaceCallbackCall(). It takes in the struct, and optionally can override the
+ * params with new values. If you wish to do that, pass non-NULL values as overrideParam#P.
+ * The override values are NOT saved in the struct, and are only used for this one call.
+ */
+//used to alloc state to call to userspace
+struct UserspaceCallback;
+struct UserspaceCallback* syscallUserspaceCallbackAlloc(void *func, uintptr_t param1, uintptr_t param2, uintptr_t param3, uintptr_t param4);
+void syscallUserspaceCallbackFree(struct UserspaceCallback *ucbk);
+
+//used to call to userspace
+uintptr_t syscallUserspaceCallbackCall(struct UserspaceCallback *ucbk, const uintptr_t *overrideParam1P, const uintptr_t *overrideParam2P, const uintptr_t *overrideParam3P, const uintptr_t *overrideParam4P);
 
 #ifdef __cplusplus
 }
