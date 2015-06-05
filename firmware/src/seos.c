@@ -1,4 +1,5 @@
 #include <platform.h>
+#include <hostIntf.h>
 #include <syscall.h>
 #include <string.h>
 #include <stdlib.h>
@@ -235,6 +236,7 @@ void __attribute__((noreturn)) osMain(void)
     osInit();
     osExportApi();
     osStartTasks();
+    hostIntfRequest();
     platEnableInterrupts();
 
     //broadcast boot completed

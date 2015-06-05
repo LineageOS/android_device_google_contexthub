@@ -54,6 +54,9 @@ static const struct AppEntry __attribute__((used,section (".app_init"))) mAppEnt
     .handle = (_event)\
 }
 
+
+
+
 //EXTERNAL API
 //level 1 indices in the OS table
 #define SYSCALL_OS_MAIN                   0
