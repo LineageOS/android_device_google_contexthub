@@ -20,6 +20,7 @@ extern "C" {
 #define SENSOR_TYPE_BARO        4
 #define SENSOR_TYPE_ALS         5
 #define SENSOR_TYPE_PROX        6
+#define SENSOR_TYPE_HAERTRATE   7
 
 struct SensorOps {
     bool (*sensorPower)(bool on);          /* -> SENSOR_INTERNAL_EVT_POWER_STATE_CHG (success)         */
