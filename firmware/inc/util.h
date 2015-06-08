@@ -3,10 +3,14 @@
 
 #include <limits.h>
 #include <stdbool.h>
+#include <stddef.h>
 
 #define ARRAY_SIZE(a)   (sizeof((a)) / sizeof((a)[0]))
 #define LIKELY(x)	(__builtin_expect(x, 1))
 #define UNLIKELY(x)	(__builtin_expect(x, 0))
+
+#define container_of(addr, struct_name, field_name) \
+    ((struct_name *)((char *)(addr) - offsetof(struct_name, field_name)))
 
 static inline bool IS_POWER_OF_TWO(unsigned int n)
 {
