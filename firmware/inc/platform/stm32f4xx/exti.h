@@ -1,7 +1,9 @@
 #ifndef _EXTI_H_
 #define _EXTI_H_
 
+#include <isr.h>
 #include <stdbool.h>
+#include <plat/inc/cmsis.h>
 #include <plat/inc/gpio.h>
 
 #ifdef __cplusplus
@@ -44,6 +46,9 @@ void extiEnableIntLine(const enum ExtiLine line, enum ExtiTrigger trigger);
 void extiDisableIntLine(const enum ExtiLine line);
 bool extiIsPendingLine(const enum ExtiLine line);
 void extiClearPendingLine(const enum ExtiLine line);
+
+int extiChainIsr(IRQn_Type n, struct ChainedIsr *isr);
+int extiUnchainIsr(IRQn_Type n, struct ChainedIsr *isr);
 
 static inline void extiEnableIntGpio(const struct Gpio *__restrict gpio, enum ExtiTrigger trigger)
 {
