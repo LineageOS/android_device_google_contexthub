@@ -17,7 +17,7 @@ struct ChainedInterrupt {
 
 struct ChainedIsr {
     link_t node;
-    bool (*const func)(struct ChainedIsr *);
+    bool (*func)(struct ChainedIsr *);
 };
 
 static inline void chainIsr(struct ChainedInterrupt *interrupt, struct ChainedIsr *isr)
