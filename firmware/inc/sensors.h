@@ -13,14 +13,22 @@ extern "C" {
 #define MAX_REGISTERED_SENSORS  8 /* this may need to be revisted later */
 
 
-#define SENSOR_TYPE_INVALID     0
-#define SENSOR_TYPE_ACCEL       1
-#define SENSOR_TYPE_GYRO        2
-#define SENSOR_TYPE_MAG         3
-#define SENSOR_TYPE_BARO        4
-#define SENSOR_TYPE_ALS         5
-#define SENSOR_TYPE_PROX        6
-#define SENSOR_TYPE_HAERTRATE   7
+#define SENSOR_TYPE_INVALID         0
+#define SENSOR_TYPE_ACCEL           1
+#define SENSOR_TYPE_GYRO            2
+#define SENSOR_TYPE_MAG             3
+#define SENSOR_TYPE_BARO            4
+#define SENSOR_TYPE_ALS             5
+#define SENSOR_TYPE_PROX            6
+#define SENSOR_TYPE_HEARTRATE_ECG   7
+#define SENSOR_TYPE_HEARTRATE_PPG   8
+#define SENSOR_TYPE_GRAVITY         9
+#define SENSOR_TYPE_LIN_ACCEL       10
+#define SENSOR_TYPE_STEP_COUNT      11
+#define SENSOR_TYPE_STEP_DETECT     12
+#define SENSOR_TYPE_FIRST_USER      64
+
+
 
 struct SensorOps {
     bool (*sensorPower)(bool on);          /* -> SENSOR_INTERNAL_EVT_POWER_STATE_CHG (success)         */
@@ -70,9 +78,8 @@ uint32_t sensorRegister(const struct SensorInfo *si); /* returns handle, copy is
 bool sensorUnregister(uint32_t handle); /* your job to be sure it is off already */
 bool sensorSignalInternalEvt(uint32_t handle, uint32_t intEvtNum, uint32_t value);
 
-static inline uint32_t sensorGetMyEventType(uint32_t sensorType) {
-    return EVT_NO_FIRST_SENSOR_EVENT + sensorType;
-}
+#define sensorGetMyEventType(_sensorType) (EVT_NO_FIRST_SENSOR_EVENT + (_sensorType))
+
 
 /*
  * api for using sensors (enum is not synced with sensor sub/unusb, this is ok since we do not expect a lot of dynamic sub/unsub)
