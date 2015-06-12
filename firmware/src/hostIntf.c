@@ -5,27 +5,11 @@
 #include <crc.h>
 #include <hostIntf.h>
 #include <hostIntf_priv.h>
+#include <nanohubCommand.h>
 #include <nanohubPacket.h>
 #include <plat/inc/pwr.h>
 #include <seos.h>
 #include <util.h>
-
-struct NanohubCommand {
-    uint32_t reason;
-    size_t (*handler)(void *);
-    uint8_t dataLen;
-};
-
-#define NANOHUB_COMMAND(_reason, _handler, _reqType) \
-        { .reason = _reason, .handler = _handler, .dataLen = sizeof(_reqType) }
-
-static size_t hostIntfGetOsHwVersion(void *payload);
-
-const struct NanohubCommand gBuiltinCommands[] = {
-        NANOHUB_COMMAND(NANOHUB_REASON_GET_OS_HW_VERSIONS,
-                hostIntfGetOsHwVersion,
-                struct NanohubOsHwVersionsRequest),
-};
 
 static const struct HostIntfComm *gComm;
 
@@ -55,6 +39,12 @@ static inline void *hostIntfGetPayload(uint8_t *buf)
     return packet->data;
 }
 
+static inline uint8_t hostIntfGetPayloadLen(uint8_t *buf)
+{
+    struct NanohubPacket *packet = (struct NanohubPacket *)buf;
+    return packet->len;
+}
+
 static inline struct NanohubPacketFooter *hostIntfGetFooter(uint8_t *buf)
 {
     struct NanohubPacket *packet = (struct NanohubPacket *)buf;
@@ -74,7 +64,7 @@ static inline const struct NanohubCommand *hostIntfFindHandler(uint8_t *buf, siz
     struct NanohubPacketFooter *footer;
     __le32 packetCrc;
     uint32_t packetReason;
-    size_t i;
+    const struct NanohubCommand *cmd;
 
     if (size < NANOHUB_PACKET_SIZE(0)) {
         osLog(LOG_WARN, "%s: received incomplete packet (size = %zu)\n", __func__, size);
@@ -97,14 +87,12 @@ static inline const struct NanohubCommand *hostIntfFindHandler(uint8_t *buf, siz
 
     gSeq = packet->seq;
     packetReason = le32toh(packet->reason);
-    for (i = 0; i < ARRAY_SIZE(gBuiltinCommands); i++) {
-        const struct NanohubCommand *cmd = &gBuiltinCommands[i];
-        if (cmd->reason != packetReason)
-            continue;
 
-        if (cmd->dataLen != packet->len) {
-            osLog(LOG_WARN, "%s: payload size mismatch (reason = %08" PRIx32 ", sizeof(payload) = %zu, packet->len = %zu)\n",
-                    __func__, cmd->reason, cmd->dataLen, packet->len);
+    if ((cmd = nanohubFindCommand(packetReason)) != NULL) {
+        if (packet->len < cmd->minDataLen || packet->len > cmd->maxDataLen) {
+            osLog(LOG_WARN, "%s: payload size mismatch (reason = %08" PRIx32 ", min sizeof(payload) = %zu, max sizeof(payload) = %zu, packet->len = %zu)\n",
+                    __func__, cmd->reason, cmd->minDataLen, cmd->maxDataLen,
+                    packet->len);
             return NULL;
         }
 
@@ -114,17 +102,6 @@ static inline const struct NanohubCommand *hostIntfFindHandler(uint8_t *buf, siz
     osLog(LOG_WARN, "%s: unknown reason %08" PRIx32 "\n",
             __func__, packetReason);
     return NULL;
-}
-
-static size_t hostIntfGetOsHwVersion(void *payload)
-{
-    struct NanohubOsHwVersionsResponse *resp = payload;
-    resp->hwType = htole16(platHwType());
-    resp->hwVer = htole16(platHwVer());
-    resp->blVer = htole16(platBlVer());
-    resp->osVer = htole16(OS_VER);
-
-    return sizeof(*resp);
 }
 
 static void hostIntfTxPacket(__le32 reason, uint8_t len,
@@ -216,8 +193,10 @@ static void hostIntfTxAckDone(size_t tx, int err)
 
 static void hostIntfGenerateResponse(void *cookie)
 {
+    void *rxPayload = hostIntfGetPayload(gRxBuf);
+    uint8_t rx_len = hostIntfGetPayloadLen(gRxBuf);
     void *txPayload = hostIntfGetPayload(gTxBuf);
-    uint8_t respLen = gRxCmd->handler(txPayload);
+    uint8_t respLen = gRxCmd->handler(rxPayload, rx_len, txPayload);
 
     hostIntfTxPacket(gRxCmd->reason, respLen, hostIntfTxPayloadDone);
 }
