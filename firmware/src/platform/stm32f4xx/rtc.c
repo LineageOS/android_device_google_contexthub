@@ -128,6 +128,8 @@ void rtcInit(void)
  * for the 'ppm' param indicates the alarm has no accuracy requirements. */
 int rtcSetWakeupTimer(uint64_t delay, int ppm)
 {
+    uint64_t intState;
+
     if (delay >= 32000000000ULL) { /* 32 second limit */
         return RTC_ERR_TOO_BIG;
     }
@@ -166,18 +168,11 @@ int rtcSetWakeupTimer(uint64_t delay, int ppm)
     if ((ppm - RTC_PPM) * delay < (periodNs + RTC_WUT_NOISE_NS)* 1000000)
         return RTC_ERR_ACCURACY_UNMET;
 
-    platDisableInterrupts();
-
-    pwrEnableWriteBackupDomainRegs();
+    intState = platDisableInterrupts();
 
     /* Enable RTC register write */
     RTC->WPR = 0xCA;
     RTC->WPR = 0x53;
-
-    /* Enter init mode */
-    RTC->ISR |= RTC_ISR_INIT;
-
-    while ((RTC->ISR & RTC_ISR_INITF) == 0);
 
     /* Disable wakeup timer */
     RTC->CR &= ~RTC_CR_WUTE;
@@ -185,7 +180,7 @@ int rtcSetWakeupTimer(uint64_t delay, int ppm)
     /* Wait for access enabled for wakeup timer registers */
     while ((RTC->ISR & RTC_ISR_WUTWF) == 0);
 
-    /* Clear wakeup clock source*/
+    /* Clear wakeup clock source */
     RTC->CR &= ~RTC_CR_WUCKSEL_MASK;
 
     RTC->CR |= wakeupClock;
@@ -196,16 +191,17 @@ int rtcSetWakeupTimer(uint64_t delay, int ppm)
     /* Enable wakeup interrupts */
     RTC->CR |= RTC_CR_WUTIE;
     extiClearPendingLine(EXTI_LINE_RTC_WKUP);
+
     /* Enable wakeup timer */
     RTC->CR |= RTC_CR_WUTE;
-    /* Exit init mode */
-    RTC->ISR &= ~RTC_ISR_INIT;
+
     /* Clear overflow flag */
-    RTC->ISR &=~RTC_ISR_WUTF;
+    RTC->ISR &= ~RTC_ISR_WUTF;
+
     /* Write-protect RTC registers */
     RTC->WPR = 0xFF;
 
-    platEnableInterrupts();
+    platRestoreInterrupts(intState);
 
     return 0;
 }
