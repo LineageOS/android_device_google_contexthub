@@ -29,6 +29,7 @@ enum GpioPullMode
     GPIO_PULL_DOWN,
 };
 
+enum GpioSpeed;
 enum GpioAltFunc;
 typedef uint8_t GpioNum;
 struct Gpio;
@@ -37,9 +38,9 @@ struct Gpio;
 void gpioRequest(struct Gpio* __restrict gpio, GpioNum number);
 
 /* Configures the direction and pull type of a GPIO */
-void gpioConfigInput(const struct Gpio* __restrict gpio, enum GpioPullMode pull);
-void gpioConfigOutput(const struct Gpio* __restrict gpio, enum GpioPullMode pull, enum GpioOpenDrainMode output, bool value);
-void gpioConfigAlt(const struct Gpio* __restrict gpio, enum GpioPullMode pull, enum GpioOpenDrainMode output, enum GpioAltFunc func);
+void gpioConfigInput(const struct Gpio* __restrict gpio, enum GpioSpeed speed, enum GpioPullMode pull);
+void gpioConfigOutput(const struct Gpio* __restrict gpio, enum GpioSpeed speed, enum GpioPullMode pull, enum GpioOpenDrainMode output, bool value);
+void gpioConfigAlt(const struct Gpio* __restrict gpio, enum GpioSpeed speed, enum GpioPullMode pull, enum GpioOpenDrainMode output, enum GpioAltFunc func);
 
 /* Sets and gets a value for a specific GPIO pin */
 void gpioSet(const struct Gpio* __restrict gpio, bool value);
