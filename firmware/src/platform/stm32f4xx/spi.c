@@ -331,7 +331,17 @@ static void stmSpiDone(struct StmSpiDev *pdev)
 
 static inline void stmSpiTxe(struct StmSpiDev *pdev)
 {
+    struct StmSpiState *state = &pdev->state;
+
     stmSpiTxNextByte(pdev);
+
+    if (state->words && (state->txBuf || state->rxBuf) &&
+            (!state->txBuf || state->txIdx >= state->words) &&
+            (!state->rxBuf || state->rxIdx >= state->words)) {
+        state->rxBuf = NULL;
+        state->txBuf = NULL;
+        stmSpiDone(pdev);
+    }
 }
 
 static void stmSpiRxne(struct StmSpiDev *pdev)
@@ -357,8 +367,11 @@ static void stmSpiRxne(struct StmSpiDev *pdev)
      * state->words == 0 means the device is idle (check just in case
      * state->rxIdx has wrapped back around to 0)
      */
-    if (state->words && state->rxIdx == state->words) {
+    if (state->words && (state->txBuf || state->rxBuf) &&
+            (!state->txBuf || state->txIdx >= state->words) &&
+            (!state->rxBuf || state->rxIdx >= state->words)) {
         state->rxBuf = NULL;
+        state->txBuf = NULL;
         stmSpiDone(pdev);
     }
 }
