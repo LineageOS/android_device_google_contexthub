@@ -239,9 +239,6 @@ static inline int stmSpiEnableTransfer(struct SpiDevice *dev, void *rxBuf,
     regs->CR1 &= ~SPI_CR1_RXONLY;
     regs->CR2 |= SPI_CR2_ERRIE | SPI_CR2_RXNEIE | SPI_CR2_TXEIE;
 
-    if (stmSpiIsMaster(pdev))
-        stmSpiTxNextByte(pdev);
-
     regs->CR1 |= SPI_CR1_SPE;
     NVIC_EnableIRQ(pdev->cfg->irq);
 
