@@ -5,6 +5,8 @@
 #include <spi.h>
 #include <spi_priv.h>
 #include <util.h>
+#include <atomicBitset.h>
+#include <atomic.h>
 
 #include <plat/inc/cmsis.h>
 #include <plat/inc/gpio.h>
@@ -55,6 +57,7 @@ struct StmSpi {
 
 struct StmSpiState {
     uint8_t bitsPerWord;
+    uint8_t xferEnable;
     uint16_t words;
 
     void *rxBuf;
@@ -111,6 +114,7 @@ static inline int stmSpiEnable(struct StmSpiDev *pdev,
         const struct SpiMode *mode, bool master)
 {
     struct StmSpi *regs = pdev->cfg->regs;
+    struct StmSpiState *state = &pdev->state;
 
     if (mode->bitsPerWord != 8 &&
             mode->bitsPerWord != 16)
@@ -128,6 +132,8 @@ static inline int stmSpiEnable(struct StmSpiDev *pdev,
         else if (div < SPI_CR1_BR_MIN)
             div = SPI_CR1_BR_MIN;
     }
+
+    atomicWriteByte(&state->xferEnable, false);
 
     pwrUnitClock(pdev->cfg->clockBus, pdev->cfg->clockUnit, true);
 
@@ -189,26 +195,6 @@ static int stmSpiSlaveStartSync(struct SpiDevice *dev,
     return stmSpiEnable(pdev, mode, false);
 }
 
-static void stmSpiTxNextByte(struct StmSpiDev *pdev)
-{
-    struct StmSpi *regs = pdev->cfg->regs;
-    struct StmSpiState *state = &pdev->state;
-
-    /* TODO: something has gone wrong if txBuf && txIdx > words */
-
-    if (!state->txBuf) {
-        regs->DR = state->txWord;
-    } else if (state->bitsPerWord == 8) {
-        const uint8_t *txBuf8 = state->txBuf;
-        regs->DR = txBuf8[state->txIdx];
-    } else {
-        const uint16_t *txBuf16 = state->txBuf;
-        regs->DR = txBuf16[state->txIdx];
-    }
-
-    state->txIdx++;
-}
-
 static inline bool stmSpiIsMaster(struct StmSpiDev *pdev)
 {
     struct StmSpi *regs = pdev->cfg->regs;
@@ -222,7 +208,8 @@ static inline int stmSpiEnableTransfer(struct SpiDevice *dev, void *rxBuf,
     struct StmSpi *regs = pdev->cfg->regs;
     struct StmSpiState *state = &pdev->state;
 
-    NVIC_DisableIRQ(pdev->cfg->irq);
+    if (atomicReadByte(&state->xferEnable) == true)
+        return -EBUSY;
 
     state->bitsPerWord = mode->bitsPerWord;
     state->rxBuf = rxBuf;
@@ -236,11 +223,12 @@ static inline int stmSpiEnableTransfer(struct SpiDevice *dev, void *rxBuf,
     else
         state->words = size / 2;
 
-    regs->CR1 &= ~SPI_CR1_RXONLY;
+    if (state->words > 0)
+        atomicWriteByte(&state->xferEnable, true);
+
     regs->CR2 |= SPI_CR2_ERRIE | SPI_CR2_RXNEIE | SPI_CR2_TXEIE;
 
     regs->CR1 |= SPI_CR1_SPE;
-    NVIC_EnableIRQ(pdev->cfg->irq);
 
     return 0;
 }
@@ -332,15 +320,28 @@ static void stmSpiDone(struct StmSpiDev *pdev)
 static inline void stmSpiTxe(struct StmSpiDev *pdev)
 {
     struct StmSpiState *state = &pdev->state;
+    struct StmSpi *regs = pdev->cfg->regs;
 
-    stmSpiTxNextByte(pdev);
+    if (atomicReadByte(&state->xferEnable) == true) {
+        if (!state->txBuf) {
+            regs->DR = state->txWord;
+        } else if (state->bitsPerWord == 8) {
+            const uint8_t *txBuf8 = state->txBuf;
+            regs->DR = txBuf8[state->txIdx];
+        } else {
+            const uint16_t *txBuf16 = state->txBuf;
+            regs->DR = txBuf16[state->txIdx];
+        }
 
-    if (state->words && (state->txBuf || state->rxBuf) &&
-            (!state->txBuf || state->txIdx >= state->words) &&
+        state->txIdx++;
+
+        if ((!state->txBuf || state->txIdx >= state->words) &&
             (!state->rxBuf || state->rxIdx >= state->words)) {
-        state->rxBuf = NULL;
-        state->txBuf = NULL;
-        stmSpiDone(pdev);
+            atomicWriteByte(&state->xferEnable, false);
+            stmSpiDone(pdev);
+        }
+    } else {
+        regs->DR = state->txWord;
     }
 }
 
@@ -349,30 +350,26 @@ static void stmSpiRxne(struct StmSpiDev *pdev)
     struct StmSpi *regs = pdev->cfg->regs;
     struct StmSpiState *state = &pdev->state;
 
-    /* TODO: something has gone wrong if rxBuf && rxIdx > words */
+    if (atomicReadByte(&state->xferEnable) == true) {
+        if (!state->rxBuf) {
+            (void)regs->DR;
+        } else if (state->bitsPerWord == 8) {
+            uint8_t *rxBuf8 = state->rxBuf;
+            rxBuf8[state->rxIdx] = regs->DR;
+        } else {
+            uint16_t *rxBuf16 = state->rxBuf;
+            rxBuf16[state->rxIdx] = regs->DR;
+        }
 
-    if (!state->rxBuf) {
-        (void)regs->DR;
-    } else if (state->bitsPerWord == 8) {
-        uint8_t *rxBuf8 = state->rxBuf;
-        rxBuf8[state->rxIdx] = regs->DR;
-    } else {
-        uint16_t *rxBuf16 = state->rxBuf;
-        rxBuf16[state->rxIdx] = regs->DR;
-    }
+        state->rxIdx++;
 
-    state->rxIdx++;
-
-    /**
-     * state->words == 0 means the device is idle (check just in case
-     * state->rxIdx has wrapped back around to 0)
-     */
-    if (state->words && (state->txBuf || state->rxBuf) &&
-            (!state->txBuf || state->txIdx >= state->words) &&
+        if ((!state->txBuf || state->txIdx >= state->words) &&
             (!state->rxBuf || state->rxIdx >= state->words)) {
-        state->rxBuf = NULL;
-        state->txBuf = NULL;
-        stmSpiDone(pdev);
+            atomicWriteByte(&state->xferEnable, false);
+            stmSpiDone(pdev);
+        }
+    } else {
+        (void)regs->DR;
     }
 }
 
