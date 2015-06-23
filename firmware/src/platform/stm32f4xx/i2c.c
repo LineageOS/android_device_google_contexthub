@@ -638,7 +638,7 @@ static inline void stmI2cGpioInit(struct Gpio *gpio, GpioNum num,
         enum GpioPullMode pull, enum GpioAltFunc func)
 {
     gpioRequest(gpio, num);
-    gpioConfigAlt(gpio, pull, GPIO_OUT_OPEN_DRAIN, func);
+    gpioConfigAlt(gpio, GPIO_SPEED_LOW, pull, GPIO_OUT_OPEN_DRAIN, func);
 }
 
 int i2cMasterRequest(I2cBus busId, I2cSpeed speed)

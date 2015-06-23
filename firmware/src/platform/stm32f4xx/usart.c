@@ -83,9 +83,9 @@ void usartOpen(struct usart* __restrict usart, UsartPort port,
     /* configure tx/rx gpios */
 
     gpioRequest(&gpio, rx); /* rx */
-    gpioConfigAlt(&gpio, GPIO_PULL_UP, GPIO_OUT_PUSH_PULL, mUsartAlt[port]);
+    gpioConfigAlt(&gpio, GPIO_SPEED_LOW, GPIO_PULL_UP, GPIO_OUT_PUSH_PULL, mUsartAlt[port]);
     gpioRequest(&gpio, tx); /* tx */
-    gpioConfigAlt(&gpio, GPIO_PULL_UP, GPIO_OUT_PUSH_PULL, mUsartAlt[port]);
+    gpioConfigAlt(&gpio, GPIO_SPEED_LOW, GPIO_PULL_UP, GPIO_OUT_PUSH_PULL, mUsartAlt[port]);
 
     /* enable clock */
     pwrUnitClock(mUsartBusses[port], mUsartPeriphs[port], true);

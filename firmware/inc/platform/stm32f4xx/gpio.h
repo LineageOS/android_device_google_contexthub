@@ -96,6 +96,14 @@ enum GpioAltFunc
     GPIO_AF_EVENT = GPIO_AF15,
 };
 
+enum GpioSpeed
+{
+    GPIO_SPEED_LOW = 0,
+    GPIO_SPEED_MEDIUM,
+    GPIO_SPEED_FAST,
+    GPIO_SPEED_HIGH,
+};
+
 #ifdef __cplusplus
 }
 #endif
