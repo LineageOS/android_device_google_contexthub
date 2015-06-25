@@ -12,6 +12,7 @@ struct StmSpiPinCfg {
     GpioNum gpioNss;
 
     enum GpioAltFunc gpioFunc;
+    enum GpioPullMode gpioPull;
 
     IRQn_Type irqNss;
 };

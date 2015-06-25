@@ -99,6 +99,13 @@ static inline void stmSpiGpioInit(struct Gpio *gpio,
     gpioConfigAlt(gpio, GPIO_SPEED_LOW, GPIO_PULL_NONE, GPIO_OUT_PUSH_PULL, func);
 }
 
+static inline void stmSpiDataPullMode(struct StmSpiDev *pdev,
+        enum GpioPullMode dataPull)
+{
+    gpioConfigAlt(&pdev->miso, GPIO_SPEED_LOW, dataPull, GPIO_OUT_PUSH_PULL, pdev->pins->gpioFunc);
+    gpioConfigAlt(&pdev->mosi, GPIO_SPEED_LOW, dataPull, GPIO_OUT_PUSH_PULL, pdev->pins->gpioFunc);
+}
+
 static inline void stmSpiSckPullMode(struct StmSpiDev *pdev,
         enum GpioPullMode sckPull)
 {
@@ -174,10 +181,11 @@ static int stmSpiMasterStartSync(struct SpiDevice *dev, spi_cs_t cs,
     if (err < 0)
         return err;
 
+    stmSpiDataPullMode(pdev, pdev->pins->gpioPull);
     stmSpiSckPullMode(pdev, mode->cpol ? GPIO_PULL_UP : GPIO_PULL_DOWN);
 
     gpioRequest(&pdev->nss, cs);
-    gpioConfigOutput(&pdev->nss, GPIO_SPEED_LOW, GPIO_PULL_NONE, GPIO_OUT_PUSH_PULL, 0);
+    gpioConfigOutput(&pdev->nss, GPIO_SPEED_LOW, pdev->pins->gpioPull, GPIO_OUT_PUSH_PULL, 0);
 
     return 0;
 }
@@ -186,6 +194,10 @@ static int stmSpiSlaveStartSync(struct SpiDevice *dev,
         const struct SpiMode *mode)
 {
     struct StmSpiDev *pdev = dev->pdata;
+
+    stmSpiDataPullMode(pdev, GPIO_PULL_NONE);
+    stmSpiSckPullMode(pdev, GPIO_PULL_NONE);
+
     stmSpiGpioInit(&pdev->nss, pdev->pins->gpioNss, pdev->pins->gpioFunc);
     return stmSpiEnable(pdev, mode, false);
 }
@@ -249,7 +261,7 @@ static inline void stmSpiDisable(struct SpiDevice *dev, bool master)
 
     if (master) {
         gpioSet(&pdev->nss, 1);
-        stmSpiSckPullMode(pdev, GPIO_PULL_NONE);
+        stmSpiSckPullMode(pdev, pdev->pins->gpioPull);
     }
 
     regs->CR1 &= ~SPI_CR1_SPE;
