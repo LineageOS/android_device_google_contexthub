@@ -12,7 +12,7 @@
 #define APP_MAGIX_0	0x676f6f47
 #define APP_MAGIX_1	0x614e656c
 #define APP_MAGIX_2	0x70416f6e
-#define APP_MAGIX_3	0x30304070
+#define APP_MAGIX_3	0xffff0070
 
 #define FLASH_BASE	0x10000000
 #define RAM_BASE	0x80000000
@@ -29,6 +29,8 @@
 
 struct AppHeader {
 	uint32_t magic[4];
+
+	uint32_t appID[2];
 
 	uint32_t __data_start;
 	uint32_t __data_end;
@@ -73,17 +75,34 @@ struct NanoRelocEntry {
 
 int main(int argc, char **argv)
 {
-	bool verbose = (argc == 2 && !strcmp(argv[1], "-v"));
 	struct NanoRelocEntry *nanoRelocs = NULL;
 	uint32_t i, numRelocs, numSyms;
-	int c, ret = -1;
 	struct RelocEntry *relocs;
 	struct SymtabEntry *syms;
 	uint32_t t,bufUsed = 0;
 	struct AppHeader *hdr;
+	bool verbose = false;
 	uint8_t *buf = NULL;
 	uint32_t bufSz = 0;
+	uint64_t appId = 0;
+	int c, ret = -1;
 
+
+	argc--;
+	argv++;
+
+	for (i = 0; i < argc; i++) {
+		if (!strcmp(argv[i], "-v")) {
+			verbose = true;
+			continue;
+		}
+		appId = strtoul(argv[i], NULL, 16);
+	}
+
+	if (!appId) {
+		fprintf(stderr, "USAGE: %s [-v] 0123456789abcdef < app.bin >app.ap\n\twhere 0123456789abcdef is app ID in hex\n", argv[-1]);
+		return -2;
+	}
 
 	// read file
 	while ((c = getchar()) != EOF) {
@@ -231,6 +250,10 @@ int main(int argc, char **argv)
 		if (verbose)
 			fprintf(stderr, "  -> Nano reloc calculated as 0x%08X\n", nanoRelocs[i].info);
 	}
+
+	//put in app id
+	hdr->appID[0] = appId;
+	hdr->appID[1] = appId >> 32;
 
 	//overwrite original relocs and symtab with nanorelocs and adjust sizes
 	memcpy(relocs, nanoRelocs, sizeof(struct NanoRelocEntry[numRelocs]));
