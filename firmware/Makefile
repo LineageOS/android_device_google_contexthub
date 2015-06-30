@@ -12,6 +12,7 @@ MAKE_VAR = misc/variant/$(VARIANT)/Makefile
 
 #top make target
 SRCS := 
+DELIVERABLES := 
 real: all
 
 #include makefiles for plat and cpu
@@ -19,9 +20,11 @@ include $(MAKE_PLAT)
 include $(MAKE_CPU)
 include $(MAKE_VAR)
 
-FLAGS += -O2 -Wall -Werror -Iinc -Ilinks -Iexternal/freebsd/inc -g -ggdb3 -fshort-double
+FLAGS += -O2 -Wall -Werror -Iinc -Ilinks -Iexternal/freebsd/inc -fshort-double
 #help avoid commmon embedded C mistakes
 FLAGS += -Wmissing-declarations -Wlogical-op -Waddress -Wempty-body -Wpointer-arith -Wenum-compare -Wdouble-promotion -Wfloat-equal -Wshadow
+
+OSFLAGS += -g -ggdb3
 
 #debug mode
 FLAGS += -DDEBUG
@@ -42,7 +45,6 @@ include $(wildcard app/*/Makefile)
 DEPS += $(wildcard app/*.h)
 DEPS += $(wildcard inc/*.h)
 DEPS += Makefile $(MAKE_PLAT) $(MAKE_CPU) $(MAKE_VAR)
-
 
 all: symlinks $(DELIVERABLES)
 
@@ -73,8 +75,8 @@ links/v_$(VARIANT):
 	touch links/v_$(VARIANT)
 
 $(APP).elf: symlinks $(SRCS) $(DEPS)
-	$(GCC) -o $(APP).elf $(FLAGS) $(SRCS)
+	$(GCC) -o $(APP).elf $(FLAGS) $(OSFLAGS) $(SRCS)
 
 clean:
-	rm -rf $(DELIVERABLES) $(APP).elf links
+	rm -rf $(DELIVERABLES) $(APP).elf links $(CLEANFILES)
 
