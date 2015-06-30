@@ -6,3 +6,4 @@
 *.d
 *.bin
 firmware/links
+*.app
