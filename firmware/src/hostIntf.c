@@ -15,7 +15,7 @@ static const struct HostIntfComm *gComm;
 
 static uint8_t gRxBuf[NANOHUB_PACKET_SIZE_MAX];
 static size_t gRxSize;
-static uint8_t gTxBuf[NANOHUB_PACKET_SIZE_MAX];
+static uint8_t gTxBuf[NANOHUB_PACKET_SIZE_MAX + 1];
 static size_t gTxSize;
 static uint8_t *gTxBufPtr;
 static uint32_t gSeq;

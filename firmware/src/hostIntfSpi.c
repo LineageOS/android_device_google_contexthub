@@ -61,8 +61,9 @@ static int hostIntfSpiRxPacket(void *rxBuf, size_t rxSize,
 static int hostIntfSpiTxPacket(const void *txBuf, size_t txSize,
         HostIntfCommCallbackF callback)
 {
+    ((uint8_t *)txBuf)[txSize] = NANOHUB_PREAMBLE_BYTE;
     gTxSize = txSize;
-    return spiSlaveTx(gSpi, txBuf, txSize, hostIntfSpiTxCallback,
+    return spiSlaveTx(gSpi, txBuf, txSize + 1, hostIntfSpiTxCallback,
             callback);
 }
 
