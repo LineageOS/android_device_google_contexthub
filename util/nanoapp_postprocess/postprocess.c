@@ -70,7 +70,7 @@ struct SymtabEntry {
 
 
 struct NanoRelocEntry {
-	uint32_t info;	//bottom 24 bits are ram offset, top 8 are type
+	uint32_t info;	//bottom 28 bits are ram offset, top 4 are type
 };
 
 int main(int argc, char **argv)
@@ -204,11 +204,11 @@ int main(int argc, char **argv)
 
 				if (IS_IN_FLASH(syms[whichSym].addr)) {
 					(*valThereP) -= FLASH_BASE;
-					nanoRelocs[i].info |= NANO_RELOC_TYPE_FLASH << 24;
+					nanoRelocs[i].info |= NANO_RELOC_TYPE_FLASH << 28;
 				}
 				else if (IS_IN_RAM(syms[whichSym].addr)) {
 					(*valThereP) -= RAM_BASE;
-					nanoRelocs[i].info |= NANO_RELOC_TYPE_RAM << 24;
+					nanoRelocs[i].info |= NANO_RELOC_TYPE_RAM << 28;
 				}
 				else {
 					fprintf(stderr, "Weird reloc %u to symbol %u in unknown memory space (addr 0x%08x)\n", i, whichSym, syms[whichSym].addr);
@@ -227,11 +227,11 @@ int main(int argc, char **argv)
 				t = *valThereP;
 
 				if (IS_IN_FLASH(*valThereP)) {
-					nanoRelocs[i].info |= NANO_RELOC_TYPE_FLASH << 24;
+					nanoRelocs[i].info |= NANO_RELOC_TYPE_FLASH << 28;
 					*valThereP -= FLASH_BASE;
 				}
 				else if (IS_IN_RAM(*valThereP)) {
-					nanoRelocs[i].info |= NANO_RELOC_TYPE_RAM << 24;
+					nanoRelocs[i].info |= NANO_RELOC_TYPE_RAM << 28;
 					*valThereP -= RAM_BASE;
 				}
 				else {
