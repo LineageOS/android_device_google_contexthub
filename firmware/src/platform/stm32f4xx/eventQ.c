@@ -7,10 +7,6 @@
 #include <cpu.h>
 
 
-
-
-
-
 struct EvtRecord {
     struct EvtRecord *next;
     struct EvtRecord *prev;
@@ -74,9 +70,9 @@ bool evtQueueEnqueue(struct EvtQueue* q, uint32_t evtType, void *evtData, EventF
         intSta = cpuIntsOff();
 
         //find a victim for discarding
-        rec = q->tail;
+        rec = q->head;
         while (rec && !(rec->evtType & EVENT_TYPE_BIT_DISCARDABLE))
-            rec = rec->prev;
+            rec = rec->next;
 
         if (rec) {
             rec->evtFreeF(rec->evtData);
@@ -183,16 +179,3 @@ bool evtQueueSubsystemInit(void)
 {
     return pendsvSubscribe(evtQueuePendsvCbk);
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
