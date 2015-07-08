@@ -8,7 +8,11 @@
 #include <variant/inc/variant.h>
 
 #ifndef NS_PER_S
-#define NS_PER_S                    1000000000UL
+#define NS_PER_S                    1000000000ULL
+#endif
+
+#ifndef US_PER_S
+#define US_PER_S                    1000000ULL
 #endif
 
 struct StmRtc
@@ -42,6 +46,8 @@ struct StmRtc
 #define RTC_CR_WUCKSEL_8DIV         0x00000001UL
 #define RTC_CR_WUCKSEL_4DIV         0x00000002UL
 #define RTC_CR_WUCKSEL_2DIV         0x00000003UL
+#define RTC_CR_WUCKSEL_CK_SPRE      0x00000004UL
+#define RTC_CR_WUCKSEL_CK_SPRE_2    0x00000006UL
 #define RTC_CR_FMT                  0x00000040UL
 #define RTC_CR_ALRAE                0x00000100UL
 #define RTC_CR_WUTE                 0x00000400UL
@@ -64,8 +70,8 @@ struct StmRtc
 
 /* Default prescalars of P[async] = 127 and P[sync] = 255 are appropriate
  * produce a 1 Hz clock when using a 32.768kHZ clock source */
-#define RTC_PREDIV_A                127UL
-#define RTC_PREDIV_S                255UL
+#define RTC_PREDIV_A                31UL
+#define RTC_PREDIV_S                1023UL
 
 /* Jitter = max wakeup timer resolution (61.035 us)
  * + 2 RTC cycles for synchronization (61.035 us) */
@@ -95,8 +101,8 @@ static void rtcSetDefaultDateTimeAndPrescalar(void)
     while ((RTC->ISR & RTC_ISR_INITF) == 0);
 
     /* Set prescalar rtc register.  Two writes required. */
+    RTC->PRER = RTC_PREDIV_S;
     RTC->PRER |= (RTC_PREDIV_A << 16);
-    RTC->PRER |= RTC_PREDIV_S;
 
     /* 24 hour format */
     RTC->CR &= ~RTC_CR_FMT;
@@ -130,10 +136,6 @@ int rtcSetWakeupTimer(uint64_t delay, int ppm)
 {
     uint64_t intState;
 
-    if (delay >= 32000000000ULL) { /* 32 second limit */
-        return RTC_ERR_TOO_BIG;
-    }
-
     uint32_t wakeupClock;
     uint32_t periodNs;
 
@@ -158,14 +160,22 @@ int rtcSetWakeupTimer(uint64_t delay, int ppm)
                 RTC_WKUP_DOWNCOUNT_MAX)) {
         wakeupClock = RTC_CR_WUCKSEL_16DIV;
         periodNs = RTC_DIV16_PERIOD_NS;
+    } else if (delay < ((unsigned long long)NS_PER_S *
+                RTC_WKUP_DOWNCOUNT_MAX)) {
+        wakeupClock = RTC_CR_WUCKSEL_CK_SPRE;
+        periodNs = NS_PER_S;
+    } else if (delay < ((unsigned long long)NS_PER_S * 2 *
+                RTC_WKUP_DOWNCOUNT_MAX)) {
+        wakeupClock = RTC_CR_WUCKSEL_CK_SPRE_2;
+        periodNs = NS_PER_S;
     } else {
-        osLog(LOG_ERROR, "RTC delay impossinble");
+        osLog(LOG_ERROR, "RTC delay impossible");
         return RTC_ERR_INTERNAL;
     }
 
     /* If PPM for OS timer is less than PPM of wakeup timer, can't use.
      * PPM of timer is calculated as jitter/(delay * 1,000,000) + drift PPM */
-    if ((ppm - RTC_PPM) * delay < (periodNs + RTC_WUT_NOISE_NS)* 1000000)
+    if ((ppm - RTC_PPM) * delay < (periodNs + RTC_WUT_NOISE_NS) * US_PER_S)
         return RTC_ERR_ACCURACY_UNMET;
 
     intState = platDisableInterrupts();
@@ -206,8 +216,47 @@ int rtcSetWakeupTimer(uint64_t delay, int ppm)
     return 0;
 }
 
+uint64_t rtcGetTime(void)
+{
+    static uint64_t drTime = 0ULL, trTime = 0ULL;
+    static uint32_t drCache = 0, trCache = 0;
+    uint32_t dr, tr, ssr;
+    ssr = RTC->SSR;
+    tr = RTC->TR;
+    dr = RTC->DR;
+
+    if (drCache != dr) {
+        drTime = ((((dr >> 4) & 0x3) * 10) + (dr & 0xF) - 1) * 86400ULL * US_PER_S;
+        drCache = dr;
+    }
+
+    if (trCache != tr) {
+        trTime = ((((tr >> 22) & 0x1) * 43200ULL) +
+                  (((tr >> 20) & 0x3) * 36000ULL) +
+                  (((tr >> 16) & 0xF) * 3600ULL) +
+                  (((tr >> 12) & 0x7) * 600ULL) +
+                  (((tr >> 8) & 0xF) * 60ULL) +
+                  (((tr >> 4) & 0x7) * 10ULL) +
+                  (((tr) & 0xF))) * US_PER_S;
+        trCache = tr;
+    }
+
+    return drTime + trTime + ((RTC_PREDIV_S - ssr) * US_PER_S / (RTC_PREDIV_S + 1));
+}
+
+void rtcSync(void)
+{
+    RTC->WPR = 0xCA;
+    RTC->WPR = 0x53;
+    RTC->ISR &= ~RTC_ISR_RSF;
+    RTC->WPR = 0xFF;
+    while (!(RTC->ISR & RTC_ISR_RSF)) ;
+}
+
 void EXTI22_RTC_WKUP_IRQHandler(void);
 void EXTI22_RTC_WKUP_IRQHandler(void)
 {
+    rtcSync();
     extiClearPendingLine(EXTI_LINE_RTC_WKUP);
+    timIntHandler();
 }
