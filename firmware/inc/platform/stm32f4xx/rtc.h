@@ -15,6 +15,8 @@ extern "C" {
 
 void rtcInit(void);
 int rtcSetWakeupTimer(uint64_t delay, int ppm);
+uint64_t rtcGetTime(void);
+void rtcSync(void);
 
 #ifdef __cplusplus
 }
