@@ -58,9 +58,7 @@ SECTIONS
 		LONG(__rel_end) 
 
                 /* entry points */
-		LONG(start_task) 
-		LONG(end_task) 
-		LONG(handle_event) 
+		*(.app_init) *(.app_init.*) ;
 
                 /* code */
 		*(.text) *(.text.*) ;
@@ -122,4 +120,4 @@ SECTIONS
 }
 
 
-ENTRY(start_task)
+ENTRY(_mAppEntry)
