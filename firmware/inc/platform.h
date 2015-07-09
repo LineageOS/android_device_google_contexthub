@@ -40,9 +40,12 @@ uint64_t platGetTicks(void);
 void platSetAlarm(unsigned delayUs);
 void platCancelAlarm(void);
 
-/* app loading and unloading */
+/* app loading, unloading & calling */
 bool platAppLoad(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo);
 bool platAppUnload(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo);
+void platAppStart(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo, uint32_t tid);
+void platAppEnd(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo);
+void platAppHandle(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo, uint32_t evtType, const void* evtData);
 
 #ifdef __cplusplus
 }

@@ -277,6 +277,39 @@ bool platAppUnload(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo)
     return true;
 }
 
+static void __attribute__((naked)) callWithR10(const struct AppHdr *appHdr, void *funcOfst, void *got, uintptr_t arg1, uintptr_t arg2)
+{
+    asm volatile (
+        "add  r12, r0, r1  \n"
+        "mov  r0,  r3      \n"
+        "ldr  r1,  [sp]    \n"
+        "push {r10, lr}    \n"
+        "mov  r10, r2      \n"
+        "blx  r12          \n"
+        "pop  {r10, pc}    \n"
+    );
+}
+
+void platAppStart(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo, uint32_t tid)
+{
+    callWithR10(appHdr, appHdr->funcs.start, platInfo->got, tid, 0);
+}
+
+void platAppEnd(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo)
+{
+    callWithR10(appHdr, appHdr->funcs.end, platInfo->got, 0, 0);
+}
+
+void platAppHandle(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo, uint32_t evtType, const void* evtData)
+{
+    callWithR10(appHdr, appHdr->funcs.handle, platInfo->got, evtType, (uintptr_t)evtData);
+}
+
+
+
+
+
+
 
 
 

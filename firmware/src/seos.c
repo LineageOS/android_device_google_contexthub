@@ -57,8 +57,6 @@ union DeferredAction {
 #define EVT_UNSUBSCRIBE_TO_EVT       0x00000001
 #define EVT_DEFERRED_CALLBACK        0x00000002
 
-#define CALL_APP_FUNC(hdr, name)	((typeof(hdr->name))((uintptr_t)(hdr) + (uintptr_t)((hdr)->name)))
-
 
 static struct EvtQueue *mEvtsInternal, *mEvtsExternal;
 static struct SlabAllocator* mDeferedActionsSlab;
@@ -114,7 +112,7 @@ static void osStartTasks(void)
 
     osLog(LOG_INFO, "SEOS Starting tasks\n");
     for (i = 0; i < nTasks; i++)
-        CALL_APP_FUNC(mTasks[i].appHdr, funcs.start)(mTasks[i].tid);
+        platAppStart(mTasks[i].appHdr, &mTasks[i].platInfo, mTasks[i].tid);
 }
 
 static struct Task* osTaskFindByTid(uint32_t tid)
@@ -309,7 +307,7 @@ void __attribute__((noreturn)) osMain(void)
                     continue;
                 for (j = 0; j < mTasks[i].subbedEvtCount; j++) {
                     if (mTasks[i].subbedEvents[j] == evtType) {
-                        CALL_APP_FUNC(mTasks[i].appHdr, funcs.handle)(evtType, evtData);
+                        platAppHandle(mTasks[i].appHdr, &mTasks[i].platInfo, evtType, evtData);
                         break;
                     }
                 }
