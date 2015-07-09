@@ -292,6 +292,27 @@ int main(int argc, char **argv)
 		goto out;
 	}
 
+        //adjust headers for easy access (RAM)
+        if (!IS_IN_RAM(hdr->__data_start) || !IS_IN_RAM(hdr->__data_end) || !IS_IN_RAM(hdr->__bss_start) || !IS_IN_RAM(hdr->__bss_end) || !IS_IN_RAM(hdr->__got_start) || !IS_IN_RAM(hdr->__got_end)) {
+		fprintf(stderr, "data, bss, or got not in ram\n");
+		goto out;
+	}
+        hdr->__data_start -= RAM_BASE;
+        hdr->__data_end -= RAM_BASE;
+        hdr->__bss_start -= RAM_BASE;
+        hdr->__bss_end -= RAM_BASE;
+        hdr->__got_start -= RAM_BASE;
+        hdr->__got_end -= RAM_BASE;
+
+        //adjust headers for easy access (FLASH)
+        if (!IS_IN_FLASH(hdr->__data_data) || !IS_IN_FLASH(hdr->__rel_start) || !IS_IN_FLASH(hdr->__rel_end)) {
+		fprintf(stderr, "data.data, or rel not in ram\n");
+		goto out;
+	}
+        hdr->__data_data -= FLASH_BASE;
+        hdr->__rel_start -= FLASH_BASE;
+        hdr->__rel_end -= FLASH_BASE;
+
 	//if we have any bytes to output, show stats
 	if (bufUsed) {
 		uint32_t codeAndRoDataSz = hdr->__data_data - FLASH_BASE;
