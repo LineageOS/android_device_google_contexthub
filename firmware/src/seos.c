@@ -35,6 +35,9 @@ struct Task {
     /* App entry points */
     const struct AppHdr *appHdr;
 
+    /* per-platform app info */
+    struct PlatAppInfo platInfo;
+
     /* for some basic number of subbed events, the array is stored directly here. after that, a heap chunk is used */
     uint32_t subbedEventsInt[MAX_EMBEDDED_EVT_SUBS];
 };

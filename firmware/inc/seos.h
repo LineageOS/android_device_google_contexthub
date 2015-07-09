@@ -8,7 +8,8 @@ extern "C" {
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdarg.h>
-#include "eventQ.h"
+#include <eventQ.h>
+#include <plat/inc/app.h>
 
 
 
