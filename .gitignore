@@ -6,4 +6,4 @@
 *.d
 *.bin
 firmware/links
-*.app
+*.napp
