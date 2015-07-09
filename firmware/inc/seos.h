@@ -21,7 +21,7 @@ extern "C" {
 
 #define OS_VER                           0x0000
 
-struct AppEntry {
+struct AppEntry { /* do not rearrange */
     /* lifescycle */
     void (*start)(uint32_t yourTid);
     void (*end)(void);
@@ -49,11 +49,12 @@ void osLogv(enum LogLevel level, const char *str, va_list vl);
 void osLog(enum LogLevel level, const char *str, ...)
     __attribute__((format(printf, 2, 3)));
 
-#define APP_INIT(_start, _end, _event) \
-static const struct AppEntry __attribute__((used,section (".app_init"))) mAppEntry = {\
-    .start = (_start),\
-    .end = (_end),\
-    .handle = (_event)\
+#define APP_INIT(_start, _end, _event)                                           \
+extern const struct AppEntry _mAppEntry;                                         \
+const struct AppEntry __attribute__((used,section (".app_init"))) _mAppEntry = { \
+    .start = (_start),                                                           \
+    .end = (_end),                                                               \
+    .handle = (_event)                                                           \
 }
 
 
