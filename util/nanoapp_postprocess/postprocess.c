@@ -75,11 +75,11 @@ struct NanoRelocEntry {
 
 int main(int argc, char **argv)
 {
+	uint32_t i, numRelocs, numSyms, outNumRelocs = 0;
 	struct NanoRelocEntry *nanoRelocs = NULL;
-	uint32_t i, numRelocs, numSyms;
 	struct RelocEntry *relocs;
 	struct SymtabEntry *syms;
-	uint32_t t,bufUsed = 0;
+	uint32_t t, bufUsed = 0;
 	struct AppHeader *hdr;
 	bool verbose = false;
 	uint8_t *buf = NULL;
@@ -170,6 +170,29 @@ int main(int argc, char **argv)
 			goto out;
 		}
 
+		/* handle relocs inside the header */
+		if (IS_IN_FLASH(relocs[i].where) && relocs[i].where - FLASH_BASE < sizeof(struct AppHeader) && relocType == RELOC_TYPE_SECT) {
+			/* relocs in header are special - runtime corrects for them */
+			if (syms[whichSym].addr) {
+				fprintf(stderr, "Weird in-header sect reloc %u to symbol %u with nonzero addr 0x%08x\n", i, whichSym, syms[whichSym].addr);
+				goto out;
+			}
+
+			valThereP = (uint32_t*)(buf + relocs[i].where - FLASH_BASE);
+			if (!IS_IN_FLASH(*valThereP)) {
+				fprintf(stderr, "In-header reloc %u of location 0x%08X is outside of FLASH!\nINFO:\n\ttype: %u\n\tsym: %u\n\tSym Addr: 0x%08X\n", 
+					i, relocs[i].where, relocType, whichSym, syms[whichSym].addr);
+				goto out;
+			}
+
+			*valThereP -= FLASH_BASE;
+
+			if (verbose)
+				fprintf(stderr, "  -> Nano reloc skipped for in-header reloc\n");
+
+			continue; /* do not produce an output reloc */
+		}
+
 		if (!IS_IN_RAM(relocs[i].where)) {
 			fprintf(stderr, "Reloc %u of location 0x%08X is outside of RAM!\nINFO:\n\ttype: %u\n\tsym: %u\n\tSym Addr: 0x%08X\n", 
 				i, relocs[i].where, relocType, whichSym, syms[whichSym].addr);
@@ -193,7 +216,7 @@ int main(int argc, char **argv)
 				fprintf(stderr, "in   ???}\n");
 		}
 
-		nanoRelocs[i].info = relocs[i].where - RAM_BASE;
+		nanoRelocs[outNumRelocs].info = relocs[i].where - RAM_BASE;
 
 		switch (relocType) {
 			case RELOC_TYPE_ABS_S:
@@ -204,11 +227,11 @@ int main(int argc, char **argv)
 
 				if (IS_IN_FLASH(syms[whichSym].addr)) {
 					(*valThereP) -= FLASH_BASE;
-					nanoRelocs[i].info |= NANO_RELOC_TYPE_FLASH << 28;
+					nanoRelocs[outNumRelocs].info |= NANO_RELOC_TYPE_FLASH << 28;
 				}
 				else if (IS_IN_RAM(syms[whichSym].addr)) {
 					(*valThereP) -= RAM_BASE;
-					nanoRelocs[i].info |= NANO_RELOC_TYPE_RAM << 28;
+					nanoRelocs[outNumRelocs].info |= NANO_RELOC_TYPE_RAM << 28;
 				}
 				else {
 					fprintf(stderr, "Weird reloc %u to symbol %u in unknown memory space (addr 0x%08x)\n", i, whichSym, syms[whichSym].addr);
@@ -227,11 +250,11 @@ int main(int argc, char **argv)
 				t = *valThereP;
 
 				if (IS_IN_FLASH(*valThereP)) {
-					nanoRelocs[i].info |= NANO_RELOC_TYPE_FLASH << 28;
+					nanoRelocs[outNumRelocs].info |= NANO_RELOC_TYPE_FLASH << 28;
 					*valThereP -= FLASH_BASE;
 				}
 				else if (IS_IN_RAM(*valThereP)) {
-					nanoRelocs[i].info |= NANO_RELOC_TYPE_RAM << 28;
+					nanoRelocs[outNumRelocs].info |= NANO_RELOC_TYPE_RAM << 28;
 					*valThereP -= RAM_BASE;
 				}
 				else {
@@ -249,6 +272,7 @@ int main(int argc, char **argv)
 
 		if (verbose)
 			fprintf(stderr, "  -> Nano reloc calculated as 0x%08X\n", nanoRelocs[i].info);
+		outNumRelocs++;
 	}
 
 	//put in app id
@@ -256,11 +280,11 @@ int main(int argc, char **argv)
 	hdr->appID[1] = appId >> 32;
 
 	//overwrite original relocs and symtab with nanorelocs and adjust sizes
-	memcpy(relocs, nanoRelocs, sizeof(struct NanoRelocEntry[numRelocs]));
+	memcpy(relocs, nanoRelocs, sizeof(struct NanoRelocEntry[outNumRelocs]));
 	bufUsed -= sizeof(struct RelocEntry[numRelocs]);
 	bufUsed -= sizeof(struct SymtabEntry[numSyms]);
-	bufUsed += sizeof(struct NanoRelocEntry[numRelocs]);
-	hdr->__rel_end = hdr->__rel_start + sizeof(struct NanoRelocEntry[numRelocs]);
+	bufUsed += sizeof(struct NanoRelocEntry[outNumRelocs]);
+	hdr->__rel_end = hdr->__rel_start + sizeof(struct NanoRelocEntry[outNumRelocs]);
 
 	//sanity
 	if (hdr->__rel_end - FLASH_BASE != bufUsed) {
@@ -271,7 +295,7 @@ int main(int argc, char **argv)
 	//if we have any bytes to output, show stats
 	if (bufUsed) {
 		uint32_t codeAndRoDataSz = hdr->__data_data - FLASH_BASE;
-		uint32_t relocsSz = sizeof(struct NanoRelocEntry[numRelocs]);
+		uint32_t relocsSz = sizeof(struct NanoRelocEntry[outNumRelocs]);
 		uint32_t gotSz = hdr->__got_end - hdr->__data_start;
 		uint32_t bssSz = hdr->__bss_end - hdr->__bss_start;
 
