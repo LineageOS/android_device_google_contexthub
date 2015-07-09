@@ -10,12 +10,17 @@
 #include <unistd.h>
 #include <platform.h>
 #include <seos.h>
+#include <heap.h>
 #include <timer.h>
 #include <usart.h>
 #include <gpio.h>
 #include <mpu.h>
 #include <cpu.h>
 
+
+//reloc types for this platform
+#define NANO_RELOC_TYPE_RAM	0
+#define NANO_RELOC_TYPE_FLASH	1
 
 struct StmDbg {
     volatile uint32_t IDCODE;
@@ -223,3 +228,56 @@ void __attribute__((naked)) HardFault_Handler(void)
         "b     logHardFault \n"
     );
 }
+
+bool platAppLoad(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo)
+{
+    const uint32_t *relocsStart = (const uint32_t*)(((uint8_t*)appHdr) + appHdr->rel_start);
+    const uint32_t *relocsEnd = (const uint32_t*)(((uint8_t*)appHdr) + appHdr->rel_end);
+    uint8_t *mem = heapAlloc(appHdr->bss_end);
+
+    if (!mem)
+        return false;
+
+    //calcualte and assign got
+    platInfo->got = mem + appHdr->got_start;
+
+    //clear bss
+    memset(mem + appHdr->bss_start, 0, appHdr->bss_end - appHdr->bss_start);
+
+    //copy initialized data and initialized got
+    memcpy(mem + appHdr->data_start, ((uint8_t*)appHdr) + appHdr->data_data, appHdr->got_end - appHdr->data_start);
+
+    //perform relocs
+    while (relocsStart != relocsEnd) {
+        const uint32_t rel = *relocsStart++;
+        const uint32_t relType = rel >> 28;
+        const uint32_t relOfst = rel & 0x0ffffffful;
+        uint32_t *relWhere = (uint32_t*)(mem + relOfst);
+
+        switch (relType) {
+        case NANO_RELOC_TYPE_RAM:
+            (*relWhere) += (uintptr_t)mem;
+            break;
+        case NANO_RELOC_TYPE_FLASH:
+            (*relWhere) += (uintptr_t)appHdr;
+            break;
+        default:
+            heapFree(mem);
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool platAppUnload(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo)
+{
+    heapFree((uint8_t*)platInfo->got - appHdr->got_start);
+
+    return true;
+}
+
+
+
+
+

@@ -16,6 +16,7 @@ extern "C" {
 #include <stdbool.h>
 #include <stdint.h>
 #include <seos.h>
+#include <plat/inc/app.h>
 
 /* plat life cycle */
 void platInitialize(void);
@@ -38,6 +39,10 @@ void platLogPutchar(char ch);
 uint64_t platGetTicks(void);
 void platSetAlarm(unsigned delayUs);
 void platCancelAlarm(void);
+
+/* app loading and unloading */
+bool platAppLoad(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo);
+bool platAppUnload(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo);
 
 #ifdef __cplusplus
 }
