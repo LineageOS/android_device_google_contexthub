@@ -21,12 +21,42 @@ extern "C" {
 
 #define OS_VER                           0x0000
 
-struct AppEntry { /* do not rearrange */
+struct AppFuncs { /* do not rearrange */
     /* lifescycle */
     void (*start)(uint32_t yourTid);
     void (*end)(void);
     /* events */
     void (*handle)(uint32_t evtType, const void* evtData);
+};
+
+#define APP_HDR_MAGIC              "GoogleNanoApp"
+#define APP_HDR_VER_CUR            0
+#define APP_HDR_MARKER_UPLOADING   0xFFFF
+#define APP_HDR_MARKER_VERIFYING   0xFFFE
+#define APP_HDR_MARKER_VALID       0xFF00
+#define APP_HDR_MARKER_DELETED     0x0000
+
+
+struct AppHdr {
+    char magic[13];
+    uint8_t version;
+    uint16_t marker;
+
+    uint64_t appId;
+
+    uint32_t data_start;
+    uint32_t data_end;
+    uint32_t data_data;
+
+    uint32_t bss_start;
+    uint32_t bss_end;
+
+    uint32_t got_start;
+    uint32_t got_end;
+    uint32_t rel_start;
+    uint32_t rel_end;
+
+    struct AppFuncs funcs;
 };
 
 typedef void (*OsDeferCbkF)(void *);
@@ -50,8 +80,8 @@ void osLog(enum LogLevel level, const char *str, ...)
     __attribute__((format(printf, 2, 3)));
 
 #define APP_INIT(_start, _end, _event)                                           \
-extern const struct AppEntry _mAppEntry;                                         \
-const struct AppEntry __attribute__((used,section (".app_init"))) _mAppEntry = { \
+extern const struct AppFuncs _mAppFuncs;                                         \
+const struct AppFuncs __attribute__((used,section (".app_init"))) _mAppFuncs = { \
     .start = (_start),                                                           \
     .end = (_end),                                                               \
     .handle = (_event)                                                           \

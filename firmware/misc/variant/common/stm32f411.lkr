@@ -24,10 +24,6 @@ SECTIONS
 		*(.text) *(.text.*) ;
 		*(.rodata) *(.rodata.*) ;
 		. = ALIGN(4);
-		__app_start = ABSOLUTE(.);
-		KEEP (*(.app_init) ) ;
-		__app_end = ABSOLUTE(.);
-		. = ALIGN(4);
 	} > code = 0xff
 
 	.data : {
@@ -37,6 +33,7 @@ SECTIONS
 		*(.data.*);
 		. = ALIGN(4);
 		__data_end = ABSOLUTE(.);
+		__app_start = ABSOLUTE(.);
 	 } > ram AT > code
 
 	.bss : {

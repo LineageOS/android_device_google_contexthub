@@ -33,7 +33,7 @@ struct Task {
     uint32_t *subbedEvents; /* NULL for invalid tasks */
 
     /* App entry points */
-    struct AppEntry funcs;
+    const struct AppHdr *appHdr;
 
     /* for some basic number of subbed events, the array is stored directly here. after that, a heap chunk is used */
     uint32_t subbedEventsInt[MAX_EMBEDDED_EVT_SUBS];
@@ -54,6 +54,7 @@ union DeferredAction {
 #define EVT_UNSUBSCRIBE_TO_EVT       0x00000001
 #define EVT_DEFERRED_CALLBACK        0x00000002
 
+#define CALL_APP_FUNC(hdr, name)	((typeof(hdr->name))((uintptr_t)(hdr) + (uintptr_t)((hdr)->name)))
 
 
 static struct EvtQueue *mEvtsInternal, *mEvtsExternal;
@@ -87,21 +88,30 @@ static void osInit(void)
 
 static void osStartTasks(void)
 {
-    extern struct AppEntry __app_start, __app_end;
-    struct AppEntry *app;
+    extern const char __code_end[];
+    extern const struct AppHdr __app_start;
+    const struct AppHdr *app = &__app_start;
+    static const char magic[] = APP_HDR_MAGIC;
     uint32_t i, nTasks = 0;
 
     osLog(LOG_INFO, "SEOS Registering tasks\n");
-    for (app = &__app_start; app != &__app_end && nTasks < MAX_TASKS; app++, nTasks++) {
-        memcpy(&mTasks[nTasks].funcs, app, sizeof(*app));
-        mTasks[nTasks].subbedEvtListSz = MAX_EMBEDDED_EVT_SUBS;
-        mTasks[nTasks].subbedEvents = mTasks[nTasks].subbedEventsInt;
-        mTasks[nTasks].tid = mNextTid++;
+    while (((uintptr_t)&__code_end) - ((uintptr_t)app) >= sizeof(struct AppHdr) && !memcmp(magic, app->magic, sizeof(magic) - 1) && app->version == APP_HDR_VER_CUR) {
+
+        if (app->marker == APP_HDR_MARKER_VALID) {
+            //todo - sanity check app IDs for duplicates
+            mTasks[nTasks].appHdr = app;
+            mTasks[nTasks].subbedEvtListSz = MAX_EMBEDDED_EVT_SUBS;
+            mTasks[nTasks].subbedEvents = mTasks[nTasks].subbedEventsInt;
+            mTasks[nTasks].tid = mNextTid++;
+
+            //todo - relocs, r10, etc
+        }
+        app = (const struct AppHdr*)(((const uint8_t*)app) + app->rel_end);
     }
 
     osLog(LOG_INFO, "SEOS Starting tasks\n");
     for (i = 0; i < nTasks; i++)
-        mTasks[i].funcs.start(mTasks[i].tid);
+        CALL_APP_FUNC(mTasks[i].appHdr, funcs.start)(mTasks[i].tid);
 }
 
 static struct Task* osTaskFindByTid(uint32_t tid)
@@ -296,7 +306,7 @@ void __attribute__((noreturn)) osMain(void)
                     continue;
                 for (j = 0; j < mTasks[i].subbedEvtCount; j++) {
                     if (mTasks[i].subbedEvents[j] == evtType) {
-                        mTasks[i].funcs.handle(evtType, evtData);
+                        CALL_APP_FUNC(mTasks[i].appHdr, funcs.handle)(evtType, evtData);
                         break;
                     }
                 }
