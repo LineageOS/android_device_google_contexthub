@@ -2,10 +2,10 @@ SELF_DIR := $(SELF_MKFILE:Makefile=)
 SELF_FILES := $(wildcard $(SELF_DIR)*.c)
 APP_NM := $(SELF_DIR)app
 CLEANFILES := $(CLEANFILES) $(APP_NM).elf  $(APP_NM).bin
-DELIVERABLES := $(DELIVERABLES) $(APP_NM).app
+DELIVERABLES := $(DELIVERABLES) $(APP_NM).napp
 APP_ELF := $(APP_NM).elf
 APP_BIN := $(APP_NM).bin
-APP_APP := $(APP_NM).app
+APP_APP := $(APP_NM).napp
 
 
 define APPRULE
