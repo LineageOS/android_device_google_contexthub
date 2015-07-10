@@ -199,36 +199,6 @@ void SysTick_Handler(void)
     mTicks++;
 }
 
-static void __attribute__((used)) logHardFault(uint32_t *excRegs, uint32_t* otherRegs)
-{
-    osLog(LOG_ERROR, "*HARD FAULT* SR  = %08lX\n", excRegs[7]);
-    osLog(LOG_ERROR, "R0  = %08lX   R8  = %08lX\n", excRegs[0], otherRegs[4]);
-    osLog(LOG_ERROR, "R1  = %08lX   R9  = %08lX\n", excRegs[1], otherRegs[5]);
-    osLog(LOG_ERROR, "R2  = %08lX   R10 = %08lX\n", excRegs[2], otherRegs[6]);
-    osLog(LOG_ERROR, "R3  = %08lX   R11 = %08lX\n", excRegs[3], otherRegs[7]);
-    osLog(LOG_ERROR, "R4  = %08lX   R12 = %08lX\n", otherRegs[0], excRegs[4]);
-    osLog(LOG_ERROR, "R5  = %08lX   SP  = %08lX\n", otherRegs[1], (uint32_t)(uintptr_t)(excRegs + 8));
-    osLog(LOG_ERROR, "R6  = %08lX   LR  = %08lX\n", otherRegs[2], excRegs[5]);
-    osLog(LOG_ERROR, "R7  = %08lX   PC  = %08lX\n", otherRegs[3], excRegs[6]);
-    osLog(LOG_ERROR, "HFSR= %08lX   CFSR= %08lX\n", SCB->HFSR, SCB->CFSR);
-    while(1);
-}
-
-void HardFault_Handler(void);
-
-void __attribute__((naked)) HardFault_Handler(void)
-{
-    asm volatile(
-        "tst lr, #4         \n"
-        "ite eq             \n"
-        "mrseq r0, msp      \n"
-        "mrsne r0, psp      \n"
-        "push  {r4-r11}     \n"
-        "mov   r1, sp       \n"
-        "b     logHardFault \n"
-    );
-}
-
 bool platAppLoad(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo)
 {
     const uint32_t *relocsStart = (const uint32_t*)(((uint8_t*)appHdr) + appHdr->rel_start);
