@@ -391,12 +391,10 @@ static int BOOTLOADER __blProgramFlash(uint8_t *dst, uint8_t *src,
         return -1;
     }
 
-    // disable interrupts if our vector table is in flash
+    // disable interrupts
     // otherwise an interrupt during flash write/erase will stall the processor
     // until the write/erase completes
-    if (SCB->VTOR < (uint32_t)&__ram_start || SCB->VTOR >= (uint32_t)&__ram_end)
-        int_state = __blDisableInts();
-
+    int_state = __blDisableInts();
 
     // figure out which (if any) blocks we have to erase
     for (i=0; i<sector_cnt; i++)
@@ -447,10 +445,8 @@ static int BOOTLOADER __blProgramFlash(uint8_t *dst, uint8_t *src,
     }
 
     if (flash->CR & FLASH_CR_LOCK) {
-        // unlock failed
-        // restore interrupts (when called from outside the bootloader)
-        if (SCB->VTOR < (uint32_t)&__ram_start || SCB->VTOR >= (uint32_t)&__ram_end)
-            __blRestoreInts(int_state);
+        // unlock failed, restore interrupts
+        __blRestoreInts(int_state);
 
         return -1;
     }
@@ -471,9 +467,7 @@ static int BOOTLOADER __blProgramFlash(uint8_t *dst, uint8_t *src,
     flash->ACR = acr_cache;
     flash->CR = cr_cache;
 
-    // restore interrupts (when called from outside the bootloader)
-    if (SCB->VTOR < (uint32_t)&__ram_start || SCB->VTOR >= (uint32_t)&__ram_end)
-        __blRestoreInts(int_state);
+    __blRestoreInts(int_state);
 
     return __blCompareBytes(dst, src, length);
 }
@@ -565,6 +559,66 @@ static int BOOTLOADER __blProgramShared(uint8_t *dst, uint8_t *src,
     return __blProgramFlash(dst, src, length, key1, key2);
 }
 
+static int BOOTLOADER __blEraseShared(uint32_t key1, uint32_t key2)
+{
+    struct StmFlash *flash = (struct StmFlash *)FLASH_BASE;
+    const int sector_cnt = sizeof(__blFlashTable) / sizeof(struct blFlashTable);
+    uint8_t erase_mask[sector_cnt];
+    int erase_cnt = 0;
+    int i;
+    uint32_t acr_cache, cr_cache;
+    uint32_t int_state = 0;
+
+    for (i=0; i<sector_cnt; i++) {
+        if (__blFlashTable[i].type == BL_FLASH_SHARED) {
+            erase_mask[i] = 1;
+            erase_cnt ++;
+        }
+    }
+
+    // disable interrupts
+    // otherwise an interrupt during flash write/erase will stall the processor
+    // until the write/erase completes
+    int_state = __blDisableInts();
+
+    // wait for flash to not be busy (should never be set at this point)
+    while (flash->SR & FLASH_SR_BSY) ;
+
+    cr_cache = flash->CR;
+
+    if (flash->CR & FLASH_CR_LOCK) {
+        // unlock flash
+        flash->KEYR = key1;
+        flash->KEYR = key2;
+    }
+
+    if (flash->CR & FLASH_CR_LOCK) {
+        // unlock failed, restore interrupts
+        __blRestoreInts(int_state);
+
+        return -1;
+    }
+
+    flash->CR = FLASH_CR_PSIZE(FLASH_CR_PSIZE_8);
+
+    acr_cache = flash->ACR;
+
+    // disable and flush data and instruction caches
+    flash->ACR &= ~(FLASH_ACR_DCEN | FLASH_ACR_ICEN);
+    flash->ACR |= (FLASH_ACR_DCRST | FLASH_ACR_ICRST);
+
+    if (erase_cnt > 0)
+        __blEraseSectors(sector_cnt, erase_mask);
+
+    flash->ACR = acr_cache;
+    flash->CR = cr_cache;
+
+    // restore interrupts
+    __blRestoreInts(int_state);
+
+    return erase_cnt;
+}
+
 static uint32_t BOOTLOADER __blCrcCont(uint8_t *addr, unsigned int length)
 {
     struct StmCrc *crc = (struct StmCrc *)CRC_BASE;
@@ -616,4 +670,5 @@ const struct BlVecTable __attribute__((section(".blvec"))) __BL_VECTORS =
     .blReboot = &__blReboot,
     .blGetSnum = &__blGetSnum,
     .blProgramShared = &__blProgramShared,
+    .blEraseShared = &__blEraseShared,
 };
