@@ -50,14 +50,14 @@ void cpuIntsRestore(uint64_t state)
 
 static void __attribute__((used)) syscallHandler(uint32_t syscallNr, va_list *args, uintptr_t *excRegs)
 {
+    uint16_t *svcPC = ((uint16_t *)(excRegs[6])) - 1;
+    uint32_t svcNo = (*svcPC) & 0xFF;
     SyscallFunc handler;
 
-    handler = syscallGetHandler(syscallNr);
-
-    //TODO: verify "SWI 0" used
-
-    if (!handler)
-        osLog(LOG_WARN, "Unknown syscall 0x%08lX called at 0x%08lX\n", (unsigned long)syscallNr, (unsigned long)excRegs[6]);
+    if (svcNo)
+        osLog(LOG_WARN, "Unknown SVC 0x%02lX called at 0x%08lX\n", svcNo, (unsigned long)svcPC);
+    else if (!(handler = syscallGetHandler(syscallNr)))
+        osLog(LOG_WARN, "Unknown syscall 0x%08lX called at 0x%08lX\n", (unsigned long)syscallNr, (unsigned long)svcPC);
     else
         handler(excRegs, args);
 }
