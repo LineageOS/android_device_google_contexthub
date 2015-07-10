@@ -103,9 +103,12 @@ static void osStartTasks(void)
             mTasks[nTasks].appHdr = app;
             mTasks[nTasks].subbedEvtListSz = MAX_EMBEDDED_EVT_SUBS;
             mTasks[nTasks].subbedEvents = mTasks[nTasks].subbedEventsInt;
-            mTasks[nTasks].tid = mNextTid++;
+            mTasks[nTasks].tid = mNextTid;
 
-            //todo - relocs, r10, etc
+            if (platAppLoad(mTasks[i].appHdr, &mTasks[i].platInfo)) {
+                mNextTid++;
+                nTasks++;
+            }
         }
         app = (const struct AppHdr*)(((const uint8_t*)app) + app->rel_end);
     }
