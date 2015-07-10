@@ -18,14 +18,14 @@ extern "C" {
 
 #define EVT_NO_FIRST_USER_EVENT          0x00000100    //all events lower than this are reserved for the OS. all of them are nondiscardable necessarily!
 #define EVT_NO_FIRST_SENSOR_EVENT        0x00000200    //sensor type SENSOR_TYPE_x produces events of type EVT_NO_FIRST_SENSOR_EVENT + SENSOR_TYPE_x for all Google-defined sensors
-#define EVT_BOOT_COMPLETED               0x00000300    //sent when boot completes
+#define EVT_APP_START                    0x00000300    //sent when an app can actually start
 
 #define OS_VER                           0x0000
 
 struct AppFuncs { /* do not rearrange */
     /* lifescycle */
-    void (*start)(uint32_t yourTid);
-    void (*end)(void);
+    void (*start)(uint32_t yourTid);  //simple init only - no ints on at this time
+    void (*end)(void);                //die quickly please
     /* events */
     void (*handle)(uint32_t evtType, const void* evtData);
 };

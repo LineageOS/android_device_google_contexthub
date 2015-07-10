@@ -287,8 +287,8 @@ void __attribute__((noreturn)) osMain(void)
     hostIntfRequest();
     platEnableInterrupts();
 
-    //broadcast boot completed
-    (void)osEnqueueEvt(EVT_BOOT_COMPLETED, NULL, NULL, false);
+    //broadcast app start to all already-loaded apps
+    (void)osEnqueueEvt(EVT_APP_START, NULL, NULL, false);
 
     while (true) {
 
