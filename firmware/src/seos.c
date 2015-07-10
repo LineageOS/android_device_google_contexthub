@@ -180,28 +180,28 @@ static void osInternalEvtHandle(uint32_t evtType, void *evtData)
     }
 }
 
-static void osExpApiEvtqSubscribe(uintptr_t *retValP, va_list args)
+static void osExpApiEvtqSubscribe(uintptr_t *retValP, va_list *args)
 {
-    uint32_t tid = va_arg(args, uint32_t);
-    uint32_t evtType = va_arg(args, uint32_t);
+    uint32_t tid = va_arg(*args, uint32_t);
+    uint32_t evtType = va_arg(*args, uint32_t);
 
     *retValP = osEventSubscribe(tid, evtType);
 }
 
-static void osExpApiEvtqUnsubscribe(uintptr_t *retValP, va_list args)
+static void osExpApiEvtqUnsubscribe(uintptr_t *retValP, va_list *args)
 {
-    uint32_t tid = va_arg(args, uint32_t);
-    uint32_t evtType = va_arg(args, uint32_t);
+    uint32_t tid = va_arg(*args, uint32_t);
+    uint32_t evtType = va_arg(*args, uint32_t);
 
     *retValP = osEventUnsubscribe(tid, evtType);
 }
 
-static void osExpApiEvtqEnqueue(uintptr_t *retValP, va_list args)
+static void osExpApiEvtqEnqueue(uintptr_t *retValP, va_list *args)
 {
-    uint32_t evtType = va_arg(args, uint32_t);
-    void *evtData = va_arg(args, void*);
-    EventFreeF evtFreeF = va_arg(args, EventFreeF);
-    bool external = va_arg(args, bool);
+    uint32_t evtType = va_arg(*args, uint32_t);
+    void *evtData = va_arg(*args, void*);
+    EventFreeF evtFreeF = va_arg(*args, EventFreeF);
+    bool external = va_arg(*args, bool);
 
     *retValP = osEnqueueEvt(evtType, evtData, evtFreeF, external);
 }
@@ -214,10 +214,10 @@ static void osExpApiEvtqFuncDeferCbk(void *data)
     syscallUserspaceCallbackFree(ucbk);
 }
 
-static void osExpApiEvtqFuncDefer(uintptr_t *retValP, va_list args)
+static void osExpApiEvtqFuncDefer(uintptr_t *retValP, va_list *args)
 {
-    OsDeferCbkF userCbk = va_arg(args, OsDeferCbkF);
-    void *userData = va_arg(args, void*);
+    OsDeferCbkF userCbk = va_arg(*args, OsDeferCbkF);
+    void *userData = va_arg(*args, void*);
     struct UserspaceCallback *ucbk;
 
     *retValP = false;
@@ -230,12 +230,12 @@ static void osExpApiEvtqFuncDefer(uintptr_t *retValP, va_list args)
     }
 }
 
-static void osExpApiLogLog(uintptr_t *retValP, va_list args)
+static void osExpApiLogLog(uintptr_t *retValP, va_list *args)
 {
-    enum LogLevel level = va_arg(args, int /* enums promoted to ints in va_args in C */);
-    const char *str = va_arg(args, const char*);
+    enum LogLevel level = va_arg(*args, int /* enums promoted to ints in va_args in C */);
+    const char *str = va_arg(*args, const char*);
 
-    osLogv(level, str, args);
+    osLogv(level, str, *args);
 }
 
 static void osExportApi(void)
