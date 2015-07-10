@@ -14,7 +14,7 @@ extern "C" {
 #include <stdint.h>
 #include <stdarg.h>
 
-static inline uintptr_t cpuSyscallDo(va_list *args, uint32_t syscallNo)
+static inline uintptr_t cpuSyscallDo(uint32_t syscallNo, va_list *args)
 {
     uint32_t retVal;
 
@@ -24,7 +24,7 @@ static inline uintptr_t cpuSyscallDo(va_list *args, uint32_t syscallNo)
         "swi 0      \n"
         "mov %0, r0 \n"
         :"=r"(retVal)
-        :"r"(args), "r"(syscallNo)
+        :"r"(syscallNo), "r"(args)
         :"memory", "r0", "r1"
     );
 

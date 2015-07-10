@@ -22,7 +22,7 @@ static inline uintptr_t syscallDo(uint32_t syscallNo, ...)
     va_list vl;
 
     va_start(vl, syscallNo);
-    ret = cpuSyscallDo(&vl, syscallNo);
+    ret = cpuSyscallDo(syscallNo, &vl);
     va_end(vl);
 
     return ret;
