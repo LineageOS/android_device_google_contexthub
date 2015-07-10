@@ -26,6 +26,13 @@ extern "C" {
 #define SYSCALL_BITS_LEVEL_2      8  /* genus */
 #define SYSCALL_BITS_LEVEL_3      9  /* species */
 
+#define SYSCALL_CUT_SCALE_SHIFT(_val, _cut, _shift)   ((((uint32_t)(_val)) & ((1UL << (_cut)) - 1)) << (_shift))
+#define SYSCALL_NO(_domain, _family, _genus, _species) (                                                                                    \
+            SYSCALL_CUT_SCALE_SHIFT((_domain) , SYSCALL_BITS_LEVEL_0, SYSCALL_BITS_LEVEL_1 + SYSCALL_BITS_LEVEL_2 + SYSCALL_BITS_LEVEL_3) + \
+            SYSCALL_CUT_SCALE_SHIFT((_family) , SYSCALL_BITS_LEVEL_1,                        SYSCALL_BITS_LEVEL_2 + SYSCALL_BITS_LEVEL_3) + \
+            SYSCALL_CUT_SCALE_SHIFT((_genus)  , SYSCALL_BITS_LEVEL_2,                                               SYSCALL_BITS_LEVEL_3) + \
+            SYSCALL_CUT_SCALE_SHIFT((_species), SYSCALL_BITS_LEVEL_3,                                                                  0)   \
+                                                       )
 
 //level 0 indices:
 #define SYSCALL_DOMAIN_OS         0

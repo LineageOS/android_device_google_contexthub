@@ -203,6 +203,8 @@ static void osExpApiEvtqEnqueue(uintptr_t *retValP, va_list *args)
     EventFreeF evtFreeF = va_arg(*args, EventFreeF);
     bool external = va_arg(*args, bool);
 
+    //TODO: XXX: use UserspaceCallback mechanism for event freeing here!!!
+
     *retValP = osEnqueueEvt(evtType, evtData, evtFreeF, external);
 }
 
@@ -230,12 +232,13 @@ static void osExpApiEvtqFuncDefer(uintptr_t *retValP, va_list *args)
     }
 }
 
-static void osExpApiLogLog(uintptr_t *retValP, va_list *args)
+static void osExpApiLogLogv(uintptr_t *retValP, va_list *args)
 {
     enum LogLevel level = va_arg(*args, int /* enums promoted to ints in va_args in C */);
     const char *str = va_arg(*args, const char*);
+    va_list *innerArgs = va_arg(*args, va_list*);
 
-    osLogv(level, str, *args);
+    osLogv(level, str, *innerArgs);
 }
 
 static void osExportApi(void)
@@ -253,7 +256,7 @@ static void osExportApi(void)
     static const struct SyscallTable osMainLogTable = {
         .numEntries = SYSCALL_OS_MAIN_LOG_LAST,
         .entry = {
-            [SYSCALL_OS_MAIN_LOG_LOG]   = { .func = osExpApiLogLog,   },
+            [SYSCALL_OS_MAIN_LOG_LOGV]   = { .func = osExpApiLogLogv,   },
         },
     };
 

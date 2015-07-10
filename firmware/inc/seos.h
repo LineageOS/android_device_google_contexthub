@@ -109,7 +109,7 @@ const struct AppFuncs __attribute__((used,section (".app_init"))) _mAppFuncs = {
 #define SYSCALL_OS_MAIN_EVTQ_LAST        4 // always last. holes are allowed, but nto immediately before this
 
 //level 3 indices in the OS.main.logging table
-#define SYSCALL_OS_MAIN_LOG_LOG          0 // (enum LogLevel level, const char *str, ...) -> void
+#define SYSCALL_OS_MAIN_LOG_LOGV         0 // (enum LogLevel level, const char *str, va_list *) -> void
 #define SYSCALL_OS_MAIN_LOG_LAST         1 // always last. holes are allowed, but nto immediately before this
 
 
