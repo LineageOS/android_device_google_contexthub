@@ -10,6 +10,10 @@
 #include <plat/inc/pwr.h>
 #include <seos.h>
 #include <util.h>
+#include <atomicBitset.h>
+#include <atomic.h>
+#include <gpio.h>
+#include <apInt.h>
 
 static const struct HostIntfComm *gComm;
 
@@ -20,6 +24,8 @@ static size_t gTxSize;
 static uint8_t *gTxBufPtr;
 static uint32_t gSeq;
 static const struct NanohubCommand *gRxCmd;
+ATOMIC_BITSET_DECL(gInterrupt, MAX_INTERRUPTS, static);
+ATOMIC_BITSET_DECL(gInterruptMask, MAX_INTERRUPTS, static);
 
 static void hostIntfRxPacket();
 static void hostIntfTxPacket(uint32_t reason, uint8_t len,
@@ -134,6 +140,8 @@ static inline void hostIntfTxPacketDone(int err, size_t tx,
 
 void hostIntfRequest()
 {
+    atomicBitsetInit(gInterrupt, MAX_INTERRUPTS);
+    atomicBitsetInit(gInterruptMask, MAX_INTERRUPTS);
     gComm = platHostIntfInit();
     if (gComm) {
         int err = gComm->request();
@@ -214,4 +222,35 @@ static void hostIntfTxPayloadDone(size_t tx, int err)
 void hostIntfRelease()
 {
     gComm->release();
+}
+
+void hostIntfCopyClearInterrupts(struct AtomicBitset *dst)
+{
+    atomicBitsetInit(dst, dst->numBits);
+
+    apIntClear(false);
+    apIntClear(true);
+
+    atomicBitsetXchg(gInterrupt, dst);
+}
+
+void hostIntfSetInterrupt(uint32_t bit)
+{
+    atomicBitsetSetBit(gInterrupt, bit);
+    apIntSet(!atomicBitsetGetBit(gInterruptMask, bit));
+}
+
+void hostInfClearInterrupt(uint32_t bit)
+{
+    atomicBitsetClearBit(gInterrupt, bit);
+}
+
+void hostIntfSetInterruptMask(uint32_t bit)
+{
+    atomicBitsetSetBit(gInterruptMask, bit);
+}
+
+void hostInfClearInterruptMask(uint32_t bit)
+{
+    atomicBitsetClearBit(gInterruptMask, bit);
 }

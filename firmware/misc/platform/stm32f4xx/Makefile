@@ -32,7 +32,8 @@ SRCS += src/platform/$(PLATFORM)/platform.c \
 	src/platform/$(PLATFORM)/mpu.c \
 	src/platform/$(PLATFORM)/dma.c \
 	src/platform/$(PLATFORM)/crc.c \
-	src/platform/$(PLATFORM)/hostIntf.c
+	src/platform/$(PLATFORM)/hostIntf.c \
+	src/platform/$(PLATFORM)/apInt.c \
 
 #extra deps
 DEPS += $(wildcard inc/platform/$(PLATFORM)/*.h)
