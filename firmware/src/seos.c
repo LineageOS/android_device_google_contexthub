@@ -296,9 +296,9 @@ void __attribute__((noreturn)) osMain(void)
     osInit();
     sensorsInit();
     osExportApi();
-    osStartTasks();
     hostIntfRequest();
     platEnableInterrupts();
+    osStartTasks();
 
     //broadcast app start to all already-loaded apps
     (void)osEnqueueEvt(EVT_APP_START, NULL, NULL, false);
