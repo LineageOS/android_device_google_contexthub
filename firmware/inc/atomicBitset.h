@@ -21,14 +21,19 @@ void atomicBitsetInit(struct AtomicBitset *set, uint32_t numBits); //inited stat
 uint32_t atomicBitsetGetNumBits(const struct AtomicBitset *set);
 bool atomicBitsetGetBit(const struct AtomicBitset *set, uint32_t num);
 void atomicBitsetClearBit(struct AtomicBitset *set, uint32_t num);
+void atomicBitsetSetBit(struct AtomicBitset *set, uint32_t num);
 
 //find a clear bit and set it atomically.
 // returns bit number or negative if none.
 // only one pass is attempted so if index 0 is cleared after we've looked at it, too bad
 int32_t atomicBitsetFindClearAndSet(struct AtomicBitset *set);
 
-
-
+//swap the bitsets in atomicallyAccessedSet and otherSet
+// returns false if the size of the bitsets are different.
+// otherwise atomically copies the bitset in otherSet into atomicallyAccessedSet
+// and returns the previous value of atomicallyAccessedSet in otherSet
+// NOTE: the copy back to otherSet is not atomic
+bool atomicBitsetXchg(struct AtomicBitset *atomicallyAccessedSet, struct AtomicBitset *otherSet);
 
 #endif
 
