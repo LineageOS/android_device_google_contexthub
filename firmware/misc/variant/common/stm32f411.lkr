@@ -33,7 +33,6 @@ SECTIONS
 		*(.data.*);
 		. = ALIGN(4);
 		__data_end = ABSOLUTE(.);
-		__app_start = ABSOLUTE(.);
 	 } > ram AT > code
 
 	.bss : {
@@ -56,5 +55,6 @@ __code_start = ORIGIN(code);
 __code_end = ORIGIN(code) + LENGTH(code);
 __shared_start = ORIGIN(shared);
 __shared_end = ORIGIN(shared) + LENGTH(shared);
+__app_start = __data_data + __data_end - __data_start;
 
 ENTRY(__BL_VECTORS)
