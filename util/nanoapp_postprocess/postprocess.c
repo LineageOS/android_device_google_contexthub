@@ -315,7 +315,7 @@ int main(int argc, char **argv)
 
 	//if we have any bytes to output, show stats
 	if (bufUsed) {
-		uint32_t codeAndRoDataSz = hdr->__data_data - FLASH_BASE;
+		uint32_t codeAndRoDataSz = hdr->__data_data;
 		uint32_t relocsSz = sizeof(struct NanoRelocEntry[outNumRelocs]);
 		uint32_t gotSz = hdr->__got_end - hdr->__data_start;
 		uint32_t bssSz = hdr->__bss_end - hdr->__bss_start;
