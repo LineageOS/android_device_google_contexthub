@@ -12,7 +12,7 @@
 #include <heap.h>
 #include <slab.h>
 #include <cpu.h>
-
+#include <sensors.h>
 
 
 /*
@@ -291,6 +291,7 @@ void __attribute__((noreturn)) osMain(void)
     platDisableInterrupts();
     timInit();
     osInit();
+    sensorsInit();
     osExportApi();
     osStartTasks();
     hostIntfRequest();
