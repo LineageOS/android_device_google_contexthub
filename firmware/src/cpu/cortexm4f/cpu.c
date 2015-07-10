@@ -48,10 +48,12 @@ void cpuIntsRestore(uint64_t state)
     );   
 }
 
-static void __attribute__((used)) syscallHandler(uint32_t syscallNr, va_list *args, uintptr_t *excRegs)
+static void __attribute__((used)) syscallHandler(uintptr_t *excRegs)
 {
     uint16_t *svcPC = ((uint16_t *)(excRegs[6])) - 1;
+    va_list *args = (va_list *)(excRegs[1]);
     uint32_t svcNo = (*svcPC) & 0xFF;
+    uint32_t syscallNr = excRegs[0];
     SyscallFunc handler;
 
     if (svcNo)
@@ -62,14 +64,14 @@ static void __attribute__((used)) syscallHandler(uint32_t syscallNr, va_list *ar
         handler(excRegs, args);
 }
 
-void SVC_Handler(uint32_t syscallNr, va_list *args);
-void __attribute__((naked)) SVC_Handler(uint32_t syscallNr, va_list *args)
+void SVC_Handler(void);
+void __attribute__((naked)) SVC_Handler(void)
 {
     asm volatile(
         "tst lr, #4         \n"
         "ite eq             \n"
-        "mrseq r2, msp      \n"
-        "mrsne r2, psp      \n"
+        "mrseq r0, msp      \n"
+        "mrsne r0, psp      \n"
         "b syscallHandler   \n"
     );
 }
