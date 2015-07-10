@@ -1,7 +1,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <atomicBitset.h>
-
+#include <atomic.h>
 
 
 void atomicBitsetInit(struct AtomicBitset *set, uint32_t numBits)
@@ -45,6 +45,26 @@ void atomicBitsetClearBit(struct AtomicBitset *set, uint32_t num)
     } while (status);
 }
 
+void atomicBitsetSetBit(struct AtomicBitset *set, uint32_t num)
+{
+    uint32_t idx = num / 32, mask = 1UL << (num & 31), status, tmp;
+    uint32_t *wordPtr = set->words + idx;
+
+    if (num >= set->numBits)
+        return;
+
+    do {
+        asm volatile(
+            "    ldrex %0, [%2]       \n"
+            "    orr   %0, %3         \n"
+            "    strex %1, %0, [%2]   \n"
+            :"=r"(tmp), "=r"(status), "=r"(wordPtr), "=r"(mask)
+            :"2"(wordPtr), "3"(mask)
+            :"cc","memory"
+        );
+    } while (status);
+}
+
 int32_t atomicBitsetFindClearAndSet(struct AtomicBitset *set)
 {
     uint32_t idx, numWords = (set->numBits + 31) / 32;
@@ -79,12 +99,15 @@ int32_t atomicBitsetFindClearAndSet(struct AtomicBitset *set)
     return -1;
 }
 
+bool atomicBitsetXchg(struct AtomicBitset *atomicallyAccessedSet, struct AtomicBitset *otherSet)
+{
+    uint32_t idx, numWords = (atomicallyAccessedSet->numBits + 31) / 32;
 
+    if (atomicallyAccessedSet->numBits != otherSet->numBits)
+        return false;
 
+    for (idx = 0; idx < numWords; idx++)
+        otherSet->words[idx] = atomicXchg32bits(&atomicallyAccessedSet->words[idx], otherSet->words[idx]);
 
-
-
-
-
-
-
+    return true;
+}
