@@ -270,14 +270,12 @@ bool platAppLoad(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo)
     return true;
 }
 
-bool platAppUnload(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo)
+void platAppUnload(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo)
 {
     heapFree((uint8_t*)platInfo->got - appHdr->got_start);
-
-    return true;
 }
 
-static void __attribute__((naked)) callWithR10(const struct AppHdr *appHdr, void *funcOfst, void *got, uintptr_t arg1, uintptr_t arg2)
+static uintptr_t __attribute__((naked)) callWithR10(const struct AppHdr *appHdr, void *funcOfst, void *got, uintptr_t arg1, uintptr_t arg2)
 {
     asm volatile (
         "add  r12, r0, r1  \n"
@@ -288,21 +286,23 @@ static void __attribute__((naked)) callWithR10(const struct AppHdr *appHdr, void
         "blx  r12          \n"
         "pop  {r10, pc}    \n"
     );
+
+    return 0; //dummy to fool gcc
 }
 
-void platAppStart(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo, uint32_t tid)
+bool platAppInit(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo, uint32_t tid)
 {
-    callWithR10(appHdr, appHdr->funcs.start, platInfo->got, tid, 0);
+    return callWithR10(appHdr, appHdr->funcs.init, platInfo->got, tid, 0);
 }
 
 void platAppEnd(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo)
 {
-    callWithR10(appHdr, appHdr->funcs.end, platInfo->got, 0, 0);
+    (void)callWithR10(appHdr, appHdr->funcs.end, platInfo->got, 0, 0);
 }
 
 void platAppHandle(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo, uint32_t evtType, const void* evtData)
 {
-    callWithR10(appHdr, appHdr->funcs.handle, platInfo->got, evtType, (uintptr_t)evtData);
+    (void)callWithR10(appHdr, appHdr->funcs.handle, platInfo->got, evtType, (uintptr_t)evtData);
 }
 
 

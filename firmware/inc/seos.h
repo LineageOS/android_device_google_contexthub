@@ -24,7 +24,7 @@ extern "C" {
 
 struct AppFuncs { /* do not rearrange */
     /* lifescycle */
-    void (*start)(uint32_t yourTid);  //simple init only - no ints on at this time
+    bool (*init)(uint32_t yourTid);   //simple init only - no ints on at this time
     void (*end)(void);                //die quickly please
     /* events */
     void (*handle)(uint32_t evtType, const void* evtData);
@@ -80,10 +80,10 @@ void osLogv(enum LogLevel level, const char *str, va_list vl);
 void osLog(enum LogLevel level, const char *str, ...)
     __attribute__((format(printf, 2, 3)));
 
-#define APP_INIT(_start, _end, _event)                                           \
+#define APP_INIT(_init, _end, _event)                                            \
 extern const struct AppFuncs _mAppFuncs;                                         \
 const struct AppFuncs __attribute__((used,section (".app_init"))) _mAppFuncs = { \
-    .start = (_start),                                                           \
+    .init = (_init),                                                             \
     .end = (_end),                                                               \
     .handle = (_event)                                                           \
 }

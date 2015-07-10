@@ -42,8 +42,8 @@ void platCancelAlarm(void);
 
 /* app loading, unloading & calling */
 bool platAppLoad(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo);
-bool platAppUnload(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo);
-void platAppStart(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo, uint32_t tid);
+void platAppUnload(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo);
+bool platAppInit(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo, uint32_t tid);
 void platAppEnd(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo);
 void platAppHandle(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo, uint32_t evtType, const void* evtData);
 

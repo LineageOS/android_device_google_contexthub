@@ -93,7 +93,7 @@ static void osStartTasks(void)
     extern const struct AppHdr __app_start;
     const struct AppHdr *app = &__app_start;
     static const char magic[] = APP_HDR_MAGIC;
-    uint32_t i, nTasks = 0;
+    uint32_t i = 0, nTasks = 0;
 
     osLog(LOG_INFO, "SEOS Registering tasks\n");
     while (((uintptr_t)&__code_end) - ((uintptr_t)app) >= sizeof(struct AppHdr) && !memcmp(magic, app->magic, sizeof(magic) - 1) && app->version == APP_HDR_VER_CUR) {
@@ -111,8 +111,14 @@ static void osStartTasks(void)
     }
 
     osLog(LOG_INFO, "SEOS Starting tasks\n");
-    for (i = 0; i < nTasks; i++)
-        platAppStart(mTasks[i].appHdr, &mTasks[i].platInfo, mTasks[i].tid);
+    while (i < nTasks) {
+        if (platAppInit(mTasks[i].appHdr, &mTasks[i].platInfo, mTasks[i].tid))
+            i++;
+        else {
+            platAppUnload(mTasks[i].appHdr, &mTasks[i].platInfo);
+            memcpy(mTasks + i, mTasks + --nTasks, sizeof(struct Task));
+        }
+    }
 }
 
 static struct Task* osTaskFindByTid(uint32_t tid)

@@ -3,9 +3,10 @@
 
 #include <seos.h>
 
-static void start_task(uint32_t myTid)
+static bool start_task(uint32_t myTid)
 {
     //todo
+    return true;
 }
 
 static void end_task(void)
