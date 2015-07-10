@@ -7,7 +7,10 @@
 void cpuInit(void)
 {
     /* set pendsv to be lowest priority possible */
-    SCB->SHP[3] = (SCB->SHP[3] & 0xFF00FFFF) | 0x00010000;
+    NVIC_SetPriority(PendSV_IRQn, 1 << (8 - __NVIC_PRIO_BITS));
+
+    /* set SVC to be highest possible priority */
+    NVIC_SetPriority(SVCall_IRQn, 0xff);
 
     /* FPU on */
     SCB->CPACR |= 0x00F00000;
@@ -48,7 +51,7 @@ void cpuIntsRestore(uint64_t state)
     );   
 }
 
-static void __attribute__((used)) syscallHandler(uintptr_t *excRegs)
+static uint32_t __attribute__((used)) syscallHandler(uint32_t pleaseReturnThis, uintptr_t *excRegs)
 {
     uint16_t *svcPC = ((uint16_t *)(excRegs[6])) - 1;
     va_list *args = (va_list *)(excRegs[1]);
@@ -62,17 +65,23 @@ static void __attribute__((used)) syscallHandler(uintptr_t *excRegs)
         osLog(LOG_WARN, "Unknown syscall 0x%08lX called at 0x%08lX\n", (unsigned long)syscallNr, (unsigned long)svcPC);
     else
         handler(excRegs, args);
+
+    return pleaseReturnThis;
 }
 
 void SVC_Handler(void);
 void __attribute__((naked)) SVC_Handler(void)
 {
     asm volatile(
+        "mrs r0, BASEPRI    \n"
+        "mov r1, #0xff      \n"
+        "msr BASEPRI, r1    \n"
         "tst lr, #4         \n"
         "ite eq             \n"
-        "mrseq r0, msp      \n"
-        "mrsne r0, psp      \n"
-        "b syscallHandler   \n"
+        "mrseq r1, msp      \n"
+        "mrsne r1, psp      \n"
+        "bl syscallHandler  \n"
+        "msr BASEPRI, r0    \n"
     );
 }
 
