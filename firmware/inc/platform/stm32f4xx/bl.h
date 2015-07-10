@@ -33,6 +33,7 @@ struct BlVecTable {
     void        (*blReboot)(void);
     void        (*blGetSnum)(uint32_t *snum, uint8_t length);
     int         (*blProgramShared)(uint8_t *dst, uint8_t *src, uint32_t length, uint32_t key1, uint32_t key2);
+    int         (*blEraseShared)(uint32_t key1, uint32_t key2);
 };
 
 //for using outside of bootloader
