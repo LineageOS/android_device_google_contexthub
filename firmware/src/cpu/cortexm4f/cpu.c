@@ -51,7 +51,7 @@ void cpuIntsRestore(uint64_t state)
     );   
 }
 
-static uint32_t __attribute__((used)) syscallHandler(uint32_t pleaseReturnThis, uintptr_t *excRegs)
+static void __attribute__((used)) syscallHandler(uintptr_t *excRegs)
 {
     uint16_t *svcPC = ((uint16_t *)(excRegs[6])) - 1;
     va_list *args = (va_list *)(excRegs[1]);
@@ -65,23 +65,17 @@ static uint32_t __attribute__((used)) syscallHandler(uint32_t pleaseReturnThis, 
         osLog(LOG_WARN, "Unknown syscall 0x%08lX called at 0x%08lX\n", (unsigned long)syscallNr, (unsigned long)svcPC);
     else
         handler(excRegs, args);
-
-    return pleaseReturnThis;
 }
 
 void SVC_Handler(void);
 void __attribute__((naked)) SVC_Handler(void)
 {
     asm volatile(
-        "mrs r0, BASEPRI    \n"
-        "mov r1, #0xff      \n"
-        "msr BASEPRI, r1    \n"
         "tst lr, #4         \n"
         "ite eq             \n"
-        "mrseq r1, msp      \n"
-        "mrsne r1, psp      \n"
-        "bl syscallHandler  \n"
-        "msr BASEPRI, r0    \n"
+        "mrseq r0, msp      \n"
+        "mrsne r0, psp      \n"
+        "b syscallHandler   \n"
     );
 }
 
