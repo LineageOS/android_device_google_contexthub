@@ -51,7 +51,7 @@ static SyscallFunc* syscallFindHandlerLoc(uint32_t path)
         if (tab->numEntries <= idx)
             break;
 
-        if (*bits)
+        if (!*bits)
             return &tab->entry[idx].func;
         else
             tab = tab->entry[idx].subtable;

@@ -274,7 +274,7 @@ static void osExportApi(void)
         },
     };
 
-    if (!syscallAddTable(SYSCALL_DOMAIN_OS, 0, (struct SyscallTable*)&osTable))
+    if (!syscallAddTable(SYSCALL_DOMAIN_OS, 1, (struct SyscallTable*)&osTable))
         osLog(LOG_ERROR, "Failed to export OS base API");
 }
 
@@ -295,6 +295,7 @@ void __attribute__((noreturn)) osMain(void)
     timInit();
     osInit();
     sensorsInit();
+    syscallInit();
     osExportApi();
     hostIntfRequest();
     platEnableInterrupts();
