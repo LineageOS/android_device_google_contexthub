@@ -18,9 +18,6 @@
 #include <cpu.h>
 
 
-//reloc types for this platform
-#define NANO_RELOC_TYPE_RAM	0
-#define NANO_RELOC_TYPE_FLASH	1
 
 struct StmDbg {
     volatile uint32_t IDCODE;
@@ -199,81 +196,6 @@ void SysTick_Handler(void)
     mTicks++;
 }
 
-bool platAppLoad(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo)
-{
-    const uint32_t *relocsStart = (const uint32_t*)(((uint8_t*)appHdr) + appHdr->rel_start);
-    const uint32_t *relocsEnd = (const uint32_t*)(((uint8_t*)appHdr) + appHdr->rel_end);
-    uint8_t *mem = heapAlloc(appHdr->bss_end);
-
-    if (!mem)
-        return false;
-
-    //calcualte and assign got
-    platInfo->got = mem + appHdr->got_start;
-
-    //clear bss
-    memset(mem + appHdr->bss_start, 0, appHdr->bss_end - appHdr->bss_start);
-
-    //copy initialized data and initialized got
-    memcpy(mem + appHdr->data_start, ((uint8_t*)appHdr) + appHdr->data_data, appHdr->got_end - appHdr->data_start);
-
-    //perform relocs
-    while (relocsStart != relocsEnd) {
-        const uint32_t rel = *relocsStart++;
-        const uint32_t relType = rel >> 28;
-        const uint32_t relOfst = rel & 0x0ffffffful;
-        uint32_t *relWhere = (uint32_t*)(mem + relOfst);
-
-        switch (relType) {
-        case NANO_RELOC_TYPE_RAM:
-            (*relWhere) += (uintptr_t)mem;
-            break;
-        case NANO_RELOC_TYPE_FLASH:
-            (*relWhere) += (uintptr_t)appHdr;
-            break;
-        default:
-            heapFree(mem);
-            return false;
-        }
-    }
-
-    return true;
-}
-
-void platAppUnload(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo)
-{
-    heapFree((uint8_t*)platInfo->got - appHdr->got_start);
-}
-
-static uintptr_t __attribute__((naked)) callWithR10(const struct AppHdr *appHdr, void *funcOfst, void *got, uintptr_t arg1, uintptr_t arg2)
-{
-    asm volatile (
-        "add  r12, r0, r1  \n"
-        "mov  r0,  r3      \n"
-        "ldr  r1,  [sp]    \n"
-        "push {r10, lr}    \n"
-        "mov  r10, r2      \n"
-        "blx  r12          \n"
-        "pop  {r10, pc}    \n"
-    );
-
-    return 0; //dummy to fool gcc
-}
-
-bool platAppInit(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo, uint32_t tid)
-{
-    return callWithR10(appHdr, appHdr->funcs.init, platInfo->got, tid, 0);
-}
-
-void platAppEnd(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo)
-{
-    (void)callWithR10(appHdr, appHdr->funcs.end, platInfo->got, 0, 0);
-}
-
-void platAppHandle(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo, uint32_t evtType, const void* evtData)
-{
-    (void)callWithR10(appHdr, appHdr->funcs.handle, platInfo->got, evtType, (uintptr_t)evtData);
-}
 
 
 

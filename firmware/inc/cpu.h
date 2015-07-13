@@ -6,7 +6,9 @@ extern "C" {
 #endif
 
 
+#include <seos.h>
 #include <stdint.h>
+#include <plat/inc/app.h>
 
 
 void cpuInit(void);
@@ -15,6 +17,12 @@ uint64_t cpuIntsOff(void);
 uint64_t cpuIntsOn(void);
 void cpuIntsRestore(uint64_t state);
 
+/* app loading, unloading & calling */
+bool cpuAppLoad(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo);
+void cpuAppUnload(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo);
+bool cpuAppInit(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo, uint32_t tid);
+void cpuAppEnd(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo);
+void cpuAppHandle(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo, uint32_t evtType, const void* evtData);
 
 #ifdef __cplusplus
 }

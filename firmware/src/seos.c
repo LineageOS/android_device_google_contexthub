@@ -105,7 +105,7 @@ static void osStartTasks(void)
             mTasks[nTasks].subbedEvents = mTasks[nTasks].subbedEventsInt;
             mTasks[nTasks].tid = mNextTid;
 
-            if (platAppLoad(mTasks[i].appHdr, &mTasks[i].platInfo)) {
+            if (cpuAppLoad(mTasks[i].appHdr, &mTasks[i].platInfo)) {
                 mNextTid++;
                 nTasks++;
             }
@@ -115,10 +115,10 @@ static void osStartTasks(void)
 
     osLog(LOG_INFO, "SEOS Starting tasks\n");
     while (i < nTasks) {
-        if (platAppInit(mTasks[i].appHdr, &mTasks[i].platInfo, mTasks[i].tid))
+        if (cpuAppInit(mTasks[i].appHdr, &mTasks[i].platInfo, mTasks[i].tid))
             i++;
         else {
-            platAppUnload(mTasks[i].appHdr, &mTasks[i].platInfo);
+            cpuAppUnload(mTasks[i].appHdr, &mTasks[i].platInfo);
             memcpy(mTasks + i, mTasks + --nTasks, sizeof(struct Task));
         }
     }
@@ -321,7 +321,7 @@ void __attribute__((noreturn)) osMain(void)
                     continue;
                 for (j = 0; j < mTasks[i].subbedEvtCount; j++) {
                     if (mTasks[i].subbedEvents[j] == evtType) {
-                        platAppHandle(mTasks[i].appHdr, &mTasks[i].platInfo, evtType, evtData);
+                        cpuAppHandle(mTasks[i].appHdr, &mTasks[i].platInfo, evtType, evtData);
                         break;
                     }
                 }
