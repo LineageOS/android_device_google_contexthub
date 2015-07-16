@@ -51,11 +51,18 @@ union DeferredAction {
         OsDeferCbkF callback;
         void *cookie;
     } deferred;
+    struct {
+        uint32_t evtType;
+        void *evtData;
+        EventFreeF evtFreeF;
+        uint32_t toTid;
+    } privateEvt;
 };
 
 #define EVT_SUBSCRIBE_TO_EVT         0x00000000
 #define EVT_UNSUBSCRIBE_TO_EVT       0x00000001
 #define EVT_DEFERRED_CALLBACK        0x00000002
+#define EVT_PRIVATE_EVT              0x00000003
 
 
 static struct EvtQueue *mEvtsInternal, *mEvtsExternal;
@@ -176,6 +183,16 @@ static void osInternalEvtHandle(uint32_t evtType, void *evtData)
 
     case EVT_DEFERRED_CALLBACK:
         da->deferred.callback(da->deferred.cookie);
+        break;
+
+    case EVT_PRIVATE_EVT:
+        task = osTaskFindByTid(da->evtSub.tid);
+        if (task) {
+            cpuAppHandle(task->appHdr, &task->platInfo, da->privateEvt.evtType, da->privateEvt.evtData);
+        }
+
+        if (da->privateEvt.evtFreeF)
+            da->privateEvt.evtFreeF(da->privateEvt.evtData);
         break;
     }
 }
@@ -375,6 +392,24 @@ bool osDefer(OsDeferCbkF callback, void *cookie)
     act->deferred.cookie = cookie;
 
     if (osEnqueueEvt(EVT_DEFERRED_CALLBACK, act, osDeferredActionFreeF, false))
+        return true;
+
+    slabAllocatorFree(mDeferedActionsSlab, act);
+    return false;
+}
+
+bool osEnqueuePrivateEvt(uint32_t evtType, void *evtData, EventFreeF evtFreeF, uint32_t toTid)
+{
+    union DeferredAction *act = slabAllocatorAlloc(mDeferedActionsSlab);
+    if (!act)
+            return false;
+
+    act->privateEvt.evtType = evtType;
+    act->privateEvt.evtData = evtData;
+    act->privateEvt.evtFreeF = evtFreeF;
+    act->privateEvt.toTid = toTid;
+
+    if (osEnqueueEvt(EVT_PRIVATE_EVT, act, osDeferredActionFreeF, false))
         return true;
 
     slabAllocatorFree(mDeferedActionsSlab, act);

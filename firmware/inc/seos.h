@@ -65,6 +65,7 @@ typedef void (*OsDeferCbkF)(void *);
 void osMain(void);
 bool osEventSubscribe(uint32_t tid, uint32_t evtType); /* async */
 bool osEventUnsubscribe(uint32_t tid, uint32_t evtType);  /* async */
+bool osEnqueuePrivateEvt(uint32_t evtType, void *evtData, EventFreeF evtFreeF, uint32_t toTid);
 bool osEnqueueEvt(uint32_t evtType, void *evtData, EventFreeF evtFreeF, bool external);
 bool osDefer(OsDeferCbkF callback, void *cookie);
 
