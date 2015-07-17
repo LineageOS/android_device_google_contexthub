@@ -20,11 +20,12 @@ include $(MAKE_PLAT)
 include $(MAKE_CPU)
 include $(MAKE_VAR)
 
-FLAGS += -O2 -Wall -Werror -Iinc -Ilinks -Iexternal/freebsd/inc -fshort-double
+FLAGS += -Wall -Werror -Iinc -Ilinks -Iexternal/freebsd/inc -fshort-double
 #help avoid commmon embedded C mistakes
 FLAGS += -Wmissing-declarations -Wlogical-op -Waddress -Wempty-body -Wpointer-arith -Wenum-compare -Wdouble-promotion -Wfloat-equal -Wshadow
 
-OSFLAGS += -g -ggdb3 -D_OS_BUILD_
+OSFLAGS += -g -ggdb3 -D_OS_BUILD_ -O2 
+APPFLAGS += -Os
 
 #debug mode
 FLAGS += -DDEBUG
