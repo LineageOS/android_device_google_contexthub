@@ -10,6 +10,8 @@ static const struct StmSpiBoardCfg mStmSpiBoardCfgs[] = {
         .gpioNss = GPIO_PA(4),
         .gpioFunc = GPIO_AF_SPI1,
         .irqNss = EXTI4_IRQn,
+        .dmaRx = SPI1_DMA_RX_CFG_B,
+        .dmaTx = SPI1_DMA_TX_CFG_B,
     },
     [1] = {
         .gpioSpeed = GPIO_SPEED_MEDIUM,
@@ -19,6 +21,8 @@ static const struct StmSpiBoardCfg mStmSpiBoardCfgs[] = {
         .gpioNss = GPIO_PB(12),
         .gpioFunc = GPIO_AF_SPI2_A,
         .irqNss = EXTI15_10_IRQn,
+        .dmaRx = SPI2_DMA_RX_CFG,
+        .dmaTx = SPI2_DMA_TX_CFG,
     },
 };
 

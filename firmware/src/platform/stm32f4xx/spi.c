@@ -9,6 +9,7 @@
 #include <atomic.h>
 
 #include <plat/inc/cmsis.h>
+#include <plat/inc/dma.h>
 #include <plat/inc/gpio.h>
 #include <plat/inc/pwr.h>
 #include <plat/inc/exti.h>
@@ -36,6 +37,8 @@
 #define SPI_CR2_TXEIE               (1 << 7)
 #define SPI_CR2_RXNEIE              (1 << 6)
 #define SPI_CR2_ERRIE               (1 << 5)
+#define SPI_CR2_TXDMAEN             (1 << 1)
+#define SPI_CR2_RXDMAEN             (1 << 0)
 #define SPI_CR2_INT_MASK            (SPI_CR2_TXEIE | SPI_CR2_RXNEIE | SPI_CR2_ERRIE)
 
 #define SPI_CR2_SSOE                (1 << 2)
@@ -59,14 +62,11 @@ struct StmSpi {
 struct StmSpiState {
     uint8_t bitsPerWord;
     uint8_t xferEnable;
-    uint16_t words;
-
-    void *rxBuf;
-    const void *txBuf;
-    uint16_t rxIdx;
-    uint16_t txIdx;
 
     uint16_t txWord;
+
+    bool rxDone;
+    bool txDone;
 
     struct ChainedIsr isrNss;
 };
@@ -78,6 +78,8 @@ struct StmSpiCfg {
     uint32_t clockUnit;
 
     IRQn_Type irq;
+
+    uint8_t dmaBus;
 };
 
 struct StmSpiDev {
@@ -112,6 +114,33 @@ static inline void stmSpiSckPullMode(struct StmSpiDev *pdev,
     gpioConfigAlt(&pdev->sck, sckSpeed, sckPull, GPIO_OUT_PUSH_PULL, pdev->board->gpioFunc);
 }
 
+static inline void stmSpiStartDma(struct StmSpiDev *pdev,
+        const struct StmSpiDmaCfg *dmaCfg, const void *buf, uint8_t bitsPerWord,
+        bool minc, size_t size, DmaCallbackF callback, bool rx)
+{
+    struct StmSpi *regs = pdev->cfg->regs;
+    struct dmaMode mode;
+
+    memset(&mode, 0, sizeof(mode));
+
+    if (bitsPerWord == 8) {
+        mode.psize = DMA_SIZE_8_BITS;
+        mode.msize = DMA_SIZE_8_BITS;
+    } else {
+        mode.psize = DMA_SIZE_16_BITS;
+        mode.msize = DMA_SIZE_16_BITS;
+    }
+    mode.priority = DMA_PRIORITY_HIGH;
+    mode.direction = rx ? DMA_DIRECTION_PERIPH_TO_MEM :
+            DMA_DIRECTION_MEM_TO_PERIPH;
+    mode.periphAddr = (uintptr_t)&regs->DR;
+    mode.minc = minc;
+    mode.channel = dmaCfg->channel;
+
+    dmaStart(pdev->cfg->dmaBus, dmaCfg->stream, buf, size, &mode, callback,
+            pdev);
+}
+
 static inline int stmSpiEnable(struct StmSpiDev *pdev,
         const struct SpiMode *mode, bool master)
 {
@@ -136,6 +165,9 @@ static inline int stmSpiEnable(struct StmSpiDev *pdev,
     }
 
     atomicWriteByte(&state->xferEnable, false);
+
+    state->txWord = mode->txWord;
+    state->bitsPerWord = mode->bitsPerWord;
 
     pwrUnitClock(pdev->cfg->clockBus, pdev->cfg->clockUnit, true);
 
@@ -208,47 +240,113 @@ static inline bool stmSpiIsMaster(struct StmSpiDev *pdev)
     return !!(regs->CR1 & SPI_CR1_MSTR);
 }
 
-static inline int stmSpiEnableTransfer(struct SpiDevice *dev, void *rxBuf,
-        const void *txBuf, size_t size, const struct SpiMode *mode)
+static void stmSpiDone(struct StmSpiDev *pdev, int err)
 {
-    struct StmSpiDev *pdev = dev->pdata;
+    struct StmSpi *regs = pdev->cfg->regs;
+    while (regs->SR & SPI_SR_BSY)
+        ;
+
+    if (stmSpiIsMaster(pdev)) {
+        spiMasterRxTxDone(pdev->base, err);
+    } else {
+        regs->CR2 = SPI_CR2_TXEIE;
+        spiSlaveRxTxDone(pdev->base, err);
+    }
+}
+
+static void stmSpiRxDone(void *cookie, uint16_t bytesLeft, int err)
+{
+    struct StmSpiDev *pdev = cookie;
     struct StmSpi *regs = pdev->cfg->regs;
     struct StmSpiState *state = &pdev->state;
 
-    if (atomicReadByte(&state->xferEnable) == true)
-        return -EBUSY;
+    regs->CR2 &= ~SPI_CR2_RXDMAEN;
+    state->rxDone = true;
 
-    state->bitsPerWord = mode->bitsPerWord;
-    state->rxBuf = rxBuf;
-    state->rxIdx = 0;
-    state->txBuf = txBuf;
-    state->txIdx = 0;
-    state->txWord = mode->txWord;
+    if (state->txDone) {
+        atomicWriteByte(&state->xferEnable, false);
+        stmSpiDone(pdev, err);
+    }
+}
 
-    if (mode->bitsPerWord == 8)
-        state->words = size;
-    else
-        state->words = size / 2;
+static void stmSpiTxDone(void *cookie, uint16_t bytesLeft, int err)
+{
+    struct StmSpiDev *pdev = cookie;
+    struct StmSpi *regs = pdev->cfg->regs;
+    struct StmSpiState *state = &pdev->state;
 
-    if (state->words > 0)
-        atomicWriteByte(&state->xferEnable, true);
+    regs->CR2 &= ~SPI_CR2_TXDMAEN;
+    state->txDone = true;
 
-    regs->CR2 |= SPI_CR2_ERRIE | SPI_CR2_RXNEIE | SPI_CR2_TXEIE;
-
-    regs->CR1 |= SPI_CR1_SPE;
-
-    return 0;
+    if (state->rxDone) {
+        atomicWriteByte(&state->xferEnable, false);
+        stmSpiDone(pdev, err);
+    }
 }
 
 static int stmSpiRxTx(struct SpiDevice *dev, void *rxBuf, const void *txBuf,
         size_t size, const struct SpiMode *mode)
 {
-    return stmSpiEnableTransfer(dev, rxBuf, txBuf, size, mode);
+    struct StmSpiDev *pdev = dev->pdata;
+    struct StmSpi *regs = pdev->cfg->regs;
+    struct StmSpiState *state = &pdev->state;
+    bool txMinc = true;
+    uint32_t cr2 = SPI_CR2_TXDMAEN;
+
+    if (atomicXchgByte(&state->xferEnable, true) == true)
+        return -EBUSY;
+
+    state->rxDone = !rxBuf;
+    state->txDone = false;
+
+    if (rxBuf) {
+        stmSpiStartDma(pdev, &pdev->board->dmaRx, rxBuf, mode->bitsPerWord,
+                true, size, stmSpiRxDone, true);
+        cr2 |= SPI_CR2_RXDMAEN;
+    }
+
+    if (!txBuf) {
+        txBuf = &state->txWord;
+        txMinc = false;
+    }
+    stmSpiStartDma(pdev, &pdev->board->dmaTx, txBuf, mode->bitsPerWord, txMinc,
+            size, stmSpiTxDone, false);
+
+    /* Ensure the TXE and RXNE bits are cleared; otherwise the DMA controller
+     * may "receive" the byte sitting in the SPI controller's FIFO right now,
+     * or drop/corrupt the first TX byte.  Timing is crucial here, so do it
+     * right before enabling DMA.
+     */
+    if (!stmSpiIsMaster(pdev)) {
+        regs->CR2 &= ~SPI_CR2_TXEIE;
+
+        if (regs->SR & SPI_SR_RXNE)
+            (void)regs->DR;
+
+        if (regs->SR & SPI_SR_TXE)
+            regs->DR = mode->txWord;
+    }
+
+    regs->CR2 = cr2;
+    regs->CR1 |= SPI_CR1_SPE;
+
+    return 0;
 }
 
 static int stmSpiSlaveIdle(struct SpiDevice *dev, const struct SpiMode *mode)
 {
-    return stmSpiEnableTransfer(dev, NULL, NULL, 0, mode);
+    struct StmSpiDev *pdev = dev->pdata;
+    struct StmSpi *regs = pdev->cfg->regs;
+    struct StmSpiState *state = &pdev->state;
+
+    if (atomicXchgByte(&state->xferEnable, true) == true)
+        return -EBUSY;
+
+    regs->CR2 = SPI_CR2_TXEIE;
+    regs->CR1 |= SPI_CR1_SPE;
+
+    atomicXchgByte(&state->xferEnable, false);
+    return 0;
 }
 
 static inline void stmSpiDisable(struct SpiDevice *dev, bool master)
@@ -264,6 +362,7 @@ static inline void stmSpiDisable(struct SpiDevice *dev, bool master)
         stmSpiSckPullMode(pdev, pdev->board->gpioSpeed, pdev->board->gpioPull);
     }
 
+    regs->CR2 &= ~(SPI_CR2_RXDMAEN | SPI_CR2_TXDMAEN | SPI_CR2_TXEIE);
     regs->CR1 &= ~SPI_CR1_SPE;
     pwrUnitClock(pdev->cfg->clockBus, pdev->cfg->clockUnit, false);
 }
@@ -316,77 +415,22 @@ static bool stmSpiSlaveCsIsActive(struct SpiDevice *dev)
     return gpioGet(&pdev->nss) == 0;
 }
 
-static void stmSpiDone(struct StmSpiDev *pdev)
-{
-    if (stmSpiIsMaster(pdev))
-        spiMasterRxTxDone(pdev->base, 0);
-    else
-        spiSlaveRxTxDone(pdev->base, 0);
-}
-
 static inline void stmSpiTxe(struct StmSpiDev *pdev)
 {
-    struct StmSpiState *state = &pdev->state;
     struct StmSpi *regs = pdev->cfg->regs;
 
-    if (atomicReadByte(&state->xferEnable) == true) {
-        if (!state->txBuf) {
-            regs->DR = state->txWord;
-        } else if (state->bitsPerWord == 8) {
-            const uint8_t *txBuf8 = state->txBuf;
-            regs->DR = txBuf8[state->txIdx];
-        } else {
-            const uint16_t *txBuf16 = state->txBuf;
-            regs->DR = txBuf16[state->txIdx];
-        }
-
-        state->txIdx++;
-
-        if ((!state->txBuf || state->txIdx >= state->words) &&
-            (!state->rxBuf || state->rxIdx >= state->words)) {
-            atomicWriteByte(&state->xferEnable, false);
-            stmSpiDone(pdev);
-        }
-    } else {
-        regs->DR = state->txWord;
-    }
-}
-
-static void stmSpiRxne(struct StmSpiDev *pdev)
-{
-    struct StmSpi *regs = pdev->cfg->regs;
-    struct StmSpiState *state = &pdev->state;
-
-    if (atomicReadByte(&state->xferEnable) == true) {
-        if (!state->rxBuf) {
-            (void)regs->DR;
-        } else if (state->bitsPerWord == 8) {
-            uint8_t *rxBuf8 = state->rxBuf;
-            rxBuf8[state->rxIdx] = regs->DR;
-        } else {
-            uint16_t *rxBuf16 = state->rxBuf;
-            rxBuf16[state->rxIdx] = regs->DR;
-        }
-
-        state->rxIdx++;
-
-        if ((!state->txBuf || state->txIdx >= state->words) &&
-            (!state->rxBuf || state->rxIdx >= state->words)) {
-            atomicWriteByte(&state->xferEnable, false);
-            stmSpiDone(pdev);
-        }
-    } else {
-        (void)regs->DR;
-    }
+    /**
+     * n.b.: if nothing handles the TXE interrupt in slave mode, the SPI
+     * controller will just keep reading the existing value from DR anytime it
+     * needs data
+     */
+    regs->DR = pdev->state.txWord;
+    regs->CR2 &= ~SPI_CR2_TXEIE;
 }
 
 static void stmSpiIsr(struct StmSpiDev *pdev)
 {
     struct StmSpi *regs = pdev->cfg->regs;
-
-    if (regs->SR & SPI_SR_RXNE) {
-        stmSpiRxne(pdev);
-    }
 
     if (regs->SR & SPI_SR_TXE) {
         stmSpiTxe(pdev);
@@ -436,6 +480,8 @@ static const struct StmSpiCfg mStmSpiCfgs[] = {
         .clockUnit = PERIPH_APB2_SPI1,
 
         .irq = SPI1_IRQn,
+
+        .dmaBus = SPI1_DMA_BUS,
     },
     [1] = {
         .regs = (struct StmSpi *)SPI2_BASE,
@@ -444,6 +490,8 @@ static const struct StmSpiCfg mStmSpiCfgs[] = {
         .clockUnit = PERIPH_APB1_SPI2,
 
         .irq = SPI2_IRQn,
+
+        .dmaBus = SPI2_DMA_BUS,
     },
 };
 
