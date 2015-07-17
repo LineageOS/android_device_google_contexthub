@@ -163,13 +163,13 @@ static inline uint8_t dmaGetIsr(uint8_t busId, uint8_t stream)
         return (dev->regs->HISR >> STM_DMA_FEIFx_OFFSET[stream - 4]) & STM_DMA_ISR_MASK;
 }
 
-static inline void dmaSetIfcr(uint8_t busId, uint8_t stream, uint8_t mask)
+static inline void dmaClearIsr(uint8_t busId, uint8_t stream, uint8_t mask)
 {
     struct StmDmaDev *dev = &gDmaDevs[busId];
     if (stream < 4)
-        dev->regs->LIFCR |= mask << STM_DMA_FEIFx_OFFSET[stream];
+        dev->regs->LIFCR = mask << STM_DMA_FEIFx_OFFSET[stream];
     else
-        dev->regs->HIFCR |= mask << STM_DMA_FEIFx_OFFSET[stream - 4];
+        dev->regs->HIFCR = mask << STM_DMA_FEIFx_OFFSET[stream - 4];
 }
 
 static void dmaIsrTeif(uint8_t busId, uint8_t stream)
@@ -226,7 +226,8 @@ int dmaStart(uint8_t busId, uint8_t stream, const void *buf, uint16_t size,
     pwrUnitClock(PERIPH_BUS_AHB1, STM_DMA_CLOCK_UNIT[busId], true);
 
     struct StmDmaStreamRegs *regs = dmaGetStreamRegs(busId, stream);
-    dmaSetIfcr(busId, stream, STM_DMA_ISR_MASK);
+    dmaClearIsr(busId, stream, STM_DMA_ISR_TEIFx);
+    dmaClearIsr(busId, stream, STM_DMA_ISR_TCIFx);
 
     regs->NDTR = size;
     regs->PAR = mode->periphAddr;
@@ -243,11 +244,9 @@ int dmaStart(uint8_t busId, uint8_t stream, const void *buf, uint16_t size,
             STM_DMA_CR_MBURST(mode->mburst) |
             STM_DMA_CR_CHSEL(mode->channel);
 
-    regs->CR |= STM_DMA_CR_EN;
-    while (!(regs->CR & STM_DMA_CR_EN))
-        ;
-
     NVIC_EnableIRQ(STM_DMA_IRQ[busId][stream]);
+
+    regs->CR |= STM_DMA_CR_EN;
     return 0;
 }
 
@@ -261,12 +260,11 @@ void dmaStop(uint8_t busId, uint8_t stream)
 {
     struct StmDmaStreamRegs *regs = dmaGetStreamRegs(busId, stream);
 
-    dmaSetIfcr(busId, stream, STM_DMA_ISR_MASK);
+    dmaClearIsr(busId, stream, STM_DMA_ISR_TEIFx);
+    dmaClearIsr(busId, stream, STM_DMA_ISR_TCIFx);
     NVIC_DisableIRQ(STM_DMA_IRQ[busId][stream]);
 
     regs->CR &= ~STM_DMA_CR_EN;
     while (regs->CR & STM_DMA_CR_EN)
         ;
-
-    pwrUnitClock(PERIPH_BUS_AHB1, STM_DMA_CLOCK_UNIT[busId], false);
 }
