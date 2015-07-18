@@ -11,6 +11,7 @@
 #include <seos.h>
 #include <heap.h>
 #include <slab.h>
+#include <util.h>
 #include <cpu.h>
 #include <sensors.h>
 
@@ -197,28 +198,28 @@ static void osInternalEvtHandle(uint32_t evtType, void *evtData)
     }
 }
 
-static void osExpApiEvtqSubscribe(uintptr_t *retValP, va_list *args)
+static void osExpApiEvtqSubscribe(uintptr_t *retValP, va_list args)
 {
-    uint32_t tid = va_arg(*args, uint32_t);
-    uint32_t evtType = va_arg(*args, uint32_t);
+    uint32_t tid = va_arg(args, uint32_t);
+    uint32_t evtType = va_arg(args, uint32_t);
 
     *retValP = osEventSubscribe(tid, evtType);
 }
 
-static void osExpApiEvtqUnsubscribe(uintptr_t *retValP, va_list *args)
+static void osExpApiEvtqUnsubscribe(uintptr_t *retValP, va_list args)
 {
-    uint32_t tid = va_arg(*args, uint32_t);
-    uint32_t evtType = va_arg(*args, uint32_t);
+    uint32_t tid = va_arg(args, uint32_t);
+    uint32_t evtType = va_arg(args, uint32_t);
 
     *retValP = osEventUnsubscribe(tid, evtType);
 }
 
-static void osExpApiEvtqEnqueue(uintptr_t *retValP, va_list *args)
+static void osExpApiEvtqEnqueue(uintptr_t *retValP, va_list args)
 {
-    uint32_t evtType = va_arg(*args, uint32_t);
-    void *evtData = va_arg(*args, void*);
-    EventFreeF evtFreeF = va_arg(*args, EventFreeF);
-    bool external = va_arg(*args, bool);
+    uint32_t evtType = va_arg(args, uint32_t);
+    void *evtData = va_arg(args, void*);
+    EventFreeF evtFreeF = va_arg(args, EventFreeF);
+    bool external = va_arg(args, int);
 
     //TODO: XXX: use UserspaceCallback mechanism for event freeing here!!!
 
@@ -233,10 +234,10 @@ static void osExpApiEvtqFuncDeferCbk(void *data)
     syscallUserspaceCallbackFree(ucbk);
 }
 
-static void osExpApiEvtqFuncDefer(uintptr_t *retValP, va_list *args)
+static void osExpApiEvtqFuncDefer(uintptr_t *retValP, va_list args)
 {
-    OsDeferCbkF userCbk = va_arg(*args, OsDeferCbkF);
-    void *userData = va_arg(*args, void*);
+    OsDeferCbkF userCbk = va_arg(args, OsDeferCbkF);
+    void *userData = va_arg(args, void*);
     struct UserspaceCallback *ucbk;
 
     *retValP = false;
@@ -249,13 +250,13 @@ static void osExpApiEvtqFuncDefer(uintptr_t *retValP, va_list *args)
     }
 }
 
-static void osExpApiLogLogv(uintptr_t *retValP, va_list *args)
+static void osExpApiLogLogv(uintptr_t *retValP, va_list args)
 {
-    enum LogLevel level = va_arg(*args, int /* enums promoted to ints in va_args in C */);
-    const char *str = va_arg(*args, const char*);
-    va_list *innerArgs = va_arg(*args, va_list*);
+    enum LogLevel level = va_arg(args, int /* enums promoted to ints in va_args in C */);
+    const char *str = va_arg(args, const char*);
+    va_list innerArgs = INTEGER_TO_VA_LIST(va_arg(args, uintptr_t));
 
-    osLogv(level, str, *innerArgs);
+    osLogv(level, str, innerArgs);
 }
 
 static void osExportApi(void)
