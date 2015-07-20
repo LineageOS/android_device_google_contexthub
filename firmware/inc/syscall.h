@@ -39,7 +39,7 @@ extern "C" {
 #define SYSCALL_DOMAIN_DRIVERS    1
 
 
-typedef void (*SyscallFunc)(uintptr_t *retValP, va_list *args); /* you better know what args you need */
+typedef void (*SyscallFunc)(uintptr_t *retValP, va_list args); /* you better know what args you need */
 
 struct SyscallTable {
     uint32_t numEntries;

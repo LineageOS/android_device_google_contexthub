@@ -22,7 +22,7 @@ include $(MAKE_VAR)
 
 FLAGS += -Wall -Werror -Iinc -Ilinks -Iexternal/freebsd/inc -fshort-double
 #help avoid commmon embedded C mistakes
-FLAGS += -Wmissing-declarations -Wlogical-op -Waddress -Wempty-body -Wpointer-arith -Wenum-compare -Wdouble-promotion -Wfloat-equal -Wshadow
+FLAGS += -Wmissing-declarations -Wlogical-op -Waddress -Wempty-body -Wpointer-arith -Wenum-compare -Wdouble-promotion -Wfloat-equal -Wshadow -fno-strict-aliasing
 
 OSFLAGS += -g -ggdb3 -D_OS_BUILD_ -O2 
 APPFLAGS += -Os

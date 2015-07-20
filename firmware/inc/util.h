@@ -31,4 +31,12 @@ static inline int LOG2_CEIL(unsigned int n)
     return IS_POWER_OF_TWO(n) ? LOG2_FLOOR(n) : LOG2_FLOOR(n) + 1;
 }
 
+#ifdef SYSCALL_VARARGS_PARAMS_PASSED_AS_PTRS
+  #define VA_LIST_TO_INTEGER(__vl)  ((uintptr_t)(&__vl))
+  #define INTEGER_TO_VA_LIST(__ptr)  (*(va_list*)(__ptr))
+#else
+  #define VA_LIST_TO_INTEGER(__vl)  (*(uintptr_t*)(&__vl))
+  #define INTEGER_TO_VA_LIST(__ptr)  ({uintptr_t tmp = __ptr; (*(va_list*)(&tmp)); })
+#endif
+
 #endif /* __UTIL_H */
