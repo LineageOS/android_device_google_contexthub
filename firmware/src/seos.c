@@ -14,6 +14,7 @@
 #include <util.h>
 #include <cpu.h>
 #include <sensors.h>
+#include <apInt.h>
 
 
 /*
@@ -316,6 +317,7 @@ void __attribute__((noreturn)) osMain(void)
     syscallInit();
     osExportApi();
     hostIntfRequest();
+    apIntInit();
     platEnableInterrupts();
     osStartTasks();
 

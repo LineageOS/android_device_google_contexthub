@@ -142,6 +142,7 @@ void hostIntfRequest()
 {
     atomicBitsetInit(gInterrupt, MAX_INTERRUPTS);
     atomicBitsetInit(gInterruptMask, MAX_INTERRUPTS);
+
     gComm = platHostIntfInit();
     if (gComm) {
         int err = gComm->request();
@@ -224,9 +225,9 @@ void hostIntfRelease()
     gComm->release();
 }
 
-void hostIntfCopyClearInterrupts(struct AtomicBitset *dst)
+void hostIntfCopyClearInterrupts(struct AtomicBitset *dst, uint32_t numBits)
 {
-    atomicBitsetInit(dst, dst->numBits);
+    atomicBitsetInit(dst, numBits);
 
     apIntClear(false);
     apIntClear(true);

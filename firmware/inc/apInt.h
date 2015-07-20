@@ -7,6 +7,7 @@
 extern "C" {
 #endif
 
+void apIntInit();
 void apIntSet(bool wakeup);
 void apIntClear(bool wakeup);
 

@@ -13,7 +13,7 @@
 void hostIntfRequest(void);
 void hostIntfRelease(void);
 
-void hostIntfCopyClearInterrupts(struct AtomicBitset *dst);
+void hostIntfCopyClearInterrupts(struct AtomicBitset *dst, uint32_t numBits);
 void hostIntfSetInterrupt(uint32_t bit);
 void hostInfClearInterrupt(uint32_t bit);
 void hostIntfSetInterruptMask(uint32_t bit);
