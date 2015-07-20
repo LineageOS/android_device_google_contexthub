@@ -186,7 +186,7 @@ static void osInternalEvtHandle(uint32_t evtType, void *evtData)
         break;
 
     case EVT_PRIVATE_EVT:
-        task = osTaskFindByTid(da->evtSub.tid);
+        task = osTaskFindByTid(da->privateEvt.toTid);
         if (task) {
             cpuAppHandle(task->appHdr, &task->platInfo, da->privateEvt.evtType, da->privateEvt.evtData);
         }
