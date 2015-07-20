@@ -5,7 +5,7 @@
 #include <plat/inc/cmsis.h>
 #include <plat/inc/gpio.h>
 
-struct StmSpiPinCfg {
+struct StmSpiBoardCfg {
     GpioNum gpioMiso;
     GpioNum gpioMosi;
     GpioNum gpioSclk;
@@ -18,6 +18,6 @@ struct StmSpiPinCfg {
     IRQn_Type irqNss;
 };
 
-extern const struct StmSpiPinCfg *boardStmSpiPinCfg(uint8_t busId);
+extern const struct StmSpiBoardCfg *boardStmSpiCfg(uint8_t busId);
 
 #endif /* __PLAT_SPI_H */

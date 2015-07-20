@@ -1,7 +1,7 @@
 #include <plat/inc/spi.h>
 #include <util.h>
 
-static const struct StmSpiPinCfg mStmSpiPinCfgs[] = {
+static const struct StmSpiBoardCfg mStmSpiBoardCfgs[] = {
     [0] = {
         .gpioSpeed = GPIO_SPEED_MEDIUM,
         .gpioMiso = GPIO_PA(6),
@@ -22,10 +22,10 @@ static const struct StmSpiPinCfg mStmSpiPinCfgs[] = {
     },
 };
 
-const struct StmSpiPinCfg *boardStmSpiPinCfg(uint8_t busId)
+const struct StmSpiBoardCfg *boardStmSpiCfg(uint8_t busId)
 {
-    if (busId >= ARRAY_SIZE(mStmSpiPinCfgs))
+    if (busId >= ARRAY_SIZE(mStmSpiBoardCfgs))
         return NULL;
 
-    return &mStmSpiPinCfgs[busId];
+    return &mStmSpiBoardCfgs[busId];
 }

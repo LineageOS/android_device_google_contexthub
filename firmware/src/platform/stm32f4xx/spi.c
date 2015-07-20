@@ -83,7 +83,7 @@ struct StmSpiCfg {
 struct StmSpiDev {
     struct SpiDevice *base;
     const struct StmSpiCfg *cfg;
-    const struct StmSpiPinCfg *pins;
+    const struct StmSpiBoardCfg *board;
     struct StmSpiState state;
 
     struct Gpio miso;
@@ -102,14 +102,14 @@ static inline void stmSpiGpioInit(struct Gpio *gpio,
 static inline void stmSpiDataPullMode(struct StmSpiDev *pdev,
         enum GpioSpeed dataSpeed, enum GpioPullMode dataPull)
 {
-    gpioConfigAlt(&pdev->miso, dataSpeed, dataPull, GPIO_OUT_PUSH_PULL, pdev->pins->gpioFunc);
-    gpioConfigAlt(&pdev->mosi, dataSpeed, dataPull, GPIO_OUT_PUSH_PULL, pdev->pins->gpioFunc);
+    gpioConfigAlt(&pdev->miso, dataSpeed, dataPull, GPIO_OUT_PUSH_PULL, pdev->board->gpioFunc);
+    gpioConfigAlt(&pdev->mosi, dataSpeed, dataPull, GPIO_OUT_PUSH_PULL, pdev->board->gpioFunc);
 }
 
 static inline void stmSpiSckPullMode(struct StmSpiDev *pdev,
         enum GpioSpeed sckSpeed, enum GpioPullMode sckPull)
 {
-    gpioConfigAlt(&pdev->sck, sckSpeed, sckPull, GPIO_OUT_PUSH_PULL, pdev->pins->gpioFunc);
+    gpioConfigAlt(&pdev->sck, sckSpeed, sckPull, GPIO_OUT_PUSH_PULL, pdev->board->gpioFunc);
 }
 
 static inline int stmSpiEnable(struct StmSpiDev *pdev,
@@ -181,11 +181,11 @@ static int stmSpiMasterStartSync(struct SpiDevice *dev, spi_cs_t cs,
     if (err < 0)
         return err;
 
-    stmSpiDataPullMode(pdev, pdev->pins->gpioSpeed, pdev->pins->gpioPull);
-    stmSpiSckPullMode(pdev, pdev->pins->gpioSpeed, mode->cpol ? GPIO_PULL_UP : GPIO_PULL_DOWN);
+    stmSpiDataPullMode(pdev, pdev->board->gpioSpeed, pdev->board->gpioPull);
+    stmSpiSckPullMode(pdev, pdev->board->gpioSpeed, mode->cpol ? GPIO_PULL_UP : GPIO_PULL_DOWN);
 
     gpioRequest(&pdev->nss, cs);
-    gpioConfigOutput(&pdev->nss, pdev->pins->gpioSpeed, pdev->pins->gpioPull, GPIO_OUT_PUSH_PULL, 0);
+    gpioConfigOutput(&pdev->nss, pdev->board->gpioSpeed, pdev->board->gpioPull, GPIO_OUT_PUSH_PULL, 0);
 
     return 0;
 }
@@ -195,10 +195,10 @@ static int stmSpiSlaveStartSync(struct SpiDevice *dev,
 {
     struct StmSpiDev *pdev = dev->pdata;
 
-    stmSpiDataPullMode(pdev, pdev->pins->gpioSpeed, GPIO_PULL_NONE);
-    stmSpiSckPullMode(pdev, pdev->pins->gpioSpeed, GPIO_PULL_NONE);
+    stmSpiDataPullMode(pdev, pdev->board->gpioSpeed, GPIO_PULL_NONE);
+    stmSpiSckPullMode(pdev, pdev->board->gpioSpeed, GPIO_PULL_NONE);
 
-    stmSpiGpioInit(&pdev->nss, pdev->pins->gpioNss, pdev->pins->gpioSpeed, pdev->pins->gpioFunc);
+    stmSpiGpioInit(&pdev->nss, pdev->board->gpioNss, pdev->board->gpioSpeed, pdev->board->gpioFunc);
     return stmSpiEnable(pdev, mode, false);
 }
 
@@ -261,7 +261,7 @@ static inline void stmSpiDisable(struct SpiDevice *dev, bool master)
 
     if (master) {
         gpioSet(&pdev->nss, 1);
-        stmSpiSckPullMode(pdev, pdev->pins->gpioSpeed, pdev->pins->gpioPull);
+        stmSpiSckPullMode(pdev, pdev->board->gpioSpeed, pdev->board->gpioPull);
     }
 
     regs->CR1 &= ~SPI_CR1_SPE;
@@ -303,9 +303,9 @@ static void stmSpiSlaveSetCsInterrupt(struct SpiDevice *dev, bool enabled)
 
         syscfgSetExtiPort(&pdev->nss);
         extiEnableIntGpio(&pdev->nss, EXTI_TRIGGER_RISING);
-        extiChainIsr(pdev->pins->irqNss, isr);
+        extiChainIsr(pdev->board->irqNss, isr);
     } else {
-        extiUnchainIsr(pdev->pins->irqNss, isr);
+        extiUnchainIsr(pdev->board->irqNss, isr);
         extiDisableIntGpio(&pdev->nss);
     }
 }
@@ -452,17 +452,17 @@ DECLARE_IRQ_HANDLER(1)
 DECLARE_IRQ_HANDLER(2)
 
 static void stmSpiInit(struct StmSpiDev *pdev, const struct StmSpiCfg *cfg,
-        const struct StmSpiPinCfg *pins, struct SpiDevice *dev)
+        const struct StmSpiBoardCfg *board, struct SpiDevice *dev)
 {
-    stmSpiGpioInit(&pdev->miso, pins->gpioMiso, pins->gpioSpeed, pins->gpioFunc);
-    stmSpiGpioInit(&pdev->mosi, pins->gpioMosi, pins->gpioSpeed, pins->gpioFunc);
-    stmSpiGpioInit(&pdev->sck, pins->gpioSclk, pins->gpioSpeed, pins->gpioFunc);
+    stmSpiGpioInit(&pdev->miso, board->gpioMiso, board->gpioSpeed, board->gpioFunc);
+    stmSpiGpioInit(&pdev->mosi, board->gpioMosi, board->gpioSpeed, board->gpioFunc);
+    stmSpiGpioInit(&pdev->sck, board->gpioSclk, board->gpioSpeed, board->gpioFunc);
 
     NVIC_EnableIRQ(cfg->irq);
 
     pdev->base = dev;
     pdev->cfg = cfg;
-    pdev->pins = pins;
+    pdev->board = board;
 }
 
 int spiRequest(struct SpiDevice *dev, uint8_t busId)
@@ -470,14 +470,14 @@ int spiRequest(struct SpiDevice *dev, uint8_t busId)
     if (busId >= ARRAY_SIZE(mStmSpiDevs))
         return -ENODEV;
 
-    const struct StmSpiPinCfg *pins = boardStmSpiPinCfg(busId);
-    if (!pins)
+    const struct StmSpiBoardCfg *board = boardStmSpiCfg(busId);
+    if (!board)
         return -ENODEV;
 
     struct StmSpiDev *pdev = &mStmSpiDevs[busId];
     const struct StmSpiCfg *cfg = &mStmSpiCfgs[busId];
     if (!pdev->base)
-        stmSpiInit(pdev, cfg, pins, dev);
+        stmSpiInit(pdev, cfg, board, dev);
 
     memset(&pdev->state, 0, sizeof(pdev->state));
     dev->ops = &mStmSpiOps;
