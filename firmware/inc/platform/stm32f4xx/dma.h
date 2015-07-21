@@ -31,6 +31,8 @@ struct dmaMode {
         DMA_DIRECTION_MEM_TO_PERIPH = 1,
     } direction;
 
+    bool minc;
+
     uint32_t periphAddr;
     uint8_t channel;
 };

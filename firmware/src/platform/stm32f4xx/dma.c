@@ -236,13 +236,14 @@ int dmaStart(uint8_t busId, uint8_t stream, const void *buf, uint16_t size,
     regs->CR = STM_DMA_CR_TEIE |
             STM_DMA_CR_TCIE |
             STM_DMA_CR_DIR(mode->direction) |
-            STM_DMA_CR_MINC |
             STM_DMA_CR_PSIZE(mode->psize) |
             STM_DMA_CR_MSIZE(mode->msize) |
             STM_DMA_CR_PL(mode->priority) |
             STM_DMA_CR_PBURST(mode->pburst) |
             STM_DMA_CR_MBURST(mode->mburst) |
             STM_DMA_CR_CHSEL(mode->channel);
+    if (mode->minc)
+        regs->CR |= STM_DMA_CR_MINC;
 
     NVIC_EnableIRQ(STM_DMA_IRQ[busId][stream]);
 
