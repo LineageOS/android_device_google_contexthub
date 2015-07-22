@@ -118,6 +118,13 @@ void __attribute__((naked)) HardFault_Handler(void)
 }
 
 
+bool cpuInternalAppLoad(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo)
+{
+    platInfo->got = 0x00000000;
+
+    return true;
+}
+
 bool cpuAppLoad(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo)
 {
     const uint32_t *relocsStart = (const uint32_t*)(((uint8_t*)appHdr) + appHdr->rel_start);
@@ -181,17 +188,26 @@ static uintptr_t __attribute__((naked)) callWithR10(const struct AppHdr *appHdr,
 
 bool cpuAppInit(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo, uint32_t tid)
 {
-    return callWithR10(appHdr, appHdr->funcs.init, platInfo->got, tid, 0);
+    if (platInfo->got)
+        return callWithR10(appHdr, appHdr->funcs.init, platInfo->got, tid, 0);
+    else
+        return appHdr->funcs.init(tid);
 }
 
 void cpuAppEnd(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo)
 {
-    (void)callWithR10(appHdr, appHdr->funcs.end, platInfo->got, 0, 0);
+    if (platInfo->got)
+        (void)callWithR10(appHdr, appHdr->funcs.end, platInfo->got, 0, 0);
+    else
+        appHdr->funcs.end();
 }
 
 void cpuAppHandle(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo, uint32_t evtType, const void* evtData)
 {
-    (void)callWithR10(appHdr, appHdr->funcs.handle, platInfo->got, evtType, (uintptr_t)evtData);
+    if (platInfo->got)
+        (void)callWithR10(appHdr, appHdr->funcs.handle, platInfo->got, evtType, (uintptr_t)evtData);
+    else
+        appHdr->funcs.handle(evtType, evtData);
 }
 
 

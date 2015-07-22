@@ -18,6 +18,7 @@ uint64_t cpuIntsOn(void);
 void cpuIntsRestore(uint64_t state);
 
 /* app loading, unloading & calling */
+bool cpuInternalAppLoad(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo);
 bool cpuAppLoad(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo);
 void cpuAppUnload(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo);
 bool cpuAppInit(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo, uint32_t tid);

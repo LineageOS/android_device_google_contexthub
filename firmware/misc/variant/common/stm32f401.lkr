@@ -23,6 +23,10 @@ SECTIONS
 		KEEP (*(.vectors) ) ;
 		*(.text) *(.text.*) ;
 		*(.rodata) *(.rodata.*) ;
+		. = ALIGN(8);
+		__internal_app_start = ABSOLUTE(.);
+		KEEP (*(.internal_app_init) ) ;
+		__internal_app_end = ABSOLUTE(.);
 		. = ALIGN(4);
 	} > code = 0xff
 

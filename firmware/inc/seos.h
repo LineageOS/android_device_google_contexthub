@@ -35,6 +35,7 @@ struct AppFuncs { /* do not rearrange */
 #define APP_HDR_MARKER_UPLOADING   0xFFFF
 #define APP_HDR_MARKER_VERIFYING   0xFFFE
 #define APP_HDR_MARKER_VALID       0xFF00
+#define APP_HDR_MARKER_INTERNAL    0xFF01
 #define APP_HDR_MARKER_DELETED     0x0000
 
 
@@ -80,6 +81,17 @@ enum LogLevel {
 void osLogv(enum LogLevel level, const char *str, va_list vl);
 void osLog(enum LogLevel level, const char *str, ...)
     __attribute__((format(printf, 2, 3)));
+
+#define INTERNAL_APP_INIT(_id, _init, _end, _event)                                         \
+static const struct AppHdr __attribute__((used,section (".internal_app_init"))) mAppHdr = { \
+    .magic = APP_HDR_MAGIC,                                                                 \
+    .version = APP_HDR_VER_CUR,                                                             \
+    .marker = APP_HDR_MARKER_INTERNAL,                                                      \
+    .appId = (_id),                                                                         \
+    .funcs.init = (_init),                                                                  \
+    .funcs.end = (_end),                                                                    \
+    .funcs.handle = (_event)                                                                \
+}
 
 #define APP_INIT(_init, _end, _event)                                            \
 extern const struct AppFuncs _mAppFuncs;                                         \

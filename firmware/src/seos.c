@@ -99,13 +99,29 @@ static void osInit(void)
 static void osStartTasks(void)
 {
     extern const char __code_end[];
-    extern const struct AppHdr __app_start;
-    const struct AppHdr *app = &__app_start;
+    extern const struct AppHdr __internal_app_start, __internal_app_end, __app_start;
+    const struct AppHdr *app;
     static const char magic[] = APP_HDR_MAGIC;
     uint32_t i = 0, nTasks = 0;
 
     osLog(LOG_INFO, "SEOS Registering tasks\n");
-    while (((uintptr_t)&__code_end) - ((uintptr_t)app) >= sizeof(struct AppHdr) && !memcmp(magic, app->magic, sizeof(magic) - 1) && app->version == APP_HDR_VER_CUR) {
+
+    for (app = &__internal_app_start; app != &__internal_app_end && nTasks < MAX_TASKS && !memcmp(magic, app->magic, sizeof(magic) - 1) && app->version == APP_HDR_VER_CUR; app++) {
+        if (app->marker == APP_HDR_MARKER_INTERNAL) {
+            mTasks[nTasks].appHdr = app;
+            mTasks[nTasks].subbedEvtListSz = MAX_EMBEDDED_EVT_SUBS;
+            mTasks[nTasks].subbedEvents = mTasks[nTasks].subbedEventsInt;
+            mTasks[nTasks].tid = mNextTid;
+
+            if (cpuInternalAppLoad(mTasks[i].appHdr, &mTasks[i].platInfo)) {
+                mNextTid++;
+                nTasks++;
+            }
+        }
+    }
+
+    app = &__app_start;
+    while (((uintptr_t)&__code_end) - ((uintptr_t)app) >= sizeof(struct AppHdr) && nTasks < MAX_TASKS && !memcmp(magic, app->magic, sizeof(magic) - 1) && app->version == APP_HDR_VER_CUR) {
 
         if (app->marker == APP_HDR_MARKER_VALID) {
             //todo - sanity check app IDs for duplicates
