@@ -96,6 +96,17 @@ static void osInit(void)
     }
 }
 
+static struct Task* osFindTaskByAppID(uint64_t appID)
+{
+    uint32_t i;
+
+    for (i = 0; i < MAX_TASKS && mTasks[i].tid; i++)
+        if (mTasks[i].appHdr->appId == appID)
+            return mTasks + i;
+
+    return NULL;
+}
+
 static void osStartTasks(void)
 {
     extern const char __code_end[];
@@ -108,6 +119,12 @@ static void osStartTasks(void)
 
     for (app = &__internal_app_start; app != &__internal_app_end && nTasks < MAX_TASKS && !memcmp(magic, app->magic, sizeof(magic) - 1) && app->version == APP_HDR_VER_CUR; app++) {
         if (app->marker == APP_HDR_MARKER_INTERNAL) {
+
+            if (osFindTaskByAppID(app->appId)) {
+                osLog(LOG_ERROR, "Duplicate APP ID ignored\n");
+                continue;
+            }
+
             mTasks[nTasks].appHdr = app;
             mTasks[nTasks].subbedEvtListSz = MAX_EMBEDDED_EVT_SUBS;
             mTasks[nTasks].subbedEvents = mTasks[nTasks].subbedEventsInt;
@@ -124,7 +141,12 @@ static void osStartTasks(void)
     while (((uintptr_t)&__code_end) - ((uintptr_t)app) >= sizeof(struct AppHdr) && nTasks < MAX_TASKS && !memcmp(magic, app->magic, sizeof(magic) - 1) && app->version == APP_HDR_VER_CUR) {
 
         if (app->marker == APP_HDR_MARKER_VALID) {
-            //todo - sanity check app IDs for duplicates
+
+            if (osFindTaskByAppID(app->appId)) {
+                osLog(LOG_ERROR, "Duplicate APP ID ignored\n");
+                continue;
+            }
+
             mTasks[nTasks].appHdr = app;
             mTasks[nTasks].subbedEvtListSz = MAX_EMBEDDED_EVT_SUBS;
             mTasks[nTasks].subbedEvents = mTasks[nTasks].subbedEventsInt;
