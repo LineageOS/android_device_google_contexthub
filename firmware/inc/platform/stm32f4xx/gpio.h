@@ -96,12 +96,12 @@ enum GpioAltFunc
     GPIO_AF_EVENT = GPIO_AF15,
 };
 
-enum GpioSpeed
-{
-    GPIO_SPEED_LOW = 0,
-    GPIO_SPEED_MEDIUM,
-    GPIO_SPEED_FAST,
-    GPIO_SPEED_HIGH,
+enum GpioSpeed          /* CL (pF)     50,  50,   10,  10   */
+{                       /* VDD (V) >=   2.7, 1.7,  2.7, 1.7 */
+    GPIO_SPEED_LOW = 0, /* Max (MHz)    4,   2,    8,   4   */
+    GPIO_SPEED_MEDIUM,  /*             25,  12.5, 50,  20   */
+    GPIO_SPEED_FAST,    /*             50,  25,  100,  50   */
+    GPIO_SPEED_HIGH,    /*            100,  50,  180, 100   */
 };
 
 #ifdef __cplusplus

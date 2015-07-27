@@ -3,6 +3,7 @@
 
 static const struct StmSpiPinCfg mStmSpiPinCfgs[] = {
     [0] = {
+        .gpioSpeed = GPIO_SPEED_MEDIUM,
         .gpioMiso = GPIO_PA(6),
         .gpioMosi = GPIO_PA(7),
         .gpioSclk = GPIO_PA(5),
@@ -11,6 +12,7 @@ static const struct StmSpiPinCfg mStmSpiPinCfgs[] = {
         .irqNss = EXTI4_IRQn,
     },
     [1] = {
+        .gpioSpeed = GPIO_SPEED_MEDIUM,
         .gpioMiso = GPIO_PB(14),
         .gpioMosi = GPIO_PB(15),
         .gpioSclk = GPIO_PB(13),
