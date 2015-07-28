@@ -69,6 +69,8 @@ struct StmSpiState {
     bool txDone;
 
     struct ChainedIsr isrNss;
+
+    bool nssChange;
 };
 
 struct StmSpiCfg {
@@ -217,7 +219,7 @@ static int stmSpiMasterStartSync(struct SpiDevice *dev, spi_cs_t cs,
     stmSpiSckPullMode(pdev, pdev->board->gpioSpeed, mode->cpol ? GPIO_PULL_UP : GPIO_PULL_DOWN);
 
     gpioRequest(&pdev->nss, cs);
-    gpioConfigOutput(&pdev->nss, pdev->board->gpioSpeed, pdev->board->gpioPull, GPIO_OUT_PUSH_PULL, 0);
+    gpioConfigOutput(&pdev->nss, pdev->board->gpioSpeed, pdev->board->gpioPull, GPIO_OUT_PUSH_PULL, 1);
 
     return 0;
 }
@@ -243,10 +245,14 @@ static inline bool stmSpiIsMaster(struct StmSpiDev *pdev)
 static void stmSpiDone(struct StmSpiDev *pdev, int err)
 {
     struct StmSpi *regs = pdev->cfg->regs;
+    struct StmSpiState *state = &pdev->state;
+
     while (regs->SR & SPI_SR_BSY)
         ;
 
     if (stmSpiIsMaster(pdev)) {
+        if (state->nssChange)
+            gpioSet(&pdev->nss, 1);
         spiMasterRxTxDone(pdev->base, err);
     } else {
         regs->CR2 = SPI_CR2_TXEIE;
@@ -296,8 +302,12 @@ static int stmSpiRxTx(struct SpiDevice *dev, void *rxBuf, const void *txBuf,
     if (atomicXchgByte(&state->xferEnable, true) == true)
         return -EBUSY;
 
+    if (stmSpiIsMaster(pdev))
+        gpioSet(&pdev->nss, 0);
+
     state->rxDone = !rxBuf;
     state->txDone = false;
+    state->nssChange = mode->nssChange;
 
     if (rxBuf) {
         stmSpiStartDma(pdev, &pdev->board->dmaRx, rxBuf, mode->bitsPerWord,

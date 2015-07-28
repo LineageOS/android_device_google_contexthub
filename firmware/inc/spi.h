@@ -32,6 +32,8 @@ struct SpiMode {
     uint16_t txWord;
 
     SpiSpeed speed;
+
+    bool nssChange;
 };
 
 int spiMasterRxTx(uint8_t busId, spi_cs_t cs,
