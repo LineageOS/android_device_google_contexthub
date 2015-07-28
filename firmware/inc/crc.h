@@ -4,6 +4,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#define CRC_RESIDUE 0xC704DD7B
+
 /**
  * Implements CRC with the following parameters:
  *

@@ -462,6 +462,11 @@ bool osEnqueueEvt(uint32_t evtType, void *evtData, EventFreeF evtFreeF, bool ext
     return evtQueueEnqueue(external ? mEvtsExternal : mEvtsInternal, evtType, evtData, evtFreeF);
 }
 
+bool osDequeueExtEvt(uint32_t *evtType, void **evtData, EventFreeF *evtFree)
+{
+    return evtQueueDequeue(mEvtsExternal, evtType, evtData, evtFree, false);
+}
+
 static bool osLogPutcharF(void* userData, char c)
 {
     platLogPutchar(c);
