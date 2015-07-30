@@ -15,6 +15,7 @@
 #include <cpu.h>
 #include <sensors.h>
 #include <apInt.h>
+#include <nanohubPacket.h>
 
 
 /*
@@ -467,16 +468,14 @@ bool osDequeueExtEvt(uint32_t *evtType, void **evtData, EventFreeF *evtFree)
     return evtQueueDequeue(mEvtsExternal, evtType, evtData, evtFree, false);
 }
 
-static bool osLogPutcharF(void* userData, char c)
-{
-    platLogPutchar(c);
-    return true;
-}
-
 void osLogv(enum LogLevel level, const char *str, va_list vl)
 {
-    osLogPutcharF(NULL, level);
-    cvprintf(osLogPutcharF, NULL, str, vl);
+    void *userData = platLogAllocUserData();
+
+    platLogPutcharF(userData, level);
+    cvprintf(platLogPutcharF, userData, str, vl);
+
+    platLogFlush(userData);
 }
 
 void osLog(enum LogLevel level, const char *str, ...)

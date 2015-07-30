@@ -16,6 +16,9 @@
 #include <gpio.h>
 #include <mpu.h>
 #include <cpu.h>
+#include <hostIntf.h>
+#include <nanohubPacket.h>
+#include <variant/inc/variant.h>
 
 
 
@@ -91,11 +94,52 @@ void platWake(void)
 {
 }
 
-void platLogPutchar(char ch)
+struct LogBuffer
+{
+    uint8_t offset;
+    char data[255];
+} __attribute__((packed));
+
+void *platLogAllocUserData()
+{
+#if defined(DEBUG_LOG_EVT)
+    struct LogBuffer *userData;
+
+    userData = heapAlloc(sizeof(struct LogBuffer));
+    if (userData)
+        userData->offset = 0;
+
+    return userData;
+#else
+    return NULL;
+#endif
+}
+
+void platLogFlush(void *userData)
+{
+#if defined(DEBUG_LOG_EVT)
+    if (userData) {
+        if (!osEnqueueEvt(EVENT_TYPE_BIT_DISCARDABLE | DEBUG_LOG_EVT, userData, heapFree, true))
+            heapFree(userData);
+        else
+            hostIntfSetInterrupt(NANOHUB_INT_NONWAKEUP);
+    }
+#endif
+}
+
+bool platLogPutcharF(void *userData, char ch)
 {
 #ifdef DEBUG_UART_UNITNO
-     usartPutchat(&mDbgUart, ch);
+    usartPutchat(&mDbgUart, ch);
+#elif defined(DEBUG_LOG_EVT)
+    struct LogBuffer *buffer;
+
+    if (userData) {
+        buffer = userData;
+        buffer->data[buffer->offset++] = ch;
+    }
 #endif
+    return true;
 }
 
 uint64_t platDisableInterrupts(void)
@@ -195,14 +239,3 @@ void SysTick_Handler(void)
 {
     mTicks++;
 }
-
-
-
-
-
-
-
-
-
-
-

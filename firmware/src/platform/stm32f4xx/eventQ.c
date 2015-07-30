@@ -65,6 +65,9 @@ bool evtQueueEnqueue(struct EvtQueue* q, uint32_t evtType, void *evtData, EventF
     struct EvtRecord *rec;
     uint64_t intSta;
 
+    if (!q)
+        return false;
+
     rec = slabAllocatorAlloc(q->evtsSlab);
     if (!rec) {
         intSta = cpuIntsOff();

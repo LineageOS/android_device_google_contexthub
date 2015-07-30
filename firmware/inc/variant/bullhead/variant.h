@@ -14,6 +14,8 @@ extern "C" {
 #define AP_INT_WAKEUP               GPIO_PA(3)
 #undef AP_INT_NONWAKEUP
 
+#define DEBUG_LOG_EVT               0x3B474F4C
+
 #ifdef __cplusplus
 }
 #endif

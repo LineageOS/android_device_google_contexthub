@@ -31,8 +31,10 @@ uint64_t platEnableInterrupts(void);
 uint64_t platDisableInterrupts(void);
 void platRestoreInterrupts(uint64_t state);
 
-/* Output */
-void platLogPutchar(char ch);
+/* Logging */
+void *platLogAllocUserData();
+void platLogFlush(void *userData);
+bool platLogPutcharF(void *userData, char ch);
 
 /* fast timer */
 uint64_t platGetTicks(void);
