@@ -90,6 +90,10 @@ extern uint32_t __bss_end[];
 void __attribute__((noreturn)) IntDefaultHandler(void)
 {
     while (1) {
+        //ints off
+        asm("cpsid i");
+
+        //spin/sleep/whatever forever
         asm("wfi":::"memory");
     }
 }

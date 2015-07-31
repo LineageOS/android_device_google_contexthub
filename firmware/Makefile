@@ -33,6 +33,7 @@ FLAGS += -DDEBUG
 #frameworks
 SRCS += src/printf.c src/timer.c src/seos.c src/heap.c src/slab.c src/spi.c src/trylock.c
 SRCS += src/hostIntf.c src/hostIntfI2c.c src/hostIntfSpi.c src/nanohubCommand.c src/sensors.c src/syscall.c
+SRCS += src/eventQ.c
 
 ifndef PLATFORM_HAS_HARDWARE_CRC
 SRCS += src/softcrc.c

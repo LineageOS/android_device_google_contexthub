@@ -10,7 +10,6 @@ SRCS += src/platform/$(PLATFORM)/platform.c \
 	src/platform/$(PLATFORM)/i2c.c \
 	src/platform/$(PLATFORM)/spi.c \
 	src/platform/$(PLATFORM)/rtc.c \
-	src/platform/$(PLATFORM)/eventQ.c \
 	src/platform/$(PLATFORM)/hostIntf.c
 
 #extra deps

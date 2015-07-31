@@ -1,4 +1,5 @@
 #include <cpu/inc/barrier.h>
+#include <plat/inc/cmsis.h>
 #include <plat/inc/pwr.h>
 #include <plat/inc/rtc.h>
 #include <stddef.h>
@@ -59,7 +60,13 @@ struct StmPwr {
 #define RCC_CSR_LSIRDY      0x00000002UL
 
 /* PWR bit definitions */
+#define PWR_CR_MRVLDS       0x00000800UL
+#define PWR_CR_LPLVDS       0x00000400UL
+#define PWR_CR_FPDS         0x00000200UL
 #define PWR_CR_DBP          0x00000100UL
+#define PWR_CR_PDDS         0x00000002UL
+#define PWR_CR_LPDS         0x00000001UL
+
 
 static uint32_t gSysClk = 16000000UL;
 
@@ -164,6 +171,34 @@ void pwrEnableAndClockRtc(enum RtcClock rtcClock)
 void pwrEnableWriteBackupDomainRegs(void)
 {
     PWR->CR |= PWR_CR_DBP;
+}
+
+void pwrSetSleepType(enum Stm32F4xxSleepType sleepType)
+{
+    uint32_t cr = PWR->CR &~ (PWR_CR_MRVLDS | PWR_CR_LPLVDS | PWR_CR_FPDS | PWR_CR_PDDS | PWR_CR_LPDS);
+
+    switch (sleepType) {
+    case stm32f411SleepModeSleep:
+        SCB->SCR &=~ SCB_SCR_SLEEPDEEP_Msk;
+        break;
+    case stm32f144SleepModeStopMR:
+        SCB->SCR |= SCB_SCR_SLEEPDEEP_Msk;
+        break;
+    case stm32f144SleepModeStopMRFPD:
+        SCB->SCR |= SCB_SCR_SLEEPDEEP_Msk;
+        cr |= PWR_CR_FPDS;
+        break;
+    case stm32f411SleepModeStopLPFD:
+        SCB->SCR |= SCB_SCR_SLEEPDEEP_Msk;
+        cr |= PWR_CR_FPDS | PWR_CR_LPDS;
+        break;
+    case stm32f411SleepModeStopLPLV:
+        SCB->SCR |= SCB_SCR_SLEEPDEEP_Msk;
+        cr |= PWR_CR_LPLVDS | PWR_CR_LPDS;
+        break;
+    }
+
+    PWR->CR = cr;
 }
 
 void pwrSystemInit(void)

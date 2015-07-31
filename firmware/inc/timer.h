@@ -22,8 +22,8 @@ uint32_t timTimerSet(uint64_t length, uint32_t jitterPpm, uint32_t driftPpm, Tim
 bool timTimerCancel(uint32_t timerId);
 
 
-//called by interrupt routine
-void timIntHandler(void);
+//called by interrupt routine. ->true if any timers were fired
+bool timIntHandler(void);
 
 
 //init subsystem

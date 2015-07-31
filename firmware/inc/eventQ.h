@@ -18,7 +18,6 @@ void evtQueueFree(struct EvtQueue* q);
 bool evtQueueEnqueue(struct EvtQueue* q, uint32_t evtType, void *evtData, EventFreeF evtFreeF);
 bool evtQueueDequeue(struct EvtQueue* q, uint32_t *evtTypeP, void **evtDataP, EventFreeF *evtFreeFP, bool sleepIfNone);
 
-bool evtQueueSubsystemInit(void);
 
 #endif
 

@@ -1,8 +1,9 @@
+#include <plat/inc/bl.h>
 #include <platform.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <mpu.h>
-#include <plat/inc/bl.h>
+#include <cpu.h>
 
 struct CortexMpu {
     volatile uint32_t CTRL;
@@ -62,7 +63,7 @@ static void mpuRegionCfg(uint32_t regionNo, uint32_t start, uint32_t len, uint32
 
     } while (proposedStart & ((1ULL << lenVal) - 1));
 
-    intState = platDisableInterrupts();
+    intState = cpuIntsOff();
     asm volatile("dsb\nisb");
 
     MPU->RNR = regionNo;
@@ -71,7 +72,7 @@ static void mpuRegionCfg(uint32_t regionNo, uint32_t start, uint32_t len, uint32
     MPU->RASR = MPU_SRD_BITS | MPU_BIT_ENABLE | attrs | (lenVal << 1);
 
     asm volatile("dsb\nisb");
-    platRestoreInterrupts(intState);
+    cpuIntsRestore(intState);
 }
 
 static void mpuCfgRom(bool allowSvcWrite)

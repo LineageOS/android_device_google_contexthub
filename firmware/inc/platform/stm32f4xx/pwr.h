@@ -139,6 +139,16 @@ extern "C" {
 #define DMA2_BASE                     0x40026400UL
 #define DBG_BASE                      0xE0042000UL
 
+
+
+enum Stm32F4xxSleepType {       //current       power          wkup way       wkup speed   (typ/max) 
+    stm32f411SleepModeSleep,    //2.7-5.9mA     all-core       interrupt      1 cy
+    stm32f144SleepModeStopMR,   //111uA         RTC,flash,reg  EXTI           13.5/14.5us
+    stm32f144SleepModeStopMRFPD,// 73uA         RTC,reg        EXTI           105/111us
+    stm32f411SleepModeStopLPFD, // 42uA         RTC,lpreg      EXTI           113/130us
+    stm32f411SleepModeStopLPLV, // 10uA         RTC            EXTT           314/407us (actually lower, but not quoted)
+};
+
 /* funcs */
 void pwrSystemInit(void);
 void pwrUnitClock(uint32_t bus, uint32_t unit, bool on);
@@ -146,6 +156,10 @@ void pwrUnitReset(uint32_t bus, uint32_t unit, bool on);
 uint32_t pwrGetBusSpeed(uint32_t bus);
 void pwrEnableAndClockRtc(enum RtcClock);
 void pwrEnableWriteBackupDomainRegs(void);
+
+
+/* internal to platform */
+void pwrSetSleepType(enum Stm32F4xxSleepType sleepType);
 
 #ifdef __cplusplus
 }

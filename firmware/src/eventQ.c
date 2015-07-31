@@ -1,6 +1,7 @@
-#include <cpu/inc/pendsv.h>
+#include <platform.h>
 #include <eventQ.h>
 #include <stddef.h>
+#include <timer.h>
 #include <stdio.h>
 #include <heap.h>
 #include <slab.h>
@@ -21,8 +22,6 @@ struct EvtQueue {
     struct SlabAllocator *evtsSlab;
 };
 
-
-static uint32_t mEvtDequeueStartPc, mEvtDequeueEndPc, mEvtDequeueCancelPc;
 
 
 struct EvtQueue* evtQueueAlloc(uint32_t size)
@@ -115,10 +114,8 @@ bool evtQueueEnqueue(struct EvtQueue* q, uint32_t evtType, void *evtData, EventF
 
 bool evtQueueDequeue(struct EvtQueue* q, uint32_t *evtTypeP, void **evtDataP, EventFreeF *evtFreeFP, bool sleepIfNone)
 {
-    uint32_t *mEvtDequeueStartPcP = &mEvtDequeueStartPc, *mEvtDequeueEndPcP = &mEvtDequeueEndPc, *mEvtDequeueCancelPcP = &mEvtDequeueCancelPc;
     struct EvtRecord *rec = NULL;
-    struct EvtRecord **headP;
-    uint32_t intSta; /* 32 and not 64 since we know that for THIS platform int status is 32 bits */
+    uint64_t intSta;
 
     while(1) {
         intSta = cpuIntsOff();
@@ -131,56 +128,26 @@ bool evtQueueDequeue(struct EvtQueue* q, uint32_t *evtTypeP, void **evtDataP, Ev
             else
                 q->tail = NULL;
             break;
-        } else if (!sleepIfNone)
+        }
+        else if (!sleepIfNone)
             break;
-
-        headP = &q->head;
-        /* we need to restore ints & then atomically check for events, and go to sleep. let's try that now */
-        asm volatile(
-            "    push {r0-r3, r12, lr} \n"
-            "    adr %0, 1f            \n"
-            "    str %0, [%1]          \n"
-            "    adr %0, 2f            \n"
-            "    str %0, [%2]          \n"
-            "    adr %0, 3f            \n"
-            "    str %0, [%3]          \n"
-            "1:                        \n"
-            "    msr PRIMASK, %4       \n"
-            "    ldr %0, [%5]          \n"
-            "    cmp %0, #0            \n"
-            "    bne 4f                \n"
-            "    bl platSleep          \n" /* should be interruptible */
-            "2:                        \n"
-            "3:                        \n"
-            "    bl platWake           \n" /* should handle undoing whatever interrupted platformSleep() did */
-            "4:                        \n"
-            "    pop {r0-r3, r12, lr}  \n"
-            :"=r"(rec), "=r"(mEvtDequeueStartPcP), "=r"(mEvtDequeueEndPcP), "=r"(mEvtDequeueCancelPcP), "=r"(intSta), "=r"(headP)
-            :"0"(rec), "1"(mEvtDequeueStartPcP), "2"(mEvtDequeueEndPcP), "3"(mEvtDequeueCancelPcP), "4"(intSta), "5"(headP)
-            :"memory","cc"
-        );
+        else if (!timIntHandler()) { // check for timers. if any fire, do not sleep (since by the time callbacks run, moremight be due)
+            platSleep();     //sleep
+            timIntHandler(); //first thing when awake: check timers
+        }
+        cpuIntsRestore(intSta);
     }
 
     cpuIntsRestore(intSta);
-    if (rec) {
-        *evtTypeP = rec->evtType;
-        *evtDataP = rec->evtData;
-        *evtFreeFP = rec->evtFreeF;
-        slabAllocatorFree(q->evtsSlab, rec);
 
-        return true;
-    }
+    if (!rec)
+        return false;
 
-    return false;
+    *evtTypeP = rec->evtType;
+    *evtDataP = rec->evtData;
+    *evtFreeFP = rec->evtFreeF;
+    slabAllocatorFree(q->evtsSlab, rec);
+
+    return true;
 }
 
-static void evtQueuePendsvCbk(struct PendsvRegsLow *loRegs, struct PendsvRegsHi *hiRegs)
-{
-    if (loRegs->pc >= mEvtDequeueStartPc && loRegs->pc < mEvtDequeueEndPc)
-        loRegs->pc = mEvtDequeueCancelPc;
-}
-
-bool evtQueueSubsystemInit(void)
-{
-    return pendsvSubscribe(evtQueuePendsvCbk);
-}

@@ -85,7 +85,7 @@ static void osInit(void)
     memset(mTasks, 0, sizeof(mTasks));
 
     /* create the queues */
-    if (!evtQueueSubsystemInit() || !(mEvtsInternal = evtQueueAlloc(512)) || !(mEvtsExternal = evtQueueAlloc(256))) {
+    if (!(mEvtsInternal = evtQueueAlloc(512)) || !(mEvtsExternal = evtQueueAlloc(256))) {
         osLog(LOG_INFO, "events failed to init\n");
         return;
     }
@@ -349,7 +349,7 @@ void __attribute__((noreturn)) osMain(void)
     uint32_t evtType, i, j;
     void *evtData;
 
-    platDisableInterrupts();
+    cpuIntsOff();
     timInit();
     osInit();
     sensorsInit();
@@ -357,7 +357,7 @@ void __attribute__((noreturn)) osMain(void)
     osExportApi();
     hostIntfRequest();
     apIntInit();
-    platEnableInterrupts();
+    cpuIntsOn();
     osStartTasks();
 
     //broadcast app start to all already-loaded apps

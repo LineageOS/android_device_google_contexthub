@@ -34,32 +34,11 @@ void platLogPutchar(char ch)
      putchar(ch);
 }
 
-uint64_t platDisableInterrupts(void)
-{
-    return cpuIntsOff();
-}
-
-uint64_t platEnableInterrupts(void)
-{
-    return cpuIntsOn();
-}
-
-void platRestoreInterrupts(uint64_t state)
-{
-    cpuIntsRestore(state);
-}
-
 void platInitialize(void)
 {
     /* set up RTC */
     rtcInit();
 
-    //TODO
-}
-
-
-void platSetAlarm(unsigned delayUs)
-{
     //TODO
 }
 

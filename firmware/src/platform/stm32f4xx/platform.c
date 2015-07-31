@@ -3,6 +3,7 @@
 #include <plat/inc/cmsis.h>
 #include <plat/inc/pwr.h>
 #include <plat/inc/rtc.h>
+#include <plat/inc/plat.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
@@ -17,9 +18,9 @@
 #include <mpu.h>
 #include <cpu.h>
 #include <hostIntf.h>
+#include <atomic.h>
 #include <nanohubPacket.h>
 #include <variant/inc/variant.h>
-
 
 
 struct StmDbg {
@@ -73,8 +74,11 @@ struct StmTim {
 #ifdef DEBUG_UART_UNITNO
 static struct usart mDbgUart;
 #endif
-static uint64_t mTicks = 0;
-
+static uint64_t mTimeAccumulated = 0;
+static uint32_t mMaxJitterPpm = 0, mMaxDriftPpm = 0, mMaxErrTotalPpm = 0;
+static uint32_t mSleepDevsToKeepAlive = 0;
+static uint64_t mWakeupTime = 0;
+static uint32_t mDevsMaxWakeTime[PLAT_MAX_SLEEP_DEVS] = {0,};
 
 
 void platUninitialize(void)
@@ -82,16 +86,6 @@ void platUninitialize(void)
 #ifdef DEBUG_UART_UNITNO
     usartClose(&mDbgUart);
 #endif
-}
-
-void platSleep(void)
-{
-    asm volatile ("wfi\n"
-            "nop" :::"memory");
-}
-
-void platWake(void)
-{
 }
 
 struct LogBuffer
@@ -142,29 +136,17 @@ bool platLogPutcharF(void *userData, char ch)
     return true;
 }
 
-uint64_t platDisableInterrupts(void)
-{
-    return cpuIntsOff();
-}
-
-uint64_t platEnableInterrupts(void)
-{
-    return cpuIntsOn();
-}
-
-void platRestoreInterrupts(uint64_t state)
-{
-    cpuIntsRestore(state);
-}
-
 void platInitialize(void)
 {
     const uint32_t debugStateInSleepMode = 0x00000007; /* debug in all modes */
-    struct StmTim *block = (struct StmTim*)TIM2_BASE;
+    struct StmTim *tim = (struct StmTim*)TIM2_BASE;
     struct StmDbg *dbg = (struct StmDbg*)DBG_BASE;
     uint32_t i;
 
     pwrSystemInit();
+
+    //prepare for sleep mode(s)
+    SCB->SCR &=~ SCB_SCR_SLEEPONEXIT_Msk;
 
     //set ints up for a sane state
     for (i = 0; i < NUM_INTERRUPTS; i++) {
@@ -193,43 +175,52 @@ void platInitialize(void)
 
     /* set up timer used for alarms */
     pwrUnitClock(PERIPH_BUS_APB1, PERIPH_APB1_TIM2, true);
-    block->CR1 = (block->CR1 &~ 0x03E1) | 0x0010; //count down mode with no clock division, disabled
-    block->PSC = 15; // prescale by 16, so that at 16MHz CPU clock, we get 1MHz timer
-    block->DIER |= 1; // interrupt when updated (underflowed)
+    tim->CR1 = (tim->CR1 &~ 0x03E1) | 0x0010; //count down mode with no clock division, disabled
+    tim->PSC = 15; // prescale by 16, so that at 16MHz CPU clock, we get 1MHz timer
+    tim->DIER |= 1; // interrupt when updated (underflowed)
     NVIC_EnableIRQ(TIM2_IRQn);
 
     /* set up RTC */
     rtcInit();
+
+    /* bring up systick */
+    SysTick->CTRL = 0;
+    SysTick->LOAD = 0x00FFFFFF;
+    SysTick->VAL = 0;
+    SysTick->CTRL = SysTick_CTRL_CLKSOURCE_Msk | SysTick_CTRL_TICKINT_Msk | SysTick_CTRL_ENABLE_Msk;
 }
 
-
-void platSetAlarm(unsigned delayUs)
+static uint64_t platsystickTicksToNs(uint32_t systickTicks)
 {
-    struct StmTim *block = (struct StmTim*)TIM2_BASE;
-
-    //better not have another one pending ad this moment
-    block->CNT = delayUs;
-    block->CR1 |= 1;
+    return (uint64_t)systickTicks * 125 / 2;
 }
 
 uint64_t platGetTicks(void)
 {
-    return mTicks;
+    uint64_t ret;
+    uint32_t val;
+
+    do {
+        ret = mTimeAccumulated;
+        val = SysTick->VAL;
+    } while (mTimeAccumulated != ret || SysTick->VAL > val);
+
+    return platsystickTicksToNs(0x01000000 - val) + ret;
 }
 
 /* Timer interrupt handler */
 void TIM2_IRQHandler(void);
 void TIM2_IRQHandler(void)
 {
-    struct StmTim *block = (struct StmTim*)TIM2_BASE;
+    struct StmTim *tim = (struct StmTim*)TIM2_BASE;
 
     /* int clear */
-    block->SR &=~ 1;
+    tim->SR &=~ 1;
 
     /* timer off */
-    block->CR1 &=~ 1;
+    tim->CR1 &=~ 1;
 
-    /* tell the caller */
+    /* call timer handler since it might need to reschedule an interrupt (eg: in case where initial delay was too far off & we were limited by timer length) */
     timIntHandler();
 }
 
@@ -237,5 +228,262 @@ void TIM2_IRQHandler(void)
 void SysTick_Handler(void);
 void SysTick_Handler(void)
 {
-    mTicks++;
+    mTimeAccumulated += platsystickTicksToNs(SysTick->LOAD + 1); //todo - incremenet by actual elapsed nanoseconds and not just "1"
 }
+
+bool platRequestDevInSleepMode(uint32_t sleepDevID, uint32_t maxWakeupTime)
+{
+    if (sleepDevID >= PLAT_MAX_SLEEP_DEVS || sleepDevID >= Stm32sleepDevNum)
+        return false;
+
+    mDevsMaxWakeTime[sleepDevID] = maxWakeupTime;
+    while (!atomicCmpXchg32bits(&mSleepDevsToKeepAlive, mSleepDevsToKeepAlive, mSleepDevsToKeepAlive | (1UL << sleepDevID)));
+
+    return true;
+}
+
+bool platReleaseDevInSleepMode(uint32_t sleepDevID)
+{
+    if (sleepDevID >= PLAT_MAX_SLEEP_DEVS || sleepDevID >= Stm32sleepDevNum)
+        return false;
+
+    while (!atomicCmpXchg32bits(&mSleepDevsToKeepAlive, mSleepDevsToKeepAlive, mSleepDevsToKeepAlive &~ (1UL << sleepDevID)));
+
+    return true;
+}
+
+static void platSetTimerAlarm(uint64_t delay) //delay at most that many nsec
+{
+    struct StmTim *tim = (struct StmTim*)TIM2_BASE;
+
+    //turn off timer to prevent interrupts now
+    tim->CR1 &=~ 1;
+
+    delay /= 1000;  //to microsecs
+    if (delay > 0xffff)
+        delay = 0xffff;
+
+    tim->CNT = delay;
+    tim->SR &=~ 1; //clear int
+    tim->CR1 |= 1;
+}
+
+bool platSleepClockRequest(uint64_t wakeupTime, uint32_t maxJitterPpm, uint32_t maxDriftPpm, uint32_t maxErrTotalPpm)
+{
+    uint64_t intState, curTime = timGetTime();
+
+    if (curTime >= wakeupTime)
+        return false;
+
+    intState = cpuIntsOff();
+
+    mMaxJitterPpm = maxJitterPpm;
+    mMaxDriftPpm = maxDriftPpm;
+    mMaxErrTotalPpm = maxErrTotalPpm;
+    mWakeupTime = wakeupTime;
+
+    //TODO: set an actual alarm here so that if we keep running and do not sleep till this is due, we still fire an interrupt for it!
+    platSetTimerAlarm(wakeupTime - curTime);
+
+    cpuIntsRestore(intState);
+
+    return true;
+}
+
+static bool sleepClockRtcPrepare(uint64_t delay, uint32_t acceptableJitter, uint32_t acceptableDrift, uint32_t maxAcceptableError, void *userData, uint64_t *savedData)
+{
+    pwrSetSleepType((uint32_t)userData);
+    *savedData = rtcGetTime();
+
+    return rtcSetWakeupTimer(delay, maxAcceptableError) >= 0;
+}
+
+static void sleepClockRtcWake(void *userData, uint64_t *savedData)
+{
+    mTimeAccumulated += rtcGetTime() - *savedData;
+}
+
+
+static bool sleepClockTmrPrepare(uint64_t delay, uint32_t acceptableJitter, uint32_t acceptableDrift, uint32_t maxAcceptableError, void *userData, uint64_t *savedData)
+{
+    pwrSetSleepType(stm32f411SleepModeSleep);
+    platRequestDevInSleepMode(Stm32sleepDevTim2, 0);
+
+    platSetTimerAlarm(delay);
+    *savedData = delay;
+
+    return true;
+}
+
+static void sleepClockTmrWake(void *userData, uint64_t *savedData)
+{
+    struct StmTim *tim = (struct StmTim*)TIM2_BASE;
+    uint32_t leftTicks;
+
+    //stop the counting;
+    tim->CR1 &=~ 1;
+
+    leftTicks = tim->CNT; //if we wake NOT from timer, only count the ticks that actually ticked as "time passed"
+    if (tim->SR & 1) //if there was an overflow, account for it
+        leftTicks -= *savedData; 
+
+    mTimeAccumulated += (*savedData - leftTicks) * 1000; //this clock runs at 1MHz
+
+    platReleaseDevInSleepMode(Stm32sleepDevTim2);
+}
+
+struct PlatSleepAndClockInfo {
+    uint64_t resolution;
+    uint32_t maxCounter;
+    uint32_t jitterPpm;
+    uint32_t driftPpm;
+    uint32_t maxWakeupTime;
+    uint32_t devsAvail; //what is available in sleep mode?
+    bool (*prepare)(uint64_t delay, uint32_t acceptableJitter, uint32_t acceptableDrift, uint32_t maxAcceptableError, void *userData, uint64_t *savedData);
+    void (*wake)(void *userData, uint64_t *savedData);
+    void *userData;
+} static const platSleepClocks[] = {
+
+    { /* RTC + LPLV STOP MODE */
+        .maxCounter = 0xffffffff,
+        .resolution = 1000000000ull/32768,
+        .jitterPpm = 0,
+        .driftPpm = 50,
+        .maxWakeupTime = 407000ull,
+        .prepare = sleepClockRtcPrepare,
+        .wake = sleepClockRtcWake,
+        .userData = (void*)stm32f411SleepModeStopLPLV,
+    },
+    { /* RTC + LPFD STOP MODE */
+        .maxCounter = 0xffffffff,
+        .resolution = 1000000000ull/32768,
+        .jitterPpm = 0,
+        .driftPpm = 50,
+        .maxWakeupTime = 130000ull,
+        .prepare = sleepClockRtcPrepare,
+        .wake = sleepClockRtcWake,
+        .userData = (void*)stm32f411SleepModeStopLPFD,
+    },
+    { /* RTC + MRFPD STOP MODE */
+        .maxCounter = 0xffffffff,
+        .resolution = 1000000000ull/32768,
+        .jitterPpm = 0,
+        .driftPpm = 50,
+        .maxWakeupTime = 111000ull,
+        .prepare = sleepClockRtcPrepare,
+        .wake = sleepClockRtcWake,
+        .userData = (void*)stm32f144SleepModeStopMRFPD,
+    },
+    { /* RTC + MR STOP MODE */
+        .maxCounter = 0xffffffff,
+        .resolution = 1000000000ull/32768,
+        .jitterPpm = 0,
+        .driftPpm = 50,
+        .maxWakeupTime = 14500ull,
+        .prepare = sleepClockRtcPrepare,
+        .wake = sleepClockRtcWake,
+        .userData = (void*)stm32f144SleepModeStopMR,
+    },
+    { /* TIM2 + SLEEP MODE */
+        .maxCounter = 0xffff,
+        .resolution = 1000000000ull/1000000,
+        .jitterPpm = 0,
+        .driftPpm = 30,
+        .maxWakeupTime = 12ull,
+        .devsAvail = (1 << Stm32sleepDevTim2) | (1 << Stm32sleepDevTim4) | (1 << Stm32sleepDevTim5),
+        .prepare = sleepClockTmrPrepare,
+        .wake = sleepClockTmrWake,
+    },
+
+    /* terminator */
+    {0},
+};
+
+
+void platSleep(void)
+{
+    uint64_t predecrement = 0, curTime = timGetTime(), length = mWakeupTime - curTime, intState;
+    const struct PlatSleepAndClockInfo *sleepClock, *leastBadOption = NULL;
+    uint64_t savedData;
+    uint32_t i;
+
+    //shortcut the sleep if it is time to wake up already
+    if (mWakeupTime && mWakeupTime < curTime)
+        return;
+
+    for (sleepClock = platSleepClocks; sleepClock->maxCounter; sleepClock++) {
+
+        bool potentialLeastBadOption = false;
+
+        //if we have timers, consider them
+        if (mWakeupTime) {
+
+            //calculate how much we WOULD predecerement by
+            predecrement = sleepClock->resolution + sleepClock->maxWakeupTime;
+
+            //skip options with too much jitter (after accounting for error
+            if (sleepClock->jitterPpm > mMaxJitterPpm)
+                continue;
+
+            //skip options that will take too long to wake up to be of use
+            if (sleepClock->maxWakeupTime > predecrement)
+                continue;
+
+            //skip options with too much  drift
+            if (sleepClock->driftPpm > mMaxDriftPpm)
+                continue;
+
+            //skip options that do not let us sleep enough, but save them for later if we simply must pick something
+            if (length / sleepClock->resolution > sleepClock->maxCounter && !leastBadOption)
+                potentialLeastBadOption = true;
+        }
+
+        //skip all options that do not keep enough deviceas awake
+        if ((sleepClock->devsAvail & mSleepDevsToKeepAlive) != mSleepDevsToKeepAlive)
+            continue;
+
+        //skip all options that wake up too slowly
+        for (i = 0; i < Stm32sleepDevNum; i++) {
+            if (!(mSleepDevsToKeepAlive & (1 << i)))
+                continue;
+            if (mDevsMaxWakeTime[i] < sleepClock->maxWakeupTime)
+                break;
+        }
+        if (i != Stm32sleepDevNum)
+            continue;
+
+        //if it will not let us sleep long enough save it as a possibility and go on
+        if (potentialLeastBadOption && !leastBadOption)
+            leastBadOption = sleepClock;
+        else //if it fits us perfectly, pick it
+            break;
+    }
+    if (!sleepClock->maxCounter)
+        sleepClock = leastBadOption;
+
+    //options? config it
+    if (sleepClock && sleepClock->prepare && !sleepClock->prepare(mWakeupTime ? mWakeupTime - curTime : 0, mMaxJitterPpm, mMaxDriftPpm, mMaxErrTotalPpm, sleepClock->userData, &savedData))
+        return;
+
+    //turn ints off in prep for sleep
+    intState = cpuIntsOff();
+
+    //sleep
+    SysTick->CTRL &= ~SysTick_CTRL_TICKINT_Msk;
+    asm volatile ("wfi\n"
+        "nop" :::"memory");
+
+    //wakeup
+    if (sleepClock->wake)
+        sleepClock->wake(sleepClock->userData, &savedData);
+
+    SysTick->CTRL |= SysTick_CTRL_TICKINT_Msk;
+
+    //re-enable interrupts and let the handlers run
+    cpuIntsRestore(intState);
+}
+
+
+
+
+

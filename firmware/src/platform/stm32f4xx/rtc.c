@@ -11,9 +11,6 @@
 #define NS_PER_S                    1000000000ULL
 #endif
 
-#ifndef US_PER_S
-#define US_PER_S                    1000000ULL
-#endif
 
 struct StmRtc
 {
@@ -175,10 +172,10 @@ int rtcSetWakeupTimer(uint64_t delay, int ppm)
 
     /* If PPM for OS timer is less than PPM of wakeup timer, can't use.
      * PPM of timer is calculated as jitter/(delay * 1,000,000) + drift PPM */
-    if ((ppm - RTC_PPM) * delay < (periodNs + RTC_WUT_NOISE_NS) * US_PER_S)
+    if ((ppm - RTC_PPM) * delay < (periodNs + RTC_WUT_NOISE_NS) * NS_PER_S)
         return RTC_ERR_ACCURACY_UNMET;
 
-    intState = platDisableInterrupts();
+    intState = cpuIntsOff();
 
     /* Enable RTC register write */
     RTC->WPR = 0xCA;
@@ -211,37 +208,31 @@ int rtcSetWakeupTimer(uint64_t delay, int ppm)
     /* Write-protect RTC registers */
     RTC->WPR = 0xFF;
 
-    platRestoreInterrupts(intState);
+    cpuIntsRestore(intState);
 
     return 0;
 }
 
 uint64_t rtcGetTime(void)
 {
-    static uint64_t drTime = 0ULL, trTime = 0ULL;
-    static uint32_t drCache = 0, trCache = 0;
+    static uint64_t time = 0;
     uint32_t dr, tr, ssr;
-    ssr = RTC->SSR;
+
+    ssr = RTC->SSR; // cleverness in hardware makes these reads atomic (one will nto change fromunder us while we read the other)
     tr = RTC->TR;
     dr = RTC->DR;
 
-    if (drCache != dr) {
-        drTime = ((((dr >> 4) & 0x3) * 10) + (dr & 0xF) - 1) * 86400ULL * US_PER_S;
-        drCache = dr;
-    }
+    time += ((((dr >> 4) & 0x3) * 10) + (dr & 0xF) - 1) * 86400ULL * NS_PER_S;
+    time += ((((tr >> 22) & 0x1) * 43200ULL) +
+              (((tr >> 20) & 0x3) * 36000ULL) +
+              (((tr >> 16) & 0xF) * 3600ULL) +
+              (((tr >> 12) & 0x7) * 600ULL) +
+              (((tr >> 8) & 0xF) * 60ULL) +
+              (((tr >> 4) & 0x7) * 10ULL) +
+              (((tr) & 0xF))) * NS_PER_S;
 
-    if (trCache != tr) {
-        trTime = ((((tr >> 22) & 0x1) * 43200ULL) +
-                  (((tr >> 20) & 0x3) * 36000ULL) +
-                  (((tr >> 16) & 0xF) * 3600ULL) +
-                  (((tr >> 12) & 0x7) * 600ULL) +
-                  (((tr >> 8) & 0xF) * 60ULL) +
-                  (((tr >> 4) & 0x7) * 10ULL) +
-                  (((tr) & 0xF))) * US_PER_S;
-        trCache = tr;
-    }
 
-    return drTime + trTime + ((RTC_PREDIV_S - ssr) * US_PER_S / (RTC_PREDIV_S + 1));
+    return time + ((RTC_PREDIV_S - ssr) * NS_PER_S / (RTC_PREDIV_S + 1));
 }
 
 void rtcSync(void)

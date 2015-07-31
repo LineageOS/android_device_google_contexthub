@@ -1,4 +1,5 @@
 #include <cpu/inc/atomicBitset.h>
+#include <plat/inc/rtc.h>
 #include <atomicBitset.h>
 #include <platform.h>
 #include <atomic.h>
@@ -6,7 +7,7 @@
 #include <stdio.h>
 #include <timer.h>
 #include <seos.h>
-#include <plat/inc/rtc.h>
+#include <cpu.h>
 
 
 struct Timer {
@@ -28,7 +29,7 @@ static volatile uint32_t mNextTimerId = 0;
 
 uint64_t timGetTime(void)
 {
-    return rtcGetTime();
+    return platGetTicks();
 }
 
 static struct Timer *timFindTimerById(uint32_t timId) /* no locks taken. be careful what you do with this */
@@ -42,46 +43,18 @@ static struct Timer *timFindTimerById(uint32_t timId) /* no locks taken. be care
     return NULL;
 }
 
-static bool timerSetAlarms(uint64_t nextTimer, uint64_t curTime, uint32_t maxJitterPpm, uint32_t maxDriftPpm, uint32_t maxErrTotalPpm)
-{
-    int ret;
-
-    //here the code to set next timer of some variety will live
-    //note that maxErrTotalPpm != maxDriftPpm + maxJitterPpm is quite possible since it is possible to have:
-    // timer A allowing 300ppm of jitter and 10pp of drift and timer B allowing 20ppm of jitter and 500ppm of drift
-    // in that case we'd see maxJitterPpm = 200, maxDriftPpm = 500, maxErrTotalPpm = 520  (MAX of all timers' allowable error totals)
-    //return true if timer was set. false if you failed (you will be called right back though. so false is usually reserved for cases
-    // like "it is too soon to set a timer")
-
-    if (curTime >= nextTimer) {
-        return false;
-    } else {
-        ret = rtcSetWakeupTimer((nextTimer - curTime) * 1000ULL, maxErrTotalPpm);
-        if (ret >= 0) {
-            return true;
-        } else if (ret == RTC_ERR_TOO_SMALL) {
-            platSetAlarm(nextTimer - curTime);
-            return true;
-        } else {
-            return false;
-        }
-    }
-
-    return true;
-}
-
-static void timFireAsNeededAndUpdateAlarms(void)
+static bool timFireAsNeededAndUpdateAlarms(void)
 {
     uint32_t maxDrift = 0, maxJitter = 0, maxErrTotal = 0;
-    bool somethingDone;
-    uint64_t nextTimer = 0;
+    bool somethingDone, totalSomethingDone = false;
+    uint64_t nextTimer;
     TimTimerCbkF cbkF;
-    uint64_t curTime;
     uint32_t i, id;
     void *cbkD;
 
     do {
         somethingDone = false;
+        nextTimer = 0;
 
         for (i = 0; i < MAX_TIMERS; i++) {
             if (!mTimers[i].id)
@@ -111,8 +84,16 @@ static void timFireAsNeededAndUpdateAlarms(void)
                     nextTimer = mTimers[i].expires;
             }
         }
-        curTime = timGetTime();
-    } while (somethingDone || (nextTimer && (curTime >= nextTimer || !timerSetAlarms(nextTimer, curTime, maxJitter, maxDrift, maxErrTotal))));
+
+        totalSomethingDone = totalSomethingDone || somethingDone;
+
+    //we loop while loop does something, or while (if next timer exists), it is due by the time loop ends, or platform code fails to set an alarm to wake us for it
+    } while (somethingDone || (nextTimer && (timGetTime() >= nextTimer || !platSleepClockRequest(nextTimer, maxJitter, maxDrift, maxErrTotal))));
+
+    if (!nextTimer)
+        platSleepClockRequest(0, 0, 0, 0);
+
+    return totalSomethingDone;
 }
 
 uint32_t timTimerSet(uint64_t length, uint32_t jitterPpm, uint32_t driftPpm, TimTimerCbkF cbk, void* data, bool oneShot)
@@ -151,13 +132,13 @@ uint32_t timTimerSet(uint64_t length, uint32_t jitterPpm, uint32_t driftPpm, Tim
 
 bool timTimerCancel(uint32_t timerId)
 {
-    uint64_t intState = platDisableInterrupts();
+    uint64_t intState = cpuIntsOff();
     struct Timer *t = timFindTimerById(timerId);
 
     if (t)
         t->id = 0; /* this disables it */
 
-    platRestoreInterrupts(intState);
+    cpuIntsRestore(intState);
 
     /* this frees struct */
     if (t) {
@@ -168,9 +149,9 @@ bool timTimerCancel(uint32_t timerId)
     return false;
 }
 
-void timIntHandler(void)
+bool timIntHandler(void)
 {
-    timFireAsNeededAndUpdateAlarms();
+    return timFireAsNeededAndUpdateAlarms();
 }
 
 void timInit(void)
