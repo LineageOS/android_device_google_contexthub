@@ -9,6 +9,7 @@ FLAGS += -DHEAP_SIZE=102400           #100K heap
 FLAGS += -DPLATFORM_HW_TYPE=0x416E   #'An' -> angler
 
 #board configuration shims
+SRCS += src/variant/$(VARIANT)/i2c.c
 SRCS += src/variant/$(VARIANT)/spi.c
 
 #linker script

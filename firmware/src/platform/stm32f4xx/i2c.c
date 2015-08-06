@@ -10,6 +10,7 @@
 
 #include <plat/inc/cmsis.h>
 #include <plat/inc/gpio.h>
+#include <plat/inc/i2c.h>
 #include <plat/inc/pwr.h>
 
 #include <cpu/inc/barrier.h>
@@ -144,18 +145,13 @@ struct StmI2cCfg {
 
     uint32_t clock;
 
-    GpioNum gpioScl;
-    uint8_t gpioSclAf;
-    GpioNum gpioSda;
-    uint8_t gpioSdaAf;
-    enum GpioPullMode gpioPull;
-
     IRQn_Type irqEv;
     IRQn_Type irqEr;
 };
 
 struct StmI2cDev {
     const struct StmI2cCfg *cfg;
+    const struct StmI2cBoardCfg *board;
     struct I2cStmState state;
 
     uint32_t next;
@@ -173,12 +169,6 @@ static const struct StmI2cCfg mStmI2cCfgs[] = {
 
         .clock = PERIPH_APB1_I2C1,
 
-        .gpioScl = GPIO_PB(8),
-        .gpioSclAf = GPIO_AF_I2C1,
-        .gpioSda = GPIO_PB(9),
-        .gpioSdaAf = GPIO_AF_I2C1,
-        .gpioPull = GPIO_PULL_NONE,
-
         .irqEv = I2C1_EV_IRQn,
         .irqEr = I2C1_ER_IRQn,
     },
@@ -194,12 +184,6 @@ static const struct StmI2cCfg mStmI2cCfgs[] = {
         .regs = (struct StmI2c *)I2C3_BASE,
 
         .clock = PERIPH_APB1_I2C3,
-
-        .gpioScl = GPIO_PA(8),
-        .gpioSclAf = GPIO_AF_I2C3_A,
-        .gpioSda = GPIO_PB(4),
-        .gpioSdaAf = GPIO_AF_I2C3_B,
-        .gpioPull = GPIO_PULL_NONE,
 
         .irqEv = I2C3_EV_IRQn,
         .irqEr = I2C3_ER_IRQn,
@@ -634,16 +618,21 @@ static void stmI2cIsrError(struct StmI2cDev *pdev)
 DECLARE_IRQ_HANDLERS(1);
 DECLARE_IRQ_HANDLERS(3);
 
-static inline void stmI2cGpioInit(struct Gpio *gpio, GpioNum num,
-        enum GpioPullMode pull, enum GpioAltFunc func)
+static inline void stmI2cGpioInit(struct Gpio *gpio,
+        const struct StmI2cBoardCfg *board, const struct StmI2cGpioCfg *cfg)
 {
-    gpioRequest(gpio, num);
-    gpioConfigAlt(gpio, GPIO_SPEED_LOW, pull, GPIO_OUT_OPEN_DRAIN, func);
+    gpioRequest(gpio, cfg->num);
+    gpioConfigAlt(gpio, board->gpioSpeed, board->gpioPull, GPIO_OUT_OPEN_DRAIN,
+            cfg->func);
 }
 
 int i2cMasterRequest(I2cBus busId, I2cSpeed speed)
 {
     if (busId >= ARRAY_SIZE(mStmI2cDevs))
+        return -EINVAL;
+
+    const struct StmI2cBoardCfg *board = boardStmI2cCfg(busId);
+    if (!board)
         return -EINVAL;
 
     struct StmI2cDev *pdev = &mStmI2cDevs[busId];
@@ -654,12 +643,13 @@ int i2cMasterRequest(I2cBus busId, I2cSpeed speed)
         state->mode = STM_I2C_MASTER;
 
         pdev->cfg = cfg;
+        pdev->board = board;
         pdev->next = 2;
         pdev->last = 1;
         atomicBitsetInit(mXfersValid, I2C_MAX_QUEUE_DEPTH);
 
-        stmI2cGpioInit(&pdev->scl, cfg->gpioScl, cfg->gpioPull, cfg->gpioSclAf);
-        stmI2cGpioInit(&pdev->sda, cfg->gpioSda, cfg->gpioPull, cfg->gpioSdaAf);
+        stmI2cGpioInit(&pdev->scl, board, &board->gpioScl);
+        stmI2cGpioInit(&pdev->sda, board, &board->gpioSda);
 
         pwrUnitClock(PERIPH_BUS_APB1, cfg->clock, true);
 
@@ -779,6 +769,10 @@ int i2cSlaveRequest(I2cBus busId, I2cAddr addr)
     if (busId >= ARRAY_SIZE(mStmI2cDevs))
         return -EINVAL;
 
+    const struct StmI2cBoardCfg *board = boardStmI2cCfg(busId);
+    if (!board)
+        return -EINVAL;
+
     struct StmI2cDev *pdev = &mStmI2cDevs[busId];
     const struct StmI2cCfg *cfg = &mStmI2cCfgs[busId];
 
@@ -787,9 +781,10 @@ int i2cSlaveRequest(I2cBus busId, I2cAddr addr)
 
         pdev->addr = addr;
         pdev->cfg = cfg;
+        pdev->board = board;
 
-        stmI2cGpioInit(&pdev->scl, cfg->gpioScl, cfg->gpioPull, cfg->gpioSclAf);
-        stmI2cGpioInit(&pdev->sda, cfg->gpioSda, cfg->gpioPull, cfg->gpioSdaAf);
+        stmI2cGpioInit(&pdev->scl, board, &board->gpioScl);
+        stmI2cGpioInit(&pdev->sda, board, &board->gpioSda);
 
         return 0;
     } else {
