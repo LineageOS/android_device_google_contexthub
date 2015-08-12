@@ -52,7 +52,8 @@ void evtQueueFree(struct EvtQueue* q)
     while (q->head) {
         t = q->head;
         q->head = q->head->next;
-        t->evtFreeF(t->evtData);
+        if (t->evtFreeF)
+            t->evtFreeF(t->evtData);
         slabAllocatorFree(q->evtsSlab, t);
     }
 
@@ -78,7 +79,8 @@ bool evtQueueEnqueue(struct EvtQueue* q, uint32_t evtType, void *evtData, EventF
             rec = rec->next;
 
         if (rec) {
-            rec->evtFreeF(rec->evtData);
+            if (rec->evtFreeF)
+                rec->evtFreeF(rec->evtData);
             if (rec->prev)
                 rec->prev->next = rec->next;
             else
