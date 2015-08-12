@@ -7,7 +7,7 @@ struct SlabAllocator {
 
     uint32_t itemSz;
     uint8_t *dataChunks;
-    struct AtomicBitset bitset;
+    struct AtomicBitset bitset[0];
 };
 
 struct SlabAllocator* slabAllocatorNew(uint32_t itemSz, uint32_t itemAlign, uint32_t numItems)
@@ -23,11 +23,11 @@ struct SlabAllocator* slabAllocatorNew(uint32_t itemSz, uint32_t itemAlign, uint
     dataSz = itemSz * numItems;
 
     /* allocate & init*/
-    allocator = (struct SlabAllocator*)heapAlloc(bitsetSz + dataSz);
+    allocator = (struct SlabAllocator*)heapAlloc(sizeof(struct SlabAllocator) + bitsetSz + dataSz);
     if (allocator) {
         allocator->itemSz = itemSz;
-        allocator->dataChunks = ((uint8_t*)allocator) + bitsetSz;
-        atomicBitsetInit(&allocator->bitset, numItems);
+        allocator->dataChunks = ((uint8_t*)allocator->bitset) + bitsetSz;
+        atomicBitsetInit(allocator->bitset, numItems);
     }
 
     return allocator;
@@ -40,7 +40,7 @@ void slabAllocatorDestroy(struct SlabAllocator *allocator)
 
 void* slabAllocatorAlloc(struct SlabAllocator *allocator)
 {
-    int32_t itemIdx = atomicBitsetFindClearAndSet(&allocator->bitset);
+    int32_t itemIdx = atomicBitsetFindClearAndSet(allocator->bitset);
 
     if (itemIdx < 0)
         return NULL;
@@ -55,15 +55,15 @@ void slabAllocatorFree(struct SlabAllocator *allocator, void* ptrP)
     uint32_t itemIdx = itemOffset / allocator->itemSz;
 
     //check for invalid inputs
-    if ((itemOffset % allocator->itemSz) || (itemIdx >= atomicBitsetGetNumBits(&allocator->bitset)) || !atomicBitsetGetBit(&allocator->bitset, itemIdx))
+    if ((itemOffset % allocator->itemSz) || (itemIdx >= atomicBitsetGetNumBits(allocator->bitset)) || !atomicBitsetGetBit(allocator->bitset, itemIdx))
         return;
 
-    atomicBitsetClearBit(&allocator->bitset, itemIdx);
+    atomicBitsetClearBit(allocator->bitset, itemIdx);
 }
 
 void* slabAllocatorGetNth(struct SlabAllocator *allocator, uint32_t idx)
 {
-    if (!atomicBitsetGetBit(&allocator->bitset, idx))
+    if (!atomicBitsetGetBit(allocator->bitset, idx))
         return NULL;
 
     return allocator->dataChunks + allocator->itemSz * idx;
