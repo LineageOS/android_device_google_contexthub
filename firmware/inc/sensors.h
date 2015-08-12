@@ -26,6 +26,7 @@ extern "C" {
 #define SENSOR_TYPE_LIN_ACCEL       10
 #define SENSOR_TYPE_STEP_COUNT      11
 #define SENSOR_TYPE_STEP_DETECT     12
+#define SENSOR_TYPE_TILT            13
 #define SENSOR_TYPE_FIRST_USER      64
 
 
