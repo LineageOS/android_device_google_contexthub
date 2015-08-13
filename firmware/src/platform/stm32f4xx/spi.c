@@ -65,6 +65,7 @@ struct StmSpiState {
     uint8_t bitsPerWord;
     uint8_t xferEnable;
 
+    uint16_t rxWord;
     uint16_t txWord;
 
     bool rxDone;
@@ -302,7 +303,7 @@ static int stmSpiRxTx(struct SpiDevice *dev, void *rxBuf, const void *txBuf,
     struct StmSpiDev *pdev = dev->pdata;
     struct StmSpi *regs = pdev->cfg->regs;
     struct StmSpiState *state = &pdev->state;
-    bool txMinc = true;
+    bool rxMinc = true, txMinc = true;
     uint32_t cr2 = SPI_CR2_TXDMAEN;
 
     if (atomicXchgByte(&state->xferEnable, true) == true)
@@ -311,14 +312,32 @@ static int stmSpiRxTx(struct SpiDevice *dev, void *rxBuf, const void *txBuf,
     if (stmSpiIsMaster(pdev))
         gpioSet(pdev->nss, 0);
 
-    state->rxDone = !rxBuf;
+    state->rxDone = false;
     state->txDone = false;
     state->nssChange = mode->nssChange;
 
+    /* In master mode, if RX is ignored at any point, then turning it on
+     * later may cause the SPI/DMA controllers to "receive" a stale byte
+     * sitting in a FIFO somewhere (even when their respective registers say
+     * their FIFOs are empty, and even if the SPI FIFO is explicitly cleared).
+     * Work around this by DMAing bytes we don't care about into a throwaway
+     * 1-word buffer.
+     *
+     * In slave mode, this specific WAR sometimes causes bigger problems
+     * (the first byte TXed is sometimes dropped or corrupted).  Slave mode
+     * has its own WARs below.
+     */
+    if (!rxBuf && stmSpiIsMaster(pdev)) {
+        rxBuf = &state->rxWord;
+        rxMinc = false;
+    }
+
     if (rxBuf) {
         stmSpiStartDma(pdev, &pdev->board->dmaRx, rxBuf, mode->bitsPerWord,
-                true, size, stmSpiRxDone, true);
+                rxMinc, size, stmSpiRxDone, true);
         cr2 |= SPI_CR2_RXDMAEN;
+    } else {
+        state->rxDone = true;
     }
 
     if (!txBuf) {
