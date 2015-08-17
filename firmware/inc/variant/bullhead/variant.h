@@ -6,7 +6,7 @@ extern "C" {
 #endif
 
 //we have LSE in bullhead
-#define HAVE_LSE                    true
+#define RTC_CLK                     RTC_CLK_LSE
 
 //spi bus for comms
 #define PLATFORM_HOST_INTF_SPI_BUS  0

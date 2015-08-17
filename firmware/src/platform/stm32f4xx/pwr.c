@@ -1,5 +1,6 @@
 #include <cpu/inc/barrier.h>
 #include <plat/inc/pwr.h>
+#include <plat/inc/rtc.h>
 #include <stddef.h>
 
 struct StmRcc {
@@ -47,6 +48,8 @@ struct StmPwr {
 /* RCC bit definitions */
 #define RCC_BDCR_LSEON      0x00000001UL
 #define RCC_BDCR_LSERDY     0x00000002UL
+#define RCC_BDCR_LSEBYP     0x00000004UL
+#define RCC_BDCR_LSEMOD     0x00000008UL
 #define RCC_BDCR_RTCSEL_LSE 0x00000100UL
 #define RCC_BDCR_RTCSEL_LSI 0x00000200UL
 #define RCC_BDCR_RTCEN      0x00008000UL
@@ -119,7 +122,7 @@ uint32_t pwrGetBusSpeed(uint32_t bus)
     return 0;
 }
 
-void pwrEnableAndClockRtc(bool lse)
+void pwrEnableAndClockRtc(enum RtcClock rtcClock)
 {
     /* Enable power clock */
     RCC->APB1ENR |= PERIPH_APB1_PWR;
@@ -132,15 +135,22 @@ void pwrEnableAndClockRtc(bool lse)
     pwrEnableWriteBackupDomainRegs();
     /* Prevent compiler reordering across this boundary. */
     mem_reorder_barrier();
-    if (lse) {
-        /* Set LSE as backup domain clock source */
-        RCC->BDCR |= RCC_BDCR_LSEON;
+    if (rtcClock == RTC_CLK_LSE || rtcClock == RTC_CLK_LSE_BYPASS) {
+        /* Disable LSI */
+        RCC->CSR &= ~RCC_CSR_LSION;
+        if (rtcClock == RTC_CLK_LSE) {
+            /* Set LSE as backup domain clock source */
+            RCC->BDCR |= RCC_BDCR_LSEON;
+        } else {
+            /* Set LSE as backup domain clock source and enable bypass */
+            RCC->BDCR |= RCC_BDCR_LSEON | RCC_BDCR_LSEBYP;
+        }
         /* Wait for LSE to be ready */
         while ((RCC->BDCR & RCC_BDCR_LSERDY) == 0);
         /* Set LSE as RTC clock source */
         RCC->BDCR |= RCC_BDCR_RTCSEL_LSE;
     } else {
-        /* Set LSI as backup domain clock source */
+        /* Enable LSI */
         RCC->CSR |= RCC_CSR_LSION;
         /* Wait for LSI to be ready */
         while ((RCC->CSR & RCC_CSR_LSIRDY) == 0);

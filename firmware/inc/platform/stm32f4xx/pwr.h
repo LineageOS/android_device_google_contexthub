@@ -7,6 +7,7 @@ extern "C" {
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <plat/inc/rtc.h>
 
 /* busses */
 #define PERIPH_BUS_AHB1               0
@@ -138,17 +139,12 @@ extern "C" {
 #define DMA2_BASE                     0x40026400UL
 #define DBG_BASE                      0xE0042000UL
 
-
-
-
-
-
 /* funcs */
 void pwrSystemInit(void);
 void pwrUnitClock(uint32_t bus, uint32_t unit, bool on);
 void pwrUnitReset(uint32_t bus, uint32_t unit, bool on);
 uint32_t pwrGetBusSpeed(uint32_t bus);
-void pwrEnableAndClockRtc(bool lse);
+void pwrEnableAndClockRtc(enum RtcClock);
 void pwrEnableWriteBackupDomainRegs(void);
 
 #ifdef __cplusplus

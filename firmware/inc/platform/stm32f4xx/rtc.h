@@ -8,6 +8,13 @@ extern "C" {
 #include <stdint.h>
 #include <inc/seos.h>
 
+enum RtcClock
+{
+    RTC_CLK_LSI,
+    RTC_CLK_LSE,
+    RTC_CLK_LSE_BYPASS,
+};
+
 #define RTC_ERR_TOO_BIG         -1
 #define RTC_ERR_TOO_SMALL       -2
 #define RTC_ERR_INTERNAL        -3
