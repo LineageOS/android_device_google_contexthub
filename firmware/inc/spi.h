@@ -36,63 +36,37 @@ struct SpiMode {
     bool nssChange;
 };
 
+struct SpiPacket {
+    void *rxBuf;
+    const void *txBuf;
+    size_t size;
+};
+
+/**
+ * NOTE:
+ *
+ * To avoid copies, spiMasterRxTx() and spiSlaveRxTx() transfer ownership of
+ * packets[] to the SPI driver.  The SPI driver returns ownership when the
+ * callback is called.
+ *
+ * The caller MUST NOT pass packets[] allocated on the stack, and MUST NOT
+ * deallocate or otherwise mutate packets[] in the meantime.
+ */
+
 int spiMasterRxTx(uint8_t busId, spi_cs_t cs,
-        void *rxBuf[], const void *txBuf[], size_t size[], size_t n,
+        const struct SpiPacket packets[], size_t n,
         const struct SpiMode *mode, SpiCbkF callback,
         void *cookie);
-
-static inline int spiMasterRx(uint8_t busId, spi_cs_t cs,
-        void *buf, size_t size, const struct SpiMode *mode,
-        SpiCbkF callback, void *cookie)
-{
-    void *rxBuf[1] = {buf};
-    const void *txBuf[1] = {NULL};
-    size_t sizes[1] = {size};
-    return spiMasterRxTx(busId, cs, rxBuf, txBuf, sizes, 1, mode,
-            callback, cookie);
-}
-
-static inline int spiMasterTx(uint8_t busId, spi_cs_t cs,
-        const void *buf, size_t size, const struct SpiMode *mode,
-        SpiCbkF callback, void *cookie)
-{
-    void *rxBuf[1] = {NULL};
-    const void *txBuf[1] = {buf};
-    size_t sizes[1] = {size};
-    return spiMasterRxTx(busId, cs, rxBuf, txBuf, sizes, 1, mode,
-            callback, cookie);
-}
 
 int spiSlaveRequest(uint8_t busId, const struct SpiMode *mode,
         struct SpiDevice **dev);
 
 int spiSlaveRxTx(struct SpiDevice *dev,
-        void *rxBuf[], const void *txBuf[], size_t size[], size_t n,
+        const struct SpiPacket packets[], size_t n,
         SpiCbkF callback, void *cookie);
 
 int spiSlaveWaitForInactive(struct SpiDevice *dev, SpiCbkF callback,
         void *cookie);
 
 int spiSlaveRelease(struct SpiDevice *dev);
-
-static inline int spiSlaveRx(struct SpiDevice *dev,
-        void *buf, size_t size,
-        SpiCbkF callback, void *cookie)
-{
-    void *rxBuf[1] = {buf};
-    const void *txBuf[1] = {NULL};
-    size_t sizes[1] = {size};
-    return spiSlaveRxTx(dev, rxBuf, txBuf, sizes, 1, callback, cookie);
-}
-
-static inline int spiSlaveTx(struct SpiDevice *dev,
-        const void *buf, size_t size,
-        SpiCbkF callback, void *cookie)
-{
-    void *rxBuf[1] = {NULL};
-    const void *txBuf[1] = {buf};
-    size_t sizes[1] = {size};
-    return spiSlaveRxTx(dev, rxBuf, txBuf, sizes, 1, callback, cookie);
-}
-
 #endif /* __SPI_H */

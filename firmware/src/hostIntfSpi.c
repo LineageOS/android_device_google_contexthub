@@ -10,6 +10,8 @@ static void *gRxBuf;
 static size_t gRxSize;
 static size_t gTxSize;
 
+static struct SpiPacket gPacket;
+
 static const struct SpiMode gSpiMode = {
     .cpol = SPI_CPOL_IDLE_LO,
     .cpha = SPI_CPHA_LEADING_EDGE,
@@ -40,7 +42,11 @@ static void hostIntfSpiInactiveCallback(void *cookie, int err)
         return;
     }
 
-    err = spiSlaveRx(gSpi, gRxBuf, gRxSize, hostIntfSpiRxCallback, callback);
+    gPacket.rxBuf = gRxBuf;
+    gPacket.txBuf = NULL;
+    gPacket.size = gRxSize;
+
+    err = spiSlaveRxTx(gSpi, &gPacket, 1, hostIntfSpiRxCallback, callback);
     if (err < 0)
         callback(0, err);
 }
@@ -63,7 +69,12 @@ static int hostIntfSpiTxPacket(const void *txBuf, size_t txSize,
 {
     ((uint8_t *)txBuf)[txSize] = NANOHUB_PREAMBLE_BYTE;
     gTxSize = txSize;
-    return spiSlaveTx(gSpi, txBuf, txSize + 1, hostIntfSpiTxCallback,
+
+    gPacket.rxBuf = NULL;
+    gPacket.txBuf = txBuf;
+    gPacket.size = txSize + 1;
+
+    return spiSlaveRxTx(gSpi, &gPacket, 1, hostIntfSpiTxCallback,
             callback);
 }
 

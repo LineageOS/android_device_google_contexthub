@@ -9,9 +9,7 @@
 struct SpiDeviceState {
     struct SpiDevice dev;
 
-    void **rxBuf;
-    const void **txBuf;
-    size_t *size;
+    const struct SpiPacket *packets;
     size_t n;
     size_t currentBuf;
     struct SpiMode mode;
@@ -34,8 +32,6 @@ static void spiSlaveNext(struct SpiDeviceState *state);
 static void spiSlaveIdle(struct SpiDeviceState *state, int err);
 static void spiSlaveDone(struct SpiDeviceState *state);
 
-static void spiBufsFree(struct SpiDeviceState *state);
-
 static int spiMasterStart(struct SpiDeviceState *state,
         spi_cs_t cs, const struct SpiMode *mode)
 {
@@ -50,8 +46,8 @@ static int spiMasterStart(struct SpiDeviceState *state,
             return err;
     }
 
-    return dev->ops->masterRxTx(dev, state->rxBuf[0], state->txBuf[0],
-            state->size[0], mode);
+    return dev->ops->masterRxTx(dev, state->packets[0].rxBuf,
+            state->packets[0].txBuf, state->packets[0].size, mode);
 }
 
 void spi_masterStartAsync_done(struct SpiDevice *dev, int err)
@@ -73,9 +69,9 @@ static void spiMasterNext(struct SpiDeviceState *state)
     }
 
     size_t i = state->currentBuf;
-    void *rxBuf = state->rxBuf[i];
-    const void *txBuf = state->txBuf[i];
-    size_t size = state->size[i];
+    void *rxBuf = state->packets[i].rxBuf;
+    const void *txBuf = state->packets[i].txBuf;
+    size_t size = state->packets[i].size;
     const struct SpiMode *mode = &state->mode;
 
     int err = dev->ops->masterRxTx(dev, rxBuf, txBuf, size, mode);
@@ -122,7 +118,6 @@ static void spiMasterDone(struct SpiDeviceState *state, int err)
     SpiCbkF callback = state->rxTxCallback;
     void *cookie = state->rxTxCookie;
 
-    spiBufsFree(state);
     if (dev->ops->release)
         dev->ops->release(dev);
     heapFree(state);
@@ -198,9 +193,9 @@ static void spiSlaveNext(struct SpiDeviceState *state)
     }
 
     size_t i = state->currentBuf;
-    void *rxBuf = state->rxBuf[i];
-    const void *txBuf = state->txBuf[i];
-    size_t size = state->size[i];
+    void *rxBuf = state->packets[i].rxBuf;
+    const void *txBuf = state->packets[i].txBuf;
+    size_t size = state->packets[i].size;
     const struct SpiMode *mode = &state->mode;
 
     int err = dev->ops->slaveRxTx(dev, rxBuf, txBuf, size, mode);
@@ -217,7 +212,6 @@ static void spiSlaveIdle(struct SpiDeviceState *state, int err)
     if (!err)
         err = dev->ops->slaveIdle(dev, &state->mode);
 
-    spiBufsFree(state);
     callback(cookie, err);
 }
 
@@ -237,21 +231,10 @@ static void spiSlaveDone(struct SpiDeviceState *state)
 }
 
 static int spiSetupRxTx(struct SpiDeviceState *state,
-        void *rxBuf[], const void *txBuf[], size_t size[], size_t n,
+        const struct SpiPacket packets[], size_t n,
         SpiCbkF callback, void *cookie)
 {
-    state->rxBuf = heapAlloc(n * sizeof(*rxBuf));
-    state->txBuf = heapAlloc(n * sizeof(*txBuf));
-    state->size = heapAlloc(n * sizeof(*size));
-
-    if (!state->rxBuf || !state->txBuf || !state->size) {
-        spiBufsFree(state);
-        return -ENOMEM;
-    }
-
-    memcpy(state->rxBuf, rxBuf, n * sizeof(*rxBuf));
-    memcpy(state->txBuf, txBuf, n * sizeof(*txBuf));
-    memcpy(state->size, size, n * sizeof(*size));
+    state->packets = packets;
     state->n = n;
     state->currentBuf = 0;
     state->rxTxCallback = callback;
@@ -260,15 +243,8 @@ static int spiSetupRxTx(struct SpiDeviceState *state,
     return 0;
 }
 
-static void spiBufsFree(struct SpiDeviceState *state)
-{
-    heapFree(state->rxBuf);
-    heapFree(state->txBuf);
-    heapFree(state->size);
-}
-
 int spiMasterRxTx(uint8_t busId, spi_cs_t cs,
-        void *rxBuf[], const void *txBuf[], size_t size[], size_t n,
+        const struct SpiPacket packets[], size_t n,
         const struct SpiMode *mode, SpiCbkF callback,
         void *cookie)
 {
@@ -291,7 +267,7 @@ int spiMasterRxTx(uint8_t busId, spi_cs_t cs,
         goto err_opsupp;
     }
 
-    ret = spiSetupRxTx(state, rxBuf, txBuf, size, n, callback, cookie);
+    ret = spiSetupRxTx(state, packets, n, callback, cookie);
     if (ret < 0)
         goto err_opsupp;
 
@@ -299,12 +275,10 @@ int spiMasterRxTx(uint8_t busId, spi_cs_t cs,
 
     ret = spiMasterStart(state, cs, mode);
     if (ret < 0)
-        goto err_start;
+        goto err_opsupp;
 
     return 0;
 
-err_start:
-    spiBufsFree(state);
 err_opsupp:
     if (dev->ops->release)
         dev->ops->release(dev);
@@ -351,7 +325,7 @@ err_request:
 }
 
 int spiSlaveRxTx(struct SpiDevice *dev,
-        void *rxBuf[], const void *txBuf[], size_t size[], size_t n,
+        const struct SpiPacket packets[], size_t n,
         SpiCbkF callback, void *cookie)
 {
     struct SpiDeviceState *state = SPI_DEVICE_TO_STATE(dev);
@@ -362,12 +336,12 @@ int spiSlaveRxTx(struct SpiDevice *dev,
     if (state->err)
         return state->err;
 
-    int ret = spiSetupRxTx(state, rxBuf, txBuf, size, n, callback, cookie);
+    int ret = spiSetupRxTx(state, packets, n, callback, cookie);
     if (ret < 0)
         return ret;
 
-    return dev->ops->slaveRxTx(dev, state->rxBuf[0], state->txBuf[0],
-            state->size[0], &state->mode);
+    return dev->ops->slaveRxTx(dev, state->packets[0].rxBuf,
+            state->packets[0].txBuf, state->packets[0].size, &state->mode);
 }
 
 int spiSlaveWaitForInactive(struct SpiDevice *dev, SpiCbkF callback,
