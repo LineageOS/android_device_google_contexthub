@@ -118,7 +118,7 @@ static void sensorReconfig(struct Sensor* s, uint32_t newHwRate)
     }
     else if (s->currentRate == SENSOR_RATE_OFF) {
         /* if it was off or is off, tell it to come on */
-        if (!s->si->ops.sensorPower(true))
+        if (s->si->ops.sensorPower(true))
             s->currentRate = SENSOR_RATE_POWERING_ON;
     }
     else if (s->currentRate == SENSOR_RATE_POWERING_OFF) {
@@ -134,7 +134,7 @@ static void sensorReconfig(struct Sensor* s, uint32_t newHwRate)
     }
     else {
         /* powering off */
-        if (!s->si->ops.sensorPower(false))
+        if (s->si->ops.sensorPower(false))
             s->currentRate = SENSOR_RATE_POWERING_OFF;
     }
 }
