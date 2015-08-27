@@ -114,13 +114,8 @@ void spiMasterStopAsyncDone(struct SpiDevice *dev, int err)
 
 static void spiMasterDone(struct SpiDeviceState *state, int err)
 {
-    struct SpiDevice *dev = &state->dev;
     SpiCbkF callback = state->rxTxCallback;
     void *cookie = state->rxTxCookie;
-
-    if (dev->ops->release)
-        dev->ops->release(dev);
-    heapFree(state);
 
     callback(cookie, err);
 }
@@ -243,15 +238,9 @@ static int spiSetupRxTx(struct SpiDeviceState *state,
     return 0;
 }
 
-int spiMasterRxTx(uint8_t busId, spi_cs_t cs,
-        const struct SpiPacket packets[], size_t n,
-        const struct SpiMode *mode, SpiCbkF callback,
-        void *cookie)
+int spiMasterRequest(uint8_t busId, struct SpiDevice **dev_out)
 {
     int ret = 0;
-
-    if (!n)
-        return -EINVAL;
 
     struct SpiDeviceState *state = heapAlloc(sizeof(*state));
     if (!state)
@@ -267,16 +256,7 @@ int spiMasterRxTx(uint8_t busId, spi_cs_t cs,
         goto err_opsupp;
     }
 
-    ret = spiSetupRxTx(state, packets, n, callback, cookie);
-    if (ret < 0)
-        goto err_opsupp;
-
-    state->mode = *mode;
-
-    ret = spiMasterStart(state, cs, mode);
-    if (ret < 0)
-        goto err_opsupp;
-
+    *dev_out = dev;
     return 0;
 
 err_opsupp:
@@ -285,6 +265,40 @@ err_opsupp:
 err_request:
     heapFree(state);
     return ret;
+}
+
+int spiMasterRxTx(struct SpiDevice *dev, spi_cs_t cs,
+        const struct SpiPacket packets[], size_t n,
+        const struct SpiMode *mode, SpiCbkF callback,
+        void *cookie)
+{
+    struct SpiDeviceState *state = SPI_DEVICE_TO_STATE(dev);
+    int ret = 0;
+
+    if (!n)
+        return -EINVAL;
+
+    ret = spiSetupRxTx(state, packets, n, callback, cookie);
+    if (ret < 0)
+        return ret;
+
+    state->mode = *mode;
+
+    return spiMasterStart(state, cs, mode);
+}
+
+int spiMasterRelease(struct SpiDevice *dev)
+{
+    struct SpiDeviceState *state = SPI_DEVICE_TO_STATE(dev);
+
+    if (dev->ops->release) {
+        int ret = dev->ops->release(dev);
+        if (ret < 0)
+            return ret;
+    }
+
+    heapFree(state);
+    return 0;
 }
 
 int spiSlaveRequest(uint8_t busId, const struct SpiMode *mode,

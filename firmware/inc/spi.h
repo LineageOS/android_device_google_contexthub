@@ -53,10 +53,14 @@ struct SpiPacket {
  * deallocate or otherwise mutate packets[] in the meantime.
  */
 
-int spiMasterRxTx(uint8_t busId, spi_cs_t cs,
+int spiMasterRequest(uint8_t busId, struct SpiDevice **dev);
+
+int spiMasterRxTx(struct SpiDevice *dev, spi_cs_t cs,
         const struct SpiPacket packets[], size_t n,
         const struct SpiMode *mode, SpiCbkF callback,
         void *cookie);
+
+int spiMasterRelease(struct SpiDevice *dev);
 
 int spiSlaveRequest(uint8_t busId, const struct SpiMode *mode,
         struct SpiDevice **dev);
