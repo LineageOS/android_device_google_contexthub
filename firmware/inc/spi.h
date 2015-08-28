@@ -40,6 +40,7 @@ struct SpiPacket {
     void *rxBuf;
     const void *txBuf;
     size_t size;
+    uint32_t delay;
 };
 
 /**

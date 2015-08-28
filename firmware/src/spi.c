@@ -5,6 +5,7 @@
 #include <cpu.h>
 #include <spi.h>
 #include <spi_priv.h>
+#include <timer.h>
 
 struct SpiDeviceState {
     struct SpiDevice dev;
@@ -59,6 +60,11 @@ void spi_masterStartAsync_done(struct SpiDevice *dev, int err)
         spiMasterNext(state);
 }
 
+static void spiDelayCallback(uint32_t timerId, void *data)
+{
+    spiMasterNext((struct SpiDeviceState *)data);
+}
+
 static void spiMasterNext(struct SpiDeviceState *state)
 {
     struct SpiDevice *dev = &state->dev;
@@ -85,8 +91,12 @@ void spiMasterRxTxDone(struct SpiDevice *dev, int err)
     if (err) {
         spiMasterDone(state, err);
     } else {
-        state->currentBuf++;
-        spiMasterNext(state);
+        size_t i = state->currentBuf++;
+
+        if (state->packets[i].delay > 0)
+            timTimerSet(state->packets[i].delay, 0, 0, spiDelayCallback, state, true);
+        else
+            spiMasterNext(state);
     }
 }
 
