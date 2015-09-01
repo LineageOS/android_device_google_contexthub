@@ -1,14 +1,26 @@
 #find build target
 PLATFORM ?= stm32f4xx
 CPU ?= cortexm4f
-VARIANT ?= pike
 
 APP = nanohub
 
 #find makefiles
 MAKE_PLAT = misc/platform/$(PLATFORM)/Makefile
 MAKE_CPU = misc/cpu/$(CPU)/Makefile
-MAKE_VAR = misc/variant/$(VARIANT)/Makefile
+
+#link paths
+ifdef VARIANT_PATH
+LINK_PATH_MISC = $(VARIANT_PATH)/misc
+LINK_PATH_SRC = $(VARIANT_PATH)/src
+LINK_PATH_INC = $(VARIANT_PATH)/inc
+else
+LINK_PATH_MISC = misc/variant/$(VARIANT)
+LINK_PATH_SRC = src/variant/$(VARIANT)
+LINK_PATH_INC = inc/variant/$(VARIANT)
+endif
+
+#variant makefile
+MAKE_VAR = $(LINK_PATH_MISC)/Makefile
 
 #top make target
 SRCS := 
@@ -71,9 +83,9 @@ links/c_$(CPU):
 links/v_$(VARIANT):
 	rm -rf links/variant links/v_*
 	mkdir -p links/variant
-	ln -s ../../misc/variant/$(VARIANT) links/variant/misc
-	ln -s ../../src/variant/$(VARIANT) links/variant/src
-	ln -s ../../inc/variant/$(VARIANT) links/variant/inc
+	ln -s ../../$(LINK_PATH_MISC) links/variant/misc
+	ln -s ../../$(LINK_PATH_SRC) links/variant/src
+	ln -s ../../$(LINK_PATH_INC) links/variant/inc
 	touch links/v_$(VARIANT)
 
 $(APP).elf: symlinks $(SRCS) $(DEPS)
