@@ -171,16 +171,16 @@ void cpuAppUnload(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo)
     heapFree((uint8_t*)platInfo->got - appHdr->got_start);
 }
 
-static uintptr_t __attribute__((naked)) callWithR10(const struct AppHdr *appHdr, void *funcOfst, void *got, uintptr_t arg1, uintptr_t arg2)
+static uintptr_t __attribute__((naked)) callWithR9(const struct AppHdr *appHdr, void *funcOfst, void *got, uintptr_t arg1, uintptr_t arg2)
 {
     asm volatile (
         "add  r12, r0, r1  \n"
         "mov  r0,  r3      \n"
         "ldr  r1,  [sp]    \n"
-        "push {r10, lr}    \n"
-        "mov  r10, r2      \n"
+        "push {r9, lr}     \n"
+        "mov  r9, r2       \n"
         "blx  r12          \n"
-        "pop  {r10, pc}    \n"
+        "pop  {r9, pc}     \n"
     );
 
     return 0; //dummy to fool gcc
@@ -189,7 +189,7 @@ static uintptr_t __attribute__((naked)) callWithR10(const struct AppHdr *appHdr,
 bool cpuAppInit(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo, uint32_t tid)
 {
     if (platInfo->got)
-        return callWithR10(appHdr, appHdr->funcs.init, platInfo->got, tid, 0);
+        return callWithR9(appHdr, appHdr->funcs.init, platInfo->got, tid, 0);
     else
         return appHdr->funcs.init(tid);
 }
@@ -197,7 +197,7 @@ bool cpuAppInit(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo, uint3
 void cpuAppEnd(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo)
 {
     if (platInfo->got)
-        (void)callWithR10(appHdr, appHdr->funcs.end, platInfo->got, 0, 0);
+        (void)callWithR9(appHdr, appHdr->funcs.end, platInfo->got, 0, 0);
     else
         appHdr->funcs.end();
 }
@@ -205,7 +205,7 @@ void cpuAppEnd(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo)
 void cpuAppHandle(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo, uint32_t evtType, const void* evtData)
 {
     if (platInfo->got)
-        (void)callWithR10(appHdr, appHdr->funcs.handle, platInfo->got, evtType, (uintptr_t)evtData);
+        (void)callWithR9(appHdr, appHdr->funcs.handle, platInfo->got, evtType, (uintptr_t)evtData);
     else
         appHdr->funcs.handle(evtType, evtData);
 }

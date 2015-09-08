@@ -10,7 +10,7 @@ FLAGS += -I. -fno-unwind-tables -fstack-reuse=all -ffunction-sections -fdata-sec
 FLAGS += -Wl,--gc-sections
 FLAGS += -Iinc/platform/$(PLATFORM)/cmsis
 
-APPFLAGS += -msingle-pic-base -mpic-register=r10 -nostartfiles -fpic -shared
+APPFLAGS += -msingle-pic-base -mpic-register=r9 -nostartfiles -fpic -shared
 
 #platform bootloader
 SRCS += src/platform/$(PLATFORM)/bl.c
