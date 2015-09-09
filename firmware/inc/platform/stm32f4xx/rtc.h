@@ -21,7 +21,7 @@ enum RtcClock
 #define RTC_ERR_ACCURACY_UNMET  -4
 
 void rtcInit(void);
-int rtcSetWakeupTimer(uint64_t delay, int ppm);
+int rtcSetWakeupTimer(uint64_t delay);
 uint64_t rtcGetTime(void);
 void rtcSync(void);
 

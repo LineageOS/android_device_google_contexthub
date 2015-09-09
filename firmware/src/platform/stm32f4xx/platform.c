@@ -272,7 +272,7 @@ bool platSleepClockRequest(uint64_t wakeupTime, uint32_t maxJitterPpm, uint32_t 
 {
     uint64_t intState, curTime = timGetTime();
 
-    if (curTime >= wakeupTime)
+    if (wakeupTime && curTime >= wakeupTime)
         return false;
 
     intState = cpuIntsOff();
@@ -283,7 +283,8 @@ bool platSleepClockRequest(uint64_t wakeupTime, uint32_t maxJitterPpm, uint32_t 
     mWakeupTime = wakeupTime;
 
     //TODO: set an actual alarm here so that if we keep running and do not sleep till this is due, we still fire an interrupt for it!
-    platSetTimerAlarm(wakeupTime - curTime);
+    if (wakeupTime)
+        platSetTimerAlarm(wakeupTime - curTime);
 
     cpuIntsRestore(intState);
 
@@ -295,7 +296,10 @@ static bool sleepClockRtcPrepare(uint64_t delay, uint32_t acceptableJitter, uint
     pwrSetSleepType((uint32_t)userData);
     *savedData = rtcGetTime();
 
-    return rtcSetWakeupTimer(delay, maxAcceptableError) >= 0;
+    if (delay == 0)
+        return true;
+    else
+        return rtcSetWakeupTimer(delay) >= 0;
 }
 
 static void sleepClockRtcWake(void *userData, uint64_t *savedData)
@@ -426,7 +430,7 @@ void platSleep(void)
                 continue;
 
             //skip options that will take too long to wake up to be of use
-            if (sleepClock->maxWakeupTime > predecrement)
+            if (predecrement > mWakeupTime - curTime)
                 continue;
 
             //skip options with too much  drift
@@ -482,8 +486,3 @@ void platSleep(void)
     //re-enable interrupts and let the handlers run
     cpuIntsRestore(intState);
 }
-
-
-
-
-

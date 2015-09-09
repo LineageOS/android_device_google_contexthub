@@ -127,9 +127,8 @@ void rtcInit(void)
 }
 
 /* Set calendar alarm to go off after delay has expired. uint64_t delay must
- * be in valid uint64_t format and must be less than 32 s.  A negative value
- * for the 'ppm' param indicates the alarm has no accuracy requirements. */
-int rtcSetWakeupTimer(uint64_t delay, int ppm)
+ * be in valid uint64_t format */
+int rtcSetWakeupTimer(uint64_t delay)
 {
     uint64_t intState;
 
@@ -169,11 +168,6 @@ int rtcSetWakeupTimer(uint64_t delay, int ppm)
         osLog(LOG_ERROR, "RTC delay impossible");
         return RTC_ERR_INTERNAL;
     }
-
-    /* If PPM for OS timer is less than PPM of wakeup timer, can't use.
-     * PPM of timer is calculated as jitter/(delay * 1,000,000) + drift PPM */
-    if ((ppm - RTC_PPM) * delay < (periodNs + RTC_WUT_NOISE_NS) * NS_PER_S)
-        return RTC_ERR_ACCURACY_UNMET;
 
     intState = cpuIntsOff();
 
