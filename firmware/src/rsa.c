@@ -121,6 +121,44 @@ const uint32_t* rsaPubOp(struct RsaState* state, const uint32_t *a, const uint32
     return state->tmpA;
 }
 
+#if defined(RSA_SUPPORT_PRIV_OP_LOWRAM) || defined (RSA_SUPPORT_PRIV_OP_BIGRAM)
+const uint32_t* rsaPrivOp(struct RsaState* state, const uint32_t *a, const uint32_t *b, const uint32_t *c)
+{
+    uint32_t i;
+
+    memcpy(state->tmpC, a, RSA_BYTES);  //tC will hold our powers of a
+
+    memset(state->tmpA, 0, RSA_BYTES * 2); //tA will hold result
+    state->tmpA[0] = 1;
+
+    for (i = 0; i < RSA_LEN; i++) {
+        //if the bit is set, multiply the current power of A into result
+        if (b[i / 32] & (1 << (i % 32))) {
+            memcpy(state->tmpB, state->tmpA, RSA_BYTES);
+            biMul(state->tmpA, state->tmpB, state->tmpC);
+            biMod(state->tmpA, c, state->tmpB);
+        }
+
+        //calculate the next power of a and modulus it
+#if defined(RSA_SUPPORT_PRIV_OP_LOWRAM)
+        memcpy(state->tmpB, state->tmpA, RSA_BYTES); //save tA
+        biMul(state->tmpA, state->tmpC, state->tmpC);
+        biMod(state->tmpA, c, state->tmpC);
+        memcpy(state->tmpC, state->tmpA, RSA_BYTES);
+        memcpy(state->tmpA, state->tmpB, RSA_BYTES); //restore tA
+#elif defined (RSA_SUPPORT_PRIV_OP_BIGRAM)
+        memcpy(state->tmpB, state->tmpC, RSA_BYTES);
+        biMul(state->tmpC, state->tmpB, state->tmpB);
+        biMod(state->tmpC, c, state->tmpB);
+#endif
+    }
+
+    return state->tmpA;
+}
+#endif
+
+
+
 
 
 
