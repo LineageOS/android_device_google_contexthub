@@ -49,6 +49,7 @@ static inline struct NanohubPacketFooter *nanohubGetPacketFooter(struct NanohubP
 #define NANOHUB_PAYLOAD_PREAMBLE_LEN  512
 
 #define NANOHUB_INT_BOOT_COMPLETE     0
+#define NANOHUB_INT_WAKE_COMPLETE     0
 #define NANOHUB_INT_WAKEUP            1
 #define NANOHUB_INT_NONWAKEUP         2
 #define NANOHUB_INT_CMD_WAIT          3

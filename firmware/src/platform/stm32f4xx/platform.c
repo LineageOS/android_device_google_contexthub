@@ -4,6 +4,8 @@
 #include <plat/inc/pwr.h>
 #include <plat/inc/rtc.h>
 #include <plat/inc/plat.h>
+#include <plat/inc/exti.h>
+#include <plat/inc/syscfg.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
@@ -79,6 +81,8 @@ static uint32_t mMaxJitterPpm = 0, mMaxDriftPpm = 0, mMaxErrTotalPpm = 0;
 static uint32_t mSleepDevsToKeepAlive = 0;
 static uint64_t mWakeupTime = 0;
 static uint32_t mDevsMaxWakeTime[PLAT_MAX_SLEEP_DEVS] = {0,};
+static struct Gpio mApWakeupGpio, mShWakeupGpio;
+static struct ChainedIsr mShWakeupIsr;
 
 
 void platUninitialize(void)
@@ -136,6 +140,17 @@ bool platLogPutcharF(void *userData, char ch)
     return true;
 }
 
+static bool platWakeupIsr(struct ChainedIsr *isr)
+{
+    if (!extiIsPendingGpio(&mShWakeupGpio))
+        return false;
+
+    extiClearPendingGpio(&mShWakeupGpio);
+    hostIntfSetInterrupt(NANOHUB_INT_WAKE_COMPLETE);
+
+    return true;
+}
+
 void platInitialize(void)
 {
     const uint32_t debugStateInSleepMode = 0x00000007; /* debug in all modes */
@@ -188,6 +203,15 @@ void platInitialize(void)
     SysTick->LOAD = 0x00FFFFFF;
     SysTick->VAL = 0;
     SysTick->CTRL = SysTick_CTRL_CLKSOURCE_Msk | SysTick_CTRL_TICKINT_Msk | SysTick_CTRL_ENABLE_Msk;
+
+    gpioRequest(&mApWakeupGpio, AP_INT_WAKEUP);
+
+    gpioRequest(&mShWakeupGpio, SH_INT_WAKEUP);
+    gpioConfigInput(&mShWakeupGpio, GPIO_SPEED_LOW, GPIO_PULL_NONE);
+    syscfgSetExtiPort(&mShWakeupGpio);
+    extiEnableIntGpio(&mShWakeupGpio, EXTI_TRIGGER_FALLING);
+    mShWakeupIsr.func = platWakeupIsr;
+    extiChainIsr(SH_EXTI_WAKEUP_IRQ, &mShWakeupIsr);
 }
 
 static uint64_t platsystickTicksToNs(uint32_t systickTicks)
@@ -404,6 +428,16 @@ struct PlatSleepAndClockInfo {
 };
 
 
+static bool platCanSleep(void)
+{
+    // don't go to sleep if the AP is (or will soon) be trying to talk to us
+    // mApWakeupGpio == 0:
+    //   AP is being woken. First thing it will do is read int status reg
+    // mShWakeupGpio == 0:
+    //   AP told us to wake up. Stay awake until it is done talking to us
+    return gpioGet(&mApWakeupGpio) && gpioGet(&mShWakeupGpio);
+}
+
 void platSleep(void)
 {
     uint64_t predecrement = 0, curTime = timGetTime(), length = mWakeupTime - curTime, intState;
@@ -412,7 +446,7 @@ void platSleep(void)
     uint32_t i;
 
     //shortcut the sleep if it is time to wake up already
-    if (mWakeupTime && mWakeupTime < curTime)
+    if (!platCanSleep() || (mWakeupTime && mWakeupTime < curTime))
         return;
 
     for (sleepClock = platSleepClocks; sleepClock->maxCounter; sleepClock++) {
@@ -471,18 +505,19 @@ void platSleep(void)
 
     //turn ints off in prep for sleep
     intState = cpuIntsOff();
+    if (platCanSleep()) {
 
-    //sleep
-    SysTick->CTRL &= ~SysTick_CTRL_TICKINT_Msk;
-    asm volatile ("wfi\n"
-        "nop" :::"memory");
+        //sleep
+        SysTick->CTRL &= ~SysTick_CTRL_TICKINT_Msk;
+        asm volatile ("wfi\n"
+            "nop" :::"memory");
 
-    //wakeup
-    if (sleepClock->wake)
-        sleepClock->wake(sleepClock->userData, &savedData);
+        //wakeup
+        if (sleepClock->wake)
+            sleepClock->wake(sleepClock->userData, &savedData);
 
-    SysTick->CTRL |= SysTick_CTRL_TICKINT_Msk;
-
+        SysTick->CTRL |= SysTick_CTRL_TICKINT_Msk;
+    }
     //re-enable interrupts and let the handlers run
     cpuIntsRestore(intState);
 }
