@@ -89,7 +89,7 @@ links/v_$(VARIANT):
 	touch links/v_$(VARIANT)
 
 $(APP).elf: symlinks $(SRCS) $(DEPS)
-	$(GCC) -o $(APP).elf $(FLAGS) $(OSFLAGS) $(SRCS)
+	$(GCC) -o $(APP).elf $(SRCS) $(OSFLAGS) $(FLAGS) -lm -lc -lgcc
 
 clean:
 	rm -rf $(DELIVERABLES) $(APP).elf links $(CLEANFILES)
