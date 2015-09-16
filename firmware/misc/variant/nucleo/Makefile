@@ -21,6 +21,9 @@ SRCS += src/fusion/fusion.c src/fusion/mat.c src/fusion/quat.c src/fusion/vec.c
 #accel, gyro and mag drivers
 SRCS += src/drivers/bosch_bmi160_bmm150/bosch_bmi160_bmm150.c src/drivers/bosch_bmi160_bmm150/mag_cal.c
 
+#orientation sensor driver
+SRCS += src/drivers/orientation/orientation.c
+
 #linker script
 LKR = misc/variant/common/stm32f411.lkr
 OSFLAGS += -Wl,-T $(LKR)
