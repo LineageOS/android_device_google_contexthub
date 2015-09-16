@@ -1,0 +1,85 @@
+#ifndef MAT_H_
+
+#define MAT_H_
+
+#include "vec.h"
+#include <sys/types.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+struct Mat33 {
+    float elem[3][3];
+
+};
+
+struct Size3 {
+    size_t elem[3];
+
+};
+
+struct Mat44 {
+    float elem[4][4];
+
+};
+
+struct Size4 {
+    size_t elem[4];
+
+};
+
+void initZeroMatrix(struct Mat33 *A);
+void initDiagonalMatrix(struct Mat33 *A, float x);
+
+void initMatrixColumns(
+        struct Mat33 *A, const struct Vec3 *v1, const struct Vec3 *v2, const struct Vec3 *v3);
+
+void mat33Apply(struct Vec3 *out, const struct Mat33 *A, const struct Vec3 *v);
+void mat33Multiply(struct Mat33 *out, const struct Mat33 *A, const struct Mat33 *B);
+void mat33ScalarMul(struct Mat33 *A, float c);
+
+void mat33Add(struct Mat33 *out, const struct Mat33 *A);
+void mat33Sub(struct Mat33 *out, const struct Mat33 *A);
+
+int mat33IsPositiveSemidefinite(const struct Mat33 *A, float tolerance);
+
+// out = A^(-1)
+void mat33Invert(struct Mat33 *out, const struct Mat33 *A);
+
+// out = A^T B
+void mat33MultiplyTransposed(
+        struct Mat33 *out, const struct Mat33 *A, const struct Mat33 *B);
+
+// out = A B^T
+void mat33MultiplyTransposed2(
+        struct Mat33 *out, const struct Mat33 *A, const struct Mat33 *B);
+
+// out = A^T
+void mat33Transpose(struct Mat33 *out, const struct Mat33 *A);
+
+void mat33DecomposeLup(struct Mat33 *LU, struct Size3 *pivot);
+
+void mat33SwapRows(struct Mat33 *A, const size_t i, const size_t j);
+
+void mat33Solve(const struct Mat33 *A, struct Vec3 *x, const struct Vec3 *b, const struct Size3 *pivot);
+
+void mat33GetEigenbasis(struct Mat33 *S, struct Vec3 *eigenvals, struct Mat33 *eigenvecs);
+
+size_t mat33Maxind(const struct Mat33 *A, size_t k);
+
+void mat33Rotate(struct Mat33 *A, float c, float s, size_t k, size_t l, size_t i, size_t j);
+
+void mat44Apply(struct Vec4 *out, const struct Mat44 *A, const struct Vec4 *v);
+
+void mat44DecomposeLup(struct Mat44 *LU, struct Size4 *pivot);
+
+void mat44SwapRows(struct Mat44 *A, const size_t i, const size_t j);
+
+void mat44Solve(const struct Mat44 *A, struct Vec4 *x, const struct Vec4 *b, const struct Size4 *pivot);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif  // MAT_H_
