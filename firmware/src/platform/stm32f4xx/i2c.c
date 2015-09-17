@@ -224,28 +224,28 @@ static inline void stmI2cPutXfer(struct StmI2cXfer *xfer)
         atomicBitsetClearBit(mXfersValid, xfer - mXfers);
 }
 
-static inline void i2cStmAckEnable(struct StmI2cDev *pdev)
+static inline void stmI2cAckEnable(struct StmI2cDev *pdev)
 {
     pdev->cfg->regs->CR1 |= I2C_CR1_ACK;
 }
 
-static inline void i2cStmAckDisable(struct StmI2cDev *pdev)
+static inline void stmI2cAckDisable(struct StmI2cDev *pdev)
 {
     pdev->cfg->regs->CR1 &= ~I2C_CR1_ACK;
 }
 
-static inline void i2cStmStopEnable(struct StmI2cDev *pdev)
+static inline void stmI2cStopEnable(struct StmI2cDev *pdev)
 {
     pdev->cfg->regs->CR1 |= I2C_CR1_STOP;
 }
 
-static inline void i2cStmIrqEnable(struct StmI2cDev *pdev,
+static inline void stmI2cIrqEnable(struct StmI2cDev *pdev,
         uint32_t mask)
 {
     pdev->cfg->regs->CR2 |= mask;
 }
 
-static inline void i2cStmIrqDisable(struct StmI2cDev *pdev,
+static inline void stmI2cIrqDisable(struct StmI2cDev *pdev,
         uint32_t mask)
 {
     pdev->cfg->regs->CR2 &= ~mask;
@@ -302,11 +302,11 @@ static inline void stmI2cSlaveIdle(struct StmI2cDev *pdev)
     struct I2cStmState *state = &pdev->state;
 
     state->slaveState = STM_I2C_SLAVE_RX_ARMED;
-    i2cStmAckEnable(pdev);
-    i2cStmIrqDisable(pdev, I2C_CR2_ITBUFEN | I2C_CR2_ITERREN);
+    stmI2cAckEnable(pdev);
+    stmI2cIrqDisable(pdev, I2C_CR2_ITBUFEN | I2C_CR2_ITERREN);
 }
 
-static inline void i2cStmRxDone(struct StmI2cDev *pdev)
+static inline void stmI2cSlaveRxDone(struct StmI2cDev *pdev)
 {
     struct I2cStmState *state = &pdev->state;
     size_t rxOffst = state->rx.offset;
@@ -315,7 +315,7 @@ static inline void i2cStmRxDone(struct StmI2cDev *pdev)
     state->rx.callback(state->rx.cookie, 0, rxOffst, 0);
 }
 
-static inline void i2cStmTxDone(struct StmI2cDev *pdev)
+static inline void stmI2cSlaveTxDone(struct StmI2cDev *pdev)
 {
     struct I2cStmState *state = &pdev->state;
     size_t txOffst = state->tx.offset;
@@ -324,7 +324,108 @@ static inline void i2cStmTxDone(struct StmI2cDev *pdev)
     state->tx.callback(state->tx.cookie, txOffst, 0, 0);
 }
 
-static inline void i2cStmTxRxDone(struct StmI2cDev *pdev)
+static void stmI2cSlaveTxNextByte(struct StmI2cDev *pdev)
+{
+    struct I2cStmState *state = &pdev->state;
+    struct StmI2c *regs = pdev->cfg->regs;
+
+    if (state->tx.preamble) {
+        regs->DR = state->tx.byte;
+        state->tx.offset++;
+    } else if (state->tx.offset < state->tx.size) {
+        regs->DR = state->tx.cbuf[state->tx.offset];
+        state->tx.offset++;
+    } else {
+        state->slaveState = STM_I2C_SLAVE_TX_ARMED;
+        stmI2cIrqDisable(pdev, I2C_CR2_ITBUFEN);
+        state->tx.callback(state->tx.cookie, state->tx.offset, 0, 0);
+    }
+}
+
+static void stmI2cSlaveAddrMatched(struct StmI2cDev *pdev)
+{
+    struct I2cStmState *state = &pdev->state;
+    struct StmI2c *regs = pdev->cfg->regs;
+
+    i2c_log_debug("addr");
+
+    if (state->slaveState == STM_I2C_SLAVE_RX_ARMED) {
+        state->slaveState = STM_I2C_SLAVE_RX;
+        stmI2cIrqEnable(pdev, I2C_CR2_ITBUFEN | I2C_CR2_ITERREN);
+    } else if (state->slaveState == STM_I2C_SLAVE_TX) {
+        stmI2cIrqEnable(pdev, I2C_CR2_ITBUFEN | I2C_CR2_ITERREN);
+    }
+    /* clear ADDR by doing a dummy reads from SR1 (already read) then SR2 */
+    (void)regs->SR2;
+}
+
+static void stmI2cSlaveStopRxed(struct StmI2cDev *pdev)
+{
+    struct StmI2c *regs = pdev->cfg->regs;
+
+    i2c_log_debug("stopf");
+
+    (void)regs->SR1;
+    stmI2cEnable(pdev);
+    /* clear STOPF by doing a dummy read from SR1 and strobing the PE bit */
+
+    stmI2cSlaveIdle(pdev);
+    stmI2cSlaveRxDone(pdev);
+}
+
+static inline void stmI2cSlaveRxBufNotEmpty(struct StmI2cDev *pdev)
+{
+    struct I2cStmState *state = &pdev->state;
+    struct StmI2c *regs = pdev->cfg->regs;
+    uint8_t data = regs->DR;
+
+    i2c_log_debug("rxne");
+
+    if (state->rx.offset < state->rx.size) {
+        state->rx.buf[state->rx.offset] = data;
+        state->rx.offset++;
+    } else {
+        stmI2cAckDisable(pdev);
+        /* TODO: error on overflow */
+    }
+}
+
+static void stmI2cSlaveTxBufEmpty(struct StmI2cDev *pdev)
+{
+    struct I2cStmState *state = &pdev->state;
+
+    i2c_log_debug("txe");
+
+    if (state->slaveState == STM_I2C_SLAVE_RX) {
+        state->slaveState = STM_I2C_SLAVE_TX_ARMED;
+        stmI2cIrqDisable(pdev, I2C_CR2_ITBUFEN);
+        stmI2cAckDisable(pdev);
+        stmI2cSlaveRxDone(pdev);
+        /* stmI2cTxNextByte() will happen when the task provides a
+           TX buffer; the I2C controller will stretch the clock until then */
+    } else {
+        stmI2cSlaveTxNextByte(pdev);
+    }
+}
+
+static void stmI2cSlaveNakRxed(struct StmI2cDev *pdev)
+{
+    struct I2cStmState *state = &pdev->state;
+    struct StmI2c *regs = pdev->cfg->regs;
+
+    i2c_log_debug("af");
+
+    if (state->slaveState == STM_I2C_SLAVE_TX) {
+        state->tx.offset--;
+        /* NACKs seem to be preceded by a spurious TXNE, so adjust the offset to
+           compensate (the corresponding byte written to DR was never actually
+           transmitted) */
+        stmI2cSlaveTxDone(pdev);
+    }
+    regs->SR1 &= ~I2C_SR1_AF;
+}
+
+static inline void stmI2cMasterTxRxDone(struct StmI2cDev *pdev)
 {
     struct I2cStmState *state = &pdev->state;
     struct StmI2c *regs = pdev->cfg->regs;
@@ -368,108 +469,7 @@ static inline void i2cStmTxRxDone(struct StmI2cDev *pdev)
     atomicWriteByte(&state->masterState, STM_I2C_MASTER_IDLE);
 }
 
-static void i2cStmTxNextByte(struct StmI2cDev *pdev)
-{
-    struct I2cStmState *state = &pdev->state;
-    struct StmI2c *regs = pdev->cfg->regs;
-
-    if (state->tx.preamble) {
-        regs->DR = state->tx.byte;
-        state->tx.offset++;
-    } else if (state->tx.offset < state->tx.size) {
-        regs->DR = state->tx.cbuf[state->tx.offset];
-        state->tx.offset++;
-    } else {
-        state->slaveState = STM_I2C_SLAVE_TX_ARMED;
-        i2cStmIrqDisable(pdev, I2C_CR2_ITBUFEN);
-        state->tx.callback(state->tx.cookie, state->tx.offset, 0, 0);
-    }
-}
-
-static void i2cStmSlaveAddrMatched(struct StmI2cDev *pdev)
-{
-    struct I2cStmState *state = &pdev->state;
-    struct StmI2c *regs = pdev->cfg->regs;
-
-    i2c_log_debug("addr");
-
-    if (state->slaveState == STM_I2C_SLAVE_RX_ARMED) {
-        state->slaveState = STM_I2C_SLAVE_RX;
-        i2cStmIrqEnable(pdev, I2C_CR2_ITBUFEN | I2C_CR2_ITERREN);
-    } else if (state->slaveState == STM_I2C_SLAVE_TX) {
-        i2cStmIrqEnable(pdev, I2C_CR2_ITBUFEN | I2C_CR2_ITERREN);
-    }
-    /* clear ADDR by doing a dummy reads from SR1 (already read) then SR2 */
-    (void)regs->SR2;
-}
-
-static void i2cStmSlaveStopRxed(struct StmI2cDev *pdev)
-{
-    struct StmI2c *regs = pdev->cfg->regs;
-
-    i2c_log_debug("stopf");
-
-    (void)regs->SR1;
-    stmI2cEnable(pdev);
-    /* clear STOPF by doing a dummy read from SR1 and strobing the PE bit */
-
-    stmI2cSlaveIdle(pdev);
-    i2cStmRxDone(pdev);
-}
-
-static inline void i2cStmSlaveRxBufNotEmpty(struct StmI2cDev *pdev)
-{
-    struct I2cStmState *state = &pdev->state;
-    struct StmI2c *regs = pdev->cfg->regs;
-    uint8_t data = regs->DR;
-
-    i2c_log_debug("rxne");
-
-    if (state->rx.offset < state->rx.size) {
-        state->rx.buf[state->rx.offset] = data;
-        state->rx.offset++;
-    } else {
-        i2cStmAckDisable(pdev);
-        /* TODO: error on overflow */
-    }
-}
-
-static void i2cStmSlaveTxBufEmpty(struct StmI2cDev *pdev)
-{
-    struct I2cStmState *state = &pdev->state;
-
-    i2c_log_debug("txe");
-
-    if (state->slaveState == STM_I2C_SLAVE_RX) {
-        state->slaveState = STM_I2C_SLAVE_TX_ARMED;
-        i2cStmIrqDisable(pdev, I2C_CR2_ITBUFEN);
-        i2cStmAckDisable(pdev);
-        i2cStmRxDone(pdev);
-        /* i2cStmTxNextByte() will happen when the task provides a
-           TX buffer; the I2C controller will stretch the clock until then */
-    } else {
-        i2cStmTxNextByte(pdev);
-    }
-}
-
-static void i2cStmSlaveNakRxed(struct StmI2cDev *pdev)
-{
-    struct I2cStmState *state = &pdev->state;
-    struct StmI2c *regs = pdev->cfg->regs;
-
-    i2c_log_debug("af");
-
-    if (state->slaveState == STM_I2C_SLAVE_TX) {
-        state->tx.offset--;
-        /* NACKs seem to be preceded by a spurious TXNE, so adjust the offset to
-           compensate (the corresponding byte written to DR was never actually
-           transmitted) */
-        i2cStmTxDone(pdev);
-    }
-    regs->SR1 &= ~I2C_SR1_AF;
-}
-
-static void i2cStmMasterSentStart(struct StmI2cDev *pdev)
+static void stmI2cMasterSentStart(struct StmI2cDev *pdev)
 {
     struct I2cStmState *state = &pdev->state;
     struct StmI2c *regs = pdev->cfg->regs;
@@ -480,13 +480,13 @@ static void i2cStmMasterSentStart(struct StmI2cDev *pdev)
             regs->DR = pdev->addr << 1;
         } else {
             atomicWriteByte(&state->masterState, STM_I2C_MASTER_RX_ADDR);
-            i2cStmAckEnable(pdev);
+            stmI2cAckEnable(pdev);
             regs->DR = (pdev->addr << 1) | 0x01;
         }
     }
 }
 
-static void i2cStmMasterSentAddr(struct StmI2cDev *pdev)
+static void stmI2cMasterSentAddr(struct StmI2cDev *pdev)
 {
     struct I2cStmState *state = &pdev->state;
     struct StmI2c *regs = pdev->cfg->regs;
@@ -499,15 +499,15 @@ static void i2cStmMasterSentAddr(struct StmI2cDev *pdev)
         atomicWriteByte(&state->masterState, STM_I2C_MASTER_TX_DATA);
     } else if (masterState == STM_I2C_MASTER_RX_ADDR) {
         if (state->rx.size == 1) // Generate NACK here for 1 byte transfers
-            i2cStmAckDisable(pdev);
+            stmI2cAckDisable(pdev);
         regs->SR2; // Clear ADDR
         if (state->rx.size == 1) // Generate STOP here for 1 byte transfers
-            i2cStmStopEnable(pdev);
+            stmI2cStopEnable(pdev);
         atomicWriteByte(&state->masterState, STM_I2C_MASTER_RX_DATA);
     }
 }
 
-static void i2cStmMasterTxRx(struct StmI2cDev *pdev)
+static void stmI2cMasterTxRx(struct StmI2cDev *pdev)
 {
     struct I2cStmState *state = &pdev->state;
     struct StmI2c *regs = pdev->cfg->regs;
@@ -520,8 +520,8 @@ static void i2cStmMasterTxRx(struct StmI2cDev *pdev)
                 atomicWriteByte(&state->masterState, STM_I2C_MASTER_START);
                 regs->CR1 |= I2C_CR1_START;
             } else {
-                i2cStmStopEnable(pdev);
-                i2cStmTxRxDone(pdev);
+                stmI2cStopEnable(pdev);
+                stmI2cMasterTxRxDone(pdev);
             }
         } else {
             regs->DR = state->tx.cbuf[state->tx.offset];
@@ -534,12 +534,12 @@ static void i2cStmMasterTxRx(struct StmI2cDev *pdev)
         if (state->rx.offset + 1 == state->rx.size) {
             regs->CR1 = (regs->CR1 & ~I2C_CR1_ACK) | I2C_CR1_STOP;
         } else if (state->rx.offset == state->rx.size) {
-            i2cStmTxRxDone(pdev);
+            stmI2cMasterTxRxDone(pdev);
         }
     }
 }
 
-static void i2cStmMasterNakRxed(struct StmI2cDev *pdev)
+static void stmI2cMasterNakRxed(struct StmI2cDev *pdev)
 {
     struct I2cStmState *state = &pdev->state;
     struct StmI2c *regs = pdev->cfg->regs;
@@ -550,8 +550,8 @@ static void i2cStmMasterNakRxed(struct StmI2cDev *pdev)
             masterState == STM_I2C_MASTER_RX_ADDR ||
             masterState == STM_I2C_MASTER_RX_DATA) {
         regs->SR1 &= ~I2C_SR1_AF;
-        i2cStmStopEnable(pdev);
-        i2cStmTxRxDone(pdev);
+        stmI2cStopEnable(pdev);
+        stmI2cMasterTxRxDone(pdev);
     }
 }
 
@@ -562,27 +562,27 @@ static void stmI2cIsrEvent(struct StmI2cDev *pdev)
 
     if (pdev->state.mode == STM_I2C_SLAVE) {
         if (sr1 & I2C_SR1_ADDR) {
-            i2cStmSlaveAddrMatched(pdev);
+            stmI2cSlaveAddrMatched(pdev);
         } else if (sr1 & I2C_SR1_RXNE) {
-            i2cStmSlaveRxBufNotEmpty(pdev);
+            stmI2cSlaveRxBufNotEmpty(pdev);
         } else if (sr1 & I2C_SR1_TXE) {
-            i2cStmSlaveTxBufEmpty(pdev);
+            stmI2cSlaveTxBufEmpty(pdev);
         } else if (sr1 & I2C_SR1_BTF) {
             if (regs->SR2 & I2C_SR2_TRA)
-                i2cStmSlaveTxBufEmpty(pdev);
+                stmI2cSlaveTxBufEmpty(pdev);
            else
-                i2cStmSlaveRxBufNotEmpty(pdev);
+                stmI2cSlaveRxBufNotEmpty(pdev);
         } else if (sr1 & I2C_SR1_STOPF) {
-            i2cStmSlaveStopRxed(pdev);
+            stmI2cSlaveStopRxed(pdev);
         }
         /* TODO: other flags */
     } else if (pdev->state.mode == STM_I2C_MASTER) {
         if (sr1 & I2C_SR1_SB)
-            i2cStmMasterSentStart(pdev);
+            stmI2cMasterSentStart(pdev);
         else if (sr1 & I2C_SR1_ADDR)
-            i2cStmMasterSentAddr(pdev);
+            stmI2cMasterSentAddr(pdev);
         else if (sr1 & (I2C_SR1_TXE | I2C_SR1_RXNE | I2C_SR1_BTF))
-            i2cStmMasterTxRx(pdev);
+            stmI2cMasterTxRx(pdev);
     }
 }
 
@@ -593,11 +593,11 @@ static void stmI2cIsrError(struct StmI2cDev *pdev)
 
     if (pdev->state.mode == STM_I2C_SLAVE) {
         if (sr1 & I2C_SR1_AF)
-            i2cStmSlaveNakRxed(pdev);
+            stmI2cSlaveNakRxed(pdev);
         /* TODO: other flags */
     } else if (pdev->state.mode == STM_I2C_MASTER) {
         if (sr1 & I2C_SR1_AF)
-            i2cStmMasterNakRxed(pdev);
+            stmI2cMasterNakRxed(pdev);
     }
 }
 
@@ -658,7 +658,7 @@ int i2cMasterRequest(I2cBus busId, I2cSpeed speed)
         pwrUnitReset(PERIPH_BUS_APB1, cfg->clock, true);
         pwrUnitReset(PERIPH_BUS_APB1, cfg->clock, false);
 
-        i2cStmIrqEnable(pdev, I2C_CR2_ITBUFEN | I2C_CR2_ITEVTEN | I2C_CR2_ITERREN);
+        stmI2cIrqEnable(pdev, I2C_CR2_ITBUFEN | I2C_CR2_ITEVTEN | I2C_CR2_ITERREN);
         stmI2cSpeedSet(pdev, speed);
         atomicWriteByte(&state->masterState, STM_I2C_MASTER_IDLE);
 
@@ -684,7 +684,7 @@ int i2cMasterRelease(I2cBus busId)
     if (state->mode == STM_I2C_MASTER) {
         if (atomicReadByte(&state->masterState) == STM_I2C_MASTER_IDLE) {
             state->mode = STM_I2C_DISABLED;
-            i2cStmIrqDisable(pdev, I2C_CR2_ITBUFEN | I2C_CR2_ITERREN | I2C_CR2_ITEVTEN);
+            stmI2cIrqDisable(pdev, I2C_CR2_ITBUFEN | I2C_CR2_ITERREN | I2C_CR2_ITEVTEN);
             stmI2cDisable(pdev);
             pwrUnitClock(PERIPH_BUS_APB1, cfg->clock, false);
             return 0;
@@ -802,8 +802,8 @@ int i2cSlaveRelease(I2cBus busId)
 
     if (pdev->state.mode == STM_I2C_SLAVE) {
         pdev->state.mode = STM_I2C_DISABLED;
-        i2cStmIrqDisable(pdev, I2C_CR2_ITBUFEN | I2C_CR2_ITERREN | I2C_CR2_ITEVTEN);
-        i2cStmAckDisable(pdev);
+        stmI2cIrqDisable(pdev, I2C_CR2_ITBUFEN | I2C_CR2_ITERREN | I2C_CR2_ITEVTEN);
+        stmI2cAckDisable(pdev);
         stmI2cDisable(pdev);
         pwrUnitClock(PERIPH_BUS_APB1, cfg->clock, false);
         return 0;
@@ -836,8 +836,8 @@ void i2cSlaveEnableRx(I2cBus busId, void *rxBuf, size_t rxSize,
 
         stmI2cEnable(pdev);
         cfg->regs->OAR1 = I2C_OAR1_ADD7(pdev->addr);
-        i2cStmIrqEnable(pdev, I2C_CR2_ITERREN | I2C_CR2_ITEVTEN);
-        i2cStmAckEnable(pdev);
+        stmI2cIrqEnable(pdev, I2C_CR2_ITERREN | I2C_CR2_ITEVTEN);
+        stmI2cAckEnable(pdev);
     }
 }
 
@@ -865,8 +865,8 @@ static int i2cSlaveTx(I2cBus busId, const void *txBuf, uint8_t byte,
 
         if (state->slaveState == STM_I2C_SLAVE_TX_ARMED) {
             state->slaveState = STM_I2C_SLAVE_TX;
-            i2cStmTxNextByte(pdev);
-            i2cStmIrqEnable(pdev, I2C_CR2_ITBUFEN);
+            stmI2cSlaveTxNextByte(pdev);
+            stmI2cIrqEnable(pdev, I2C_CR2_ITBUFEN);
         } else {
             state->slaveState = STM_I2C_SLAVE_TX;
         }
