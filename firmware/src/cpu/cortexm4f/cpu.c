@@ -6,6 +6,18 @@
 #include <string.h>
 
 
+#define HARD_FAULT_DROPBOX_MAGIC  0x31415926
+struct HardFaultDropbox {
+    uint32_t magic;
+    uint32_t r[16];
+    uint32_t sr, hfsr, cfsr;
+};
+
+static struct HardFaultDropbox __attribute__((section(".neverinit"))) mDropbox;
+
+
+
+
 //reloc types for this cpu type
 #define NANO_RELOC_TYPE_RAM	0
 #define NANO_RELOC_TYPE_FLASH	1
@@ -22,6 +34,23 @@ void cpuInit(void)
     /* FPU on */
     SCB->CPACR |= 0x00F00000;
 }
+
+
+void cpuInitLate(void)
+{
+    /* print and clear dropbox */
+    if (mDropbox.magic == HARD_FAULT_DROPBOX_MAGIC) {
+        uint32_t i;
+	osLog(LOG_INFO, "Hard Fault Dropbox not empty. Contents:\n");
+	for (i = 0; i < 16; i++)
+		osLog(LOG_INFO, "  R%02lu  = 0x%08lX\n", i, mDropbox.r[i]);
+        osLog(LOG_INFO, "  SR   = %08lX\n", mDropbox.sr);
+        osLog(LOG_INFO, "  HFSR = %08lX\n", mDropbox.hfsr);
+        osLog(LOG_INFO, "  CFSR = %08lX\n", mDropbox.cfsr);
+    }
+    mDropbox.magic = 0;
+}
+
 
 uint64_t cpuIntsOff(void)
 {
@@ -90,6 +119,20 @@ void __attribute__((naked)) SVC_Handler(void)
 
 static void __attribute__((used)) logHardFault(uintptr_t *excRegs, uintptr_t* otherRegs)
 {
+    uint32_t i;
+
+    for (i = 0; i < 4; i++)
+        mDropbox.r[i] = excRegs[i];
+    for (i = 0; i < 8; i++)
+        mDropbox.r[i + 4] = otherRegs[i];
+    mDropbox.r[12] = excRegs[4];
+    mDropbox.r[13] = (uint32_t)(excRegs + 8);
+    mDropbox.r[14] = excRegs[5];
+    mDropbox.r[15] = excRegs[6];
+    mDropbox.sr = excRegs[7];
+    mDropbox.hfsr = SCB->HFSR;
+    mDropbox.cfsr = SCB->CFSR;
+
     osLog(LOG_ERROR, "*HARD FAULT* SR  = %08lX\n", (unsigned long)excRegs[7]);
     osLog(LOG_ERROR, "R0  = %08lX   R8  = %08lX\n", (unsigned long)excRegs[0], (unsigned long)otherRegs[4]);
     osLog(LOG_ERROR, "R1  = %08lX   R9  = %08lX\n", (unsigned long)excRegs[1], (unsigned long)otherRegs[5]);
@@ -100,6 +143,11 @@ static void __attribute__((used)) logHardFault(uintptr_t *excRegs, uintptr_t* ot
     osLog(LOG_ERROR, "R6  = %08lX   LR  = %08lX\n", (unsigned long)otherRegs[2], (unsigned long)excRegs[5]);
     osLog(LOG_ERROR, "R7  = %08lX   PC  = %08lX\n", (unsigned long)otherRegs[3], (unsigned long)excRegs[6]);
     osLog(LOG_ERROR, "HFSR= %08lX   CFSR= %08lX\n", (unsigned long)SCB->HFSR, (unsigned long)SCB->CFSR);
+
+    //reset
+    SCB->AIRCR = 0x05FA0004;
+
+    //and in case somehow we do not, loop
     while(1);
 }
 

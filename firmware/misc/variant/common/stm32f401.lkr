@@ -47,6 +47,12 @@ SECTIONS
 		__bss_end = ABSOLUTE(.);
 	} > ram
 
+	.neverinit : {
+		. = ALIGN(4);
+		*(.neverinit) *(.neverinit.*) ;
+		. = ALIGN(4);
+	} > ram
+
 	__data_data = LOADADDR(.data);
 }
 

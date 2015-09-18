@@ -80,6 +80,7 @@ static void osInit(void)
     platInitialize();
 
     osLog(LOG_INFO, "SEOS Initializing\n");
+    cpuInitLate();
 
     /* init task list */
     memset(mTasks, 0, sizeof(mTasks));

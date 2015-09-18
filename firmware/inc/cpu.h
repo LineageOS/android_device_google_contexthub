@@ -12,6 +12,7 @@ extern "C" {
 
 
 void cpuInit(void);
+void cpuInitLate(void);  //console guaranted to be up by now
 
 uint64_t cpuIntsOff(void);
 uint64_t cpuIntsOn(void);
