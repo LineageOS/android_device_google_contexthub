@@ -178,6 +178,7 @@ void platInitialize(void)
     tim->CR1 = (tim->CR1 &~ 0x03E1) | 0x0010; //count down mode with no clock division, disabled
     tim->PSC = 15; // prescale by 16, so that at 16MHz CPU clock, we get 1MHz timer
     tim->DIER |= 1; // interrupt when updated (underflowed)
+    tim->ARR = 0xffffffff;
     NVIC_EnableIRQ(TIM2_IRQn);
 
     /* set up RTC */
@@ -259,9 +260,9 @@ static void platSetTimerAlarm(uint64_t delay) //delay at most that many nsec
     //turn off timer to prevent interrupts now
     tim->CR1 &=~ 1;
 
-    delay /= 1000;  //to microsecs
-    if (delay > 0xffff)
-        delay = 0xffff;
+    delay /= 1000;   //to microsecs
+    if (delay >> 32) //it is only a 32-bit counter
+        delay = 0xffffffff;
 
     tim->CNT = delay;
     tim->SR &=~ 1; //clear int
@@ -322,16 +323,17 @@ static bool sleepClockTmrPrepare(uint64_t delay, uint32_t acceptableJitter, uint
 static void sleepClockTmrWake(void *userData, uint64_t *savedData)
 {
     struct StmTim *tim = (struct StmTim*)TIM2_BASE;
-    uint32_t leftTicks;
+    uint64_t leftTicks;
 
     //stop the counting;
     tim->CR1 &=~ 1;
 
     leftTicks = tim->CNT; //if we wake NOT from timer, only count the ticks that actually ticked as "time passed"
     if (tim->SR & 1) //if there was an overflow, account for it
-        leftTicks -= *savedData; 
+        leftTicks -= 0x100000000; 
+    leftTicks *= 1000;    //to nanoseconds
 
-    mTimeAccumulated += (*savedData - leftTicks) * 1000; //this clock runs at 1MHz
+    mTimeAccumulated += *savedData - leftTicks; //this clock runs at 1MHz
 
     platReleaseDevInSleepMode(Stm32sleepDevTim2);
 }
@@ -389,7 +391,7 @@ struct PlatSleepAndClockInfo {
         .userData = (void*)stm32f144SleepModeStopMR,
     },
     { /* TIM2 + SLEEP MODE */
-        .maxCounter = 0xffff,
+        .maxCounter = 0xffffffff,
         .resolution = 1000000000ull/1000000,
         .jitterPpm = 0,
         .driftPpm = 30,
