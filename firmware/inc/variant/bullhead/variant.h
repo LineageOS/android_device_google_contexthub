@@ -11,9 +11,9 @@ extern "C" {
 //spi bus for comms
 #define PLATFORM_HOST_INTF_SPI_BUS  0
 
-#define SH_INT_WAKEUP               GPIO_PA(0)
-#define SH_EXTI_WAKEUP_IRQ          EXTI0_IRQn
-#define AP_INT_WAKEUP               GPIO_PA(2)
+#define SH_INT_WAKEUP               GPIO_PA(2)
+#define SH_EXTI_WAKEUP_IRQ          EXTI2_IRQn
+#define AP_INT_WAKEUP               GPIO_PA(3)
 #undef AP_INT_NONWAKEUP
 
 #define DEBUG_LOG_EVT               0x3B474F4C
