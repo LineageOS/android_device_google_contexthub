@@ -72,6 +72,9 @@ struct StmTim {
     uint8_t unused14[2];
 };
 
+/* RTC bit defintions */
+#define TIM_EGR_UG          0x0001
+
 
 #ifdef DEBUG_UART_UNITNO
 static struct usart mDbgUart;
@@ -194,6 +197,7 @@ void platInitialize(void)
     tim->PSC = 15; // prescale by 16, so that at 16MHz CPU clock, we get 1MHz timer
     tim->DIER |= 1; // interrupt when updated (underflowed)
     tim->ARR = 0xffffffff;
+    tim->EGR = TIM_EGR_UG; // force a reload of the prescaler
     NVIC_EnableIRQ(TIM2_IRQn);
 
     /* set up RTC */
@@ -277,7 +281,7 @@ bool platReleaseDevInSleepMode(uint32_t sleepDevID)
     return true;
 }
 
-static void platSetTimerAlarm(uint64_t delay) //delay at most that many nsec
+static uint64_t platSetTimerAlarm(uint64_t delay) //delay at most that many nsec
 {
     struct StmTim *tim = (struct StmTim*)TIM2_BASE;
 
@@ -291,6 +295,8 @@ static void platSetTimerAlarm(uint64_t delay) //delay at most that many nsec
     tim->CNT = delay;
     tim->SR &=~ 1; //clear int
     tim->CR1 |= 1;
+
+    return delay;
 }
 
 bool platSleepClockRequest(uint64_t wakeupTime, uint32_t maxJitterPpm, uint32_t maxDriftPpm, uint32_t maxErrTotalPpm)
@@ -338,8 +344,7 @@ static bool sleepClockTmrPrepare(uint64_t delay, uint32_t acceptableJitter, uint
     pwrSetSleepType(stm32f411SleepModeSleep);
     platRequestDevInSleepMode(Stm32sleepDevTim2, 0);
 
-    platSetTimerAlarm(delay);
-    *savedData = delay;
+    *savedData = platSetTimerAlarm(delay);
 
     return true;
 }
@@ -355,9 +360,8 @@ static void sleepClockTmrWake(void *userData, uint64_t *savedData)
     leftTicks = tim->CNT; //if we wake NOT from timer, only count the ticks that actually ticked as "time passed"
     if (tim->SR & 1) //if there was an overflow, account for it
         leftTicks -= 0x100000000; 
-    leftTicks *= 1000;    //to nanoseconds
 
-    mTimeAccumulated += *savedData - leftTicks; //this clock runs at 1MHz
+    mTimeAccumulated += (*savedData - leftTicks) * 1000; //this clock runs at 1MHz
 
     platReleaseDevInSleepMode(Stm32sleepDevTim2);
 }
