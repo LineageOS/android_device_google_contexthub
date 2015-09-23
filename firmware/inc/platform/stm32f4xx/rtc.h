@@ -23,7 +23,6 @@ enum RtcClock
 void rtcInit(void);
 int rtcSetWakeupTimer(uint64_t delay);
 uint64_t rtcGetTime(void);
-void rtcSync(void);
 
 #ifdef __cplusplus
 }

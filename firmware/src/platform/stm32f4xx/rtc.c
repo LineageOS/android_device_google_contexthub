@@ -45,6 +45,7 @@ struct StmRtc
 #define RTC_CR_WUCKSEL_2DIV         0x00000003UL
 #define RTC_CR_WUCKSEL_CK_SPRE      0x00000004UL
 #define RTC_CR_WUCKSEL_CK_SPRE_2    0x00000006UL
+#define RTC_CR_BYPSHAD              0x00000020UL
 #define RTC_CR_FMT                  0x00000040UL
 #define RTC_CR_ALRAE                0x00000100UL
 #define RTC_CR_WUTE                 0x00000400UL
@@ -103,6 +104,10 @@ static void rtcSetDefaultDateTimeAndPrescalar(void)
 
     /* 24 hour format */
     RTC->CR &= ~RTC_CR_FMT;
+
+    /* disable shadow registers */
+    RTC->CR |= RTC_CR_BYPSHAD;
+
     /* Set time and date registers to defaults */
     /* Midnight */
     RTC->TR = 0x0;
@@ -209,39 +214,32 @@ int rtcSetWakeupTimer(uint64_t delay)
 
 uint64_t rtcGetTime(void)
 {
-    static uint64_t time = 0;
+    uint64_t time;
     uint32_t dr, tr, ssr;
 
-    ssr = RTC->SSR; // cleverness in hardware makes these reads atomic (one will nto change fromunder us while we read the other)
-    tr = RTC->TR;
-    dr = RTC->DR;
+    // need to loop incase an interrupt occurs in the middle or ssr
+    // decrements (which can propagate changes to tr and dr)
+    do {
+        ssr = RTC->SSR;
+        tr = RTC->TR;
+        dr = RTC->DR;
+    } while (ssr != RTC->SSR);
 
-    time += ((((dr >> 4) & 0x3) * 10) + (dr & 0xF) - 1) * 86400ULL * NS_PER_S;
+    time =  ((((dr >> 4) & 0x3) * 10) + (dr & 0xF) - 1) * 86400ULL * NS_PER_S;
     time += ((((tr >> 22) & 0x1) * 43200ULL) +
-              (((tr >> 20) & 0x3) * 36000ULL) +
-              (((tr >> 16) & 0xF) * 3600ULL) +
-              (((tr >> 12) & 0x7) * 600ULL) +
-              (((tr >> 8) & 0xF) * 60ULL) +
-              (((tr >> 4) & 0x7) * 10ULL) +
-              (((tr) & 0xF))) * NS_PER_S;
-
+             (((tr >> 20) & 0x3) * 36000ULL) +
+             (((tr >> 16) & 0xF) * 3600ULL) +
+             (((tr >> 12) & 0x7) * 600ULL) +
+             (((tr >> 8) & 0xF) * 60ULL) +
+             (((tr >> 4) & 0x7) * 10ULL) +
+             (((tr) & 0xF))) * NS_PER_S;
 
     return time + ((RTC_PREDIV_S - ssr) * NS_PER_S / (RTC_PREDIV_S + 1));
-}
-
-void rtcSync(void)
-{
-    RTC->WPR = 0xCA;
-    RTC->WPR = 0x53;
-    RTC->ISR &= ~RTC_ISR_RSF;
-    RTC->WPR = 0xFF;
-    while (!(RTC->ISR & RTC_ISR_RSF)) ;
 }
 
 void EXTI22_RTC_WKUP_IRQHandler(void);
 void EXTI22_RTC_WKUP_IRQHandler(void)
 {
-    rtcSync();
     extiClearPendingLine(EXTI_LINE_RTC_WKUP);
     timIntHandler();
 }
