@@ -509,8 +509,8 @@ void platSleep(void)
     intState = cpuIntsOff();
     if (platCanSleep()) {
 
-        //sleep
-        SysTick->CTRL &= ~SysTick_CTRL_TICKINT_Msk;
+        //sleep with systick off (for timing) and interrutp off (for power due to HWR errata)
+        SysTick->CTRL &= ~(SysTick_CTRL_TICKINT_Msk | SysTick_CTRL_ENABLE_Msk);
         asm volatile ("wfi\n"
             "nop" :::"memory");
 
@@ -518,7 +518,7 @@ void platSleep(void)
         if (sleepClock->wake)
             sleepClock->wake(sleepClock->userData, &savedData);
 
-        SysTick->CTRL |= SysTick_CTRL_TICKINT_Msk;
+        SysTick->CTRL |= SysTick_CTRL_TICKINT_Msk | SysTick_CTRL_ENABLE_Msk;
     }
     //re-enable interrupts and let the handlers run
     cpuIntsRestore(intState);
