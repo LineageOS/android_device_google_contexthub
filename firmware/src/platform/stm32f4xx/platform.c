@@ -329,14 +329,19 @@ static bool sleepClockRtcPrepare(uint64_t delay, uint32_t acceptableJitter, uint
     pwrSetSleepType((uint32_t)userData);
     *savedData = rtcGetTime();
 
-    if (delay == 0)
-        return true;
-    else
-        return rtcSetWakeupTimer(delay) >= 0;
+    if (delay && rtcSetWakeupTimer(delay) < 0)
+        return false;
+
+    //sleep with systick off (for timing) and interrupts off (for power due to HWR errata)
+    SysTick->CTRL &= ~(SysTick_CTRL_TICKINT_Msk | SysTick_CTRL_ENABLE_Msk);
+    return true;
 }
 
 static void sleepClockRtcWake(void *userData, uint64_t *savedData)
 {
+    //re-enable Systic and its interrupt
+    SysTick->CTRL |= SysTick_CTRL_TICKINT_Msk | SysTick_CTRL_ENABLE_Msk;
+
     mTimeAccumulated += rtcGetTime() - *savedData;
 }
 
@@ -348,6 +353,8 @@ static bool sleepClockTmrPrepare(uint64_t delay, uint32_t acceptableJitter, uint
 
     *savedData = platSetTimerAlarm(delay);
 
+    //sleep with systick off (for timing) and interrupts off (for power due to HWR errata)
+    SysTick->CTRL &= ~(SysTick_CTRL_TICKINT_Msk | SysTick_CTRL_ENABLE_Msk);
     return true;
 }
 
@@ -356,7 +363,10 @@ static void sleepClockTmrWake(void *userData, uint64_t *savedData)
     struct StmTim *tim = (struct StmTim*)TIM2_BASE;
     uint64_t leftTicks;
 
-    //stop the counting;
+    //re-enable Systic and its interrupt
+    SysTick->CTRL |= SysTick_CTRL_TICKINT_Msk | SysTick_CTRL_ENABLE_Msk;
+
+    //stop the timer counting;
     tim->CR1 &=~ 1;
 
     leftTicks = tim->CNT; //if we wake NOT from timer, only count the ticks that actually ticked as "time passed"
@@ -366,6 +376,14 @@ static void sleepClockTmrWake(void *userData, uint64_t *savedData)
     mTimeAccumulated += (*savedData - leftTicks) * 1000; //this clock runs at 1MHz
 
     platReleaseDevInSleepMode(Stm32sleepDevTim2);
+}
+
+
+static bool sleepClockJustWfiPrepare(uint64_t delay, uint32_t acceptableJitter, uint32_t acceptableDrift, uint32_t maxAcceptableError, void *userData, uint64_t *savedData)
+{
+    pwrSetSleepType(stm32f411SleepModeSleep);
+
+    return true;
 }
 
 struct PlatSleepAndClockInfo {
@@ -381,8 +399,8 @@ struct PlatSleepAndClockInfo {
 } static const platSleepClocks[] = {
 
     { /* RTC + LPLV STOP MODE */
-        .maxCounter = 0xffffffff,
         .resolution = 1000000000ull/32768,
+        .maxCounter = 0xffffffff,
         .jitterPpm = 0,
         .driftPpm = 50,
         .maxWakeupTime = 407000ull,
@@ -391,8 +409,8 @@ struct PlatSleepAndClockInfo {
         .userData = (void*)stm32f411SleepModeStopLPLV,
     },
     { /* RTC + LPFD STOP MODE */
-        .maxCounter = 0xffffffff,
         .resolution = 1000000000ull/32768,
+        .maxCounter = 0xffffffff,
         .jitterPpm = 0,
         .driftPpm = 50,
         .maxWakeupTime = 130000ull,
@@ -401,8 +419,8 @@ struct PlatSleepAndClockInfo {
         .userData = (void*)stm32f411SleepModeStopLPFD,
     },
     { /* RTC + MRFPD STOP MODE */
-        .maxCounter = 0xffffffff,
         .resolution = 1000000000ull/32768,
+        .maxCounter = 0xffffffff,
         .jitterPpm = 0,
         .driftPpm = 50,
         .maxWakeupTime = 111000ull,
@@ -411,8 +429,8 @@ struct PlatSleepAndClockInfo {
         .userData = (void*)stm32f144SleepModeStopMRFPD,
     },
     { /* RTC + MR STOP MODE */
-        .maxCounter = 0xffffffff,
         .resolution = 1000000000ull/32768,
+        .maxCounter = 0xffffffff,
         .jitterPpm = 0,
         .driftPpm = 50,
         .maxWakeupTime = 14500ull,
@@ -421,14 +439,23 @@ struct PlatSleepAndClockInfo {
         .userData = (void*)stm32f144SleepModeStopMR,
     },
     { /* TIM2 + SLEEP MODE */
-        .maxCounter = 0xffffffff,
         .resolution = 1000000000ull/1000000,
+        .maxCounter = 0xffffffff,
         .jitterPpm = 0,
         .driftPpm = 30,
         .maxWakeupTime = 12ull,
         .devsAvail = (1 << Stm32sleepDevTim2) | (1 << Stm32sleepDevTim4) | (1 << Stm32sleepDevTim5) | (1 << Stm32sleepWakeup),
         .prepare = sleepClockTmrPrepare,
         .wake = sleepClockTmrWake,
+    },
+    { /* just WFI */
+        .resolution = 16000000000ull/1000000,
+        .maxCounter = 0xffffffff,
+        .jitterPpm = 0,
+        .driftPpm = 0,
+        .maxWakeupTime = 0,
+        .devsAvail = (1 << Stm32sleepDevTim2) | (1 << Stm32sleepDevTim4) | (1 << Stm32sleepDevTim5),
+        .prepare = sleepClockJustWfiPrepare,
     },
 
     /* terminator */
@@ -496,23 +523,24 @@ void platSleep(void)
     if (!sleepClock->maxCounter)
         sleepClock = leastBadOption;
 
-    //options? config it
-    if (sleepClock && sleepClock->prepare && !sleepClock->prepare(mWakeupTime ? mWakeupTime - curTime : 0, mMaxJitterPpm, mMaxDriftPpm, mMaxErrTotalPpm, sleepClock->userData, &savedData))
+    if (!sleepClock) {
+        //should never happen - this will spin the CPU and be bad, but it WILL work in all cases
         return;
+    }
 
     //turn ints off in prep for sleep
     intState = cpuIntsOff();
 
-    //sleep with systick off (for timing) and interrutp off (for power due to HWR errata)
-    SysTick->CTRL &= ~(SysTick_CTRL_TICKINT_Msk | SysTick_CTRL_ENABLE_Msk);
+    //options? config it
+    if (sleepClock->prepare && !sleepClock->prepare(mWakeupTime ? mWakeupTime - curTime : 0, mMaxJitterPpm, mMaxDriftPpm, mMaxErrTotalPpm, sleepClock->userData, &savedData))
+        return;
+
     asm volatile ("wfi\n"
         "nop" :::"memory");
 
     //wakeup
-    if (sleepClock && sleepClock->wake)
+    if (sleepClock->wake)
         sleepClock->wake(sleepClock->userData, &savedData);
-
-    SysTick->CTRL |= SysTick_CTRL_TICKINT_Msk | SysTick_CTRL_ENABLE_Msk;
 
     //re-enable interrupts and let the handlers run
     cpuIntsRestore(intState);
