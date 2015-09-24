@@ -10,7 +10,7 @@
 static FILE* urandom = NULL;
 
 //read exactly one hex-encoded byte from a file, skipping all the fluff
-static int getHexEncodedByte(FILE *f)
+static int getHexEncodedByte(void)
 {
     int c, i;
     uint8_t val = 0;
@@ -19,7 +19,7 @@ static int getHexEncodedByte(FILE *f)
     for (i = 0; i < 2; i++) {
         val <<= 4;
         while(1) {
-            c = fgetc(f);
+            c = getchar();
             if (c == EOF)
                 return -1;
 
@@ -44,29 +44,21 @@ static int getHexEncodedByte(FILE *f)
     return val;
 }
 
-//read exactly RSA_BYTES hex encoded bytes from a file, skipping all the fluff
-static bool readRsaDataFile(const char *fileName, uint8_t *buf)
+static bool readRsaDataFile(const char *fileName, uint32_t *buf)
 {
+    uint32_t sz = sizeof(uint32_t[RSA_LIMBS]);
     FILE *f = fopen(fileName, "rb");
-    bool ret = false, haveNonzero = false;
-    int byte;
-    uint32_t v, i;
+    bool ret = false;
 
     if (!f)
         goto out_noclose;
 
-    for (i = 0; i < RSA_BYTES; i++) {
+    if (sz != fread(buf, 1, sz, f))
+        goto out;
 
-        //get a byte, skipping all zeroes (openssl likes to prepend one at times)
-        do {
-            byte = getHexEncodedByte(f);
-        } while (byte == 0 && !haveNonzero);
-        haveNonzero = true;
-        if (byte < 0)
-            goto out;
-
-        *buf++ = byte;
-    }
+    //verify file is empty
+    if (fread(&sz, 1, 1, f))
+        goto out;
 
     ret = true;
 
@@ -75,18 +67,6 @@ out:
 
 out_noclose:
     return ret;
-}
-
-//pack a big-endian integer's bytes into our little-endian 32-bit-limbed array
-static void binToRsaData(uint32_t *dst, const uint8_t *src)
-{
-    uint32_t i, j, v;
-
-    for (i = 0; i < RSA_LIMBS; i++) {
-        for (v = 0, j = 0; j < 4; j++)
-            v = (v << 8) | *src++;
-        dst[RSA_LIMBS - i - 1] = v;
-    }
 }
 
 //provide a random number for which the following property is true ((ret & 0xFF000000) && (ret & 0xFF0000) && (ret & 0xFF00) && (ret & 0xFF))
@@ -149,16 +129,44 @@ int main(int argc, char **argv)
     if (argc < 1)
         goto usage;
 
-    if (!strcmp(argv[0], "sigdecode")) {
+    if (!strcmp(argv[0], "txt2bin")) {
+
+        bool  haveNonzero = false;
+        uint32_t v;
+
+        for (i = 0; i < RSA_BYTES; i++) {
+
+            //get a byte, skipping all zeroes (openssl likes to prepend one at times)
+            do {
+                c = getHexEncodedByte();
+            } while (c == 0 && !haveNonzero);
+            haveNonzero = true;
+            if (c < 0) {
+                fprintf(stderr, "Invalid text RSA input data\n");
+                goto usage;
+            }
+
+            buf[i] = c;
+        }
+
+        for (i = 0; i < RSA_LIMBS; i++) {
+            for (v = 0, c = 0; c < 4; c++)
+                v = (v << 8) | buf[i * 4 + c];
+            rsanum[RSA_LIMBS - i - 1] = v;
+        }
+
+        //output in our binary format (little-endina)
+        fwrite(rsanum, 1, sizeof(uint32_t[RSA_LIMBS]), stdout);
+    }
+    else if (!strcmp(argv[0], "sigdecode")) {
         if (argc < 2)
             goto usage;
 
         //get modulus
-        if (!readRsaDataFile(argv[1], buf)) {
+        if (!readRsaDataFile(argv[1], modulus)) {
             fprintf(stderr, "failed to read RSA modulus\n");
             goto usage;
         }
-        binToRsaData(modulus, buf);
 
         //update the user
         if (verbose) {
@@ -251,17 +259,15 @@ int main(int argc, char **argv)
         (void)atexit(cleanup);
 
         //prepare & get RSA info
-        if (!readRsaDataFile(argv[1], buf)) {
+        if (!readRsaDataFile(argv[1], exponent)) {
             fprintf(stderr, "failed to read RSA private exponent\n");
             goto usage;
         }
-        binToRsaData(exponent, buf);
 
-        if (!readRsaDataFile(argv[2], buf)) {
+        if (!readRsaDataFile(argv[2], modulus)) {
             fprintf(stderr, "failed to read RSA modulus\n");
             goto usage;
         }
-        binToRsaData(modulus, buf);
 
         //update the user
         if (verbose) {
@@ -322,12 +328,7 @@ int main(int argc, char **argv)
         }
 
         //output in a format that our microcontroller will be able to digest easily & directly (an array of bytes representing little-endian 32-bit words)
-        for (i = 0; i < RSA_LIMBS; i++) {
-            putchar((rsaResult[i] >>  0) & 0xff);
-            putchar((rsaResult[i] >>  8) & 0xff);
-            putchar((rsaResult[i] >> 16) & 0xff);
-            putchar((rsaResult[i] >> 24) & 0xff);
-        }
+        fwrite(rsaResult, 1, sizeof(uint32_t[RSA_LIMBS]), stdout);
 
         fprintf(stderr, "success\n");
         ret = 0;
@@ -337,10 +338,12 @@ out:
     return ret;
 
 usage:
-    fprintf(stderr, "USAGE: %s [-v] sign <PRIVATE_EXPONENT_FILE> <MODULUS_FILE> < data_to_sign > signature_out\n"
-                    "       %s [-v] sigdecode <MODULUS_FILE> < signature_out > expected_sha2\n"
-                    "\t<PRIVATE_EXPONENT> and <MODULUS> files contain RSA numbers, big endian format\n",
-                    selfExeName, selfExeName);
+    fprintf(stderr, "USAGE: %s [-v] sign <BINARY_PRIVATE_EXPONENT_FILE> <BINARY_MODULUS_FILE> < data_to_sign > signature_out\n"
+                    "       %s [-v] sigdecode <BINARY_MODULUS_FILE> < signature_out > expected_sha2\n"
+                    "       %s [-v] txt2bin < TEXT_RSA_FILE > BINARY_RSA_FILE\n"
+                    "\t<BINARY_PRIVATE_EXPONENT> and <BINARY_MODULUS> files contain RSA numbers, binary little endian format\n"
+                    "\t<TEXT_RSA_FILE> file contain RSA numbers, text, big-endian format as exported by 'openssl rsa -in YOURKEY -text -noout'\n",
+                    selfExeName, selfExeName, selfExeName);
     return -1;
 }
 
