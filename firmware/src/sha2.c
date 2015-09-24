@@ -18,6 +18,9 @@ void sha2init(struct Sha2state *state)
 
 inline static uint32_t ror(uint32_t val, uint32_t by)
 {
+    if (!by)
+        return val;
+
 #ifdef ARM
     asm volatile("ror %0, %1":"=r"(val):"0"(val),"r"(by));
 #else
