@@ -1,5 +1,5 @@
-APP = nanohub_sign
-SRC = nanohub_sign.c ../../firmware/src/rsa.c ../../firmware/src/sha2.c
+APP = nanoapp_sign
+SRC = nanoapp_sign.c ../../firmware/src/rsa.c ../../firmware/src/sha2.c
 CC ?= gcc
 
 $(APP): $(SRC) Makefile
