@@ -317,4 +317,43 @@ void aesDecr(struct AesContext *ctx, const uint32_t *src, uint32_t *dst)
             (((uint32_t)(RevSbox[(x0 >>  0) & 0xff])) <<  0);
 }
 
+void aesCbcInitForEncr(struct AesCbcContext *ctx, const uint32_t *k, const uint32_t *iv)
+{
+    aesInitForEncr(&ctx->aes, k);
+    memcpy(ctx->iv, iv, sizeof(uint32_t[AES_BLOCK_WORDS]));
+}
+
+void aesCbcInitForDecr(struct AesCbcContext *ctx, const uint32_t *k, const uint32_t *iv)
+{
+    struct AesSetupTempWorksSpace tmp;
+
+    aesInitForDecr(&ctx->aes, &tmp, k);
+    memcpy(ctx->iv, iv, sizeof(uint32_t[AES_BLOCK_WORDS]));
+}
+
+void aesCbcEncr(struct AesCbcContext *ctx, const uint32_t *src, uint32_t *dst)
+{
+    uint32_t i;
+
+    for (i = 0; i < AES_BLOCK_WORDS; i++)
+        ctx->iv[i] ^= *src++;
+
+    aesEncr(&ctx->aes, ctx->iv, dst);
+    memcpy(ctx->iv, dst, sizeof(uint32_t[AES_BLOCK_WORDS]));
+}
+
+void aesCbcDecr(struct AesCbcContext *ctx, const uint32_t *src, uint32_t *dst)
+{
+    uint32_t i;
+
+    aesDecr(&ctx->aes, src, dst);
+    for (i = 0; i < AES_BLOCK_WORDS; i++)
+        *dst++ ^= ctx->iv[i];
+
+    memcpy(ctx->iv, src, sizeof(uint32_t[AES_BLOCK_WORDS]));
+}
+
+
+
+
 
