@@ -2,12 +2,15 @@
 #include <stdint.h>
 #include <sys/endian.h>
 
+#include <plat/inc/plat.h>
+#include <plat/inc/pwr.h>
+
+#include <platform.h>
 #include <crc.h>
 #include <hostIntf.h>
 #include <hostIntf_priv.h>
 #include <nanohubCommand.h>
 #include <nanohubPacket.h>
-#include <plat/inc/pwr.h>
 #include <seos.h>
 #include <util.h>
 #include <atomicBitset.h>
@@ -237,6 +240,7 @@ void hostIntfCopyClearInterrupts(struct AtomicBitset *dst, uint32_t numBits)
 
 void hostIntfSetInterrupt(uint32_t bit)
 {
+    platRequestDevInSleepMode(Stm32sleepWakeup, 12);
     atomicBitsetSetBit(gInterrupt, bit);
     apIntSet(!atomicBitsetGetBit(gInterruptMask, bit));
 }
