@@ -351,7 +351,7 @@ static bool sleepClockTmrPrepare(uint64_t delay, uint32_t acceptableJitter, uint
     pwrSetSleepType(stm32f411SleepModeSleep);
     platRequestDevInSleepMode(Stm32sleepDevTim2, 0);
 
-    *savedData = platSetTimerAlarm(delay);
+    *savedData = platSetTimerAlarm(delay ?: ~0ULL);
 
     //sleep with systick off (for timing) and interrupts off (for power due to HWR errata)
     SysTick->CTRL &= ~(SysTick_CTRL_TICKINT_Msk | SysTick_CTRL_ENABLE_Msk);
@@ -488,7 +488,7 @@ void platSleep(void)
                 continue;
 
             //skip options that will take too long to wake up to be of use
-            if (predecrement > mWakeupTime - curTime)
+            if (predecrement > length)
                 continue;
 
             //skip options with too much  drift
@@ -532,7 +532,7 @@ void platSleep(void)
     intState = cpuIntsOff();
 
     //options? config it
-    if (sleepClock->prepare && !sleepClock->prepare(mWakeupTime ? mWakeupTime - curTime : 0, mMaxJitterPpm, mMaxDriftPpm, mMaxErrTotalPpm, sleepClock->userData, &savedData))
+    if (sleepClock->prepare && !sleepClock->prepare(mWakeupTime ? length - sleepClock->maxWakeupTime : 0, mMaxJitterPpm, mMaxDriftPpm, mMaxErrTotalPpm, sleepClock->userData, &savedData))
         return;
 
     asm volatile ("wfi\n"

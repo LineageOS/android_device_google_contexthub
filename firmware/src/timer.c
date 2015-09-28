@@ -12,7 +12,7 @@
 
 struct Timer {
     uint64_t      expires; /* time of next expiration */
-    uint32_t      period;  /* 0 for oneshot */
+    uint64_t      period;  /* 0 for oneshot */
     uint32_t      id;      /* 0 for disabled */
     TimTimerCbkF  cbk;
     uint32_t      jitterPpm;
