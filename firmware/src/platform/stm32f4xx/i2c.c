@@ -527,6 +527,20 @@ static void stmI2cMasterDmaRxDone(void *cookie, uint16_t bytesLeft, int err)
     stmI2cMasterTxRxDone(pdev, err);
 }
 
+static inline void stmI2cMasterDmaCancel(struct StmI2cDev *pdev)
+{
+    struct I2cStmState *state = &pdev->state;
+
+    dmaStop(I2C_DMA_BUS, pdev->board->dmaRx.stream);
+    state->rx.offset = state->rx.size - dmaBytesLeft(I2C_DMA_BUS,
+            pdev->board->dmaRx.stream);
+    dmaStop(I2C_DMA_BUS, pdev->board->dmaTx.stream);
+    state->tx.offset = state->tx.size - dmaBytesLeft(I2C_DMA_BUS,
+            pdev->board->dmaTx.stream);
+
+    stmI2cDmaDisable(pdev);
+}
+
 static inline void stmI2cMasterStartDma(struct StmI2cDev *pdev,
         const struct StmI2cDmaCfg *dmaCfg, const void *buf,
         size_t size, DmaCallbackF callback, bool rx, bool last)
@@ -600,18 +614,42 @@ static void stmI2cMasterNakRxed(struct StmI2cDev *pdev)
             masterState == STM_I2C_MASTER_TX_DATA ||
             masterState == STM_I2C_MASTER_RX_ADDR ||
             masterState == STM_I2C_MASTER_RX_DATA) {
-        dmaStop(I2C_DMA_BUS, pdev->board->dmaRx.stream);
-        state->rx.offset = state->rx.size - dmaBytesLeft(I2C_DMA_BUS,
-                pdev->board->dmaRx.stream);
-        dmaStop(I2C_DMA_BUS, pdev->board->dmaTx.stream);
-        state->tx.offset = state->tx.size - dmaBytesLeft(I2C_DMA_BUS,
-                pdev->board->dmaTx.stream);
-        stmI2cDmaDisable(pdev);
+        stmI2cMasterDmaCancel(pdev);
 
         regs->SR1 &= ~I2C_SR1_AF;
         stmI2cStopEnable(pdev);
         stmI2cMasterTxRxDone(pdev, 0);
     }
+}
+
+static void stmI2cMasterBusError(struct StmI2cDev *pdev)
+{
+    struct StmI2c *regs = pdev->cfg->regs;
+
+    stmI2cMasterDmaCancel(pdev);
+    regs->SR1 &= ~I2C_SR1_BERR;
+    stmI2cMasterTxRxDone(pdev, EIO);
+}
+
+static void stmI2cMasterArbitrationLoss(struct StmI2cDev *pdev)
+{
+    struct StmI2c *regs = pdev->cfg->regs;
+
+    stmI2cMasterDmaCancel(pdev);
+    regs->SR1 &= ~I2C_SR1_ARLO;
+    stmI2cMasterTxRxDone(pdev, EBUSY);
+}
+
+static void stmI2cMasterUnexpectedError(struct StmI2cDev *pdev)
+{
+    struct StmI2c *regs = pdev->cfg->regs;
+
+    osLog(LOG_ERROR, "Unexpected I2C ERR interrupt: SR1 = %04lX, SR2 = %04lX\n",
+            regs->SR1, regs->SR2);
+
+    stmI2cMasterDmaCancel(pdev);
+    regs->SR1 = 0;
+    stmI2cMasterTxRxDone(pdev, EIO);
 }
 
 static void stmI2cIsrEvent(struct StmI2cDev *pdev)
@@ -655,6 +693,12 @@ static void stmI2cIsrError(struct StmI2cDev *pdev)
     } else if (pdev->state.mode == STM_I2C_MASTER) {
         if (sr1 & I2C_SR1_AF)
             stmI2cMasterNakRxed(pdev);
+        else if (sr1 & I2C_SR1_BERR)
+            stmI2cMasterBusError(pdev);
+        else if (sr1 & I2C_SR1_ARLO)
+            stmI2cMasterArbitrationLoss(pdev);
+        else
+            stmI2cMasterUnexpectedError(pdev);
     }
 }
 
