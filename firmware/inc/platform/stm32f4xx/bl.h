@@ -29,11 +29,12 @@ struct BlVecTable {
 
     /* bl api */
     //ver 1 bl supports:
-    uint32_t    (*blGetVersion)(void);
-    void        (*blReboot)(void);
-    void        (*blGetSnum)(uint32_t *snum, uint8_t length);
-    int         (*blProgramShared)(uint8_t *dst, uint8_t *src, uint32_t length, uint32_t key1, uint32_t key2);
-    int         (*blEraseShared)(uint32_t key1, uint32_t key2);
+    uint32_t        (*blGetVersion)(void);
+    void            (*blReboot)(void);
+    void            (*blGetSnum)(uint32_t *snum, uint8_t length);
+    int             (*blProgramShared)(uint8_t *dst, uint8_t *src, uint32_t length, uint32_t key1, uint32_t key2);
+    int             (*blEraseShared)(uint32_t key1, uint32_t key2);
+    const uint32_t* (*blGetPubKeysInfo)(uint32_t *numKeys);
 };
 
 //for using outside of bootloader

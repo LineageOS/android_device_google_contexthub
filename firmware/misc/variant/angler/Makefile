@@ -12,6 +12,10 @@ FLAGS += -DPLATFORM_HW_TYPE=0x416E   #'An' -> angler
 SRCS += src/variant/$(VARIANT)/i2c.c
 SRCS += src/variant/$(VARIANT)/spi.c
 
+#keys
+SRCS += src/variant/$(VARIANT)/rsaKeyHuawei.c
+SRCS += src/variant/$(VARIANT)/rsaKeyAngler.c
+
 #linker script
 LKR = misc/variant/common/stm32f411.lkr
 OSFLAGS += -Wl,-T $(LKR)

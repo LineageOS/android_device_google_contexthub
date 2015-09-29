@@ -16,6 +16,11 @@ SECTIONS
 		KEEP (*(.blvec) ) ;
 		*(.bltext) *(.bltext.*) ;
 		*(.blrodata) *(.blrodata.*) ;
+		. = ALIGN(4);
+		 __pubkeys_start = ABSOLUTE(.);
+		KEEP (*(.pubkeys) ) ;
+		__pubkeys_end = ABSOLUTE(.);
+		. = ALIGN(4);
 	} > bl = 0xff
 
 	/* things that live in the main app image */

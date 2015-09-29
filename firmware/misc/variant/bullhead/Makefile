@@ -12,6 +12,10 @@ FLAGS += -DPLATFORM_HW_TYPE=0x4275   #'Bu' -> bullhead
 SRCS += src/variant/$(VARIANT)/i2c.c
 SRCS += src/variant/$(VARIANT)/spi.c
 
+#keys
+SRCS += src/variant/$(VARIANT)/rsaKeyLge.c
+SRCS += src/variant/$(VARIANT)/rsaKeyBullhead.c
+
 #linker script
 LKR = misc/variant/common/stm32f411.lkr
 OSFLAGS += -Wl,-T $(LKR)

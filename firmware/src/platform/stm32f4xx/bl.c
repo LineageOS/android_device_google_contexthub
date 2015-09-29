@@ -3,6 +3,7 @@
 #include <plat/inc/cmsis.h>
 #include <plat/inc/pwr.h>
 #include <plat/inc/bl.h>
+#include <rsa.h>
 
 #define BOOTLOADER    __attribute__ ((section (".bltext")))
 #define BOOTLOADER_RO __attribute__ ((section (".blrodata")))
@@ -655,6 +656,19 @@ static void BOOTLOADER __blSpurious(void)
     __blReboot();
 }
 
+static const uint32_t *__blGetPubKeysInfo(uint32_t *numKeys)
+{
+    extern uint32_t __pubkeys_start[];
+    extern uint32_t __pubkeys_end[];
+    uint32_t numWords = __pubkeys_end - __pubkeys_start;
+
+    if (numWords % RSA_LIMBS) // something is wrong
+        return NULL;
+
+    *numKeys = numWords / RSA_LIMBS;
+    return __pubkeys_start;
+}
+
 const struct BlVecTable __attribute__((section(".blvec"))) __BL_VECTORS =
 {
     /* cortex */
@@ -671,4 +685,5 @@ const struct BlVecTable __attribute__((section(".blvec"))) __BL_VECTORS =
     .blGetSnum = &__blGetSnum,
     .blProgramShared = &__blProgramShared,
     .blEraseShared = &__blEraseShared,
+    .blGetPubKeysInfo = &__blGetPubKeysInfo,
 };
