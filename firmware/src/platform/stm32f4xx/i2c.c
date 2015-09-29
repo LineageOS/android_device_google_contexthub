@@ -236,7 +236,20 @@ static inline void stmI2cAckDisable(struct StmI2cDev *pdev)
 
 static inline void stmI2cStopEnable(struct StmI2cDev *pdev)
 {
-    pdev->cfg->regs->CR1 |= I2C_CR1_STOP;
+    struct StmI2c *regs = pdev->cfg->regs;
+
+    while (regs->CR1 & (I2C_CR1_STOP | I2C_CR1_START))
+        ;
+    regs->CR1 |= I2C_CR1_STOP;
+}
+
+static inline void stmI2cStartEnable(struct StmI2cDev *pdev)
+{
+    struct StmI2c *regs = pdev->cfg->regs;
+
+    while (regs->CR1 & (I2C_CR1_STOP | I2C_CR1_START))
+        ;
+    regs->CR1 |= I2C_CR1_START;
 }
 
 static inline void stmI2cIrqEnable(struct StmI2cDev *pdev,
@@ -428,7 +441,6 @@ static void stmI2cSlaveNakRxed(struct StmI2cDev *pdev)
 static inline void stmI2cMasterTxRxDone(struct StmI2cDev *pdev)
 {
     struct I2cStmState *state = &pdev->state;
-    struct StmI2c *regs = pdev->cfg->regs;
     size_t txOffst = state->tx.offset;
     size_t rxOffst = state->rx.offset;
     uint32_t id;
@@ -461,7 +473,7 @@ static inline void stmI2cMasterTxRxDone(struct StmI2cDev *pdev)
             state->rx.cookie = NULL;
             atomicWriteByte(&state->masterState, STM_I2C_MASTER_START);
             stmI2cPutXfer(xfer);
-            regs->CR1 |= I2C_CR1_START;
+            stmI2cStartEnable(pdev);
             return;
         }
     }
@@ -518,7 +530,7 @@ static void stmI2cMasterTxRx(struct StmI2cDev *pdev)
             state->tx.size = 0;
             if (state->rx.size > 0) {
                 atomicWriteByte(&state->masterState, STM_I2C_MASTER_START);
-                regs->CR1 |= I2C_CR1_START;
+                stmI2cStartEnable(pdev);
             } else {
                 stmI2cStopEnable(pdev);
                 stmI2cMasterTxRxDone(pdev);
@@ -532,7 +544,8 @@ static void stmI2cMasterTxRx(struct StmI2cDev *pdev)
         state->rx.offset ++;
         // Need to generate NACK + STOP on 2nd to last read
         if (state->rx.offset + 1 == state->rx.size) {
-            regs->CR1 = (regs->CR1 & ~I2C_CR1_ACK) | I2C_CR1_STOP;
+            regs->CR1 &= ~I2C_CR1_ACK;
+            stmI2cStopEnable(pdev);
         } else if (state->rx.offset == state->rx.size) {
             stmI2cMasterTxRxDone(pdev);
         }
@@ -710,7 +723,6 @@ int i2cMasterTxRx(I2cBus busId, I2cAddr addr,
 
     struct StmI2cDev *pdev = &mStmI2cDevs[busId];
     struct I2cStmState *state = &pdev->state;
-    struct StmI2c *regs = pdev->cfg->regs;
 
     if (state->mode != STM_I2C_MASTER)
         return -EINVAL;
@@ -755,7 +767,7 @@ int i2cMasterTxRx(I2cBus busId, I2cAddr addr,
                 state->rx.callback = NULL;
                 state->rx.cookie = NULL;
                 stmI2cPutXfer(xfer);
-                regs->CR1 |= I2C_CR1_START;
+                stmI2cStartEnable(pdev);
             }
         }
         return 0;
