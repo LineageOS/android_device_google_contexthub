@@ -1,5 +1,6 @@
 #include <errno.h>
 #include <stdint.h>
+#include <string.h>
 
 #include <gpio.h>
 #include <i2c.h>
@@ -9,6 +10,7 @@
 #include <atomic.h>
 
 #include <plat/inc/cmsis.h>
+#include <plat/inc/dma.h>
 #include <plat/inc/gpio.h>
 #include <plat/inc/i2c.h>
 #include <plat/inc/pwr.h>
@@ -234,6 +236,16 @@ static inline void stmI2cAckDisable(struct StmI2cDev *pdev)
     pdev->cfg->regs->CR1 &= ~I2C_CR1_ACK;
 }
 
+static inline void stmI2cDmaEnable(struct StmI2cDev *pdev)
+{
+    pdev->cfg->regs->CR2 |= I2C_CR2_DMAEN;
+}
+
+static inline void stmI2cDmaDisable(struct StmI2cDev *pdev)
+{
+    pdev->cfg->regs->CR2 &= ~I2C_CR2_DMAEN;
+}
+
 static inline void stmI2cStopEnable(struct StmI2cDev *pdev)
 {
     struct StmI2c *regs = pdev->cfg->regs;
@@ -438,7 +450,7 @@ static void stmI2cSlaveNakRxed(struct StmI2cDev *pdev)
     regs->SR1 &= ~I2C_SR1_AF;
 }
 
-static inline void stmI2cMasterTxRxDone(struct StmI2cDev *pdev)
+static inline void stmI2cMasterTxRxDone(struct StmI2cDev *pdev, int err)
 {
     struct I2cStmState *state = &pdev->state;
     size_t txOffst = state->tx.offset;
@@ -449,7 +461,7 @@ static inline void stmI2cMasterTxRxDone(struct StmI2cDev *pdev)
 
     state->tx.offset = 0;
     state->rx.offset = 0;
-    state->tx.callback(state->tx.cookie, txOffst, rxOffst, 0);
+    state->tx.callback(state->tx.cookie, txOffst, rxOffst, err);
 
     do {
         id = atomicAdd(&pdev->next, 1);
@@ -481,6 +493,63 @@ static inline void stmI2cMasterTxRxDone(struct StmI2cDev *pdev)
     atomicWriteByte(&state->masterState, STM_I2C_MASTER_IDLE);
 }
 
+static void stmI2cMasterDmaTxDone(void *cookie, uint16_t bytesLeft, int err)
+{
+    struct StmI2cDev *pdev = cookie;
+    struct I2cStmState *state = &pdev->state;
+    struct StmI2c *regs = pdev->cfg->regs;
+
+    state->tx.offset = state->tx.size - bytesLeft;
+    state->tx.size = 0;
+    stmI2cDmaDisable(pdev);
+    if (err == 0 && state->rx.size > 0) {
+        atomicWriteByte(&state->masterState, STM_I2C_MASTER_START);
+        stmI2cStartEnable(pdev);
+    } else {
+        while (!(regs->SR1 & I2C_SR1_BTF))
+            ;
+
+        stmI2cStopEnable(pdev);
+        stmI2cMasterTxRxDone(pdev, err);
+    }
+}
+
+static void stmI2cMasterDmaRxDone(void *cookie, uint16_t bytesLeft, int err)
+{
+    struct StmI2cDev *pdev = cookie;
+    struct I2cStmState *state = &pdev->state;
+
+    state->rx.offset = state->rx.size - bytesLeft;
+    state->rx.size = 0;
+
+    stmI2cDmaDisable(pdev);
+    stmI2cStopEnable(pdev);
+    stmI2cMasterTxRxDone(pdev, err);
+}
+
+static inline void stmI2cMasterStartDma(struct StmI2cDev *pdev,
+        const struct StmI2cDmaCfg *dmaCfg, const void *buf,
+        size_t size, DmaCallbackF callback, bool rx, bool last)
+{
+    struct StmI2c *regs = pdev->cfg->regs;
+    struct dmaMode mode;
+
+    memset(&mode, 0, sizeof(mode));
+    mode.priority = DMA_PRIORITY_HIGH;
+    mode.direction = rx ? DMA_DIRECTION_PERIPH_TO_MEM :
+            DMA_DIRECTION_MEM_TO_PERIPH;
+    mode.periphAddr = (uintptr_t)&regs->DR;
+    mode.minc = true;
+    mode.channel = dmaCfg->channel;
+
+    dmaStart(I2C_DMA_BUS, dmaCfg->stream, buf, size, &mode, callback, pdev);
+    if (last)
+        stmI2cIrqEnable(pdev, I2C_CR2_LAST);
+    else
+        stmI2cIrqDisable(pdev, I2C_CR2_LAST);
+    stmI2cDmaEnable(pdev);
+}
+
 static void stmI2cMasterSentStart(struct StmI2cDev *pdev)
 {
     struct I2cStmState *state = &pdev->state;
@@ -505,50 +574,19 @@ static void stmI2cMasterSentAddr(struct StmI2cDev *pdev)
     uint8_t masterState = atomicReadByte(&state->masterState);
 
     if (masterState == STM_I2C_MASTER_TX_ADDR) {
+        stmI2cMasterStartDma(pdev, &pdev->board->dmaTx, state->tx.cbuf,
+                state->tx.size, stmI2cMasterDmaTxDone, false, !!state->rx.size);
         regs->SR2; // Clear ADDR
-        regs->DR = state->tx.cbuf[0];
-        state->tx.offset ++;
         atomicWriteByte(&state->masterState, STM_I2C_MASTER_TX_DATA);
     } else if (masterState == STM_I2C_MASTER_RX_ADDR) {
         if (state->rx.size == 1) // Generate NACK here for 1 byte transfers
             stmI2cAckDisable(pdev);
+
+        stmI2cMasterStartDma(pdev, &pdev->board->dmaRx, state->rx.buf,
+                state->rx.size, stmI2cMasterDmaRxDone, true,
+                state->rx.size > 1);
         regs->SR2; // Clear ADDR
-        if (state->rx.size == 1) // Generate STOP here for 1 byte transfers
-            stmI2cStopEnable(pdev);
         atomicWriteByte(&state->masterState, STM_I2C_MASTER_RX_DATA);
-    }
-}
-
-static void stmI2cMasterTxRx(struct StmI2cDev *pdev)
-{
-    struct I2cStmState *state = &pdev->state;
-    struct StmI2c *regs = pdev->cfg->regs;
-    uint8_t masterState = atomicReadByte(&state->masterState);
-
-    if (masterState == STM_I2C_MASTER_TX_DATA) {
-        if (state->tx.offset == state->tx.size) {
-            state->tx.size = 0;
-            if (state->rx.size > 0) {
-                atomicWriteByte(&state->masterState, STM_I2C_MASTER_START);
-                stmI2cStartEnable(pdev);
-            } else {
-                stmI2cStopEnable(pdev);
-                stmI2cMasterTxRxDone(pdev);
-            }
-        } else {
-            regs->DR = state->tx.cbuf[state->tx.offset];
-            state->tx.offset ++;
-        }
-    } else if (masterState == STM_I2C_MASTER_RX_DATA) {
-        state->rx.buf[state->rx.offset] = regs->DR;
-        state->rx.offset ++;
-        // Need to generate NACK + STOP on 2nd to last read
-        if (state->rx.offset + 1 == state->rx.size) {
-            regs->CR1 &= ~I2C_CR1_ACK;
-            stmI2cStopEnable(pdev);
-        } else if (state->rx.offset == state->rx.size) {
-            stmI2cMasterTxRxDone(pdev);
-        }
     }
 }
 
@@ -562,9 +600,17 @@ static void stmI2cMasterNakRxed(struct StmI2cDev *pdev)
             masterState == STM_I2C_MASTER_TX_DATA ||
             masterState == STM_I2C_MASTER_RX_ADDR ||
             masterState == STM_I2C_MASTER_RX_DATA) {
+        dmaStop(I2C_DMA_BUS, pdev->board->dmaRx.stream);
+        state->rx.offset = state->rx.size - dmaBytesLeft(I2C_DMA_BUS,
+                pdev->board->dmaRx.stream);
+        dmaStop(I2C_DMA_BUS, pdev->board->dmaTx.stream);
+        state->tx.offset = state->tx.size - dmaBytesLeft(I2C_DMA_BUS,
+                pdev->board->dmaTx.stream);
+        stmI2cDmaDisable(pdev);
+
         regs->SR1 &= ~I2C_SR1_AF;
         stmI2cStopEnable(pdev);
-        stmI2cMasterTxRxDone(pdev);
+        stmI2cMasterTxRxDone(pdev, 0);
     }
 }
 
@@ -594,8 +640,6 @@ static void stmI2cIsrEvent(struct StmI2cDev *pdev)
             stmI2cMasterSentStart(pdev);
         else if (sr1 & I2C_SR1_ADDR)
             stmI2cMasterSentAddr(pdev);
-        else if (sr1 & (I2C_SR1_TXE | I2C_SR1_RXNE | I2C_SR1_BTF))
-            stmI2cMasterTxRx(pdev);
     }
 }
 
@@ -671,7 +715,7 @@ int i2cMasterRequest(I2cBus busId, I2cSpeed speed)
         pwrUnitReset(PERIPH_BUS_APB1, cfg->clock, true);
         pwrUnitReset(PERIPH_BUS_APB1, cfg->clock, false);
 
-        stmI2cIrqEnable(pdev, I2C_CR2_ITBUFEN | I2C_CR2_ITEVTEN | I2C_CR2_ITERREN);
+        stmI2cIrqEnable(pdev, I2C_CR2_ITEVTEN | I2C_CR2_ITERREN);
         stmI2cSpeedSet(pdev, speed);
         atomicWriteByte(&state->masterState, STM_I2C_MASTER_IDLE);
 
@@ -697,7 +741,7 @@ int i2cMasterRelease(I2cBus busId)
     if (state->mode == STM_I2C_MASTER) {
         if (atomicReadByte(&state->masterState) == STM_I2C_MASTER_IDLE) {
             state->mode = STM_I2C_DISABLED;
-            stmI2cIrqDisable(pdev, I2C_CR2_ITBUFEN | I2C_CR2_ITERREN | I2C_CR2_ITEVTEN);
+            stmI2cIrqEnable(pdev, I2C_CR2_ITERREN | I2C_CR2_ITEVTEN);
             stmI2cDisable(pdev);
             pwrUnitClock(PERIPH_BUS_APB1, cfg->clock, false);
             return 0;
@@ -814,7 +858,7 @@ int i2cSlaveRelease(I2cBus busId)
 
     if (pdev->state.mode == STM_I2C_SLAVE) {
         pdev->state.mode = STM_I2C_DISABLED;
-        stmI2cIrqDisable(pdev, I2C_CR2_ITBUFEN | I2C_CR2_ITERREN | I2C_CR2_ITEVTEN);
+        stmI2cIrqDisable(pdev, I2C_CR2_ITERREN | I2C_CR2_ITEVTEN);
         stmI2cAckDisable(pdev);
         stmI2cDisable(pdev);
         pwrUnitClock(PERIPH_BUS_APB1, cfg->clock, false);
