@@ -106,7 +106,7 @@ bool sensorUnregister(uint32_t handle)
     mem_reorder_barrier();
 
     /* free struct */
-    atomicBitsetClearBit(mSensorsUsed, mSensors - s);
+    atomicBitsetClearBit(mSensorsUsed, s - mSensors);
 
     return true;
 }
