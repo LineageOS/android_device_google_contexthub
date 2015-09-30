@@ -130,6 +130,9 @@ void platLogFlush(void *userData)
 
 bool platLogPutcharF(void *userData, char ch)
 {
+#if defined(DEBUG) && defined(DEBUG_UART_PIN)
+    gpioBitbangedUartOut(ch);
+#endif
 #ifdef DEBUG_UART_UNITNO
     usartPutchat(&mDbgUart, ch);
 #elif defined(DEBUG_LOG_EVT)
