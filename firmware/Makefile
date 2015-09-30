@@ -1,6 +1,7 @@
 #find build target
 PLATFORM ?= stm32f4xx
 CPU ?= cortexm4f
+VARIANT ?= nucleo
 
 APP = nanohub
 
