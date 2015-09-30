@@ -104,6 +104,8 @@ enum GpioSpeed          /* CL (pF)     50,  50,   10,  10   */
     GPIO_SPEED_HIGH,    /*            100,  50,  180, 100   */
 };
 
+void gpioBitbangedUartOut(uint32_t chr);
+
 #ifdef __cplusplus
 }
 #endif

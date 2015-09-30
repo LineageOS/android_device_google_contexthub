@@ -7,6 +7,7 @@ endif
 
 FLAGS += -DHEAP_SIZE=102400           #100K heap
 FLAGS += -DPLATFORM_HW_TYPE=0x4275   #'Bu' -> bullhead
+FLAGS += -DDEBUG_UART_PIN=0   #GPIOA0 is debug uart at 2MBps
 
 #board configuration shims
 SRCS += src/variant/$(VARIANT)/i2c.c
