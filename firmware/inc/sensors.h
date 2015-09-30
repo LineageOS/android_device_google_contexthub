@@ -10,7 +10,7 @@ extern "C" {
 #include <seos.h>
 
 
-#define MAX_REGISTERED_SENSORS  8 /* this may need to be revisted later */
+#define MAX_REGISTERED_SENSORS  16 /* this may need to be revisted later */
 
 
 #define SENSOR_TYPE_INVALID         0
