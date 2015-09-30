@@ -8,12 +8,14 @@
 #include <util.h>
 #include <atomicBitset.h>
 #include <atomic.h>
+#include <platform.h>
 
 #include <plat/inc/cmsis.h>
 #include <plat/inc/dma.h>
 #include <plat/inc/gpio.h>
 #include <plat/inc/i2c.h>
 #include <plat/inc/pwr.h>
+#include <plat/inc/plat.h>
 
 #include <cpu/inc/barrier.h>
 
@@ -459,6 +461,8 @@ static inline void stmI2cMasterTxRxDone(struct StmI2cDev *pdev, int err)
     int i;
     struct StmI2cXfer *xfer;
 
+    platReleaseDevInSleepMode(Stm32sleepI2cXfer);
+
     state->tx.offset = 0;
     state->rx.offset = 0;
     state->tx.callback(state->tx.cookie, txOffst, rxOffst, err);
@@ -484,6 +488,7 @@ static inline void stmI2cMasterTxRxDone(struct StmI2cDev *pdev, int err)
             state->rx.callback = NULL;
             state->rx.cookie = NULL;
             atomicWriteByte(&state->masterState, STM_I2C_MASTER_START);
+            platRequestDevInSleepMode(Stm32sleepI2cXfer, 12);
             stmI2cPutXfer(xfer);
             stmI2cStartEnable(pdev);
             return;
@@ -854,6 +859,7 @@ int i2cMasterTxRx(I2cBus busId, I2cAddr addr,
                 state->rx.size = xfer->rxSize;
                 state->rx.callback = NULL;
                 state->rx.cookie = NULL;
+                platRequestDevInSleepMode(Stm32sleepI2cXfer, 12);
                 stmI2cPutXfer(xfer);
                 stmI2cStartEnable(pdev);
             }

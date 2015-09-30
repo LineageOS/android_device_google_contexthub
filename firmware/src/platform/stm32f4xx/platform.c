@@ -444,7 +444,7 @@ struct PlatSleepAndClockInfo {
         .jitterPpm = 0,
         .driftPpm = 30,
         .maxWakeupTime = 12ull,
-        .devsAvail = (1 << Stm32sleepDevTim2) | (1 << Stm32sleepDevTim4) | (1 << Stm32sleepDevTim5) | (1 << Stm32sleepWakeup),
+        .devsAvail = (1 << Stm32sleepDevTim2) | (1 << Stm32sleepDevTim4) | (1 << Stm32sleepDevTim5) | (1 << Stm32sleepWakeup) | (1 << Stm32sleepSpiXfer) | (1 << Stm32sleepI2cXfer),
         .prepare = sleepClockTmrPrepare,
         .wake = sleepClockTmrWake,
     },

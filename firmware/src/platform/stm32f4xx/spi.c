@@ -7,6 +7,7 @@
 #include <util.h>
 #include <atomicBitset.h>
 #include <atomic.h>
+#include <platform.h>
 
 #include <plat/inc/cmsis.h>
 #include <plat/inc/dma.h>
@@ -15,6 +16,7 @@
 #include <plat/inc/exti.h>
 #include <plat/inc/syscfg.h>
 #include <plat/inc/spi.h>
+#include <plat/inc/plat.h>
 
 #define SPI_CR1_CPHA                (1 << 0)
 #define SPI_CR1_CPOL                (1 << 1)
@@ -247,6 +249,8 @@ static void stmSpiDone(struct StmSpiDev *pdev, int err)
     struct StmSpi *regs = pdev->cfg->regs;
     struct StmSpiState *state = &pdev->state;
 
+    platReleaseDevInSleepMode(Stm32sleepSpiXfer);
+
     while (regs->SR & SPI_SR_BSY)
         ;
 
@@ -339,6 +343,8 @@ static int stmSpiRxTx(struct SpiDevice *dev, void *rxBuf, const void *txBuf,
 
     regs->CR2 = cr2;
     regs->CR1 |= SPI_CR1_SPE;
+
+    platRequestDevInSleepMode(Stm32sleepSpiXfer, 12);
 
     return 0;
 }

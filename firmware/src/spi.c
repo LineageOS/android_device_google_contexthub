@@ -94,7 +94,7 @@ void spiMasterRxTxDone(struct SpiDevice *dev, int err)
         size_t i = state->currentBuf++;
 
         if (state->packets[i].delay > 0)
-            timTimerSet(state->packets[i].delay, 0, 0, spiDelayCallback, state, true);
+            timTimerSet(state->packets[i].delay, 0, 50, spiDelayCallback, state, true);
         else
             spiMasterNext(state);
     }
