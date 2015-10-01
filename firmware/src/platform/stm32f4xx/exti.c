@@ -44,7 +44,7 @@ void extiDisableIntLine(const enum ExtiLine line)
 
 void extiClearPendingLine(const enum ExtiLine line)
 {
-    EXTI->PR |= (1UL << line);
+    EXTI->PR = (1UL << line);
 }
 
 bool extiIsPendingLine(const enum ExtiLine line)
