@@ -191,7 +191,7 @@ void platInitialize(void)
 #endif
 
     /* set up debugging */
-#ifdef DEBUG
+#if defined(DEBUG) && defined(DEBUG_SWD)
     dbg->CR |= debugStateInSleepMode;
 #else
     dbg->CR &=~ debugStateInSleepMode;
