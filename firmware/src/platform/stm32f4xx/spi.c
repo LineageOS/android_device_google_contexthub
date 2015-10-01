@@ -249,7 +249,8 @@ static void stmSpiDone(struct StmSpiDev *pdev, int err)
     struct StmSpi *regs = pdev->cfg->regs;
     struct StmSpiState *state = &pdev->state;
 
-    platReleaseDevInSleepMode(Stm32sleepSpiXfer);
+    if (pdev->board->sleepDev >= 0)
+        platReleaseDevInSleepMode(pdev->board->sleepDev);
 
     while (regs->SR & SPI_SR_BSY)
         ;
@@ -344,7 +345,8 @@ static int stmSpiRxTx(struct SpiDevice *dev, void *rxBuf, const void *txBuf,
     regs->CR2 = cr2;
     regs->CR1 |= SPI_CR1_SPE;
 
-    platRequestDevInSleepMode(Stm32sleepSpiXfer, 12);
+    if (pdev->board->sleepDev >= 0)
+        platRequestDevInSleepMode(pdev->board->sleepDev, 12);
 
     return 0;
 }

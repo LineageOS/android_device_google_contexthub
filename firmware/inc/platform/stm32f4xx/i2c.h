@@ -2,8 +2,10 @@
 #define __PLAT_I2C_H
 
 #include <gpio.h>
+#include <platform.h>
 #include <plat/inc/cmsis.h>
 #include <plat/inc/gpio.h>
+#include <plat/inc/plat.h>
 
 struct StmI2cDmaCfg {
     uint8_t channel;
@@ -24,6 +26,8 @@ struct StmI2cBoardCfg {
 
     struct StmI2cDmaCfg dmaRx;
     struct StmI2cDmaCfg dmaTx;
+
+    enum PlatSleepDevID sleepDev;
 };
 
 #define I2C_DMA_BUS         0
