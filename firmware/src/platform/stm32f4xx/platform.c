@@ -449,7 +449,7 @@ struct PlatSleepAndClockInfo {
         .jitterPpm = 0,
         .driftPpm = 30,
         .maxWakeupTime = 12ull,
-        .devsAvail = (1 << Stm32sleepDevTim2) | (1 << Stm32sleepDevTim4) | (1 << Stm32sleepDevTim5) | (1 << Stm32sleepWakeup) | (1 << Stm32sleepSpiXfer) | (1 << Stm32sleepI2cXfer),
+        .devsAvail = (1 << Stm32sleepDevTim2) | (1 << Stm32sleepDevTim4) | (1 << Stm32sleepDevTim5) | (1 << Stm32sleepWakeup) | (1 << Stm32sleepDevSpi2) | (1 << Stm32sleepDevI2c1),
         .prepare = sleepClockTmrPrepare,
         .wake = sleepClockTmrWake,
     },
@@ -459,7 +459,7 @@ struct PlatSleepAndClockInfo {
         .jitterPpm = 0,
         .driftPpm = 0,
         .maxWakeupTime = 0,
-        .devsAvail = (1 << Stm32sleepDevTim2) | (1 << Stm32sleepDevTim4) | (1 << Stm32sleepDevTim5),
+        .devsAvail = (1 << Stm32sleepDevTim2) | (1 << Stm32sleepDevTim4) | (1 << Stm32sleepDevTim5) | (1 << Stm32sleepWakeup) | (1 << Stm32sleepDevSpi2) | (1 << Stm32sleepDevI2c1),
         .prepare = sleepClockJustWfiPrepare,
     },
 

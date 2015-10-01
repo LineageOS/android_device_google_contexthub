@@ -2,8 +2,10 @@
 #define __PLAT_SPI_H
 
 #include <gpio.h>
+#include <platform.h>
 #include <plat/inc/cmsis.h>
 #include <plat/inc/gpio.h>
+#include <plat/inc/plat.h>
 
 struct StmSpiDmaCfg {
     uint8_t channel;
@@ -24,6 +26,8 @@ struct StmSpiBoardCfg {
 
     struct StmSpiDmaCfg dmaRx;
     struct StmSpiDmaCfg dmaTx;
+
+    enum PlatSleepDevID sleepDev;
 };
 
 #define SPI1_DMA_BUS        1
