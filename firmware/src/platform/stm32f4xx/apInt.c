@@ -36,7 +36,6 @@ void apIntClear(bool wakeup)
     struct Gpio gpio;
 
     if (wakeup) {
-
         gpioRequest(&gpio, AP_INT_WAKEUP);
         gpioSet(&gpio, 1);
     } else {

@@ -145,6 +145,7 @@ void hostIntfRequest()
 {
     atomicBitsetInit(gInterrupt, MAX_INTERRUPTS);
     atomicBitsetInit(gInterruptMask, MAX_INTERRUPTS);
+    hostIntfSetInterruptMask(NANOHUB_INT_NONWAKEUP);
 
     gComm = platHostIntfInit();
     if (gComm) {
@@ -240,9 +241,13 @@ void hostIntfCopyClearInterrupts(struct AtomicBitset *dst, uint32_t numBits)
 
 void hostIntfSetInterrupt(uint32_t bit)
 {
-    platRequestDevInSleepMode(Stm32sleepWakeup, 12);
     atomicBitsetSetBit(gInterrupt, bit);
-    apIntSet(!atomicBitsetGetBit(gInterruptMask, bit));
+    if (!atomicBitsetGetBit(gInterruptMask, bit)) {
+        platRequestDevInSleepMode(Stm32sleepWakeup, 12);
+        apIntSet(true);
+    } else {
+        apIntSet(false);
+    }
 }
 
 void hostInfClearInterrupt(uint32_t bit)
