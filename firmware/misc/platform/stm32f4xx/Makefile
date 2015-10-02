@@ -45,7 +45,7 @@ FLAGS += -DPLATFORM_HW_VER=0
 #platform-specific rules
 
 %.full.bin : %.elf
-	$(OBJCOPY) -j.bl -j .data -j .text -I elf32-littlearm -O binary $< $@
+	$(OBJCOPY) -j.bl -j .data -j .text -j .eedata -I elf32-littlearm -O binary $< $@
 
 %.update.bin : %.elf
 	$(OBJCOPY) -j .data -j .text -I elf32-littlearm -O binary $< $@

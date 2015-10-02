@@ -23,6 +23,18 @@ SECTIONS
 		. = ALIGN(4);
 	} > bl = 0xff
 
+	/* initial EEDATA contents */
+	.eedata : {
+
+		. = ALIGN(4);
+		*(.eedata) *(.eedata.*) ;
+
+		. = 32767; /* make sure it is all full of 0xFFs */
+                BYTE (0xffffffff) ;
+
+	} > eedata = 0xff
+
+
 	/* things that live in the main app image */
 	.text : {
 		KEEP (*(.vectors) ) ;
