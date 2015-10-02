@@ -7,6 +7,7 @@ endif
 
 FLAGS += -DHEAP_SIZE=102400           #100K heap
 FLAGS += -DPLATFORM_HW_TYPE=0x4E75   #'Nu' ->nucleo
+FLAGS += -DDEBUG_SWD
 
 #board configuration shims
 SRCS += src/variant/$(VARIANT)/i2c.c
