@@ -342,11 +342,12 @@ static int stmSpiRxTx(struct SpiDevice *dev, void *rxBuf, const void *txBuf,
             regs->DR = mode->txWord;
     }
 
+    if (pdev->board->sleepDev >= 0)
+        platRequestDevInSleepMode(pdev->board->sleepDev, 12);
+
     regs->CR2 = cr2;
     regs->CR1 |= SPI_CR1_SPE;
 
-    if (pdev->board->sleepDev >= 0)
-        platRequestDevInSleepMode(pdev->board->sleepDev, 12);
 
     return 0;
 }
