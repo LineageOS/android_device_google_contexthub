@@ -27,10 +27,9 @@ SECTIONS
 	.eedata : {
 
 		. = ALIGN(4);
-		*(.eedata) *(.eedata.*) ;
-
+		KEEP (*(.eedata) ) ;
 		. = 32767; /* make sure it is all full of 0xFFs */
-                BYTE (0xffffffff) ;
+                BYTE (0xff) ;
 
 	} > eedata = 0xff
 

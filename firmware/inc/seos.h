@@ -9,6 +9,7 @@ extern "C" {
 #include <stdint.h>
 #include <stdarg.h>
 #include <eventQ.h>
+#include <aes.h>
 #include <plat/inc/app.h>
 
 
@@ -21,6 +22,11 @@ extern "C" {
 #define EVT_APP_START                    0x00000300    //sent when an app can actually start
 
 #define OS_VER                           0x0000
+
+#define EE_DATA_TYPE_ENCR_KEY            1
+
+#define ENCR_KEY_GOOGLE_PREPOPULATED     1 // our key ID is 1
+
 
 struct AppFuncs { /* do not rearrange */
     /* lifescycle */

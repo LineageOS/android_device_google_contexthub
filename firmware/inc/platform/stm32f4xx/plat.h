@@ -7,6 +7,7 @@ extern "C" {
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <seos.h>
 
 
 enum PlatSleepDevID
@@ -21,6 +22,20 @@ enum PlatSleepDevID
     Stm32sleepDevNum,  //must be last always, and must be <= PLAT_MAX_SLEEP_DEVS
 };
 
+struct StmPlatEeDataGeneric {
+    uint32_t eeDataType : 20;
+    uint32_t eeDataLen  : 12; // not incl header
+} __attribute__((packed));
+
+struct StmPlatEeDataEncrKey {
+    struct StmPlatEeDataGeneric hdr;
+    uint64_t keyID;
+    uint8_t key[32];
+} __attribute__((packed));
+
+
+#define PREPOPULATED_ENCR_KEY(name, keyid, ...) \
+    const struct StmPlatEeDataEncrKey __attribute__ ((section (".eedata"))) __EE__ ## name = { { EE_DATA_TYPE_ENCR_KEY, sizeof(struct StmPlatEeDataEncrKey) - sizeof(struct StmPlatEeDataGeneric)}, keyid, {__VA_ARGS__}}
 
 #ifdef __cplusplus
 }
