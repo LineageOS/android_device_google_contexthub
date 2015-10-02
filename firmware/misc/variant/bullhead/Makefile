@@ -14,8 +14,8 @@ SRCS += src/variant/$(VARIANT)/i2c.c
 SRCS += src/variant/$(VARIANT)/spi.c
 
 #keys
-SRCS += src/variant/$(VARIANT)/rsaKeyLge.c
-SRCS += src/variant/$(VARIANT)/rsaKeyBullhead.c
+SRCS += src/variant/$(VARIANT)/rsaKeyBullheadVendor.c
+SRCS += src/variant/$(VARIANT)/rsaKeyBullheadDevice.c
 
 #linker script
 LKR = misc/variant/common/stm32f411.lkr

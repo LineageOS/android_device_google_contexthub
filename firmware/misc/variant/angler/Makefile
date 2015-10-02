@@ -13,8 +13,8 @@ SRCS += src/variant/$(VARIANT)/i2c.c
 SRCS += src/variant/$(VARIANT)/spi.c
 
 #keys
-SRCS += src/variant/$(VARIANT)/rsaKeyHuawei.c
-SRCS += src/variant/$(VARIANT)/rsaKeyAngler.c
+SRCS += src/variant/$(VARIANT)/rsaKeyAnglerVendor.c
+SRCS += src/variant/$(VARIANT)/rsaKeyAnglerDevice.c
 
 #linker script
 LKR = misc/variant/common/stm32f411.lkr
