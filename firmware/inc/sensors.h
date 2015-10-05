@@ -8,6 +8,7 @@ extern "C" {
 #include <stdbool.h>
 #include <stdint.h>
 #include <seos.h>
+#include <eventnums.h>
 
 
 #define MAX_REGISTERED_SENSORS  16 /* this may need to be revisted later */

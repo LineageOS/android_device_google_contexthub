@@ -7,27 +7,7 @@
 #include <unistd.h>
 #include <string.h>
 #include <stdlib.h>
-
-#define EVT_APP_START 0x0000300
-
-// These enum and struc delcaration should be done in sensor.h and share by
-// all sensors. The event number should be assigned according to certain rules.
-
-enum sensorEvents {
-    NO_EVT = -1,
-    EVT_SPI_DONE = EVT_APP_START + 1,
-    ACC_ACTIVATE,
-    GYR_ACTIVATE,
-    MAG_ACTIVATE,
-    ACC_CONFIG,
-    GYR_CONFIG,
-    MAG_CONFIG,
-    EVT_SENSOR_INTERRUPT_1,
-    EVT_SENSOR_INTERRUPT_2,
-    ACC_CALIBRATE,
-    GYR_CALIBRATE,
-    NUM_OF_EVT
-};
+#include <eventnums.h>
 
 typedef struct activateStat {
     bool active[2];
@@ -93,15 +73,15 @@ int main(int argc, char *argv[])
         }
         mActivateCmd.data.active[0] ;
         if (strcmp(argv[2], "accel") == 0) {
-            mActivateCmd.evtType = ACC_ACTIVATE;
+            mActivateCmd.evtType = EVT_SENSOR_ACC_ACTIVATE;
         } else if (strcmp(argv[2], "gyro") == 0) {
-            mActivateCmd.evtType = GYR_ACTIVATE;
+            mActivateCmd.evtType = EVT_SENSOR_GYR_ACTIVATE;
         } else if (strcmp(argv[2], "mag") == 0) {
-            mActivateCmd.evtType = MAG_ACTIVATE;
+            mActivateCmd.evtType = EVT_SENSOR_MAG_ACTIVATE;
         } else if (strcmp(argv[2], "als") == 0) {
-            mActivateCmd.evtType = MAG_ACTIVATE;
+            mActivateCmd.evtType = EVT_SENSOR_ALS_ACTIVATE;
         } else if (strcmp(argv[2], "prox") == 0) {
-            mActivateCmd.evtType = MAG_ACTIVATE;
+            mActivateCmd.evtType = EVT_SENSOR_PROX_ACTIVATE;
         } else {
             printf("Unsupported sensor: %s For action: %s\n", argv[2], argv[1]);
             return 1;
@@ -114,11 +94,11 @@ int main(int argc, char *argv[])
         mConfigCmd.data.rate = atoi(argv[3]);
         mConfigCmd.data.latency_ns = atoi(argv[4]) * 1000ull;
         if (strcmp(argv[2], "accel") == 0) {
-            mConfigCmd.evtType = ACC_CONFIG;
+            mConfigCmd.evtType = EVT_SENSOR_ACC_CONFIG;
         } else if (strcmp(argv[2], "gyro") == 0) {
-            mConfigCmd.evtType = GYR_CONFIG;
+            mConfigCmd.evtType = EVT_SENSOR_GYR_CONFIG;
         } else if (strcmp(argv[2], "mag") == 0) {
-            mConfigCmd.evtType = MAG_CONFIG;
+            mConfigCmd.evtType = EVT_SENSOR_MAG_CONFIG;
         } else {
             printf("Unsupported sensor: %s For action: %s\n", argv[2], argv[1]);
             return 1;
@@ -129,9 +109,9 @@ int main(int argc, char *argv[])
             return 1;
         }
         if (strcmp(argv[2], "accel") == 0) {
-            mCalibrateCmd.evtType = ACC_CALIBRATE;
+            mCalibrateCmd.evtType = EVT_SENSOR_ACC_CALIBRATE;
         } else if (strcmp(argv[2], "gyro") == 0) {
-            mCalibrateCmd.evtType = GYR_CALIBRATE;
+            mCalibrateCmd.evtType = EVT_SENSOR_GYR_CALIBRATE;
         } else {
             printf("Unsupported sensor: %s For action: %s\n", argv[2], argv[1]);
             return 1;

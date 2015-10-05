@@ -3,6 +3,8 @@ include $(CLEAR_VARS)
 
 LOCAL_SRC_FILES:= nanoapp_cmd.c
 
+LOCAL_C_INCLUDES := $(LOCAL_PATH)/../../firmware/inc
+
 LOCAL_MODULE:= nanoapp_cmd
 
 LOCAL_MODULE_TAGS:= optional
