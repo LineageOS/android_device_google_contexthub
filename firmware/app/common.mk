@@ -15,7 +15,7 @@ $(APP_APP): $(APP_BIN)
 $(APP_BIN): $(APP_ELF)
 	$(OBJCOPY) -j.relocs -j.flash -j.data -j.dynsym -O binary $(APP_ELF) $(APP_BIN)
 
-$(APP_ELF): $(SELF_FILES)
+$(APP_ELF): $(SELF_FILES) symlinks
 	$(GCC) -o $(APP_ELF) $(FLAGS) $(APPFLAGS) $(SELF_FILES)
 endef
 
