@@ -356,7 +356,7 @@ static bool sleepClockTmrPrepare(uint64_t delay, uint32_t acceptableJitter, uint
     pwrSetSleepType(stm32f411SleepModeSleep);
     platRequestDevInSleepMode(Stm32sleepDevTim2, 0);
 
-    *savedData = platSetTimerAlarm(delay ?: ~0ULL);
+    *savedData = platSetTimerAlarm(delay ?: ~0ull);
 
     //sleep with systick off (for timing) and interrupts off (for power due to HWR errata)
     SysTick->CTRL &= ~(SysTick_CTRL_TICKINT_Msk | SysTick_CTRL_ENABLE_Msk);
@@ -376,7 +376,7 @@ static void sleepClockTmrWake(void *userData, uint64_t *savedData)
 
     leftTicks = tim->CNT; //if we wake NOT from timer, only count the ticks that actually ticked as "time passed"
     if (tim->SR & 1) //if there was an overflow, account for it
-        leftTicks -= 0x100000000; 
+        leftTicks -= 0x100000000ull;
 
     mTimeAccumulated += (*savedData - leftTicks) * 1000; //this clock runs at 1MHz
 
