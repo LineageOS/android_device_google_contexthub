@@ -101,6 +101,7 @@ bool sensorSignalInternalEvt(uint32_t handle, uint32_t intEvtNum, uint32_t value
 
 /*
  * api for using sensors (enum is not synced with sensor sub/unusb, this is ok since we do not expect a lot of dynamic sub/unsub)
+ * client ID should almost always be your TID (as we have no other way to disambiguate them)
  */
 const struct SensorInfo* sensorFind(uint32_t sensorType, uint32_t idx, uint32_t *handleP); //enumerate all sensors of a type
 bool sensorRequest(uint32_t clientId, uint32_t sensorHandle, uint32_t rate);
