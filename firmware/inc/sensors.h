@@ -16,19 +16,35 @@ extern "C" {
 
 #define SENSOR_TYPE_INVALID         0
 #define SENSOR_TYPE_ACCEL           1
-#define SENSOR_TYPE_GYRO            2
-#define SENSOR_TYPE_MAG             3
-#define SENSOR_TYPE_BARO            4
-#define SENSOR_TYPE_ALS             5
-#define SENSOR_TYPE_PROX            6
-#define SENSOR_TYPE_HEARTRATE_ECG   7
-#define SENSOR_TYPE_HEARTRATE_PPG   8
-#define SENSOR_TYPE_GRAVITY         9
-#define SENSOR_TYPE_LIN_ACCEL       10
-#define SENSOR_TYPE_STEP_COUNT      11
-#define SENSOR_TYPE_STEP_DETECT     12
-#define SENSOR_TYPE_TILT            13
+#define SENSOR_TYPE_ANY_MOTION      2 //provided by ACCEL, nondiscardable edge trigger
+#define SENSOR_TYPE_NO_MOTION       3 //provided by ACCEL, nondiscardable edge trigger
+#define SENSOR_TYPE_GYRO            4
+#define SENSOR_TYPE_MAG             5
+#define SENSOR_TYPE_BARO            6
+#define SENSOR_TYPE_ALS             7
+#define SENSOR_TYPE_PROX            8
+#define SENSOR_TYPE_HEARTRATE_ECG   9
+#define SENSOR_TYPE_HEARTRATE_PPG   10
+#define SENSOR_TYPE_GRAVITY         11
+#define SENSOR_TYPE_LIN_ACCEL       12
+#define SENSOR_TYPE_STEP_COUNT      13
+#define SENSOR_TYPE_STEP_DETECT     14
+#define SENSOR_TYPE_TILT            15
 #define SENSOR_TYPE_FIRST_USER      64
+
+
+//data for accel/gyro/mag takes this form
+struct TrippleAxisDataPoint {
+    uint32_t deltaTime; //delta since last sample, for 0th sample this is "num samples"
+    int16_t x, y, z;
+} __attribute__((packed));
+
+struct TrippleAxisDataEvent {
+    uint64_t referenceTime;
+    struct TrippleAxisDataPoint samples[];
+};
+
+
 
 
 
