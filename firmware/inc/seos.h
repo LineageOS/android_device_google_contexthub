@@ -101,7 +101,7 @@ static const struct AppHdr __attribute__((used,section (".internal_app_init"))) 
 
 #define APP_INIT(_init, _end, _event)                                            \
 extern const struct AppFuncs _mAppFuncs;                                         \
-const struct AppFuncs __attribute__((used,section (".app_init"))) _mAppFuncs = { \
+const struct AppFuncs __attribute__((used,section (".app_init"),visibility("default"))) _mAppFuncs = { \
     .init = (_init),                                                             \
     .end = (_end),                                                               \
     .handle = (_event)                                                           \
