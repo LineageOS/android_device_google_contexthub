@@ -16,7 +16,7 @@ $(APP_BIN): $(APP_ELF)
 	$(OBJCOPY) -j.relocs -j.flash -j.data -j.dynsym -O binary $(APP_ELF) $(APP_BIN)
 
 $(APP_ELF): $(SELF_FILES) symlinks
-	$(GCC) -o $(APP_ELF) $(FLAGS) $(APPFLAGS) $(SELF_FILES)
+	$(GCC) -o $(APP_ELF) $(FLAGS) $(APPFLAGS) -fvisibility=hidden $(SELF_FILES)
 endef
 
 $(eval $(APPRULE))
