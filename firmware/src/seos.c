@@ -1,12 +1,16 @@
 #include <plat/inc/plat.h>
+#include <nanohubPacket.h>
 #include <platform.h>
 #include <hostIntf.h>
 #include <syscall.h>
+#include <sensors.h>
+#include <string.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stdarg.h>
 #include <printf.h>
 #include <eventQ.h>
+#include <apInt.h>
 #include <timer.h>
 #include <stdio.h>
 #include <seos.h>
@@ -14,9 +18,6 @@
 #include <slab.h>
 #include <util.h>
 #include <cpu.h>
-#include <sensors.h>
-#include <apInt.h>
-#include <nanohubPacket.h>
 
 
 /*
@@ -268,30 +269,6 @@ static void osExpApiEvtqEnqueue(uintptr_t *retValP, va_list args)
     *retValP = osEnqueueEvt(evtType, evtData, evtFreeF, external);
 }
 
-static void osExpApiEvtqFuncDeferCbk(void *data)
-{
-    struct UserspaceCallback *ucbk = (struct UserspaceCallback*)data;
-
-    syscallUserspaceCallbackCall(ucbk, NULL, NULL, NULL, NULL);
-    syscallUserspaceCallbackFree(ucbk);
-}
-
-static void osExpApiEvtqFuncDefer(uintptr_t *retValP, va_list args)
-{
-    OsDeferCbkF userCbk = va_arg(args, OsDeferCbkF);
-    void *userData = va_arg(args, void*);
-    struct UserspaceCallback *ucbk;
-
-    *retValP = false;
-    ucbk = syscallUserspaceCallbackAlloc(userCbk, (uintptr_t)userData, 0, 0, 0);
-    if (ucbk) {
-        if (osDefer(osExpApiEvtqFuncDeferCbk, ucbk))
-            *retValP = true;
-        else
-            syscallUserspaceCallbackFree(ucbk);
-    }
-}
-
 static void osExpApiLogLogv(uintptr_t *retValP, va_list args)
 {
     enum LogLevel level = va_arg(args, int /* enums promoted to ints in va_args in C */);
@@ -299,6 +276,56 @@ static void osExpApiLogLogv(uintptr_t *retValP, va_list args)
     va_list innerArgs = INTEGER_TO_VA_LIST(va_arg(args, uintptr_t));
 
     osLogv(level, str, innerArgs);
+}
+
+static void osExpApiSensorFind(uintptr_t *retValP, va_list args)
+{
+    uint32_t sensorType = va_arg(args, uint32_t);
+    uint32_t idx = va_arg(args, uint32_t);
+    uint32_t *handleP = va_arg(args, uint32_t*);
+
+    *retValP = (uintptr_t)sensorFind(sensorType, idx, handleP);
+}
+
+static void osExpApiSensorReq(uintptr_t *retValP, va_list args)
+{
+    uint32_t clientId = va_arg(args, uint32_t);
+    uint32_t sensorHandle = va_arg(args, uint32_t);
+    uint32_t rate = va_arg(args, uint32_t);
+
+    *retValP = sensorRequest(clientId, sensorHandle, rate);
+}
+
+static void osExpApiSensorRateChg(uintptr_t *retValP, va_list args)
+{
+    uint32_t clientId = va_arg(args, uint32_t);
+    uint32_t sensorHandle = va_arg(args, uint32_t);
+    uint32_t newRate = va_arg(args, uint32_t);
+
+    *retValP = sensorRequestRateChange(clientId, sensorHandle, newRate);
+}
+
+static void osExpApiSensorRel(uintptr_t *retValP, va_list args)
+{
+    uint32_t clientId = va_arg(args, uint32_t);
+    uint32_t sensorHandle = va_arg(args, uint32_t);
+
+    *retValP = sensorRelease(clientId, sensorHandle);
+}
+
+static void osExpApiSensorTrigger(uintptr_t *retValP, va_list args)
+{
+    uint32_t clientId = va_arg(args, uint32_t);
+    uint32_t sensorHandle = va_arg(args, uint32_t);
+
+    *retValP = sensorTriggerOndemand(clientId, sensorHandle);
+}
+
+static void osExpApiSensorGetRate(uintptr_t *retValP, va_list args)
+{
+    uint32_t sensorHandle = va_arg(args, uint32_t);
+
+    *retValP = sensorGetCurRate(sensorHandle);
 }
 
 static void osExportApi(void)
@@ -309,7 +336,6 @@ static void osExportApi(void)
             [SYSCALL_OS_MAIN_EVTQ_SUBCRIBE]   = { .func = osExpApiEvtqSubscribe,   },
             [SYSCALL_OS_MAIN_EVTQ_UNSUBCRIBE] = { .func = osExpApiEvtqUnsubscribe, },
             [SYSCALL_OS_MAIN_EVTQ_ENQUEUE]    = { .func = osExpApiEvtqEnqueue,     },
-            [SYSCALL_OS_MAIN_EVTQ_FUNC_DEFER] = { .func = osExpApiEvtqFuncDefer,   },
         },
     };
 
@@ -320,11 +346,25 @@ static void osExportApi(void)
         },
     };
 
+    static const struct SyscallTable osMainSensorsTable = {
+        .numEntries = SYSCALL_OS_MAIN_SENSOR_LAST,
+        .entry = {
+            [SYSCALL_OS_MAIN_SENSOR_FIND]     = { .func = osExpApiSensorFind,    },
+            [SYSCALL_OS_MAIN_SENSOR_REQUEST]  = { .func = osExpApiSensorReq,     },
+            [SYSCALL_OS_MAIN_SENSOR_RATE_CHG] = { .func = osExpApiSensorRateChg, },
+            [SYSCALL_OS_MAIN_SENSOR_RELEASE]  = { .func = osExpApiSensorRel,     },
+            [SYSCALL_OS_MAIN_SENSOR_TRIGGER]  = { .func = osExpApiSensorTrigger, },
+            [SYSCALL_OS_MAIN_SENSOR_GET_RATE] = { .func = osExpApiSensorGetRate, },
+
+        },
+    };
+
     static const struct SyscallTable osMainTable = {
         .numEntries = SYSCALL_OS_MAIN_LAST,
         .entry = {
             [SYSCALL_OS_MAIN_EVENTQ] =  { .subtable = (struct SyscallTable*)&osMainEvtqTable, },
             [SYSCALL_OS_MAIN_LOGGING] = { .subtable = (struct SyscallTable*)&osMainLogTable,  },
+            [SYSCALL_OS_MAIN_SENSOR]  = { .subtable = (struct SyscallTable*)&osMainSensorsTable,  },
         },
     };
     static const struct SyscallTable osTable = {

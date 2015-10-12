@@ -9,6 +9,7 @@
 #ifdef __KERNEL__
 #include <linux/types.h>
 #else
+#include <hostIntf.h>
 #include <stdint.h>
 
 typedef uint16_t __le16;

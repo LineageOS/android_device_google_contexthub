@@ -42,7 +42,7 @@ extern "C" {
     })
 
 
-#define cpuSyscallDo1P(syscallNo, p1, p2)              \
+#define cpuSyscallDo1P(syscallNo, p1)                  \
     ({                                                 \
         register uint32_t _r0 asm("r0") = syscallNo;   \
         register uint32_t _r1 asm("r1") = (uint32_t)p1;\

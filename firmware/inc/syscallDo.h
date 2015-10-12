@@ -11,6 +11,7 @@ extern "C" {
 #endif
 
 #include <cpu/inc/syscallDo.h>
+#include <sensors.h>
 #include <syscall.h>
 #include <stdarg.h>
 #include <seos.h>
@@ -82,11 +83,6 @@ static inline bool eOsEnqueueEvt(uint32_t evtType, void *evtData, EventFreeF evt
     return syscallDo4P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_MAIN, SYSCALL_OS_MAIN_EVENTQ, SYSCALL_OS_MAIN_EVTQ_ENQUEUE), evtType, evtData, evtFreeF, external);
 }
 
-static inline bool eOsDefer(OsDeferCbkF callback, void *cookie)
-{
-    return syscallDo2P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_MAIN, SYSCALL_OS_MAIN_EVENTQ, SYSCALL_OS_MAIN_EVTQ_FUNC_DEFER), callback, cookie);
-}
-
 static inline void eOsLogvInternal(enum LogLevel level, const char *str, uintptr_t args_list)
 {
     (void)syscallDo3P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_MAIN, SYSCALL_OS_MAIN_LOGGING, SYSCALL_OS_MAIN_LOG_LOGV), level, str, args_list);
@@ -104,6 +100,36 @@ static inline void eOsLog(enum LogLevel level, const char *str, ...)
     va_start(vl, str);
     eOsLogvInternal(level, str, VA_LIST_TO_INTEGER(vl));
     va_end(vl);
+}
+
+static inline const struct SensorInfo* eOsSensorFind(uint32_t sensorType, uint32_t idx, uint32_t *handleP)
+{
+    return (const struct SensorInfo*)syscallDo3P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_MAIN, SYSCALL_OS_MAIN_SENSOR, SYSCALL_OS_MAIN_SENSOR_FIND), sensorType, idx, handleP);
+}
+
+static inline bool eOsSensorRequest(uint32_t clientId, uint32_t sensorHandle, uint32_t rate)
+{
+    return syscallDo3P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_MAIN, SYSCALL_OS_MAIN_SENSOR, SYSCALL_OS_MAIN_SENSOR_REQUEST), clientId, sensorHandle, rate);
+}
+
+static inline bool eOsSensorRequestRateChange(uint32_t clientId, uint32_t sensorHandle, uint32_t newRate)
+{
+    return syscallDo3P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_MAIN, SYSCALL_OS_MAIN_SENSOR, SYSCALL_OS_MAIN_SENSOR_RATE_CHG), clientId, sensorHandle, newRate);
+}
+
+static inline bool eOsSensorRelease(uint32_t clientId, uint32_t sensorHandle)
+{
+    return syscallDo2P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_MAIN, SYSCALL_OS_MAIN_SENSOR, SYSCALL_OS_MAIN_SENSOR_RELEASE), clientId, sensorHandle);
+}
+
+static inline bool eOsSensorTriggerOndemand(uint32_t clientId, uint32_t sensorHandle)
+{
+    return syscallDo2P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_MAIN, SYSCALL_OS_MAIN_SENSOR, SYSCALL_OS_MAIN_SENSOR_TRIGGER), clientId, sensorHandle);
+}
+
+static inline uint32_t eOsSensorGetCurRate(uint32_t sensorHandle)
+{
+    return syscallDo1P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_MAIN, SYSCALL_OS_MAIN_SENSOR, SYSCALL_OS_MAIN_SENSOR_GET_RATE), sensorHandle);
 }
 
 

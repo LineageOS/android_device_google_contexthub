@@ -113,23 +113,33 @@ const struct AppFuncs __attribute__((used,section (".app_init"),visibility("defa
 //EXTERNAL API
 //level 1 indices in the OS table
 #define SYSCALL_OS_MAIN                   0
-#define SYSCALL_OS_LAST                   1 // always last. holes are allowed, but nto immediately before this
+#define SYSCALL_OS_LAST                   1 // always last. holes are allowed, but not immediately before this
 
 //level 2 indices in the OS.main table
 #define SYSCALL_OS_MAIN_EVENTQ            0
 #define SYSCALL_OS_MAIN_LOGGING           1
-#define SYSCALL_OS_MAIN_LAST              2 // always last. holes are allowed, but nto immediately before this
+#define SYSCALL_OS_MAIN_SENSOR            2
+#define SYSCALL_OS_MAIN_LAST              3 // always last. holes are allowed, but not immediately before this
 
 //level 3 indices in the OS.main.event_queue table
 #define SYSCALL_OS_MAIN_EVTQ_SUBCRIBE    0 // (uint32_t tid, uint32_t evtType) -> bool success
 #define SYSCALL_OS_MAIN_EVTQ_UNSUBCRIBE  1 // ((uint32_t tid, uint32_t evtType) -> bool success
 #define SYSCALL_OS_MAIN_EVTQ_ENQUEUE     2 // (uint32_t evtType, void *evtData, EventFreeF evtFreeF, bool external) -> bool success
-#define SYSCALL_OS_MAIN_EVTQ_FUNC_DEFER  3 // (OsDeferCbkF callback, void *data) -> bool success
-#define SYSCALL_OS_MAIN_EVTQ_LAST        4 // always last. holes are allowed, but nto immediately before this
+#define SYSCALL_OS_MAIN_EVTQ_LAST        3 // always last. holes are allowed, but not immediately before this
 
 //level 3 indices in the OS.main.logging table
 #define SYSCALL_OS_MAIN_LOG_LOGV         0 // (enum LogLevel level, const char *str, va_list *) -> void
-#define SYSCALL_OS_MAIN_LOG_LAST         1 // always last. holes are allowed, but nto immediately before this
+#define SYSCALL_OS_MAIN_LOG_LAST         1 // always last. holes are allowed, but not immediately before this
+
+//level 3 indices in the OS.main.sensors table
+#define SYSCALL_OS_MAIN_SENSOR_FIND      0 // (uint32_t sensorType, uint32_t idx, uint32_t *handleP) -> const struct SensorInfo* or NULL
+#define SYSCALL_OS_MAIN_SENSOR_REQUEST   1 // (uint32_t clientId, uint32_t sensorHandle, uint32_t rate) -> bool success
+#define SYSCALL_OS_MAIN_SENSOR_RATE_CHG  2 // (uint32_t clientId, uint32_t sensorHandle, uint32_t newRate) -> bool success
+#define SYSCALL_OS_MAIN_SENSOR_RELEASE   3 // (uint32_t clientId, uint32_t sensorHandle) -> bool success
+#define SYSCALL_OS_MAIN_SENSOR_TRIGGER   4 // (uint32_t clientId, uint32_t sensorHandle) -> bool success
+#define SYSCALL_OS_MAIN_SENSOR_GET_RATE  5 // (uint32_t sensorHandle) -> uint32_t rate
+#define SYSCALL_OS_MAIN_SENSOR_LAST      6 // always last. holes are allowed, but not immediately before this
+
 
 
 #ifdef __cplusplus
