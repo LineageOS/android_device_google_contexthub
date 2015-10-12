@@ -75,6 +75,16 @@ int main(int argc, char *argv[])
             mConfigCmd.sensorType = SENS_TYPE_ORIENTATION;
         } else if (strcmp(argv[2], "win_orien") == 0) {
             mConfigCmd.sensorType = SENS_TYPE_WIN_ORIENTATION;
+        } else if (strcmp(argv[2], "step") == 0) {
+            mConfigCmd.sensorType = SENS_TYPE_STEP_DETECT;
+        } else if (strcmp(argv[2], "double_tap") == 0) {
+            mConfigCmd.sensorType = SENS_TYPE_DOUBLE_TAP;
+        } else if (strcmp(argv[2], "flat") == 0) {
+            mConfigCmd.sensorType = SENS_TYPE_FLAT;
+        } else if (strcmp(argv[2], "anymo") == 0) {
+            mConfigCmd.sensorType = SENS_TYPE_ANY_MOTION;
+        } else if (strcmp(argv[2], "nomo") == 0) {
+            mConfigCmd.sensorType = SENS_TYPE_NO_MOTION;
         } else {
             printf("Unsupported sensor: %s For action: %s\n", argv[2], argv[1]);
             return 1;
