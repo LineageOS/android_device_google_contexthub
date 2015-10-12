@@ -1,4 +1,6 @@
-#makefile for all extrernal apps app
+#makefile for all extrernal appspop app
+
+EXTRA_FLAGS ?= 
 
 ifneq ($(EXTERNAL_APP_BUILD),)
  SELF_MKFILE := $(EXTERNAL_APP_MAKEFILE)
