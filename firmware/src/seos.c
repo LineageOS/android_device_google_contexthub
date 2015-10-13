@@ -59,7 +59,7 @@ union DeferredAction {
     struct {
         uint32_t evtType;
         void *evtData;
-        EventFreeF evtFreeF;
+        TaggedPtr evtFreeInfo;
         uint32_t toTid;
     } privateEvt;
 };
@@ -73,7 +73,36 @@ union DeferredAction {
 static struct EvtQueue *mEvtsInternal, *mEvtsExternal;
 static struct SlabAllocator* mDeferedActionsSlab;
 static struct Task mTasks[MAX_TASKS];
-static uint32_t mNextTid = 1;
+static uint32_t mNextTidInfo = FIRST_VALID_TID;
+
+static struct Task* osTaskFindByTid(uint32_t tid)
+{
+    uint32_t i;
+
+    for(i = 0; i < MAX_TASKS; i++)
+        if (mTasks[i].tid == tid)
+            return mTasks + i;
+
+    return NULL;
+}
+
+static void handleEventFreeing(uint32_t evtType, void *evtData, uintptr_t evtFreeData) // watch out, this is synchronous
+{
+    if (!evtFreeData)
+        return;
+
+    if (taggedPtrIsPtr(evtFreeData))
+        ((EventFreeF)taggedPtrToPtr(evtFreeData))(evtData);
+    else {
+        struct AppEventFreeData fd = {evtType: evtType, evtData: evtData};
+        struct Task* task = osTaskFindByTid(taggedPtrToUint(evtFreeData));
+
+        if (!task)
+            osLog(LOG_ERROR, "EINCEPTION: Failed to find app to call app to free event sent to app(s).");
+        else
+            cpuAppHandle(task->appHdr, &task->platInfo, EVT_APP_FREE_EVT_DATA, &fd);
+    }
+}
 
 static void osInit(void)
 {
@@ -88,7 +117,7 @@ static void osInit(void)
     memset(mTasks, 0, sizeof(mTasks));
 
     /* create the queues */
-    if (!(mEvtsInternal = evtQueueAlloc(512)) || !(mEvtsExternal = evtQueueAlloc(256))) {
+    if (!(mEvtsInternal = evtQueueAlloc(512, handleEventFreeing)) || !(mEvtsExternal = evtQueueAlloc(256, handleEventFreeing))) {
         osLog(LOG_INFO, "events failed to init\n");
         return;
     }
@@ -109,6 +138,18 @@ static struct Task* osFindTaskByAppID(uint64_t appID)
             return mTasks + i;
 
     return NULL;
+}
+
+static uint32_t osGetFreeTid(void)
+{
+    do {
+        if (mNextTidInfo == LAST_VALID_TID)
+            mNextTidInfo = FIRST_VALID_TID;
+        else
+            mNextTidInfo++;
+    } while (osTaskFindByTid(mNextTidInfo));
+
+    return mNextTidInfo;
 }
 
 static void osStartTasks(void)
@@ -132,12 +173,10 @@ static void osStartTasks(void)
             mTasks[nTasks].appHdr = app;
             mTasks[nTasks].subbedEvtListSz = MAX_EMBEDDED_EVT_SUBS;
             mTasks[nTasks].subbedEvents = mTasks[nTasks].subbedEventsInt;
-            mTasks[nTasks].tid = mNextTid;
+            mTasks[nTasks].tid = osGetFreeTid();
 
-            if (cpuInternalAppLoad(mTasks[i].appHdr, &mTasks[i].platInfo)) {
-                mNextTid++;
+            if (cpuInternalAppLoad(mTasks[i].appHdr, &mTasks[i].platInfo))
                 nTasks++;
-            }
         }
     }
 
@@ -154,12 +193,10 @@ static void osStartTasks(void)
             mTasks[nTasks].appHdr = app;
             mTasks[nTasks].subbedEvtListSz = MAX_EMBEDDED_EVT_SUBS;
             mTasks[nTasks].subbedEvents = mTasks[nTasks].subbedEventsInt;
-            mTasks[nTasks].tid = mNextTid;
+            mTasks[nTasks].tid = osGetFreeTid();
 
-            if (cpuAppLoad(mTasks[i].appHdr, &mTasks[i].platInfo)) {
-                mNextTid++;
+            if (cpuAppLoad(mTasks[i].appHdr, &mTasks[i].platInfo))
                 nTasks++;
-            }
         }
         app = (const struct AppHdr*)(((const uint8_t*)app) + app->rel_end);
     }
@@ -173,17 +210,6 @@ static void osStartTasks(void)
             memcpy(mTasks + i, mTasks + --nTasks, sizeof(struct Task));
         }
     }
-}
-
-static struct Task* osTaskFindByTid(uint32_t tid)
-{
-    uint32_t i;
-
-    for(i = 0; i < MAX_TASKS; i++)
-        if (mTasks[i].tid == tid)
-            return mTasks + i;
-
-    return NULL;
 }
 
 static void osInternalEvtHandle(uint32_t evtType, void *evtData)
@@ -235,8 +261,7 @@ static void osInternalEvtHandle(uint32_t evtType, void *evtData)
             cpuAppHandle(task->appHdr, &task->platInfo, da->privateEvt.evtType, da->privateEvt.evtData);
         }
 
-        if (da->privateEvt.evtFreeF)
-            da->privateEvt.evtFreeF(da->privateEvt.evtData);
+        handleEventFreeing(da->privateEvt.evtType, da->privateEvt.evtData, da->privateEvt.evtFreeInfo);
         break;
     }
 }
@@ -387,7 +412,7 @@ void abort(void)
 
 void __attribute__((noreturn)) osMain(void)
 {
-    EventFreeF evtFree;
+    TaggedPtr evtFreeingInfo;
     uint32_t evtType, i, j;
     void *evtData;
 
@@ -408,7 +433,7 @@ void __attribute__((noreturn)) osMain(void)
     while (true) {
 
         /* get an event */
-        if (!evtQueueDequeue(mEvtsInternal, &evtType, &evtData, &evtFree, true))
+        if (!evtQueueDequeue(mEvtsInternal, &evtType, &evtData, &evtFreeingInfo, true))
             continue;
 
         if (evtType < EVT_NO_FIRST_USER_EVENT) { /* no need for discardable check. all internal events arent discardable */
@@ -430,8 +455,7 @@ void __attribute__((noreturn)) osMain(void)
         }
 
         /* free it */
-        if (evtFree)
-            evtFree(evtData);
+        handleEventFreeing(evtType, evtData, evtFreeingInfo);
     }
 }
 
@@ -482,7 +506,7 @@ bool osDefer(OsDeferCbkF callback, void *cookie)
     return false;
 }
 
-bool osEnqueuePrivateEvt(uint32_t evtType, void *evtData, EventFreeF evtFreeF, uint32_t toTid)
+static bool osEnqueuePrivateEvtEx(uint32_t evtType, void *evtData, TaggedPtr evtFreeInfo, uint32_t toTid)
 {
     union DeferredAction *act = slabAllocatorAlloc(mDeferedActionsSlab);
     if (!act)
@@ -490,7 +514,7 @@ bool osEnqueuePrivateEvt(uint32_t evtType, void *evtData, EventFreeF evtFreeF, u
 
     act->privateEvt.evtType = evtType;
     act->privateEvt.evtData = evtData;
-    act->privateEvt.evtFreeF = evtFreeF;
+    act->privateEvt.evtFreeInfo = evtFreeInfo;
     act->privateEvt.toTid = toTid;
 
     if (osEnqueueEvt(EVT_PRIVATE_EVT, act, osDeferredActionFreeF, false))
@@ -500,14 +524,29 @@ bool osEnqueuePrivateEvt(uint32_t evtType, void *evtData, EventFreeF evtFreeF, u
     return false;
 }
 
-bool osEnqueueEvt(uint32_t evtType, void *evtData, EventFreeF evtFreeF, bool external)
+bool osEnqueuePrivateEvt(uint32_t evtType, void *evtData, EventFreeF evtFreeF, uint32_t toTid)
 {
-    return evtQueueEnqueue(external ? mEvtsExternal : mEvtsInternal, evtType, evtData, evtFreeF);
+    return osEnqueuePrivateEvtEx(evtType, evtData, taggedPtrMakeFromPtr(evtFreeF), toTid);
 }
 
-bool osDequeueExtEvt(uint32_t *evtType, void **evtData, EventFreeF *evtFree)
+bool osEnqueuePrivateEvtAsApp(uint32_t evtType, void *evtData, uint32_t fromAppTid, uint32_t toTid)
 {
-    return evtQueueDequeue(mEvtsExternal, evtType, evtData, evtFree, false);
+    return osEnqueuePrivateEvtEx(evtType, evtData, taggedPtrMakeFromUint(fromAppTid), toTid);
+}
+
+bool osEnqueueEvt(uint32_t evtType, void *evtData, EventFreeF evtFreeF, bool external)
+{
+    return evtQueueEnqueue(external ? mEvtsExternal : mEvtsInternal, evtType, evtData, taggedPtrMakeFromPtr(evtFreeF));
+}
+
+bool osEnqueueEvtAsApp(uint32_t evtType, void *evtData, uint32_t fromAppTid, bool external)
+{
+    return evtQueueEnqueue(external ? mEvtsExternal : mEvtsInternal, evtType, evtData, taggedPtrMakeFromUint(fromAppTid));
+}
+
+bool osDequeueExtEvt(uint32_t *evtType, void **evtData, TaggedPtr *evtFreeInfoP)
+{
+    return evtQueueDequeue(mEvtsExternal, evtType, evtData, evtFreeInfoP, false);
 }
 
 void osLogv(enum LogLevel level, const char *str, va_list vl)
