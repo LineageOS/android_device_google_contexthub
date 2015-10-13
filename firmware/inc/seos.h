@@ -5,6 +5,7 @@
 extern "C" {
 #endif
 
+#include <plat/inc/taggedPtr.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdarg.h>
@@ -25,6 +26,9 @@ extern "C" {
 #define EE_DATA_TYPE_ENCR_KEY            1
 
 #define ENCR_KEY_GOOGLE_PREPOPULATED     1 // our key ID is 1
+
+#define FIRST_VALID_TID                  0x00000001
+#define LAST_VALID_TID                   0x0fffffff
 
 
 struct AppFuncs { /* do not rearrange */
@@ -66,14 +70,26 @@ struct AppHdr {
     struct AppFuncs funcs;
 };
 
+struct AppEventFreeData { //goes with EVT_APP_FREE_EVT_DATA
+    uint32_t evtType;
+    void* evtData;
+};
+
 typedef void (*OsDeferCbkF)(void *);
+
+typedef void (*EventFreeF)(void* event);
 
 void osMain(void);
 bool osEventSubscribe(uint32_t tid, uint32_t evtType); /* async */
 bool osEventUnsubscribe(uint32_t tid, uint32_t evtType);  /* async */
+
 bool osEnqueuePrivateEvt(uint32_t evtType, void *evtData, EventFreeF evtFreeF, uint32_t toTid);
+bool osEnqueuePrivateEvtAsApp(uint32_t evtType, void *evtData, uint32_t fromApp, uint32_t toTid);
+
 bool osEnqueueEvt(uint32_t evtType, void *evtData, EventFreeF evtFreeF, bool external);
-bool osDequeueExtEvt(uint32_t *evtType, void **evtData, EventFreeF *evtFree);
+bool osEnqueueEvtAsApp(uint32_t evtType, void *evtData, uint32_t fromApp, bool external);
+
+bool osDequeueExtEvt(uint32_t *evtType, void **evtData, TaggedPtr *evtFreeInfoP); // THIS FUNCTION VIOLATES MANY THINGS, IT WILL GO AWAY SOON, fo rnow it just gets weird "free info" data till it runs out of memory
 bool osDefer(OsDeferCbkF callback, void *cookie);
 
 /* Logging */

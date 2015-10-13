@@ -13,23 +13,25 @@ struct EvtRecord {
     struct EvtRecord *prev;
     uint32_t evtType;
     void* evtData;
-    EventFreeF evtFreeF;
+    uintptr_t evtFreeData;
 };
 
 struct EvtQueue {
     struct EvtRecord *head;
     struct EvtRecord *tail;
     struct SlabAllocator *evtsSlab;
+    EvtQueueForciblyDiscardEvtCbkF forceDiscardCbk;
 };
 
 
 
-struct EvtQueue* evtQueueAlloc(uint32_t size)
+struct EvtQueue* evtQueueAlloc(uint32_t size, EvtQueueForciblyDiscardEvtCbkF forceDiscardCbk)
 {
     struct EvtQueue *q = heapAlloc(sizeof(struct EvtQueue));
     struct SlabAllocator *slab = slabAllocatorNew(sizeof(struct EvtRecord), 1, size);
 
     if (q && slab) {
+        q->forceDiscardCbk = forceDiscardCbk;
         q->evtsSlab = slab;
         q->head = NULL;
         q->tail = NULL;
@@ -51,8 +53,7 @@ void evtQueueFree(struct EvtQueue* q)
     while (q->head) {
         t = q->head;
         q->head = q->head->next;
-        if (t->evtFreeF)
-            t->evtFreeF(t->evtData);
+        q->forceDiscardCbk(t->evtType, t->evtData, t->evtFreeData);
         slabAllocatorFree(q->evtsSlab, t);
     }
 
@@ -60,7 +61,7 @@ void evtQueueFree(struct EvtQueue* q)
     heapFree(q);
 }
 
-bool evtQueueEnqueue(struct EvtQueue* q, uint32_t evtType, void *evtData, EventFreeF freeF)
+bool evtQueueEnqueue(struct EvtQueue* q, uint32_t evtType, void *evtData, uintptr_t evtFreeData)
 {
     struct EvtRecord *rec;
     uint64_t intSta;
@@ -78,8 +79,7 @@ bool evtQueueEnqueue(struct EvtQueue* q, uint32_t evtType, void *evtData, EventF
             rec = rec->next;
 
         if (rec) {
-            if (rec->evtFreeF)
-                rec->evtFreeF(rec->evtData);
+            q->forceDiscardCbk(rec->evtType, rec->evtData, rec->evtFreeData);
             if (rec->prev)
                 rec->prev->next = rec->next;
             else
@@ -98,7 +98,7 @@ bool evtQueueEnqueue(struct EvtQueue* q, uint32_t evtType, void *evtData, EventF
     rec->next = NULL;
     rec->evtType = evtType;
     rec->evtData = evtData;
-    rec->evtFreeF = freeF;
+    rec->evtFreeData = evtFreeData;
 
     intSta = cpuIntsOff();
     rec->prev = q->tail;
@@ -112,7 +112,7 @@ bool evtQueueEnqueue(struct EvtQueue* q, uint32_t evtType, void *evtData, EventF
     return true;
 }
 
-bool evtQueueDequeue(struct EvtQueue* q, uint32_t *evtTypeP, void **evtDataP, EventFreeF *evtFreeFP, bool sleepIfNone)
+bool evtQueueDequeue(struct EvtQueue* q, uint32_t *evtTypeP, void **evtDataP, uintptr_t *evtFreeDataP, bool sleepIfNone)
 {
     struct EvtRecord *rec = NULL;
     uint64_t intSta;
@@ -145,7 +145,7 @@ bool evtQueueDequeue(struct EvtQueue* q, uint32_t *evtTypeP, void **evtDataP, Ev
 
     *evtTypeP = rec->evtType;
     *evtDataP = rec->evtData;
-    *evtFreeFP = rec->evtFreeF;
+    *evtFreeDataP = rec->evtFreeData;
     slabAllocatorFree(q->evtsSlab, rec);
 
     return true;

@@ -1,3 +1,4 @@
+#include <plat/inc/taggedPtr.h>
 #include <inttypes.h>
 #include <string.h>
 #include <stdint.h>
@@ -162,19 +163,19 @@ static size_t hostIntfReadEvent(void *rx, uint8_t rx_len, void *tx)
 {
     struct NanohubReadEventResponse *resp = tx;
     uint8_t length = 0;
-    EventFreeF evtFree;
+    TaggedPtr evtFreeInfo;
     uint32_t evtType;
     void *evtData;
     uint8_t *packet;
 
-    if (osDequeueExtEvt(&evtType, &evtData, &evtFree)) {
+    if (osDequeueExtEvt(&evtType, &evtData, &evtFreeInfo)) {
         packet = (uint8_t *)evtData;
         length = sizeof(resp->evtType) + *packet;
         resp->evtType = htole32(evtType);
         memcpy(resp->evtData, packet+1, length);
 
-        if (evtFree)
-            evtFree(evtData);
+        if (evtFreeInfo)
+            ((EventFreeF)(taggedPtrToPtr(evtFreeInfo)))(evtData); //this is a bad hack that *WILL* break soon. Good!
     }
 
     return length;
