@@ -78,9 +78,9 @@ static inline bool eOsEventUnsubscribe(uint32_t tid, uint32_t evtType)
     return syscallDo2P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_MAIN, SYSCALL_OS_MAIN_EVENTQ, SYSCALL_OS_MAIN_EVTQ_UNSUBCRIBE), tid, evtType);
 }
 
-static inline bool eOsEnqueueEvt(uint32_t evtType, void *evtData, EventFreeF evtFreeF, bool external)
+static inline bool eOsEnqueueEvt(uint32_t evtType, void *evtData, uint32_t tidOfWhoWillFreeThisEvent, bool external) // tidOfWhoWillFreeThisEvent is likely your TID
 {
-    return syscallDo4P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_MAIN, SYSCALL_OS_MAIN_EVENTQ, SYSCALL_OS_MAIN_EVTQ_ENQUEUE), evtType, evtData, evtFreeF, external);
+    return syscallDo4P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_MAIN, SYSCALL_OS_MAIN_EVENTQ, SYSCALL_OS_MAIN_EVTQ_ENQUEUE), evtType, evtData, tidOfWhoWillFreeThisEvent, external);
 }
 
 static inline void eOsLogvInternal(enum LogLevel level, const char *str, uintptr_t args_list)
