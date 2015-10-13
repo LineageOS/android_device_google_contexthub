@@ -31,7 +31,9 @@ struct TrippleAxisDataEvent {
 struct SensorOps {
     bool (*sensorPower)(bool on);          /* -> SENSOR_INTERNAL_EVT_POWER_STATE_CHG (success)         */
     bool (*sensorFirmwareUpload)(void);    /* -> SENSOR_INTERNAL_EVT_FW_STATE_CHG (rate or 0 if fail)  */
-    bool (*sensorSetRate)(uint32_t rate);  /* -> SENSOR_INTERNAL_EVT_RATE_CHG (rate)                   */
+    bool (*sensorSetRate)(uint32_t rate, uint64_t latency);
+                                           /* -> SENSOR_INTERNAL_EVT_RATE_CHG (rate)                   */
+    bool (*sensorFlush)(void);
     bool (*sensorTriggerOndemand)(void);
 };
 
@@ -74,7 +76,7 @@ bool sensorsInit(void);
 
 uint32_t sensorRegister(const struct SensorInfo *si); /* returns handle, copy is not made */
 bool sensorUnregister(uint32_t handle); /* your job to be sure it is off already */
-bool sensorSignalInternalEvt(uint32_t handle, uint32_t intEvtNum, uint32_t value);
+bool sensorSignalInternalEvt(uint32_t handle, uint32_t intEvtNum, uint32_t value1, uint64_t value2);
 
 #define sensorGetMyEventType(_sensorType) (EVT_NO_FIRST_SENSOR_EVENT + (_sensorType))
 
@@ -84,11 +86,13 @@ bool sensorSignalInternalEvt(uint32_t handle, uint32_t intEvtNum, uint32_t value
  * client ID should almost always be your TID (as we have no other way to disambiguate them)
  */
 const struct SensorInfo* sensorFind(uint32_t sensorType, uint32_t idx, uint32_t *handleP); //enumerate all sensors of a type
-bool sensorRequest(uint32_t clientId, uint32_t sensorHandle, uint32_t rate);
-bool sensorRequestRateChange(uint32_t clientId, uint32_t sensorHandle, uint32_t newRate);
+bool sensorRequest(uint32_t clientId, uint32_t sensorHandle, uint32_t rate, uint64_t latency);
+bool sensorRequestRateChange(uint32_t clientId, uint32_t sensorHandle, uint32_t newRate, uint64_t newLatency);
 bool sensorRelease(uint32_t clientId, uint32_t sensorHandle);
 bool sensorTriggerOndemand(uint32_t clientId, uint32_t sensorHandle);
+bool sensorFlush(uint32_t sensorHandle);
 uint32_t sensorGetCurRate(uint32_t sensorHandle);
+uint64_t sensorGetCurLatency(uint32_t sensorHandle);
 
 
 #ifdef __cplusplus
