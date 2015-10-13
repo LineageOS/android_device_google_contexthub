@@ -24,6 +24,9 @@ SRCS += src/drivers/bosch_bmi160_bmm150/bosch_bmi160_bmm150.c src/drivers/bosch_
 #orientation sensor driver
 SRCS += src/drivers/orientation/orientation.c
 
+#window orientation sensor driver
+SRCS += src/drivers/window_orientation/window_orientation.c
+
 #linker script
 LKR = misc/variant/common/stm32f411.lkr
 OSFLAGS += -Wl,-T $(LKR)
