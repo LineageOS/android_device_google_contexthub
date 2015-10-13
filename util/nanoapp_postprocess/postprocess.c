@@ -1,3 +1,4 @@
+#include "../../firmware/inc/cpu/cortexm4f/appRelocFormat.h"
 #include <sys/types.h>
 #include <stdbool.h>
 #include <unistd.h>
@@ -25,6 +26,11 @@
 #define IS_IN_RANGE(_val, _rstart, _rsz)	IS_IN_RANGE_E((_val), (_rstart), ((_rstart) + (_rsz)))
 #define IS_IN_RAM(_val)				IS_IN_RANGE(_val, RAM_BASE, RAM_SIZE)
 #define IS_IN_FLASH(_val)			IS_IN_RANGE(_val, FLASH_BASE, FLASH_SIZE)
+
+
+#define NANO_RELOC_TYPE_RAM	0
+#define NANO_RELOC_TYPE_FLASH	1
+#define NANO_RELOC_LAST		2 //must be <= (RELOC_TYPE_MASK >> RELOC_TYPE_SHIFT)
 
 
 struct AppHeader {
@@ -65,20 +71,21 @@ struct SymtabEntry {
 	uint32_t b, c;
 };
 
-#define NANO_RELOC_TYPE_RAM	0
-#define NANO_RELOC_TYPE_FLASH	1
 
 
 struct NanoRelocEntry {
-	uint32_t info;	//bottom 28 bits are ram offset, top 4 are type
+	uint32_t ofstInRam;
+	uint8_t type;
 };
+
 
 int main(int argc, char **argv)
 {
-	uint32_t i, numRelocs, numSyms, outNumRelocs = 0;
+	uint32_t i, numRelocs, numSyms, outNumRelocs = 0, packedNanoRelocSz, j, k, lastOutType = 0, origin = 0;
 	struct NanoRelocEntry *nanoRelocs = NULL;
 	struct RelocEntry *relocs;
 	struct SymtabEntry *syms;
+	uint8_t *packedNanoRelocs;
 	uint32_t t, bufUsed = 0;
 	struct AppHeader *hdr;
 	bool verbose = false;
@@ -117,6 +124,13 @@ int main(int argc, char **argv)
 			buf = t;
 		}
 		buf[bufUsed++] = c;
+	}
+
+	//make buffer bigger by 50% in case relocs grow out of hand
+	buf = realloc(buf, 3 * bufUsed / 2);
+	if (!buf) {
+		fprintf(stderr, "MEMERR\n");
+		exit(-7);
 	}
 
 	//sanity checks
@@ -170,7 +184,7 @@ int main(int argc, char **argv)
 			goto out;
 		}
 
-                if (verbose) {
+		if (verbose) {
 
 			fprintf(stderr, "Reloc[%3u]:\n {@0x%08X, type %3d, -> sym[%3u]: {@0x%08x}, ",
 				i, relocs[i].where, relocs[i].info & 0xff, whichSym, syms[whichSym].addr);
@@ -184,7 +198,7 @@ int main(int argc, char **argv)
 			else if (IS_IN_RANGE_E(relocs[i].where, FLASH_BASE, FLASH_BASE + sizeof(struct AppHeader)))
 				fprintf(stderr, "in APPHDR}\n");
 			else
-				fprintf(stderr, "in    ???}\n");
+				fprintf(stderr, "in	???}\n");
 
 		}
 		/* handle relocs inside the header */
@@ -218,7 +232,7 @@ int main(int argc, char **argv)
 
 		valThereP = (uint32_t*)(buf + relocs[i].where + hdr-> __data_data - RAM_BASE - FLASH_BASE);
 
-		nanoRelocs[outNumRelocs].info = relocs[i].where - RAM_BASE;
+		nanoRelocs[outNumRelocs].ofstInRam = relocs[i].where - RAM_BASE;
 
 		switch (relocType) {
 			case RELOC_TYPE_ABS_S:
@@ -229,11 +243,11 @@ int main(int argc, char **argv)
 
 				if (IS_IN_FLASH(syms[whichSym].addr)) {
 					(*valThereP) -= FLASH_BASE;
-					nanoRelocs[outNumRelocs].info |= NANO_RELOC_TYPE_FLASH << 28;
+					nanoRelocs[outNumRelocs].type = NANO_RELOC_TYPE_FLASH;
 				}
 				else if (IS_IN_RAM(syms[whichSym].addr)) {
 					(*valThereP) -= RAM_BASE;
-					nanoRelocs[outNumRelocs].info |= NANO_RELOC_TYPE_RAM << 28;
+					nanoRelocs[outNumRelocs].type = NANO_RELOC_TYPE_RAM;
 				}
 				else {
 					fprintf(stderr, "Weird reloc %u to symbol %u in unknown memory space (addr 0x%08x)\n", i, whichSym, syms[whichSym].addr);
@@ -252,11 +266,11 @@ int main(int argc, char **argv)
 				t = *valThereP;
 
 				if (IS_IN_FLASH(*valThereP)) {
-					nanoRelocs[outNumRelocs].info |= NANO_RELOC_TYPE_FLASH << 28;
+					nanoRelocs[outNumRelocs].type = NANO_RELOC_TYPE_FLASH;
 					*valThereP -= FLASH_BASE;
 				}
 				else if (IS_IN_RAM(*valThereP)) {
-					nanoRelocs[outNumRelocs].info |= NANO_RELOC_TYPE_RAM << 28;
+					nanoRelocs[outNumRelocs].type = NANO_RELOC_TYPE_RAM;
 					*valThereP -= RAM_BASE;
 				}
 				else {
@@ -273,8 +287,101 @@ int main(int argc, char **argv)
 		}
 
 		if (verbose)
-			fprintf(stderr, "  -> Nano reloc calculated as 0x%08X\n", nanoRelocs[i].info);
+			fprintf(stderr, "  -> Nano reloc calculated as 0x%08X,0x%02x\n", nanoRelocs[i].ofstInRam, nanoRelocs[i].type);
 		outNumRelocs++;
+	}
+
+	//sort by type and then offset
+        for (i = 0; i < outNumRelocs; i++) {
+		struct NanoRelocEntry t;
+
+		for (k = i, j = k + 1; j < outNumRelocs; j++) {
+			if (nanoRelocs[j].type > nanoRelocs[k].type)
+				continue;
+			if ((nanoRelocs[j].type < nanoRelocs[k].type) || (nanoRelocs[j].ofstInRam < nanoRelocs[k].ofstInRam))
+				k = j;
+		}
+		memcpy(&t, nanoRelocs + i, sizeof(struct NanoRelocEntry));
+		memcpy(nanoRelocs + i, nanoRelocs + k, sizeof(struct NanoRelocEntry));
+		memcpy(nanoRelocs + k, &t, sizeof(struct NanoRelocEntry));
+
+		if (verbose)
+			fprintf(stderr, "SortedReloc[%3u] = {0x%08X,0x%02X}\n", i, nanoRelocs[i].ofstInRam, nanoRelocs[i].type);
+	}
+
+	//produce output nanorelocs in packed format
+	packedNanoRelocs = malloc(outNumRelocs * 6); //definitely big enough
+	packedNanoRelocSz = 0;
+        for (i = 0; i < outNumRelocs; i++) {
+
+		uint32_t displacement;
+
+		if (lastOutType != nanoRelocs[i].type) {		//output type if ti changed
+			if (nanoRelocs[i].type - lastOutType == 1)
+				packedNanoRelocs[packedNanoRelocSz++] = TOKEN_RELOC_TYPE_NEXT;
+			else {
+				packedNanoRelocs[packedNanoRelocSz++] = TOKEN_RELOC_TYPE_CHG;
+				packedNanoRelocs[packedNanoRelocSz++] = nanoRelocs[i].type - lastOutType - 1;
+			}
+			lastOutType = nanoRelocs[i].type;
+			origin = 0;
+			if (verbose)
+				fprintf(stderr, "Out: RelocTC 0x%02X\n", nanoRelocs[i].type);
+		}
+		displacement = nanoRelocs[i].ofstInRam - origin;
+		origin = nanoRelocs[i].ofstInRam + 4;
+		if (displacement & 3) {
+			fprintf(stderr, "Unaligned relocs are not possible!\n");
+			exit(-5);
+		}
+		displacement /= 4;
+
+		//might be start of a run. look into that
+		if (!displacement) {
+			for (j = 1; j + i < outNumRelocs && j < MAX_RUN_LEN && nanoRelocs[j + i].type == lastOutType && nanoRelocs[j + i].ofstInRam - nanoRelocs[j + i - 1].ofstInRam == 4; j++);
+			if (j >= MIN_RUN_LEN) {
+				if (verbose)
+					fprintf(stderr, "Out: Reloc0 x%u\n", j);
+				packedNanoRelocs[packedNanoRelocSz++] = TOKEN_CONSECUTIVE;
+				packedNanoRelocs[packedNanoRelocSz++] = j - MIN_RUN_LEN;
+				origin = nanoRelocs[j + i - 1].ofstInRam + 4;	//reset origin to last one
+				i += j - 1;	//loop will increment anyways, hence +1
+				continue;
+			}
+		}
+
+		//produce output
+		if (displacement <= MAX_8_BIT_NUM) {
+			if (verbose)
+				fprintf(stderr, "Out: Reloc8  0x%02X\n", displacement);
+			packedNanoRelocs[packedNanoRelocSz++] = displacement;
+		}
+		else if (displacement <= MAX_16_BIT_NUM) {
+			if (verbose)
+				fprintf(stderr, "Out: Reloc16 0x%06X\n", displacement);
+                        displacement -= MAX_8_BIT_NUM;
+			packedNanoRelocs[packedNanoRelocSz++] = TOKEN_16BIT_OFST;
+			packedNanoRelocs[packedNanoRelocSz++] = displacement;
+			packedNanoRelocs[packedNanoRelocSz++] = displacement >> 8;
+		}
+		else if (displacement <= MAX_24_BIT_NUM) {
+			if (verbose)
+				fprintf(stderr, "Out: Reloc24 0x%08X\n", displacement);
+                        displacement -= MAX_16_BIT_NUM;
+			packedNanoRelocs[packedNanoRelocSz++] = TOKEN_24BIT_OFST;
+			packedNanoRelocs[packedNanoRelocSz++] = displacement;
+			packedNanoRelocs[packedNanoRelocSz++] = displacement >> 8;
+			packedNanoRelocs[packedNanoRelocSz++] = displacement >> 16;
+		}
+		else  {
+			if (verbose)
+				fprintf(stderr, "Out: Reloc32 0x%08X\n", displacement);
+			packedNanoRelocs[packedNanoRelocSz++] = TOKEN_32BIT_OFST;
+			packedNanoRelocs[packedNanoRelocSz++] = displacement;
+			packedNanoRelocs[packedNanoRelocSz++] = displacement >> 8;
+			packedNanoRelocs[packedNanoRelocSz++] = displacement >> 16;
+			packedNanoRelocs[packedNanoRelocSz++] = displacement >> 24;
+		}
 	}
 
 	//put in app id
@@ -282,11 +389,11 @@ int main(int argc, char **argv)
 	hdr->appID[1] = appId >> 32;
 
 	//overwrite original relocs and symtab with nanorelocs and adjust sizes
-	memcpy(relocs, nanoRelocs, sizeof(struct NanoRelocEntry[outNumRelocs]));
+	memcpy(relocs, packedNanoRelocs, packedNanoRelocSz);
 	bufUsed -= sizeof(struct RelocEntry[numRelocs]);
 	bufUsed -= sizeof(struct SymtabEntry[numSyms]);
-	bufUsed += sizeof(struct NanoRelocEntry[outNumRelocs]);
-	hdr->__rel_end = hdr->__rel_start + sizeof(struct NanoRelocEntry[outNumRelocs]);
+	bufUsed += packedNanoRelocSz;
+	hdr->__rel_end = hdr->__rel_start + packedNanoRelocSz;
 
 	//sanity
 	if (hdr->__rel_end - FLASH_BASE != bufUsed) {
@@ -294,40 +401,40 @@ int main(int argc, char **argv)
 		goto out;
 	}
 
-        //adjust headers for easy access (RAM)
-        if (!IS_IN_RAM(hdr->__data_start) || !IS_IN_RAM(hdr->__data_end) || !IS_IN_RAM(hdr->__bss_start) || !IS_IN_RAM(hdr->__bss_end) || !IS_IN_RAM(hdr->__got_start) || !IS_IN_RAM(hdr->__got_end)) {
+	//adjust headers for easy access (RAM)
+	if (!IS_IN_RAM(hdr->__data_start) || !IS_IN_RAM(hdr->__data_end) || !IS_IN_RAM(hdr->__bss_start) || !IS_IN_RAM(hdr->__bss_end) || !IS_IN_RAM(hdr->__got_start) || !IS_IN_RAM(hdr->__got_end)) {
 		fprintf(stderr, "data, bss, or got not in ram\n");
 		goto out;
 	}
-        hdr->__data_start -= RAM_BASE;
-        hdr->__data_end -= RAM_BASE;
-        hdr->__bss_start -= RAM_BASE;
-        hdr->__bss_end -= RAM_BASE;
-        hdr->__got_start -= RAM_BASE;
-        hdr->__got_end -= RAM_BASE;
+	hdr->__data_start -= RAM_BASE;
+	hdr->__data_end -= RAM_BASE;
+	hdr->__bss_start -= RAM_BASE;
+	hdr->__bss_end -= RAM_BASE;
+	hdr->__got_start -= RAM_BASE;
+	hdr->__got_end -= RAM_BASE;
 
-        //adjust headers for easy access (FLASH)
-        if (!IS_IN_FLASH(hdr->__data_data) || !IS_IN_FLASH(hdr->__rel_start) || !IS_IN_FLASH(hdr->__rel_end)) {
+	//adjust headers for easy access (FLASH)
+	if (!IS_IN_FLASH(hdr->__data_data) || !IS_IN_FLASH(hdr->__rel_start) || !IS_IN_FLASH(hdr->__rel_end)) {
 		fprintf(stderr, "data.data, or rel not in ram\n");
 		goto out;
 	}
-        hdr->__data_data -= FLASH_BASE;
-        hdr->__rel_start -= FLASH_BASE;
-        hdr->__rel_end -= FLASH_BASE;
+	hdr->__data_data -= FLASH_BASE;
+	hdr->__rel_start -= FLASH_BASE;
+	hdr->__rel_end -= FLASH_BASE;
 
 	//if we have any bytes to output, show stats
 	if (bufUsed) {
 		uint32_t codeAndRoDataSz = hdr->__data_data;
-		uint32_t relocsSz = sizeof(struct NanoRelocEntry[outNumRelocs]);
+		uint32_t relocsSz = hdr->__rel_end - hdr->__rel_start;
 		uint32_t gotSz = hdr->__got_end - hdr->__data_start;
 		uint32_t bssSz = hdr->__bss_end - hdr->__bss_start;
 
 		fprintf(stderr,"Final binary size %u bytes\n", bufUsed);
 		fprintf(stderr, "\n");
-		fprintf(stderr, "\tCode + RO data (flash):      %6u bytes\n", (unsigned)codeAndRoDataSz);
-		fprintf(stderr, "\tRelocs (flash):              %6u bytes\n", (unsigned)relocsSz);
+		fprintf(stderr, "\tCode + RO data (flash):	     %6u bytes\n", (unsigned)codeAndRoDataSz);
+		fprintf(stderr, "\tRelocs (flash):		     %6u bytes\n", (unsigned)relocsSz);
 		fprintf(stderr, "\tGOT + RW data (flash & RAM): %6u bytes\n", (unsigned)gotSz);
-		fprintf(stderr, "\tBSS (RAM):                   %6u bytes\n", (unsigned)bssSz);
+		fprintf(stderr, "\tBSS (RAM):		     %6u bytes\n", (unsigned)bssSz);
 		fprintf(stderr, "\n");
 		fprintf(stderr,"Runtime flash use: %u bytes\n", codeAndRoDataSz + relocsSz + gotSz);
 		fprintf(stderr,"Runtime RAM use: %u bytes\n", gotSz + bssSz);
@@ -345,7 +452,6 @@ out:
 	free(buf);
 	return ret;
 }
-
 
 
 
