@@ -170,6 +170,23 @@ int main(int argc, char **argv)
 			goto out;
 		}
 
+                if (verbose) {
+
+			fprintf(stderr, "Reloc[%3u]:\n {@0x%08X, type %3d, -> sym[%3u]: {@0x%08x}, ",
+				i, relocs[i].where, relocs[i].info & 0xff, whichSym, syms[whichSym].addr);
+
+			if (IS_IN_RANGE_E(relocs[i].where, hdr->__bss_start, hdr->__bss_end))
+				fprintf(stderr, "in   .bss}\n");
+			else if (IS_IN_RANGE_E(relocs[i].where, hdr->__data_start, hdr->__data_end))
+				fprintf(stderr, "in  .data}\n");
+			else if (IS_IN_RANGE_E(relocs[i].where, hdr->__got_start, hdr->__got_end))
+				fprintf(stderr, "in   .got}\n");
+			else if (IS_IN_RANGE_E(relocs[i].where, FLASH_BASE, FLASH_BASE + sizeof(struct AppHeader)))
+				fprintf(stderr, "in APPHDR}\n");
+			else
+				fprintf(stderr, "in    ???}\n");
+
+		}
 		/* handle relocs inside the header */
 		if (IS_IN_FLASH(relocs[i].where) && relocs[i].where - FLASH_BASE < sizeof(struct AppHeader) && relocType == RELOC_TYPE_SECT) {
 			/* relocs in header are special - runtime corrects for them */
@@ -200,21 +217,6 @@ int main(int argc, char **argv)
 		}
 
 		valThereP = (uint32_t*)(buf + relocs[i].where + hdr-> __data_data - RAM_BASE - FLASH_BASE);
-
-		if (verbose) {
-
-			fprintf(stderr, "Reloc[%3u]:\n {@0x%08X, type %3d, -> sym[%3u]: {@0x%08x}, ",
-				i, relocs[i].where, relocs[i].info & 0xff, whichSym, syms[whichSym].addr);
-
-			if (IS_IN_RANGE_E(relocs[i].where, hdr->__bss_start, hdr->__bss_end))
-				fprintf(stderr, "in  .bss}\n");
-			else if (IS_IN_RANGE_E(relocs[i].where, hdr->__data_start, hdr->__data_end))
-				fprintf(stderr, "in .data}\n");
-			else if (IS_IN_RANGE_E(relocs[i].where, hdr->__got_start, hdr->__got_end))
-				fprintf(stderr, "in  .got}\n");
-			else
-				fprintf(stderr, "in   ???}\n");
-		}
 
 		nanoRelocs[outNumRelocs].info = relocs[i].where - RAM_BASE;
 
