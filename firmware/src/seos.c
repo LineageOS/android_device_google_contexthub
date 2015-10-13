@@ -286,12 +286,10 @@ static void osExpApiEvtqEnqueue(uintptr_t *retValP, va_list args)
 {
     uint32_t evtType = va_arg(args, uint32_t);
     void *evtData = va_arg(args, void*);
-    EventFreeF evtFreeF = va_arg(args, EventFreeF);
+    uint32_t tid = va_arg(args, uint32_t);
     bool external = va_arg(args, int);
 
-    //TODO: XXX: use UserspaceCallback mechanism for event freeing here!!!
-
-    *retValP = osEnqueueEvt(evtType, evtData, evtFreeF, external);
+    *retValP = osEnqueueEvtAsApp(evtType, evtData, tid, external);
 }
 
 static void osExpApiLogLogv(uintptr_t *retValP, va_list args)
