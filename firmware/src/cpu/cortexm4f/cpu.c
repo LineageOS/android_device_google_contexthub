@@ -18,11 +18,6 @@ static struct HardFaultDropbox __attribute__((section(".neverinit"))) mDropbox;
 
 
 
-//reloc types for this cpu type
-#define NANO_RELOC_TYPE_RAM	0
-#define NANO_RELOC_TYPE_FLASH	1
-
-
 void cpuInit(void)
 {
     /* set pendsv to be lowest priority possible */
@@ -163,99 +158,6 @@ void __attribute__((naked)) HardFault_Handler(void)
         "mov   r1, sp       \n"
         "b     logHardFault \n"
     );
-}
-
-
-bool cpuInternalAppLoad(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo)
-{
-    platInfo->got = 0x00000000;
-
-    return true;
-}
-
-bool cpuAppLoad(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo)
-{
-    const uint32_t *relocsStart = (const uint32_t*)(((uint8_t*)appHdr) + appHdr->rel_start);
-    const uint32_t *relocsEnd = (const uint32_t*)(((uint8_t*)appHdr) + appHdr->rel_end);
-    uint8_t *mem = heapAlloc(appHdr->bss_end);
-
-    if (!mem)
-        return false;
-
-    //calcualte and assign got
-    platInfo->got = mem + appHdr->got_start;
-
-    //clear bss
-    memset(mem + appHdr->bss_start, 0, appHdr->bss_end - appHdr->bss_start);
-
-    //copy initialized data and initialized got
-    memcpy(mem + appHdr->data_start, ((uint8_t*)appHdr) + appHdr->data_data, appHdr->got_end - appHdr->data_start);
-
-    //perform relocs
-    while (relocsStart != relocsEnd) {
-        const uint32_t rel = *relocsStart++;
-        const uint32_t relType = rel >> 28;
-        const uint32_t relOfst = rel & 0x0ffffffful;
-        uint32_t *relWhere = (uint32_t*)(mem + relOfst);
-
-        switch (relType) {
-        case NANO_RELOC_TYPE_RAM:
-            (*relWhere) += (uintptr_t)mem;
-            break;
-        case NANO_RELOC_TYPE_FLASH:
-            (*relWhere) += (uintptr_t)appHdr;
-            break;
-        default:
-            heapFree(mem);
-            return false;
-        }
-    }
-
-    return true;
-}
-
-void cpuAppUnload(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo)
-{
-    heapFree((uint8_t*)platInfo->got - appHdr->got_start);
-}
-
-static uintptr_t __attribute__((naked)) callWithR9(const struct AppHdr *appHdr, void *funcOfst, void *got, uintptr_t arg1, uintptr_t arg2)
-{
-    asm volatile (
-        "add  r12, r0, r1  \n"
-        "mov  r0,  r3      \n"
-        "ldr  r1,  [sp]    \n"
-        "push {r9, lr}     \n"
-        "mov  r9, r2       \n"
-        "blx  r12          \n"
-        "pop  {r9, pc}     \n"
-    );
-
-    return 0; //dummy to fool gcc
-}
-
-bool cpuAppInit(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo, uint32_t tid)
-{
-    if (platInfo->got)
-        return callWithR9(appHdr, appHdr->funcs.init, platInfo->got, tid, 0);
-    else
-        return appHdr->funcs.init(tid);
-}
-
-void cpuAppEnd(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo)
-{
-    if (platInfo->got)
-        (void)callWithR9(appHdr, appHdr->funcs.end, platInfo->got, 0, 0);
-    else
-        appHdr->funcs.end();
-}
-
-void cpuAppHandle(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo, uint32_t evtType, const void* evtData)
-{
-    if (platInfo->got)
-        (void)callWithR9(appHdr, appHdr->funcs.handle, platInfo->got, evtType, (uintptr_t)evtData);
-    else
-        appHdr->funcs.handle(evtType, evtData);
 }
 
 
