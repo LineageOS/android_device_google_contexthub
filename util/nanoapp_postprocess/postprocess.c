@@ -317,16 +317,19 @@ int main(int argc, char **argv)
 		uint32_t displacement;
 
 		if (lastOutType != nanoRelocs[i].type) {		//output type if ti changed
-			if (nanoRelocs[i].type - lastOutType == 1)
+			if (nanoRelocs[i].type - lastOutType == 1) {
 				packedNanoRelocs[packedNanoRelocSz++] = TOKEN_RELOC_TYPE_NEXT;
+				if (verbose)
+					fprintf(stderr, "Out: RelocTC (1) // to 0x%02X\n", nanoRelocs[i].type);
+			}
 			else {
 				packedNanoRelocs[packedNanoRelocSz++] = TOKEN_RELOC_TYPE_CHG;
 				packedNanoRelocs[packedNanoRelocSz++] = nanoRelocs[i].type - lastOutType - 1;
+				if (verbose)
+					fprintf(stderr, "Out: RelocTC (0x%02X)\n", nanoRelocs[i].type - lastOutType - 1, nanoRelocs[i].type);
 			}
 			lastOutType = nanoRelocs[i].type;
 			origin = 0;
-			if (verbose)
-				fprintf(stderr, "Out: RelocTC 0x%02X\n", nanoRelocs[i].type);
 		}
 		displacement = nanoRelocs[i].ofstInRam - origin;
 		origin = nanoRelocs[i].ofstInRam + 4;
@@ -341,7 +344,7 @@ int main(int argc, char **argv)
 			for (j = 1; j + i < outNumRelocs && j < MAX_RUN_LEN && nanoRelocs[j + i].type == lastOutType && nanoRelocs[j + i].ofstInRam - nanoRelocs[j + i - 1].ofstInRam == 4; j++);
 			if (j >= MIN_RUN_LEN) {
 				if (verbose)
-					fprintf(stderr, "Out: Reloc0 x%u\n", j);
+					fprintf(stderr, "Out: Reloc0  x%u\n", j);
 				packedNanoRelocs[packedNanoRelocSz++] = TOKEN_CONSECUTIVE;
 				packedNanoRelocs[packedNanoRelocSz++] = j - MIN_RUN_LEN;
 				origin = nanoRelocs[j + i - 1].ofstInRam + 4;	//reset origin to last one
