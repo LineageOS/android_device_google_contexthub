@@ -32,6 +32,9 @@ extern "C" {
         x = xi; y = -yi; z = -zi;               \
     } while (0)
 
+//define tap sensor threshould
+#define TAP_THRESHOULD 0x01
+
 #ifdef __cplusplus
 }
 #endif

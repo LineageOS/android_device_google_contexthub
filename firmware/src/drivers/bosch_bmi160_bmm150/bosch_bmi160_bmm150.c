@@ -75,6 +75,8 @@
 #define BMI160_REG_INT_MOTION_1   0x60
 #define BMI160_REG_INT_MOTION_2   0x61
 #define BMI160_REG_INT_MOTION_3   0x62
+#define BMI160_REG_INT_TAP_0      0x63
+#define BMI160_REG_INT_TAP_1      0x64
 #define BMI160_REG_INT_FLAT_0     0x67
 #define BMI160_REG_INT_FLAT_1     0x68
 #define BMI160_REG_PMU_TRIGGER    0x6C
@@ -112,13 +114,24 @@
 #define BMM150_REG_DIG_XY2        0x70
 #define BMM150_REG_DIG_XY1        0x71
 
+#define INT_STEP        0x01
+#define INT_ANY_MOTION  0x04
+#define INT_DOUBLE_TAP  0x10
+#define INT_SINGLE_TAP  0x20
+#define INT_ORIENT      0x40
+#define INT_FLAT        0x80
+#define INT_HIGH_G_Z    0x04
+#define INT_LOW_G       0x08
+#define INT_DATA_RDY    0x10
+#define INT_FIFO_FULL   0x20
+#define INT_FIFO_WM     0x40
+#define INT_NO_MOTION   0x80
+
 #define gSPI    BMI160_SPI_BUS_ID
 #define kSensorTimePollPeriodMs         100
 
 #define ACCL_INT_LINE EXTI_LINE_P6
 #define GYR_INT_LINE EXTI_LINE_P7
-
-#define DEFAULT_RATE 100.0f
 
 #define SPI_WRITE_0(addr, data) spiQueueWrite(addr, data, 0)
 #define SPI_WRITE_1(addr, data, delay) spiQueueWrite(addr, data, delay)
@@ -135,13 +148,27 @@
 #define EVT_SENSOR_ACC_DATA_RDY sensorGetMyEventType(SENS_TYPE_ACCEL)
 #define EVT_SENSOR_GYR_DATA_RDY sensorGetMyEventType(SENS_TYPE_GYRO)
 #define EVT_SENSOR_MAG_DATA_RDY sensorGetMyEventType(SENS_TYPE_MAG)
+#define EVT_SENSOR_STEP sensorGetMyEventType(SENS_TYPE_STEP_DETECT)
+#define EVT_SENSOR_NO_MOTION sensorGetMyEventType(SENS_TYPE_NO_MOTION)
+#define EVT_SENSOR_ANY_MOTION sensorGetMyEventType(SENS_TYPE_ANY_MOTION)
+#define EVT_SENSOR_FLAT sensorGetMyEventType(SENS_TYPE_FLAT)
+#define EVT_SENSOR_DOUBLE_TAP sensorGetMyEventType(SENS_TYPE_DOUBLE_TAP)
 
 #define MAX_NUM_COMMS_EVENT_SAMPLES 15
 
+#define kScale_acc 0.00239501953f  // ACC_range * 9.81f / 32768.0f;
+#define kScale_gyr 0.00106472439f  // GYR_range * M_PI / (180.0f * 32768.0f);
+#define kScale_mag 0.0625f         // 1.0f / 16.0f;
+
 enum SensorIndex {
-    ACC_IDX = 0,
-    GYR_IDX,
-    MAG_IDX,
+    ACC = 0,
+    GYR,
+    MAG,
+    STEP,
+    DTAP,
+    FLAT,
+    ANYMO,
+    NOMO,
     NUM_OF_SENSOR,
 };
 
@@ -162,6 +189,7 @@ enum InitState {
     RESET_BMI160,
     INIT_BMI160,
     INIT_BMM150,
+    INIT_ON_CHANGE_SENSORS,
     INIT_DONE,
 };
 
@@ -214,12 +242,11 @@ struct BMI160Sensor {
     struct TripleAxisDataEvent *data_evt;
     uint32_t handle;
     uint32_t rate;
-    uint64_t latency[2];
-    uint32_t batch_size[2];
-    uint32_t range;
+    uint64_t latency;
+    uint32_t batch_size;
     uint32_t offset[3];
     bool pending[4]; // set if there is any pending event
-    bool active[2]; // activate status
+    bool active; // activate status
     bool offset_enable;
     enum SensorIndex idx;
 };
@@ -262,6 +289,8 @@ struct BMI160Task {
     uint64_t latest_sensortime;
     uint64_t frame_sensortime;
 
+    uint8_t interrupt_enable_0;
+    uint8_t interrupt_enable_2;
 };
 
 static uint32_t AccRates[] = {
@@ -313,35 +342,18 @@ static uint8_t mRegCnt = 0;
 
 static uint8_t mRetryLeft = 5;
 
-static uint64_t mIntTime = 0;
-
 static struct SlabAllocator *mDataSlab;
 
-static const struct SensorInfo mSiAcc =
+static const struct SensorInfo mSensorInfo[NUM_OF_SENSOR] =
 {
-    "Accelerometer",
-    AccRates,
-    SENS_TYPE_ACCEL,
-    NUM_AXIS_THREE,
-    { NANOHUB_INT_NONWAKEUP }
-};
-
-static const struct SensorInfo mSiGyr =
-{
-    "Gyroscope",
-    GyrRates,
-    SENS_TYPE_GYRO,
-    NUM_AXIS_THREE,
-    { NANOHUB_INT_NONWAKEUP }
-};
-
-static const struct SensorInfo mSiMag =
-{
-    "Magnetometer",
-    MagRates,
-    SENS_TYPE_MAG,
-    NUM_AXIS_THREE,
-    { NANOHUB_INT_NONWAKEUP }
+    {"Accelerometer",       AccRates,   SENS_TYPE_ACCEL,        NUM_AXIS_THREE,     {NANOHUB_INT_NONWAKEUP}},
+    {"Gyroscope",           GyrRates,   SENS_TYPE_GYRO,         NUM_AXIS_THREE,     {NANOHUB_INT_NONWAKEUP}},
+    {"Magnetometer",        MagRates,   SENS_TYPE_MAG,          NUM_AXIS_THREE,     {NANOHUB_INT_NONWAKEUP}},
+    {"Step Detector",       NULL,       SENS_TYPE_STEP_DETECT,  NUM_AXIS_EMBEDDED,  {NANOHUB_INT_NONWAKEUP}},
+    {"Double Tap Detector", NULL,       SENS_TYPE_DOUBLE_TAP,   NUM_AXIS_EMBEDDED,  {NANOHUB_INT_NONWAKEUP}},
+    {"Flat Detector",       NULL,       SENS_TYPE_FLAT,         NUM_AXIS_EMBEDDED,  {NANOHUB_INT_NONWAKEUP}},
+    {"Any Motion Detector", NULL,       SENS_TYPE_ANY_MOTION,   NUM_AXIS_EMBEDDED,  {NANOHUB_INT_NONWAKEUP}},
+    {"No Motion Detector",  NULL,       SENS_TYPE_NO_MOTION,    NUM_AXIS_EMBEDDED,  {NANOHUB_INT_NONWAKEUP}},
 };
 
 static void dataEvtFree(void *ptr)
@@ -393,12 +405,6 @@ static void spiBatchTxRx(struct SpiMode *mode,
 
 static bool bmi160Isr1(struct ChainedIsr *isr)
 {
-    if (mIntTime == 0) {
-        mIntTime = timGetTime();
-    } else {
-        uint64_t temp_Int_time = timGetTime();
-        mIntTime = temp_Int_time;
-    }
     struct BMI160Task *data = container_of(isr, struct BMI160Task, Isr1);
 
     if (!extiIsPendingGpio(data->Int1)) {
@@ -432,23 +438,58 @@ static void sensorTimerCallback(uint32_t timerId, void *data)
     osEnqueuePrivateEvt(EVT_SPI_DONE, data, NULL, mTask.tid);
 }
 
-static bool accFirmwareUpload()
+static bool accFirmwareUpload(void)
 {
-    sensorSignalInternalEvt(mTask.sensors[ACC_IDX].handle,
+    sensorSignalInternalEvt(mTask.sensors[ACC].handle,
             SENSOR_INTERNAL_EVT_FW_STATE_CHG, 1, 0);
     return true;
 }
 
-static bool gyrFirmwareUpload()
+static bool gyrFirmwareUpload(void)
 {
-    sensorSignalInternalEvt(mTask.sensors[GYR_IDX].handle,
+    sensorSignalInternalEvt(mTask.sensors[GYR].handle,
             SENSOR_INTERNAL_EVT_FW_STATE_CHG, 1, 0);
     return true;
 }
 
-static bool magFirmwareUpload()
+static bool magFirmwareUpload(void)
 {
-    sensorSignalInternalEvt(mTask.sensors[MAG_IDX].handle,
+    sensorSignalInternalEvt(mTask.sensors[MAG].handle,
+            SENSOR_INTERNAL_EVT_FW_STATE_CHG, 1, 0);
+    return true;
+}
+
+static bool stepFirmwareUpload(void)
+{
+    sensorSignalInternalEvt(mTask.sensors[STEP].handle,
+            SENSOR_INTERNAL_EVT_FW_STATE_CHG, 1, 0);
+    return true;
+}
+
+static bool doubleTapFirmwareUpload(void)
+{
+    sensorSignalInternalEvt(mTask.sensors[DTAP].handle,
+            SENSOR_INTERNAL_EVT_FW_STATE_CHG, 1, 0);
+    return true;
+}
+
+static bool noMotionFirmwareUpload(void)
+{
+    sensorSignalInternalEvt(mTask.sensors[NOMO].handle,
+            SENSOR_INTERNAL_EVT_FW_STATE_CHG, 1, 0);
+    return true;
+}
+
+static bool anyMotionFirmwareUpload(void)
+{
+    sensorSignalInternalEvt(mTask.sensors[ANYMO].handle,
+            SENSOR_INTERNAL_EVT_FW_STATE_CHG, 1, 0);
+    return true;
+}
+
+static bool flatFirmwareUpload(void)
+{
+    sensorSignalInternalEvt(mTask.sensors[FLAT].handle,
             SENSOR_INTERNAL_EVT_FW_STATE_CHG, 1, 0);
     return true;
 }
@@ -569,16 +610,30 @@ static void configInt1(bool on)
     enum SensorIndex i;
     if (on && mTask.Int1_EN == false) {
         enableInterrupt(mTask.Int1, &mTask.Isr1);
-        enableInterrupt(mTask.Int2, &mTask.Isr2); // XXX: testing
         mTask.Int1_EN = true;
     } else if (!on && mTask.Int1_EN == true) {
-        for (i = ACC_IDX; i < MAG_IDX; i++) {
-            if (mTask.sensors[i].active[0] || mTask.sensors[i].active[1])
+        for (i = ACC; i < MAG; i++) {
+            if (mTask.sensors[i].active)
                 return;
         }
         disableInterrupt(mTask.Int1, &mTask.Isr1);
-        disableInterrupt(mTask.Int2, &mTask.Isr2); // XXX: testing
         mTask.Int1_EN = false;
+    }
+}
+
+static void configInt2(bool on)
+{
+    enum SensorIndex i;
+    if (on && mTask.Int2_EN == false) {
+        enableInterrupt(mTask.Int2, &mTask.Isr2);
+        mTask.Int2_EN = true;
+    } else if (!on && mTask.Int2_EN == true) {
+        for (i = MAG + 1; i < NUM_OF_SENSOR; i++) {
+            if (mTask.sensors[i].active)
+                return;
+        }
+        disableInterrupt(mTask.Int2, &mTask.Isr2);
+        mTask.Int2_EN = false;
     }
 }
 
@@ -586,15 +641,15 @@ static void configFifo(bool on)
 {
     uint8_t val = 0x12;
     // if ACC is active, enable ACC bit in fifo_config reg.
-    if (mTask.sensors[ACC_IDX].active[0] || mTask.sensors[ACC_IDX].active[1])
+    if (mTask.sensors[ACC].active)
         val |= 0x40;
 
     // if GYR is active, enable GYR bit in fifo_config reg.
-    if (mTask.sensors[GYR_IDX].active[0] || mTask.sensors[GYR_IDX].active[1])
+    if (mTask.sensors[GYR].active)
         val |= 0x80;
 
     // if MAG is active, enable MAG bit in fifo_config reg.
-    if (mTask.sensors[MAG_IDX].active[0] || mTask.sensors[MAG_IDX].active[1])
+    if (mTask.sensors[MAG].active)
         val |= 0x20;
 
     // write the composed byte to fifo_config reg.
@@ -615,18 +670,17 @@ static bool accPower(bool on)
 
             // set ACC power mode to NORMAL
             SPI_WRITE(BMI160_REG_CMD, 0x11, 50000);
-            mTask.sensors[ACC_IDX].active[0] = true;
         } else {
             mTask.state = SENSOR_POWERING_DOWN;
 
             // set ACC power mode to SUSPEND
             SPI_WRITE(BMI160_REG_CMD, 0x10, 5000);
-            mTask.sensors[ACC_IDX].active[0] = false;
         }
-        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[ACC_IDX]);
+        mTask.sensors[ACC].active = on;
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[ACC]);
     } else {
-        mTask.sensors[ACC_IDX].pending[1] = true;
-        mTask.sensors[ACC_IDX].pConfig.enable = on;
+        mTask.sensors[ACC].pending[1] = true;
+        mTask.sensors[ACC].pConfig.enable = on;
     }
     return true;
 }
@@ -641,19 +695,18 @@ static bool gyrPower(bool on)
 
             // set GYR power mode to NORMAL
             SPI_WRITE(BMI160_REG_CMD, 0x15, 1000);
-            mTask.sensors[GYR_IDX].active[0] = true;
         } else {
             mTask.state = SENSOR_POWERING_DOWN;
 
             // set GYR power mode to FAST_START (from SUSPEND to NORMAL takes too
             // long)
             SPI_WRITE(BMI160_REG_CMD, 0x17, 1000);
-            mTask.sensors[GYR_IDX].active[0] = false;
         }
-        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[GYR_IDX]);
+        mTask.sensors[GYR].active = true;
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[GYR]);
     } else {
-        mTask.sensors[GYR_IDX].pending[1] = true;
-        mTask.sensors[GYR_IDX].pConfig.enable = on;
+        mTask.sensors[GYR].pending[1] = true;
+        mTask.sensors[GYR].pConfig.enable = on;
     }
     return true;
 }
@@ -669,18 +722,117 @@ static bool magPower(bool on)
             // set MAG power mode to NORMAL
             SPI_WRITE(BMI160_REG_CMD, 0x19, 1000);
             mTask.mag_state = MAG_SET_START;
-            mTask.sensors[MAG_IDX].active[0] = true;
         } else {
             mTask.state = SENSOR_POWERING_DOWN;
 
             // set MAG power mode to SUSPEND
             SPI_WRITE(BMI160_REG_CMD, 0x18, 1000);
-            mTask.sensors[MAG_IDX].active[0] = false;
         }
-        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[MAG_IDX]);
+        mTask.sensors[MAG].active = true;
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[MAG]);
     } else {
-        mTask.sensors[MAG_IDX].pending[1] = true;
-        mTask.sensors[MAG_IDX].pConfig.enable = on;
+        mTask.sensors[MAG].pending[1] = true;
+        mTask.sensors[MAG].pConfig.enable = on;
+    }
+    return true;
+}
+
+static bool stepPower(bool on)
+{
+    if (mTask.state == SENSOR_IDLE) {
+        if (on) {
+            mTask.state = SENSOR_POWERING_UP;
+            mTask.interrupt_enable_2 |= 0x08;
+        } else {
+            mTask.state = SENSOR_POWERING_DOWN;
+            mTask.interrupt_enable_2 &= ~0x08;
+        }
+        mTask.sensors[STEP].active = on;
+        SPI_WRITE(BMI160_REG_INT_EN_2, mTask.interrupt_enable_2);
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[STEP]);
+    } else {
+        mTask.sensors[STEP].pending[1] = true;
+        mTask.sensors[STEP].pConfig.enable = on;
+    }
+    return true;
+}
+
+static bool flatPower(bool on)
+{
+    if (mTask.state == SENSOR_IDLE) {
+        if (on) {
+            mTask.state = SENSOR_POWERING_UP;
+            mTask.interrupt_enable_0 |= 0x80;
+        } else {
+            mTask.state = SENSOR_POWERING_DOWN;
+            mTask.interrupt_enable_0 &= ~0x80;
+        }
+        mTask.sensors[FLAT].active = on;
+        SPI_WRITE(BMI160_REG_INT_EN_0, mTask.interrupt_enable_0);
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[FLAT]);
+    } else {
+        mTask.sensors[FLAT].pending[1] = true;
+        mTask.sensors[FLAT].pConfig.enable = on;
+    }
+    return true;
+}
+
+static bool doubleTapPower(bool on)
+{
+    if (mTask.state == SENSOR_IDLE) {
+        if (on) {
+            mTask.state = SENSOR_POWERING_UP;
+            mTask.interrupt_enable_0 |= 0x10;
+        } else {
+            mTask.state = SENSOR_POWERING_DOWN;
+            mTask.interrupt_enable_0 &= ~0x10;
+        }
+        mTask.sensors[DTAP].active = on;
+        SPI_WRITE(BMI160_REG_INT_EN_0, mTask.interrupt_enable_0);
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[DTAP]);
+    } else {
+        mTask.sensors[DTAP].pending[1] = true;
+        mTask.sensors[DTAP].pConfig.enable = on;
+    }
+    return true;
+}
+
+static bool anyMotionPower(bool on)
+{
+    if (mTask.state == SENSOR_IDLE) {
+        if (on) {
+            mTask.state = SENSOR_POWERING_UP;
+            mTask.interrupt_enable_0 |= 0x07;
+        } else {
+            mTask.state = SENSOR_POWERING_DOWN;
+            mTask.interrupt_enable_0 &= ~0x07;
+        }
+        mTask.sensors[ANYMO].active = on;
+        SPI_WRITE(BMI160_REG_INT_EN_0, mTask.interrupt_enable_0);
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[ANYMO]);
+    } else {
+        mTask.sensors[ANYMO].pending[1] = true;
+        mTask.sensors[ANYMO].pConfig.enable = on;
+    }
+    return true;
+}
+
+static bool noMotionPower(bool on)
+{
+    if (mTask.state == SENSOR_IDLE) {
+        if (on) {
+            mTask.state = SENSOR_POWERING_UP;
+            mTask.interrupt_enable_2 |= 0x07;
+        } else {
+            mTask.state = SENSOR_POWERING_DOWN;
+            mTask.interrupt_enable_2 &= ~0x07;
+        }
+        mTask.sensors[NOMO].active = on;
+        SPI_WRITE(BMI160_REG_INT_EN_2, mTask.interrupt_enable_2);
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[NOMO]);
+    } else {
+        mTask.sensors[NOMO].pending[1] = true;
+        mTask.sensors[NOMO].pConfig.enable = on;
     }
     return true;
 }
@@ -724,8 +876,8 @@ static bool accSetRate(uint32_t rate, uint64_t latency)
         if (rate < SENSOR_HZ(12.5f)) {
             actual_rate = SENSOR_HZ(12.5f);
         }
-        mTask.sensors[ACC_IDX].rate = actual_rate;
-        mTask.sensors[ACC_IDX].latency[0] = latency;
+        mTask.sensors[ACC].rate = actual_rate;
+        mTask.sensors[ACC].latency = latency;
 
         odr = computeOdr(actual_rate);
         if (odr == -1)
@@ -734,12 +886,12 @@ static bool accSetRate(uint32_t rate, uint64_t latency)
         // set ACC bandwidth parameter to 2 (bits[4:6])
         // set the rate (bits[0:3])
         SPI_WRITE(BMI160_REG_ACC_CONF, 0x20 | odr);
-        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[ACC_IDX]);
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[ACC]);
     } else {
-        mTask.sensors[ACC_IDX].pending[1] = true;
-        mTask.sensors[ACC_IDX].pConfig.enable = 1;
-        mTask.sensors[ACC_IDX].pConfig.rate = rate;
-        mTask.sensors[ACC_IDX].pConfig.latency = latency;
+        mTask.sensors[ACC].pending[1] = true;
+        mTask.sensors[ACC].pConfig.enable = 1;
+        mTask.sensors[ACC].pConfig.rate = rate;
+        mTask.sensors[ACC].pConfig.latency = latency;
     }
     return true;
 }
@@ -759,8 +911,8 @@ static bool gyrSetRate(uint32_t rate, uint64_t latency)
         if (rate < SENSOR_HZ(25.0f)) {
             actual_rate = SENSOR_HZ(25.0f);
         }
-        mTask.sensors[GYR_IDX].rate = actual_rate;
-        mTask.sensors[GYR_IDX].latency[0] = latency;
+        mTask.sensors[GYR].rate = actual_rate;
+        mTask.sensors[GYR].latency = latency;
 
         odr = computeOdr(actual_rate);
         if (odr == -1)
@@ -769,12 +921,12 @@ static bool gyrSetRate(uint32_t rate, uint64_t latency)
         // set GYR bandwidth parameter to 2 (bits[4:6])
         // set the rate (bits[0:3])
         SPI_WRITE(BMI160_REG_GYR_CONF, 0x20 | odr);
-        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[GYR_IDX]);
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[GYR]);
     } else {
-        mTask.sensors[GYR_IDX].pending[1] = true;
-        mTask.sensors[GYR_IDX].pConfig.enable = 1;
-        mTask.sensors[GYR_IDX].pConfig.rate = rate;
-        mTask.sensors[GYR_IDX].pConfig.latency = latency;
+        mTask.sensors[GYR].pending[1] = true;
+        mTask.sensors[GYR].pConfig.enable = 1;
+        mTask.sensors[GYR].pConfig.rate = rate;
+        mTask.sensors[GYR].pConfig.latency = latency;
     }
     return true;
 }
@@ -788,8 +940,8 @@ static bool magSetRate(uint32_t rate, uint64_t latency)
     if (mTask.state == SENSOR_IDLE) {
         mTask.state = SENSOR_CONFIG_CHANGING;
 
-        mTask.sensors[MAG_IDX].rate = rate;
-        mTask.sensors[MAG_IDX].latency[0] = latency;
+        mTask.sensors[MAG].rate = rate;
+        mTask.sensors[MAG].latency = latency;
 
         odr = computeOdr(rate);
         if (odr == -1)
@@ -797,13 +949,64 @@ static bool magSetRate(uint32_t rate, uint64_t latency)
 
         // set the rate for MAG
         SPI_WRITE(BMI160_REG_MAG_CONF, odr);
-        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[MAG_IDX]);
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[MAG]);
     } else {
-        mTask.sensors[MAG_IDX].pending[1] = true;
-        mTask.sensors[MAG_IDX].pConfig.enable = 1;
-        mTask.sensors[MAG_IDX].pConfig.rate = rate;
-        mTask.sensors[MAG_IDX].pConfig.latency = latency;
+        mTask.sensors[MAG].pending[1] = true;
+        mTask.sensors[MAG].pConfig.enable = 1;
+        mTask.sensors[MAG].pConfig.rate = rate;
+        mTask.sensors[MAG].pConfig.latency = latency;
     }
+    return true;
+}
+
+static bool stepSetRate(uint32_t rate, uint64_t latency)
+{
+    mTask.sensors[STEP].rate = rate;
+    mTask.sensors[STEP].latency = latency;
+
+    sensorSignalInternalEvt(mTask.sensors[STEP].handle,
+            SENSOR_INTERNAL_EVT_RATE_CHG, rate, latency);
+    return true;
+}
+
+static bool flatSetRate(uint32_t rate, uint64_t latency)
+{
+    mTask.sensors[FLAT].rate = rate;
+    mTask.sensors[FLAT].latency = latency;
+
+    sensorSignalInternalEvt(mTask.sensors[FLAT].handle,
+            SENSOR_INTERNAL_EVT_RATE_CHG, rate, latency);
+    return true;
+}
+
+static bool doubleTapSetRate(uint32_t rate, uint64_t latency)
+{
+    mTask.sensors[DTAP].rate = rate;
+    mTask.sensors[DTAP].latency = latency;
+
+    sensorSignalInternalEvt(mTask.sensors[DTAP].handle,
+            SENSOR_INTERNAL_EVT_RATE_CHG, rate, latency);
+    return true;
+}
+
+static bool anyMotionSetRate(uint32_t rate, uint64_t latency)
+{
+    mTask.sensors[ANYMO].rate = rate;
+    mTask.sensors[ANYMO].latency = latency;
+
+    sensorSignalInternalEvt(mTask.sensors[ANYMO].handle,
+            SENSOR_INTERNAL_EVT_RATE_CHG, rate, latency);
+
+    return true;
+}
+
+static bool noMotionSetRate(uint32_t rate, uint64_t latency)
+{
+    mTask.sensors[NOMO].rate = rate;
+    mTask.sensors[NOMO].latency = latency;
+
+    sensorSignalInternalEvt(mTask.sensors[NOMO].handle,
+            SENSOR_INTERNAL_EVT_RATE_CHG, rate, latency);
     return true;
 }
 
@@ -822,58 +1025,55 @@ static bool magFlush()
     return osEnqueueEvt(EVT_SENSOR_MAG_DATA_RDY, SENSOR_DATA_EVENT_FLUSH, NULL);
 }
 
-static const struct SensorOps mSopsAcc =
+static bool stepFlush()
 {
-    accPower,
-    accFirmwareUpload,
-    accSetRate,
-    accFlush,
-    NULL
-};
+    return osEnqueueEvt(EVT_SENSOR_STEP, SENSOR_DATA_EVENT_FLUSH, NULL);
+}
 
-static const struct SensorOps mSopsGyr =
+static bool flatFlush()
 {
-    gyrPower,
-    gyrFirmwareUpload,
-    gyrSetRate,
-    gyrFlush,
-    NULL
-};
+    return osEnqueueEvt(EVT_SENSOR_FLAT, SENSOR_DATA_EVENT_FLUSH, NULL);
+}
 
-static const struct SensorOps mSopsMag =
+static bool doubleTapFlush()
 {
-    magPower,
-    magFirmwareUpload,
-    magSetRate,
-    magFlush,
-    NULL
+    return osEnqueueEvt(EVT_SENSOR_DOUBLE_TAP, SENSOR_DATA_EVENT_FLUSH, NULL);
+}
+
+static bool anyMotionFlush()
+{
+    return osEnqueueEvt(EVT_SENSOR_ANY_MOTION, SENSOR_DATA_EVENT_FLUSH, NULL);
+}
+
+static bool noMotionFlush()
+{
+    return osEnqueueEvt(EVT_SENSOR_NO_MOTION, SENSOR_DATA_EVENT_FLUSH, NULL);
+}
+
+static const struct SensorOps mSensorOps[NUM_OF_SENSOR] =
+{
+    {accPower, accFirmwareUpload, accSetRate, accFlush, NULL},
+    {gyrPower, gyrFirmwareUpload, gyrSetRate, gyrFlush, NULL},
+    {magPower, magFirmwareUpload, magSetRate, magFlush, NULL},
+    {stepPower, stepFirmwareUpload, stepSetRate, stepFlush, NULL},
+    {doubleTapPower, doubleTapFirmwareUpload, doubleTapSetRate, doubleTapFlush, NULL},
+    {flatPower, flatFirmwareUpload, flatSetRate, flatFlush, NULL},
+    {anyMotionPower, anyMotionFirmwareUpload, anyMotionSetRate, anyMotionFlush, NULL},
+    {noMotionPower, noMotionFirmwareUpload, noMotionSetRate, noMotionFlush, NULL},
 };
 
 static void configEvent(struct BMI160Sensor *mSensor, struct ConfigStat *ConfigData)
 {
-    if (ConfigData->enable == 0 && mSensor->active[0]) {
-        // if we are on, cmd is to turn off, release sensor
-        if (&mTask.sensors[ACC_IDX] == mSensor)
-            mSopsAcc.sensorPower(false);
-        else if (&mTask.sensors[GYR_IDX] == mSensor)
-            mSopsGyr.sensorPower(false);
-        else if (&mTask.sensors[MAG_IDX] == mSensor)
-            mSopsMag.sensorPower(false);
-    } else if (ConfigData->enable == 1 && !mSensor->active[0]) {
-        if (&mTask.sensors[ACC_IDX] == mSensor)
-            mSopsAcc.sensorPower(true);
-        else if (&mTask.sensors[GYR_IDX] == mSensor)
-            mSopsGyr.sensorPower(true);
-        else if (&mTask.sensors[MAG_IDX] == mSensor)
-            mSopsMag.sensorPower(true);
-    } else {
-        if (&mTask.sensors[ACC_IDX] == mSensor)
-            mSopsAcc.sensorSetRate(ConfigData->rate, ConfigData->latency);
-        else if (&mTask.sensors[GYR_IDX] == mSensor)
-            mSopsGyr.sensorSetRate(ConfigData->rate, ConfigData->latency);
-        else if (&mTask.sensors[MAG_IDX] == mSensor)
-            mSopsMag.sensorSetRate(ConfigData->rate, ConfigData->latency);
-    }
+    int i;
+
+    for (i=0; &mTask.sensors[i] != mSensor; i++) ;
+
+    if (ConfigData->enable == 0 && mSensor->active)
+        mSensorOps[i].sensorPower(false);
+    else if (ConfigData->enable == 1 && !mSensor->active)
+        mSensorOps[i].sensorPower(true);
+    else
+        mSensorOps[i].sensorSetRate(ConfigData->rate, ConfigData->latency);
 }
 
 static void parseRawData(struct BMI160Sensor *mSensor, int i, float kScale, uint64_t time)
@@ -887,7 +1087,7 @@ static void parseRawData(struct BMI160Sensor *mSensor, int i, float kScale, uint
     raw_y = (mTask.rxBuffer[i+2] | mTask.rxBuffer[i+3] << 8);
     raw_z = (mTask.rxBuffer[i+4] | mTask.rxBuffer[i+5] << 8);
 
-    if (mSensor->idx == MAG_IDX) {
+    if (mSensor->idx == MAG) {
         int32_t mag_x = S16_AT(&mTask.rxBuffer[i]) >> 3;
         int32_t mag_y = S16_AT(&mTask.rxBuffer[i+2]) >> 3;
         int32_t mag_z = S16_AT(&mTask.rxBuffer[i+4]) >> 1;
@@ -954,11 +1154,11 @@ static void parseRawData(struct BMI160Sensor *mSensor, int i, float kScale, uint
     sample->z = z;
 
     if (mSensor->data_evt->samples[0].deltaTime == MAX_NUM_COMMS_EVENT_SAMPLES) {
-        if (mSensor->idx == ACC_IDX) {
+        if (mSensor->idx == ACC) {
             osEnqueueEvt(EVT_SENSOR_ACC_DATA_RDY, mSensor->data_evt, dataEvtFree);
-        } else if (mSensor->idx == GYR_IDX) {
+        } else if (mSensor->idx == GYR) {
             osEnqueueEvt(EVT_SENSOR_GYR_DATA_RDY, mSensor->data_evt, dataEvtFree);
-        } else if (mSensor->idx == MAG_IDX) {
+        } else if (mSensor->idx == MAG) {
             osEnqueueEvt(EVT_SENSOR_GYR_DATA_RDY, mSensor->data_evt, dataEvtFree);
         }
         mSensor->data_evt = NULL;
@@ -972,21 +1172,17 @@ static void dispatchData(void)
     size_t size = mTask.xferCnt - 1; // the first bit is the RW
     int fh_mode, fh_param;
     uint8_t *buf = mTask.rxBuffer;
-    float kScale_acc = (float)mTask.sensors[ACC_IDX].range * 9.81f / 32768.0f;
-    float kScale_gyr = (float)mTask.sensors[GYR_IDX].range * M_PI / (180.0f * 32768.0f);
-    float kScale_mag = 1.0f / 16.0f;
     //uint64_t frame_sensor_time = mTask.frame_sensortime;
     uint64_t frame_sensor_time = mTask.frame_sensortime;
     //bool frame_sensor_time_valid = mTask.frame_sensortime_valid;
     uint64_t min_delta = ULONG_LONG_MAX;
 
     for (j = 0; j < NUM_OF_SENSOR; j++) {
-        if (mTask.sensors[j].active[0] || (mTask.sensors[j].active[1])) {
+        if (mTask.sensors[j].active) {
             uint64_t delta = 1000000ull * 1024ull / (uint64_t)mTask.sensors[j].rate;
             min_delta = min_delta <= delta ? min_delta : delta;
         }
     }
-    //min_delta /= TIME_DELTA;
 
     while (size > 0) {
         fh_mode = buf[i] >> 6;
@@ -1018,21 +1214,20 @@ static void dispatchData(void)
                 i++;
                 size--;
             }
-        //} else if (fh_mode == 2) {
         } else if (mTask.frame_sensortime_valid && fh_mode == 2) {
             // regular frame, dispatch data to each sensor's own fifo
             if (fh_param & 4) { // have mag data
-                parseRawData(&mTask.sensors[MAG_IDX], i, kScale_mag, frame_sensor_time);
+                parseRawData(&mTask.sensors[MAG], i, kScale_mag, frame_sensor_time);
                 i += 8;
                 size -= 8;
             }
             if (fh_param & 2) { // have gyro data
-                parseRawData(&mTask.sensors[GYR_IDX], i, kScale_gyr, frame_sensor_time);
+                parseRawData(&mTask.sensors[GYR], i, kScale_gyr, frame_sensor_time);
                 i += 6;
                 size -= 6;
             }
             if (fh_param & 1) { // have accel data
-                parseRawData(&mTask.sensors[ACC_IDX], i, kScale_acc, frame_sensor_time);
+                parseRawData(&mTask.sensors[ACC], i, kScale_acc, frame_sensor_time);
                 i += 6;
                 size -= 6;
             }
@@ -1040,24 +1235,44 @@ static void dispatchData(void)
         }
     }
     // flush data events.
-    if (mTask.sensors[ACC_IDX].data_evt != NULL) {
-        osEnqueueEvt(EVT_SENSOR_ACC_DATA_RDY, mTask.sensors[ACC_IDX].data_evt, dataEvtFree);
-        mTask.sensors[ACC_IDX].data_evt = NULL;
+    if (mTask.sensors[ACC].data_evt != NULL) {
+        osEnqueueEvt(EVT_SENSOR_ACC_DATA_RDY, mTask.sensors[ACC].data_evt, dataEvtFree);
+        mTask.sensors[ACC].data_evt = NULL;
     }
-    if (mTask.sensors[GYR_IDX].data_evt != NULL) {
-        osEnqueueEvt(EVT_SENSOR_GYR_DATA_RDY, mTask.sensors[GYR_IDX].data_evt, dataEvtFree);
-        mTask.sensors[GYR_IDX].data_evt = NULL;
+    if (mTask.sensors[GYR].data_evt != NULL) {
+        osEnqueueEvt(EVT_SENSOR_GYR_DATA_RDY, mTask.sensors[GYR].data_evt, dataEvtFree);
+        mTask.sensors[GYR].data_evt = NULL;
     }
-    if (mTask.sensors[MAG_IDX].data_evt != NULL) {
-        osEnqueueEvt(EVT_SENSOR_MAG_DATA_RDY, mTask.sensors[MAG_IDX].data_evt, dataEvtFree);
-        mTask.sensors[MAG_IDX].data_evt = NULL;
+    if (mTask.sensors[MAG].data_evt != NULL) {
+        osEnqueueEvt(EVT_SENSOR_MAG_DATA_RDY, mTask.sensors[MAG].data_evt, dataEvtFree);
+        mTask.sensors[MAG].data_evt = NULL;
     }
 }
 
-// TODO: not implemented yet
 static void int2Handling(void)
 {
-    mTask.state = SENSOR_IDLE;
+    uint8_t int_status_0 = mTask.rxBuffer[1];
+    uint8_t int_status_1 = mTask.rxBuffer[2];
+    if (int_status_0 & INT_STEP) {
+        osLog(LOG_INFO, "BMI160: Detected step\n");
+        osEnqueueEvt(EVT_SENSOR_STEP, NULL, NULL);
+    }
+    if (int_status_0 & INT_ANY_MOTION) {
+        osLog(LOG_INFO, "BMI160: Detected any motion\n");
+        osEnqueueEvt(EVT_SENSOR_ANY_MOTION, NULL, NULL);
+    }
+    if (int_status_0 & INT_DOUBLE_TAP) {
+        osLog(LOG_INFO, "BMI160: Detected double tap\n");
+        osEnqueueEvt(EVT_SENSOR_DOUBLE_TAP, NULL, NULL);
+    }
+    if (int_status_0 & INT_FLAT) {
+        osLog(LOG_INFO, "BMI160: Detected flat\n");
+        osEnqueueEvt(EVT_SENSOR_FLAT, NULL, NULL);
+    }
+    if (int_status_1 & INT_NO_MOTION) {
+        osLog(LOG_INFO, "BMI160: Detected no motion\n");
+        osEnqueueEvt(EVT_SENSOR_NO_MOTION, NULL, NULL);
+    }
     return;
 }
 
@@ -1068,7 +1283,10 @@ static void int2Evt(void)
         return;
     } else if (mTask.state == SENSOR_IDLE) {
         mTask.state = SENSOR_INT_2_HANDLING;
-        int2Handling();
+
+        // Read the interrupt reg value to determine what interrupts
+        SPI_READ(BMI160_REG_INT_STATUS_0, 4, mTask.rxBuffer);
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask);
     } else {
         mTask.pending_int[1] = true;
     }
@@ -1120,11 +1338,6 @@ static void int1Evt(void)
     }
 }
 
-static bool isActive(struct BMI160Sensor *mSensor)
-{
-    return mSensor->active[0] || mSensor->active[1];
-}
-
 // bits[6:7] in OFFSET[6] to enable/disable gyro/accel offset.
 // bits[0:5] in OFFSET[6] stores the most significant 2 bits of gyro offset at
 // its x, y, z axies.
@@ -1134,13 +1347,14 @@ static bool isActive(struct BMI160Sensor *mSensor)
 static uint8_t offset6Mode(void)
 {
     uint8_t mode = 0;
-    if (mTask.sensors[GYR_IDX].offset_enable)
+    if (mTask.sensors[GYR].offset_enable)
         mode |= 0x01 << 7;
-    if (mTask.sensors[ACC_IDX].offset_enable)
+    if (mTask.sensors[ACC].offset_enable)
         mode |= 0x01 << 6;
-    mode |= (mTask.sensors[GYR_IDX].offset[2] & (0x03 << 8)) >> 4;
-    mode |= (mTask.sensors[GYR_IDX].offset[1] & (0x03 << 8)) >> 6;
-    mode |= (mTask.sensors[GYR_IDX].offset[0] & (0x03 << 8)) >> 8;
+    mode |= (mTask.sensors[GYR].offset[2] & (0x03 << 8)) >> 4;
+    mode |= (mTask.sensors[GYR].offset[1] & (0x03 << 8)) >> 6;
+    mode |= (mTask.sensors[GYR].offset[0] & (0x03 << 8)) >> 8;
+    osLog(LOG_INFO, "OFFSET_6_MODE is: %02x\n", mode);
     return mode;
 }
 
@@ -1154,12 +1368,13 @@ static void accCalibrationHandling(void)
         SPI_WRITE(BMI160_REG_FIFO_CONFIG_1, 0x12);
 
         //if power is off, turn ACC on to NORMAL mode
-        if (!isActive(&mTask.sensors[ACC_IDX]))
+        if (!mTask.sensors[ACC].active)
             SPI_WRITE(BMI160_REG_CMD, 0x11);
         mTask.calibration_state = CALIBRATION_FOC;
-        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[ACC_IDX]);
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[ACC]);
         break;
     case CALIBRATION_FOC:
+
         // set accel range to +-8g
         SPI_WRITE(BMI160_REG_ACC_RANGE, 0x08);
 
@@ -1174,25 +1389,29 @@ static void accCalibrationHandling(void)
         SPI_READ(BMI160_REG_STATUS, 1, mTask.rxBuffer, 100000);
 
         mTask.calibration_state = CALIBRATION_WAIT_FOC_DONE;
-        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[ACC_IDX]);
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[ACC]);
         break;
     case CALIBRATION_WAIT_FOC_DONE:
+
         // if the STATUS REG has bit 3 set, it means calbration is done.
         // otherwise, check back in 50ms later.
         if (mTask.rxBuffer[1] & 0x08) {
+
             //disable FOC
             SPI_WRITE(BMI160_REG_FOC_CONF, 0x00);
 
             //read the offset value for accel
             SPI_READ(BMI160_REG_OFFSET_0, 3, mTask.rxBuffer);
             mTask.calibration_state = CALIBRATION_SET_OFFSET;
+            osLog(LOG_INFO, "FOC set FINISHED!\n");
         } else {
+
             // calibration hasn't finished yet, go back to wait for 50ms.
             SPI_READ(BMI160_REG_STATUS, 1, mTask.rxBuffer, 50000);
             mTask.calibration_state = CALIBRATION_WAIT_FOC_DONE;
             mTask.calibration_timeout_cnt ++;
         }
-        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[ACC_IDX]);
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[ACC]);
 
         // if calbration hasn't finished after 10 polling on the STATUS reg,
         // declare timeout.
@@ -1201,10 +1420,14 @@ static void accCalibrationHandling(void)
         }
         break;
     case CALIBRATION_SET_OFFSET:
-        mTask.sensors[ACC_IDX].offset[0] = mTask.rxBuffer[1];
-        mTask.sensors[ACC_IDX].offset[1] = mTask.rxBuffer[2];
-        mTask.sensors[ACC_IDX].offset[2] = mTask.rxBuffer[3];
-        mTask.sensors[ACC_IDX].offset_enable = true;
+        mTask.sensors[ACC].offset[0] = mTask.rxBuffer[1];
+        mTask.sensors[ACC].offset[1] = mTask.rxBuffer[2];
+        mTask.sensors[ACC].offset[2] = mTask.rxBuffer[3];
+        mTask.sensors[ACC].offset_enable = true;
+        osLog(LOG_INFO, "ACCELERATION OFFSET is %02x  %02x  %02x\n",
+                (unsigned int)mTask.sensors[ACC].offset[0],
+                (unsigned int)mTask.sensors[ACC].offset[1],
+                (unsigned int)mTask.sensors[ACC].offset[2]);
 
         // Enable offset compensation for accel
         uint8_t mode = offset6Mode();
@@ -1214,10 +1437,10 @@ static void accCalibrationHandling(void)
         configFifo(true);
 
         // if ACC was previous off, turn ACC to SUSPEND
-        if (!isActive(&mTask.sensors[ACC_IDX]))
+        if (!mTask.sensors[ACC].active)
             SPI_WRITE(BMI160_REG_CMD, 0x12);
         mTask.calibration_state = CALIBRATION_DONE;
-        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[ACC_IDX]);
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[ACC]);
         break;
     default:
         osLog(LOG_ERROR, "Invalid calibration state\n");
@@ -1230,7 +1453,7 @@ static void accCalibrationEvent(void)
     if (mTask.state < SENSOR_IDLE) {
         osLog(LOG_ERROR, "chip not initialized yet. No caliberation allowed\n");
     } else if (mTask.state == SENSOR_IDLE) {
-        if (isActive(&mTask.sensors[ACC_IDX])) {
+        if (mTask.sensors[ACC].active) {
             osLog(LOG_ERROR, "No calibration allowed when sensor is active\n");
             return;
         }
@@ -1238,7 +1461,7 @@ static void accCalibrationEvent(void)
         mTask.calibration_state = CALIBRATION_START;
         accCalibrationHandling();
     } else {
-        mTask.sensors[ACC_IDX].pending[2] = true;
+        mTask.sensors[ACC].pending[2] = true;
     }
     return;
 }
@@ -1258,7 +1481,7 @@ static void gyrCalibrationEvent(void)
         mTask.calibration_state = CALIBRATION_START;
         gyrCalibrationHandling();
     } else {
-        mTask.sensors[ACC_IDX].pending[3] = true;
+        mTask.sensors[ACC].pending[3] = true;
     }
     return;
 }
@@ -1272,14 +1495,17 @@ static void sensorInit(void)
 
     switch (mTask.init_state) {
     case RESET_BMI160:
-        // perform soft reset and wait for 100ms
-        SPI_WRITE(BMI160_REG_CMD, 0xb6, 100000);
+
+        // perform soft reset and wait for 1000ms
+        SPI_WRITE(BMI160_REG_CMD, 0xb6, 1000000);
+        // set gyro to fast-start mode, wait 80ms
+        SPI_WRITE(BMI160_REG_CMD, 0x17, 80000);
+
         mTask.init_state = INIT_BMI160;
         spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask);
-        osLog(LOG_INFO, "BMI160: reset\n");
         break;
+
     case INIT_BMI160:
-        osLog(LOG_INFO, "BMI160: init\n");
         // Read any pending interrupts to reset them
         SPI_READ(BMI160_REG_INT_STATUS_0, 4, mTask.rxBuffer);
 
@@ -1288,7 +1514,8 @@ static void sensorInit(void)
 
         // set the watermark to 1 byte
         // TODO: update based on latency
-        SPI_WRITE(BMI160_REG_FIFO_CONFIG_0, 0x01);
+        // testing 128 bytes XXX
+        SPI_WRITE(BMI160_REG_FIFO_CONFIG_0, 0x20);
 
         // FIFO watermark and fifo_full interrupt enabled
         SPI_WRITE(BMI160_REG_INT_EN_0, 0x00);
@@ -1315,9 +1542,7 @@ static void sensorInit(void)
 
         // initial range for accel (+-8g) and gyro (+-2000 degree).
         SPI_WRITE(BMI160_REG_ACC_RANGE, 0x08);
-        mTask.sensors[ACC_IDX].range = 8;
         SPI_WRITE(BMI160_REG_GYR_RANGE, 0x00);
-        mTask.sensors[GYR_IDX].range = 2000;
 
         // Reset step counter
         SPI_WRITE(BMI160_REG_CMD, 0xB2, 10000);
@@ -1326,12 +1551,10 @@ static void sensorInit(void)
         // Reset fifo
         SPI_WRITE(BMI160_REG_CMD, 0xB0, 10000);
 
-        // Set GYRO to FAST_START mode
-        SPI_WRITE(BMI160_REG_CMD, 0x17, 80000);
-
         mTask.init_state = INIT_BMM150;
         spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask);
         break;
+
     case INIT_BMM150:
         // set the MAG power to NORMAL mode
         SPI_WRITE(BMI160_REG_CMD, 0x19, 10000);
@@ -1366,12 +1589,51 @@ static void sensorInit(void)
         // set the MAG power to SUSPEND mode
         SPI_WRITE(BMI160_REG_CMD, 0x18, 10000);
 
+        mTask.init_state = INIT_ON_CHANGE_SENSORS;
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask);
+        break;
+
+    case INIT_ON_CHANGE_SENSORS:
+        // set any_motion duration to 0
+        // set no_motion duration to ~5sec
+        SPI_WRITE(BMI160_REG_INT_MOTION_0, 0x0c);
+
+        // set any_motion threshould to 5*15.63mg(for 8g range)=78.15mg
+        // I use the same value as chinook...
+        SPI_WRITE(BMI160_REG_INT_MOTION_1, 0x05);
+
+        // set no_motion threshould to 10*15.63mg (for 8g range)
+        // I use the same value as chinook.. Don't know why it is higher than
+        // any_motion.
+        SPI_WRITE(BMI160_REG_INT_MOTION_2, 0x0A);
+
+        // select no_motion over slow_motion
+        // select any_motion over significant motion
+        SPI_WRITE(BMI160_REG_INT_MOTION_3, 0x15);
+
+        // int_tap_quiet=30ms, int_tap_shock=75ms, int_tap_dur=150ms
+        SPI_WRITE(BMI160_REG_INT_TAP_0, 0x42);
+
+        // int_tap_th = 7 * 250 mg (8-g range)
+        SPI_WRITE(BMI160_REG_INT_TAP_1, TAP_THRESHOULD);
+
+        // config step detector
+        SPI_WRITE(BMI160_REG_STEP_CONF_0, 0x15);
+        SPI_WRITE(BMI160_REG_STEP_CONF_1, 0x03);
+
+        // int_flat_theta = 44.8 deg * (16/64) = 11.2 deg
+        SPI_WRITE(BMI160_REG_INT_FLAT_0, 0x10);
+
+        // int_flat_hold_time = (640 msec)
+        // int_flat_hy = 44.8 * 4 / 64 = 2.8 deg
+        SPI_WRITE(BMI160_REG_INT_FLAT_1, 0x14);
+
         mTask.init_state = INIT_DONE;
         spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask);
         break;
+
     default:
         osLog(LOG_INFO, "Invalid init_state.\n");
-        break;
     }
 }
 
@@ -1379,47 +1641,44 @@ static void processPendingEvt(void)
 {
     enum SensorIndex i;
     if (mTask.pending_int[0]) {
+        osLog(LOG_INFO, "INT1 PENDING!!\n");
         mTask.pending_int[0] = false;
         int1Evt();
         return;
     }
     if (mTask.pending_int[1]) {
+        osLog(LOG_INFO, "INT2 PENDING!!\n");
         mTask.pending_int[1] = false;
         int2Evt();
         return;
     }
-    for (i = ACC_IDX; i < NUM_OF_SENSOR; i++) {
+    for (i = ACC; i < NUM_OF_SENSOR; i++) {
         if (mTask.sensors[i].pending[0]) {
+            osLog(LOG_INFO, "mTask.sensors[%d].pending[0]!!\n", i);
             mTask.sensors[i].pending[0] = false;
             //active_event(&mTask.sensors[i], &mTask.sensors[i].pActivate);
             return;
         }
         if (mTask.sensors[i].pending[1]) {
+            osLog(LOG_INFO, "mTask.sensors[%d].pending[1]!!\n", i);
             mTask.sensors[i].pending[1] = false;
             configEvent(&mTask.sensors[i], &mTask.sensors[i].pConfig);
             return;
         }
         if (mTask.sensors[i].pending[2]) {
+            osLog(LOG_INFO, "mTask.sensors[%d].pending[2]!!\n", i);
             mTask.sensors[i].pending[2] = false;
             accCalibrationEvent();
             return;
         }
         if (mTask.sensors[i].pending[3]) {
+            osLog(LOG_INFO, "mTask.sensors[%d].pending[3]!!\n", i);
             mTask.sensors[i].pending[3] = false;
             gyrCalibrationEvent();
             return;
         }
     }
 }
-
-/*
-static void enableAllSensors() {
-    return;
-    osEnqueueEvt(EVT_SENSOR_MAG_ACTIVATE, &activateCmd, NULL, false);
-    osEnqueueEvt(EVT_SENSOR_GYR_ACTIVATE, &activateCmd, NULL, false);
-    osEnqueueEvt(EVT_SENSOR_ACC_ACTIVATE, &activateCmd, NULL, false);
-}
-*/
 
 static void handleSpiDoneEvt(const void* evtData)
 {
@@ -1447,11 +1706,13 @@ static void handleSpiDoneEvt(const void* evtData)
             break;
         } else {
             mTask.state = SENSOR_INITIALIZING;
-            mTask.init_state = INIT_BMI160; // should be RESET
+            mTask.init_state = RESET_BMI160;
+            //mTask.init_state = INIT_BMI160;
             sensorInit();
             break;
         }
     case SENSOR_INITIALIZING:
+
         if (mTask.init_state == INIT_DONE) {
             osLog(LOG_INFO, "Done initialzing, system IDLE\n");
             mTask.state = SENSOR_IDLE;
@@ -1462,11 +1723,15 @@ static void handleSpiDoneEvt(const void* evtData)
         break;
     case SENSOR_POWERING_UP:
         mSensor = (struct BMI160Sensor *)evtData;
-        if (mSensor->idx == MAG_IDX && mTask.mag_state != MAG_SET_DONE) {
+        if (mSensor->idx == MAG && mTask.mag_state != MAG_SET_DONE) {
             magConfig();
         } else {
-            configFifo(true);
-            configInt1(true);
+            if (mSensor->idx <= MAG) {
+                configFifo(true);
+                configInt1(true);
+            } else {
+                configInt2(true);
+            }
             mTask.state = SENSOR_POWERING_UP_DONE;
         }
         SPI_READ(BMI160_REG_ERR, 1, &mTask.rxBuffer[100]);
@@ -1477,14 +1742,19 @@ static void handleSpiDoneEvt(const void* evtData)
         mSensor = (struct BMI160Sensor *)evtData;
         sensorSignalInternalEvt(mSensor->handle,
                 SENSOR_INTERNAL_EVT_POWER_STATE_CHG, 1, 0);
-        osLog(LOG_INFO, "   NEW POWER STATUS: %02x, ERROR: %02x\n", mTask.rxBuffer[103], mTask.rxBuffer[101]);
         mTask.state = SENSOR_IDLE;
+        osLog(LOG_INFO, "Done powering up for %s\n", mSensorInfo[mSensor->idx].sensorName);
+        osLog(LOG_INFO, "   NEW POWER STATUS: %02x, ERROR: %02x\n", mTask.rxBuffer[103], mTask.rxBuffer[101]);
         processPendingEvt();
         break;
     case SENSOR_POWERING_DOWN:
         mSensor = (struct BMI160Sensor *)evtData;
-        configFifo(false);
-        configInt1(false);
+        if (mSensor->idx <= MAG) {
+            configFifo(false);
+            configInt1(false);
+        } else {
+            configInt2(false);
+        }
         mTask.state = SENSOR_POWERING_DOWN_DONE;
         SPI_READ(BMI160_REG_ERR, 1, &mTask.rxBuffer[100]);
         SPI_READ(BMI160_REG_PMU_STATUS, 1, &mTask.rxBuffer[102]);
@@ -1494,14 +1764,17 @@ static void handleSpiDoneEvt(const void* evtData)
         mSensor = (struct BMI160Sensor *)evtData;
         sensorSignalInternalEvt(mSensor->handle,
                 SENSOR_INTERNAL_EVT_POWER_STATE_CHG, 0, 0);
-        osLog(LOG_INFO, "   NEW POWER STATUS: %02x, ERROR: %02x\n", mTask.rxBuffer[103], mTask.rxBuffer[101]);
         mTask.state = SENSOR_IDLE;
+        osLog(LOG_INFO, "Done powering down for %s\n", mSensorInfo[mSensor->idx].sensorName);
+        osLog(LOG_INFO, "   NEW POWER STATUS: %02x, ERROR: %02x\n", mTask.rxBuffer[103], mTask.rxBuffer[101]);
         processPendingEvt();
         break;
     case SENSOR_INT_1_HANDLING:
         if (mTask.fifo_state == FIFO_DONE) {
+
             dispatchData();
             mTask.state = SENSOR_IDLE;
+
             processPendingEvt();
         } else {
             int1Handling();
@@ -1509,12 +1782,14 @@ static void handleSpiDoneEvt(const void* evtData)
         break;
     case SENSOR_INT_2_HANDLING:
         int2Handling();
+        mTask.state = SENSOR_IDLE;
         break;
     case SENSOR_CONFIG_CHANGING:
         mSensor = (struct BMI160Sensor *)evtData;
         sensorSignalInternalEvt(mSensor->handle,
-                SENSOR_INTERNAL_EVT_RATE_CHG, mSensor->rate, mSensor->latency[0]);
+                SENSOR_INTERNAL_EVT_RATE_CHG, mSensor->rate, mSensor->latency);
         mTask.state = SENSOR_IDLE;
+        osLog(LOG_INFO, "Done changing config\n");
         processPendingEvt();
         break;
     case SENSOR_CALIBRATING:
@@ -1527,15 +1802,15 @@ static void handleSpiDoneEvt(const void* evtData)
             osLog(LOG_INFO, "Calibration TIMED OUT\n");
             mTask.state = SENSOR_IDLE;
             processPendingEvt();
-        } else if (mSensor->idx == ACC_IDX) {
+        } else if (mSensor->idx == ACC) {
             accCalibrationHandling();
-        } else if (mSensor->idx == GYR_IDX) {
+        } else if (mSensor->idx == GYR) {
             gyrCalibrationHandling();
         }
         break;
-    case SENSOR_IDLE:
+    default:
         break;
-    }
+}
 }
 
 static void handleEvent(uint32_t evtType, const void* evtData)
@@ -1561,28 +1836,18 @@ static void handleEvent(uint32_t evtType, const void* evtData)
         int1Evt();
         break;
     case EVT_SENSOR_INTERRUPT_2:
-        //TODO: implement handling of logical sensors
         int2Evt();
         break;
-#if 0
-    case EVT_SENSOR_ACC_CALIBRATE:
-        accCalibrationEvent();
-        break;
-    case EVT_SENSOR_GYR_CALIBRATE:
-        gyrCalibrationEvent();
-        break;
-#endif
     default:
         break;
     }
 }
 
-static void initSensorStruct(struct BMI160Sensor *sensor, enum SensorIndex idx, uint32_t rate)
+static void initSensorStruct(struct BMI160Sensor *sensor, enum SensorIndex idx)
 {
     sensor->idx = idx;
-    sensor->active[0] = false;
-    sensor->active[1] = false;
-    sensor->rate = rate;
+    sensor->active = false;
+    sensor->rate = 0;
     sensor->pending[0] = false;
     sensor->pending[1] = false;
     sensor->pending[2] = false;
@@ -1590,10 +1855,8 @@ static void initSensorStruct(struct BMI160Sensor *sensor, enum SensorIndex idx, 
     sensor->offset[0] = 0;
     sensor->offset[1] = 0;
     sensor->offset[2] = 0;
-    sensor->batch_size[0] = 180;
-    sensor->batch_size[1] = 180;
-    sensor->latency[0] = 0;
-    sensor->latency[1] = 0;
+    sensor->batch_size = 0;
+    sensor->latency = 0;
     sensor->data_evt = NULL;
 }
 
@@ -1610,6 +1873,8 @@ static bool startTask(uint32_t task_id)
     mTask.Isr1.func = bmi160Isr1;
     mTask.Int2 = gpioRequest(BMI160_INT2_PIN);
     mTask.Isr2.func = bmi160Isr2;
+    mTask.Int1_EN = false;
+    mTask.Int2_EN = false;
     mTask.pending_int[0] = false;
     mTask.pending_int[1] = false;
 
@@ -1622,12 +1887,10 @@ static bool startTask(uint32_t task_id)
     mTask.cs = GPIO_PB(12);
     spiMasterRequest(BMI160_SPI_BUS_ID, &mTask.spiDev);
 
-    for (i = ACC_IDX; i < NUM_OF_SENSOR; i++) {
-        initSensorStruct(&mTask.sensors[i], i, SENSOR_HZ(DEFAULT_RATE));
+    for (i = ACC; i < NUM_OF_SENSOR; i++) {
+        initSensorStruct(&mTask.sensors[i], i);
+        mTask.sensors[i].handle = sensorRegister(&mSensorInfo[i], &mSensorOps[i]);
     }
-    mTask.sensors[ACC_IDX].handle = sensorRegister(&mSiAcc, &mSopsAcc);
-    mTask.sensors[GYR_IDX].handle = sensorRegister(&mSiGyr, &mSopsGyr);
-    mTask.sensors[MAG_IDX].handle = sensorRegister(&mSiMag, &mSopsMag);
 
     osEventSubscribe(mTask.tid, EVT_APP_START);
 
@@ -1647,6 +1910,9 @@ static bool startTask(uint32_t task_id)
     // each event has 15 samples, with 7 bytes per sample from the fifo.
     // the fifo size is 1K. Therefore, 10 slots.
     mDataSlab = slabAllocatorNew(slabSize, 4, 10);
+
+    mTask.interrupt_enable_0 = 0x00;
+    mTask.interrupt_enable_2 = 0x00;
 
     return true;
 }
