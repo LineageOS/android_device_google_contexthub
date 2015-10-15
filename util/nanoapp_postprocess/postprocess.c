@@ -326,7 +326,7 @@ int main(int argc, char **argv)
 				packedNanoRelocs[packedNanoRelocSz++] = TOKEN_RELOC_TYPE_CHG;
 				packedNanoRelocs[packedNanoRelocSz++] = nanoRelocs[i].type - lastOutType - 1;
 				if (verbose)
-					fprintf(stderr, "Out: RelocTC (0x%02X)\n", nanoRelocs[i].type - lastOutType - 1, nanoRelocs[i].type);
+					fprintf(stderr, "Out: RelocTC (0x%02X)  // to 0x%02X\n", nanoRelocs[i].type - lastOutType - 1, nanoRelocs[i].type);
 			}
 			lastOutType = nanoRelocs[i].type;
 			origin = 0;
