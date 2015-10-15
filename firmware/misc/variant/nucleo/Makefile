@@ -15,6 +15,9 @@ SRCS += src/variant/$(VARIANT)/spi.c
 
 #keys
 
+#fusion algorithm
+SRCS += src/fusion/fusion.c src/fusion/mat.c src/fusion/quat.c src/fusion/vec.c
+
 #linker script
 LKR = misc/variant/common/stm32f411.lkr
 OSFLAGS += -Wl,-T $(LKR)
