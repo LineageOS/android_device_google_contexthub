@@ -158,7 +158,7 @@ static void osStartTasks(void)
     extern const struct AppHdr __internal_app_start, __internal_app_end, __app_start;
     const struct AppHdr *app;
     static const char magic[] = APP_HDR_MAGIC;
-    uint32_t i = 0, nTasks = 0;
+    uint32_t i, nTasks = 0;
 
     osLog(LOG_INFO, "SEOS Registering tasks\n");
 
@@ -175,7 +175,7 @@ static void osStartTasks(void)
             mTasks[nTasks].subbedEvents = mTasks[nTasks].subbedEventsInt;
             mTasks[nTasks].tid = osGetFreeTid();
 
-            if (cpuInternalAppLoad(mTasks[i].appHdr, &mTasks[i].platInfo))
+            if (cpuInternalAppLoad(mTasks[nTasks].appHdr, &mTasks[nTasks].platInfo))
                 nTasks++;
         }
     }
@@ -195,14 +195,14 @@ static void osStartTasks(void)
             mTasks[nTasks].subbedEvents = mTasks[nTasks].subbedEventsInt;
             mTasks[nTasks].tid = osGetFreeTid();
 
-            if (cpuAppLoad(mTasks[i].appHdr, &mTasks[i].platInfo))
+            if (cpuAppLoad(mTasks[nTasks].appHdr, &mTasks[nTasks].platInfo))
                 nTasks++;
         }
         app = (const struct AppHdr*)(((const uint8_t*)app) + app->rel_end);
     }
 
     osLog(LOG_INFO, "SEOS Starting tasks\n");
-    while (i < nTasks) {
+    for (i = 0; i < nTasks;) {
         if (cpuAppInit(mTasks[i].appHdr, &mTasks[i].platInfo, mTasks[i].tid))
             i++;
         else {
