@@ -9,29 +9,9 @@ extern "C" {
 #include <stdint.h>
 #include <seos.h>
 #include <eventnums.h>
-
+#include <sensType.h>
 
 #define MAX_REGISTERED_SENSORS  16 /* this may need to be revisted later */
-
-
-#define SENSOR_TYPE_INVALID         0
-#define SENSOR_TYPE_ACCEL           1
-#define SENSOR_TYPE_ANY_MOTION      2 //provided by ACCEL, nondiscardable edge trigger
-#define SENSOR_TYPE_NO_MOTION       3 //provided by ACCEL, nondiscardable edge trigger
-#define SENSOR_TYPE_GYRO            4
-#define SENSOR_TYPE_MAG             5
-#define SENSOR_TYPE_BARO            6
-#define SENSOR_TYPE_ALS             7
-#define SENSOR_TYPE_PROX            8
-#define SENSOR_TYPE_HEARTRATE_ECG   9
-#define SENSOR_TYPE_HEARTRATE_PPG   10
-#define SENSOR_TYPE_GRAVITY         11
-#define SENSOR_TYPE_LIN_ACCEL       12
-#define SENSOR_TYPE_STEP_COUNT      13
-#define SENSOR_TYPE_STEP_DETECT     14
-#define SENSOR_TYPE_TILT            15
-#define SENSOR_TYPE_FIRST_USER      64
-
 
 //data for accel/gyro/mag takes this form
 struct TrippleAxisDataPoint {
