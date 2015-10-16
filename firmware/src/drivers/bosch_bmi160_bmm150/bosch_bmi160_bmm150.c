@@ -4,6 +4,7 @@
 #include <sensors.h>
 #include <heap.h>
 #include <spi.h>
+#include <slab.h>
 #include <limits.h>
 #include <plat/inc/rtc.h>
 #include <plat/inc/gpio.h>
@@ -227,8 +228,7 @@ enum MagConfigState {
 struct BMI160Sensor {
     static const struct SensorInfo si;
     struct ConfigStat pConfig; // pending config status request
-    struct data_evt *data_evt;
-    struct ext_data_evt *ext_data_evt;
+    struct TrippleAxisDataEvent *data_evt;
     uint32_t handle;
     uint32_t rate;
     uint64_t latency[2];
@@ -332,16 +332,12 @@ static uint8_t mRetryLeft = 5;
 
 static uint64_t mIntTime = 0;
 
+static struct SlabAllocator *mDataSlab;
+
 static void dataEvtFree(void *ptr)
 {
-    struct data_evt *ev = (struct data_evt *)ptr;
-    heapFree(ev);
-}
-
-static void extDataEvtFree(void *ptr)
-{
-    struct ext_data_evt *ev = (struct ext_data_evt *)ptr;
-    heapFree(ev);
+    struct TrippleAxisDataEvent *ev = (struct TrippleAxisDataEvent *)ptr;
+    slabAllocatorFree(mDataSlab, ev);
 }
 
 // this may subject to change.
@@ -362,21 +358,6 @@ static int sensorToIndex(uint32_t evtType)
         default:
             osLog(LOG_ERROR, "Invalid evtType to index\n");
             return 0; //not sure what to return....XXX
-    }
-}
-
-static int indexToSensor(int idx)
-{
-    switch (idx) {
-        case ACC_IDX:
-            return SENS_TYPE_ACCEL;
-        case GYR_IDX:
-            return SENS_TYPE_GYRO;
-        case MAG_IDX:
-            return SENS_TYPE_MAG;
-        default:
-            osLog(LOG_ERROR, "Sensor index corrupted\n");
-            return -1;
     }
 }
 
@@ -832,6 +813,9 @@ static void parseRawData(struct BMI160Sensor *mSensor, int i, float kScale, uint
 {
     float x, y, z;
     int16_t raw_x, raw_y, raw_z;
+    struct TrippleAxisDataPoint *sample;
+    uint32_t delta_time;
+
     raw_x = (mTask.rxBuffer[i] | mTask.rxBuffer[i+1] << 8);
     raw_y = (mTask.rxBuffer[i+2] | mTask.rxBuffer[i+3] << 8);
     raw_z = (mTask.rxBuffer[i+4] | mTask.rxBuffer[i+5] << 8);
@@ -873,50 +857,42 @@ static void parseRawData(struct BMI160Sensor *mSensor, int i, float kScale, uint
     }
 
     if (mSensor->data_evt == NULL) {
-        mSensor->data_evt = heapAlloc(sizeof(struct data_evt));
-        mSensor->data_evt->type = indexToSensor(mSensor->idx);
-        mSensor->data_evt->num_samples = 0;
-        mSensor->data_evt->reference_time = time;
+        mSensor->data_evt = slabAllocatorAlloc(mDataSlab);
+        if (mSensor->data_evt == NULL) {
+            // slab allocation failed
+            osLog(LOG_ERROR, "Slab allocation failed\n");
+            return;
+        }
+        // delta time for the first sample is sample count
+        mSensor->data_evt->samples[0].deltaTime = 0;
+        mSensor->data_evt->referenceTime = time;
     }
 
-    if (mSensor->data_evt->num_samples >= MAX_NUM_COMMS_EVENT_SAMPLES) {
+    if (mSensor->data_evt->samples[0].deltaTime >= MAX_NUM_COMMS_EVENT_SAMPLES) {
         osLog(LOG_ERROR, "BAD INDEX\n");
         return;
     }
 
-    struct sensor_sample *sample = &mSensor->data_evt->samples[mSensor->data_evt->num_samples++];
+    sample = &mSensor->data_evt->samples[mSensor->data_evt->samples[0].deltaTime++];
 
-    uint32_t delta_time = time - mSensor->data_evt->reference_time;
+    delta_time = time - mSensor->data_evt->referenceTime;
     delta_time = delta_time<0?0:delta_time; //XXX: needed?
 
-    sample->delta_time = delta_time;
+    // the first deltatime is for sample size
+    if (mSensor->data_evt->samples[0].deltaTime > 1)
+        sample->deltaTime = delta_time;
+
     sample->x = x;
     sample->y = y;
     sample->z = z;
 
-    if (mSensor->data_evt->num_samples == MAX_NUM_COMMS_EVENT_SAMPLES) {
+    if (mSensor->data_evt->samples[0].deltaTime == MAX_NUM_COMMS_EVENT_SAMPLES) {
         if (mSensor->idx == ACC_IDX) {
-            osLog(LOG_INFO, "I am actually sending evt.\n");
             osEnqueueEvt(EVT_SENSOR_ACC_DATA_RDY, mSensor->data_evt, dataEvtFree, false);
-            mSensor->ext_data_evt = heapAlloc(sizeof(struct ext_data_evt));
-            mSensor->ext_data_evt->size = 250;
-            memcpy(&mSensor->ext_data_evt->data, mSensor->data_evt, mSensor->ext_data_evt->size);
-            osEnqueueEvt(EVT_SENSOR_ACC_DATA_RDY, mSensor->ext_data_evt, extDataEvtFree, true);
-            hostIntfSetInterrupt(1);
         } else if (mSensor->idx == GYR_IDX) {
             osEnqueueEvt(EVT_SENSOR_GYR_DATA_RDY, mSensor->data_evt, dataEvtFree, false);
-            mSensor->ext_data_evt = heapAlloc(sizeof(struct ext_data_evt));
-            mSensor->ext_data_evt->size = 250;
-            memcpy(&mSensor->ext_data_evt->data, mSensor->data_evt, mSensor->ext_data_evt->size);
-            osEnqueueEvt(EVT_SENSOR_GYR_DATA_RDY, mSensor->ext_data_evt, extDataEvtFree, true);
-            hostIntfSetInterrupt(AP_INT);
         } else if (mSensor->idx == MAG_IDX) {
             osEnqueueEvt(EVT_SENSOR_GYR_DATA_RDY, mSensor->data_evt, dataEvtFree, false);
-            mSensor->ext_data_evt = heapAlloc(sizeof(struct ext_data_evt));
-            mSensor->ext_data_evt->size = 250;
-            memcpy(&mSensor->ext_data_evt->data, mSensor->data_evt, mSensor->ext_data_evt->size);
-            osEnqueueEvt(EVT_SENSOR_MAG_DATA_RDY, mSensor->ext_data_evt, extDataEvtFree, true);
-            hostIntfSetInterrupt(AP_INT);
         }
         mSensor->data_evt = NULL;
     }
@@ -1000,35 +976,16 @@ static void dispatchData(void)
     // flush data events.
     //osLog(LOG_INFO, "Sending THE LLLAAAAST data_evt for all\n");
     if (mTask.sensors[ACC_IDX].data_evt != NULL) {
-        osLog(LOG_INFO, "I am actually sending evt @ Place 2.\n");
         osEnqueueEvt(EVT_SENSOR_ACC_DATA_RDY, mTask.sensors[ACC_IDX].data_evt, dataEvtFree, false);
-        mTask.sensors[ACC_IDX].ext_data_evt = heapAlloc(sizeof(struct ext_data_evt));
-        mTask.sensors[ACC_IDX].ext_data_evt->size = 250;
-        memcpy(&mTask.sensors[ACC_IDX].ext_data_evt->data, mTask.sensors[ACC_IDX].data_evt, mTask.sensors[ACC_IDX].ext_data_evt->size);
-        osEnqueueEvt(EVT_SENSOR_ACC_DATA_RDY,  mTask.sensors[ACC_IDX].ext_data_evt, extDataEvtFree, true);
-        mTask.sensors[ACC_IDX].ext_data_evt = NULL;
-        hostIntfSetInterrupt(1);
         mTask.sensors[ACC_IDX].data_evt = NULL;
     }
     if (mTask.sensors[GYR_IDX].data_evt != NULL) {
         osEnqueueEvt(EVT_SENSOR_GYR_DATA_RDY, mTask.sensors[GYR_IDX].data_evt, dataEvtFree, false);
         mTask.sensors[GYR_IDX].data_evt = NULL;
-        mTask.sensors[GYR_IDX].ext_data_evt = heapAlloc(sizeof(struct ext_data_evt));
-        mTask.sensors[GYR_IDX].ext_data_evt->size = 250;
-        memcpy(&mTask.sensors[GYR_IDX].ext_data_evt->data, mTask.sensors[GYR_IDX].data_evt, mTask.sensors[GYR_IDX].ext_data_evt->size);
-        osEnqueueEvt(EVT_SENSOR_GYR_DATA_RDY, mTask.sensors[GYR_IDX].ext_data_evt, extDataEvtFree, true);
-        mTask.sensors[GYR_IDX].ext_data_evt = NULL;
-        hostIntfSetInterrupt(AP_INT);
     }
     if (mTask.sensors[MAG_IDX].data_evt != NULL) {
         osEnqueueEvt(EVT_SENSOR_MAG_DATA_RDY, mTask.sensors[MAG_IDX].data_evt, dataEvtFree, false);
         mTask.sensors[MAG_IDX].data_evt = NULL;
-        mTask.sensors[MAG_IDX].ext_data_evt = heapAlloc(sizeof(struct ext_data_evt));
-        mTask.sensors[MAG_IDX].ext_data_evt->size = 250;
-        memcpy(&mTask.sensors[MAG_IDX].ext_data_evt->data, mTask.sensors[MAG_IDX].data_evt, mTask.sensors[MAG_IDX].ext_data_evt->size);
-        osEnqueueEvt(EVT_SENSOR_MAG_DATA_RDY, mTask.sensors[MAG_IDX].ext_data_evt, extDataEvtFree, true);
-        mTask.sensors[MAG_IDX].ext_data_evt = NULL;
-        hostIntfSetInterrupt(AP_INT);
     }
 }
 
@@ -1412,7 +1369,6 @@ static void enableAllSensors() {
 static void handleSpiDoneEvt(const void* evtData)
 {
     struct BMI160Sensor *mSensor;
-    struct ext_data_evt test;
 
     switch (mTask.state) {
         case SENSOR_BOOT:
@@ -1441,7 +1397,6 @@ static void handleSpiDoneEvt(const void* evtData)
                 break;
             }
         case SENSOR_INITIALIZING:
-            osLog(LOG_INFO, "size of struct ext_data_evt: %u\n", sizeof(test));
 
             if (mTask.init_state == INIT_DONE) {
                 //osEnqueueEvt(EVT_SENSOR_BMI160_INITIALIZED, NULL, NULL, false);
@@ -1622,6 +1577,7 @@ static bool startTask(uint32_t task_id)
     osLog(LOG_INFO, "        IMU:  %ld\n", task_id);
 
     enum SensorIndex i;
+    size_t slabSize;
 
     mTask.tid = task_id;
 
@@ -1685,12 +1641,20 @@ static bool startTask(uint32_t task_id)
     mTask.mag_accuracy = 2;
     mTask.mag_accuracy_restore = 2;
 
+    slabSize = sizeof(struct TrippleAxisDataEvent) +
+        MAX_NUM_COMMS_EVENT_SAMPLES * sizeof(struct TrippleAxisDataPoint);
+
+    // each event has 15 samples, with 7 bytes per sample from the fifo.
+    // the fifo size is 1K. Therefore, 10 slots.
+    mDataSlab = slabAllocatorNew(slabSize, 4, 10);
+
     return true;
 }
 
 static void endTask(void)
 {
     destroy_mag_cal(&mTask.moc);
+    slabAllocatorDestroy(mDataSlab);
 }
 
 INTERNAL_APP_INIT(0x0000000000000004ULL, startTask, endTask, handleEvent);

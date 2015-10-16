@@ -13,12 +13,14 @@
 #include <fusion/fusion.h>
 #include <sensors.h>
 #include <limits.h>
+#include <slab.h>
 
 #define MAX_NUM_COMMS_EVENT_SAMPLES 15
 #define MAX_NUM_SAMPLES         MAX_NUM_COMMS_EVENT_SAMPLES
 #define EVT_SENSOR_ACC_DATA_RDY sensorGetMyEventType(SENS_TYPE_ACCEL)
 #define EVT_SENSOR_GYR_DATA_RDY sensorGetMyEventType(SENS_TYPE_GYRO)
 #define EVT_SENSOR_MAG_DATA_RDY sensorGetMyEventType(SENS_TYPE_MAG)
+#define EVT_SENSOR_ORIENTATION_DATA_RDY sensorGetMyEventType(SENS_TYPE_ORIENTATION)
 
 enum {
     FUSION_FLAG_ENABLED             = 1,
@@ -41,7 +43,7 @@ struct OrientationTask {
     struct Fusion fusion;
 
     struct OrientationSensorSample samples[3][MAX_NUM_SAMPLES];
-    struct data_evt *ev;
+    struct TrippleAxisDataEvent *ev;
     size_t sample_indices[3];
     size_t sample_counts[3];
 
@@ -80,78 +82,79 @@ static struct ConfigStat mImuConfig;
 
 static uint64_t mCnt = 0;
 
-static int sensorToIndex(uint8_t type)
+static struct SlabAllocator *mDataSlab;
+
+static void dataEvtFree(void *ptr)
 {
-    switch (type) {
-        case SENS_TYPE_ACCEL:
-            return 0;
-        case SENS_TYPE_GYRO:
-            return 1;
-        case SENS_TYPE_MAG:
-            return 2;
-        default:
-            osLog(LOG_ERROR, "Sensor type corrupted\n");
-            return -1;
-    }
+    slabAllocatorFree(mDataSlab, ptr);
 }
 
-static void fillSamples(struct data_evt *ev)
+// index 0: accel; 1: gyro; 2: mag.
+static void fillSamples(struct TrippleAxisDataEvent *ev, int index)
 {
-    size_t i;
-    int index = sensorToIndex(ev->type);
+    size_t i, sampleCnt;
 
-    if (ev->type == SENS_TYPE_GYRO && !mTask.use_gyro_data) {
+    if (index == 1 && !mTask.use_gyro_data) {
         return;
     }
-    if (ev->type == SENS_TYPE_MAG && !mTask.use_mag_data) {
+    if (index == 2 && !mTask.use_mag_data) {
         return;
     }
 
-    if (ev->num_samples >= MAX_NUM_SAMPLES) {
-//        osLog(LOG_INFO, "ev->num_samples >= MAX_NUM_SAMPLES: %d\n", ev->num_samples);
+    sampleCnt = ev->samples[0].deltaTime;
+    if (sampleCnt >= MAX_NUM_SAMPLES) {
+        struct TrippleAxisDataPoint *sample;
         // Copy the last MAX_NUM_SAMPLES samples over and reset the sample index.
         mTask.sample_indices[index] = 0;
         mTask.sample_counts[index] = MAX_NUM_SAMPLES;
 
         for (i = 0; i < MAX_NUM_SAMPLES; ++i) {
-            struct sensor_sample *sample =
-                &ev->samples[ev->num_samples - MAX_NUM_SAMPLES + i];
+            sample = &ev->samples[sampleCnt - MAX_NUM_SAMPLES + i];
             mTask.samples[index][i].x = sample->x;
             mTask.samples[index][i].y = sample->y;
             mTask.samples[index][i].z = sample->z;
-            mTask.samples[index][i].time = ev->reference_time + sample->delta_time;
+            if (i == 0)
+                mTask.samples[index][i].time = ev->referenceTime;
+            else
+                mTask.samples[index][i].time = ev->referenceTime + sample->deltaTime;
         }
 
     } else {
+        struct TrippleAxisDataPoint *sample;
         size_t n = mTask.sample_counts[index];
         size_t start = (mTask.sample_indices[index] + n) % MAX_NUM_SAMPLES;
 
-        size_t copy = MAX_NUM_SAMPLES - start;
-        if (copy > ev->num_samples) {
-            copy = ev->num_samples;
+        size_t copy, copy2;
+        copy = MAX_NUM_SAMPLES - start;
+        if (copy > sampleCnt) {
+            copy = sampleCnt;
         }
 
         for (i = 0; i < copy; ++i) {
-            struct sensor_sample *sample = &ev->samples[i];
+            sample = &ev->samples[i];
             mTask.samples[index][start + i].x = sample->x;
             mTask.samples[index][start + i].y = sample->y;
             mTask.samples[index][start + i].z = sample->z;
-            mTask.samples[index][start + i].time = ev->reference_time + sample->delta_time;
+            if (i == 0)
+                mTask.samples[index][i].time = ev->referenceTime;
+            else
+                mTask.samples[index][start + i].time = ev->referenceTime + sample->deltaTime;
         }
 
-        size_t copy2 = ev->num_samples - copy;
+        copy2 = sampleCnt - copy;
 
-//        osLog(LOG_INFO, "ev->num_samples: %d\n", ev->num_samples);
-//        osLog(LOG_INFO, "n:%d,  start:%d,  copy:%d,  copy2:%d\n", n, start, copy, copy2);
         for (i = 0; i < copy2; ++i) {
-            struct sensor_sample *sample = &ev->samples[copy + i];
+            sample = &ev->samples[copy + i];
             mTask.samples[index][i].x = sample->x;
             mTask.samples[index][i].y = sample->y;
             mTask.samples[index][i].z = sample->z;
-            mTask.samples[index][i].time = ev->reference_time + sample->delta_time;
+            if (copy + i == 0)
+                mTask.samples[index][i].time = ev->referenceTime;
+            else
+                mTask.samples[index][i].time = ev->referenceTime + sample->deltaTime;
         }
 
-        mTask.sample_counts[index] += ev->num_samples;
+        mTask.sample_counts[index] += sampleCnt;
 
         // FIFO overflow: over-write the oldest samples and move the sample index
         if (mTask.sample_counts[index] > MAX_NUM_SAMPLES) {
@@ -165,35 +168,41 @@ static void fillSamples(struct data_evt *ev)
 
 static void addSample(uint64_t time, float x, float y, float z)
 {
-    return;
-    struct data_evt *ev = mTask.ev;
+    struct TrippleAxisDataPoint *sample;
+    uint32_t deltaTime;
 
-    if (ev == NULL) {
-        ev = heapAlloc(sizeof(struct data_evt));
-        ev->type = SENS_TYPE_ORIENTATION;
-        ev->num_samples = 0;
-        ev->reference_time = time;
+    if (mTask.ev == NULL) {
+        mTask.ev = slabAllocatorAlloc(mDataSlab);
+        if (mTask.ev == NULL) {
+            // slaballocation failed
+            osLog(LOG_ERROR, "Slab Allocation Failed\n");
+            return;
+        }
+        mTask.ev->samples[0].deltaTime = 0;
+        mTask.ev->referenceTime = time;
     }
 
-    if (ev->num_samples >= MAX_NUM_COMMS_EVENT_SAMPLES) {
+    if (mTask.ev->samples[0].deltaTime >= MAX_NUM_COMMS_EVENT_SAMPLES) {
         osLog(LOG_ERROR, "BAD_INDEX\n");
         return;
     }
 
-    struct sensor_sample *sample = &ev->samples[ev->num_samples++];
+    sample = &mTask.ev->samples[mTask.ev->samples[0].deltaTime++];
 
-    uint32_t delta_time = (time > ev->reference_time)
-                ? (time - ev->reference_time) : 0;
-    sample->delta_time = delta_time;
+    deltaTime = (time > mTask.ev->referenceTime)
+                ? (time - mTask.ev->referenceTime) : 0;
+
+    // the first deltatime is for sample count
+    if (mTask.ev->samples[0].deltaTime > 1)
+        sample->deltaTime = deltaTime;
+
     sample->x = x;
     sample->y = y;
     sample->z = z;
 
-    if (ev->num_samples == MAX_NUM_COMMS_EVENT_SAMPLES) {
-        //post_event((event_t *)ev);
-        //XXX: pass to AAAAPPPP
-        heapFree(ev);
-        ev = NULL;
+    if (mTask.ev->samples[0].deltaTime == MAX_NUM_COMMS_EVENT_SAMPLES) {
+        osEnqueueEvt(EVT_SENSOR_ORIENTATION_DATA_RDY, mTask.ev, dataEvtFree, false);
+        mTask.ev = NULL;
     }
 }
 
@@ -430,8 +439,8 @@ static void config(struct ConfigStat *orientation_config)
 
 static void orientationHandleEvent(uint32_t evtType, const void* evtData)
 {
-    struct data_evt *ev;
     struct ConfigStat *configCmd;
+    struct TrippleAxisDataEvent *ev;
 
     switch (evtType) {
         case EVT_SENSOR_ORIENTATION_CONFIG:
@@ -441,18 +450,16 @@ static void orientationHandleEvent(uint32_t evtType, const void* evtData)
             config(configCmd);
             break;
         case EVT_SENSOR_ACC_DATA_RDY:
+            ev = (struct TrippleAxisDataEvent *)evtData;
+            fillSamples(ev, 0);
+            drainSamples();
         case EVT_SENSOR_GYR_DATA_RDY:
+            ev = (struct TrippleAxisDataEvent *)evtData;
+            fillSamples(ev, 1);
+            drainSamples();
         case EVT_SENSOR_MAG_DATA_RDY:
-            ev = (struct data_evt *)evtData;
-/*
-            if (ev->idx == ACC_IDX)
-                osLog(LOG_INFO, "ORIENTATION: Got ACC data\n");
-            if (ev->idx == GYR_IDX)
-                osLog(LOG_INFO, "ORIENTATION: Got GYR data\n");
-            if (ev->idx == MAG_IDX)
-                osLog(LOG_INFO, "ORIENTATION: Got MAG data\n");
-*/
-            fillSamples(ev);
+            ev = (struct TrippleAxisDataEvent *)evtData;
+            fillSamples(ev, 2);
             drainSamples();
             break;
         default:
@@ -464,7 +471,7 @@ static void orientationHandleEvent(uint32_t evtType, const void* evtData)
 static bool orientationStart(uint32_t tid)
 {
     osLog(LOG_INFO, "        ORIENTATION:  %ld\n", tid);
-    size_t i;
+    size_t i, slabSize;
 
     mTask.tid = tid;
     mTask.use_gyro_data = true;
@@ -497,6 +504,10 @@ static bool orientationStart(uint32_t tid)
     mTask.active = false;
     mTask.latency = 0;
 
+    slabSize = sizeof(struct TrippleAxisDataEvent)
+        + MAX_NUM_COMMS_EVENT_SAMPLES * sizeof(struct TrippleAxisDataPoint);
+    mDataSlab = slabAllocatorNew(slabSize, 4, 10); // 10 slots for now..
+
     osEventSubscribe(mTask.tid, EVT_SENSOR_ORIENTATION_CONFIG);
     return true;
 }
@@ -504,6 +515,7 @@ static bool orientationStart(uint32_t tid)
 static void orientationEnd()
 {
     mTask.flags &= ~FUSION_FLAG_INITIALIZED;
+    slabAllocatorDestroy(mDataSlab);
 }
 
 INTERNAL_APP_INIT(

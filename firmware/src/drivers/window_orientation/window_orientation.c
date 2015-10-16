@@ -51,7 +51,7 @@
 #define MIN_ACCEL_INTERVAL              33333       // 33.3 ms for 30 Hz
 
 #define EVT_SENSOR_ACC_DATA_RDY sensorGetMyEventType(SENS_TYPE_ACCEL)
-#define EVT_SENSOR_WINDOW_ORIENTATION_DATA_RDY sensorGetMyEventType(SENS_TYPE_WINDOW_ORIENTATION)
+#define EVT_SENSOR_WIN_ORIENTATION_DATA_RDY sensorGetMyEventType(SENS_TYPE_WIN_ORIENTATION)
 
 static int8_t Tilt_Tolerance[4][2] = {
     /* ROTATION_0   */ { -25, 70 },
@@ -86,7 +86,7 @@ struct WindowOrientationTask {
     static const struct SensorInfo si;
 
     uint64_t last_filtered_time;
-    struct sensor_sample last_filtered_sample;
+    struct TrippleAxisDataPoint last_filtered_sample;
 
     uint64_t tilt_reference_time;
     uint64_t accelerating_time;
@@ -113,12 +113,6 @@ struct WindowOrientationTask {
 
 static struct WindowOrientationTask mTask;
 static struct ConfigStat mAccelConfig;
-
-static void extDataEvtFree(void *ptr)
-{
-    struct ext_data_evt *ev = (struct ext_data_evt *)ptr;
-    heapFree(ev);
-}
 
 static bool isTiltAngleAcceptable(int rotation, int8_t tilt_angle)
 {
@@ -321,13 +315,13 @@ static bool isSwinging(uint64_t now, int8_t tilt)
     return false;
 }
 
-
-static bool add_samples(struct data_evt *ev)
+static bool add_samples(struct TrippleAxisDataEvent *ev)
 {
     float x, y, z;
 
     int i;
-    for (i = 0; i < ev->num_samples; i++) {
+    size_t sampleCnt = ev->samples[0].deltaTime;
+    for (i = 0; i < sampleCnt; i++) {
 
         x = ev->samples[i].x;
         y = ev->samples[i].y;
@@ -336,9 +330,14 @@ static bool add_samples(struct data_evt *ev)
         // Apply a low-pass filter to the acceleration up vector in cartesian space.
         // Reset the orientation listener state if the samples are too far apart in time.
 
-        uint64_t now = ev->reference_time + ev->samples[i].delta_time;
+        uint64_t now;
 
-        struct sensor_sample *last_sample = &mTask.last_filtered_sample;
+        if (i == 0)
+            now = ev->referenceTime;
+        else
+            now = ev->referenceTime + ev->samples[i].deltaTime;
+
+        struct TrippleAxisDataPoint *last_sample = &mTask.last_filtered_sample;
         uint64_t then = mTask.last_filtered_time;
         uint64_t time_delta = now - then;
 
@@ -537,8 +536,8 @@ static void config(struct ConfigStat *configCmd)
 
 static void windowOrientationHandleEvent(uint32_t evtType, const void* evtData)
 {
-    struct data_evt *ev;
     struct ConfigStat *configCmd;
+    struct TrippleAxisDataEvent *ev;
 
     switch (evtType) {
         case EVT_SENSOR_WINDOW_ORIENTATION_CONFIG:
@@ -549,22 +548,15 @@ static void windowOrientationHandleEvent(uint32_t evtType, const void* evtData)
             config(configCmd);
             break;
         case EVT_SENSOR_ACC_DATA_RDY:
-            ev = (struct data_evt *)evtData;
+            ev = (struct TrippleAxisDataEvent *)evtData;
             bool rotation_changed = add_samples(ev);
 
             if (rotation_changed) {
-                osLog(LOG_INFO, "     ********** rotation changed to ********: %d\n", mTask.proposed_rotation);
-                struct ext_data_evt *ext_data_evt = heapAlloc(sizeof(struct ext_data_evt));
-                ext_data_evt->size = 250;
-                ext_data_evt->data.reference_time = ev->reference_time;
-                ext_data_evt->data.type = SENS_TYPE_WINDOW_ORIENTATION;
-                ext_data_evt->data.num_samples = 1;
-                ext_data_evt->data.samples[0].delta_time = 0;
-                ext_data_evt->data.samples[0].x = mTask.proposed_rotation;
-                ext_data_evt->data.samples[0].y = 0.0f;
-                ext_data_evt->data.samples[0].z = 0.0f;
+                int32_t proposed_rotation = mTask.proposed_rotation;
+                osLog(LOG_INFO, "     ********** rotation changed to ********: %d\n", (int)proposed_rotation);
 
-                osEnqueueEvt(EVT_SENSOR_WINDOW_ORIENTATION_DATA_RDY, ext_data_evt, extDataEvtFree, true);
+                // send a single int32 here so no memory alloc/free needed.
+                osEnqueueEvt(EVT_SENSOR_WIN_ORIENTATION_DATA_RDY, (void *)proposed_rotation, NULL, false);
             }
             break;
         default:
@@ -585,7 +577,7 @@ static bool window_orientation_start(uint32_t tid)
     mTask.si.ops.sensorFirmwareUpload = windowOrientationFirmwareUpload;
     mTask.si.ops.sensorSetRate = windowOrientationSetRate;
     mTask.si.ops.sensorTriggerOndemand = NULL;
-    mTask.si.sensorType = SENS_TYPE_WINDOW_ORIENTATION;
+    mTask.si.sensorType = SENS_TYPE_WIN_ORIENTATION;
     mTask.si.numAxes = 1;
 
     mTask.current_rotation = -1;
