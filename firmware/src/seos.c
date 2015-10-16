@@ -315,8 +315,9 @@ static void osExpApiSensorReq(uintptr_t *retValP, va_list args)
     uint32_t clientId = va_arg(args, uint32_t);
     uint32_t sensorHandle = va_arg(args, uint32_t);
     uint32_t rate = va_arg(args, uint32_t);
+    uint32_t latency = va_arg(args, uint64_t);
 
-    *retValP = sensorRequest(clientId, sensorHandle, rate);
+    *retValP = sensorRequest(clientId, sensorHandle, rate, latency);
 }
 
 static void osExpApiSensorRateChg(uintptr_t *retValP, va_list args)
@@ -324,8 +325,9 @@ static void osExpApiSensorRateChg(uintptr_t *retValP, va_list args)
     uint32_t clientId = va_arg(args, uint32_t);
     uint32_t sensorHandle = va_arg(args, uint32_t);
     uint32_t newRate = va_arg(args, uint32_t);
+    uint32_t newLatency = va_arg(args, uint64_t);
 
-    *retValP = sensorRequestRateChange(clientId, sensorHandle, newRate);
+    *retValP = sensorRequestRateChange(clientId, sensorHandle, newRate, newLatency);
 }
 
 static void osExpApiSensorRel(uintptr_t *retValP, va_list args)
