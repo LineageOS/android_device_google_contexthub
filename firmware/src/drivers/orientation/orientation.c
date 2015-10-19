@@ -38,8 +38,6 @@ struct OrientationTask {
     uint32_t tid;
     uint32_t handle;
 
-    static const struct SensorInfo si;
-
     struct Fusion fusion;
 
     struct OrientationSensorSample samples[3][MAX_NUM_SAMPLES];
@@ -79,6 +77,13 @@ static uint32_t OrientationRates[] = {
 
 static struct OrientationTask mTask;
 static struct ConfigStat mImuConfig;
+static const struct SensorInfo mSi =
+{
+    "Orientation",
+    OrientationRates,
+    SENS_TYPE_ORIENTATION,
+    {3}
+};
 
 static uint64_t mCnt = 0;
 
@@ -468,6 +473,15 @@ static void orientationHandleEvent(uint32_t evtType, const void* evtData)
     }
 }
 
+static const struct SensorOps mSops =
+{
+    orientationPower,
+    orientationFirmwareUpload,
+    orientationSetRate,
+    NULL,
+    NULL
+};
+
 static bool orientationStart(uint32_t tid)
 {
     osLog(LOG_INFO, "        ORIENTATION:  %ld\n", tid);
@@ -489,16 +503,7 @@ static bool orientationStart(uint32_t tid)
 
     configureFusion();
 
-    mTask.si.sensorName = "Orientation";
-    mTask.si.supportedRates = OrientationRates;
-    mTask.si.ops.sensorPower = orientationPower;
-    mTask.si.ops.sensorFirmwareUpload = orientationFirmwareUpload;
-    mTask.si.ops.sensorSetRate = orientationSetRate;
-    mTask.si.ops.sensorTriggerOndemand = NULL;
-    mTask.si.sensorType = SENS_TYPE_ORIENTATION;
-    mTask.si.numAxes = 3;
-
-    mTask.handle = sensorRegister(&mTask.si);
+    mTask.handle = sensorRegister(&mSi, &mSops);
 
     mTask.rate = SENSOR_HZ(100.0f);
     mTask.active = false;

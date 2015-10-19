@@ -83,7 +83,6 @@ struct WindowOrientationTask {
     uint32_t handle;
     uint32_t rate;
     uint64_t latency;
-    static const struct SensorInfo si;
 
     uint64_t last_filtered_time;
     struct TrippleAxisDataPoint last_filtered_sample;
@@ -113,6 +112,14 @@ struct WindowOrientationTask {
 
 static struct WindowOrientationTask mTask;
 static struct ConfigStat mAccelConfig;
+
+static const struct SensorInfo mSi =
+{
+    "Window Orientation",
+    window_orientation_rates,
+    SENS_TYPE_WIN_ORIENTATION,
+    {1}
+};
 
 static bool isTiltAngleAcceptable(int rotation, int8_t tilt_angle)
 {
@@ -565,26 +572,26 @@ static void windowOrientationHandleEvent(uint32_t evtType, const void* evtData)
     }
 }
 
+static const struct SensorOps mSops =
+{
+    windowOrientationPower,
+    windowOrientationFirmwareUpload,
+    windowOrientationSetRate,
+    NULL,
+    NULL
+};
+
 static bool window_orientation_start(uint32_t tid)
 {
     osLog(LOG_INFO, "        WINDOW ORIENTATION:  %ld\n", tid);
 
     mTask.tid = tid;
 
-    mTask.si.sensorName = "Window Orientation";
-    mTask.si.supportedRates = window_orientation_rates;
-    mTask.si.ops.sensorPower = windowOrientationPower;
-    mTask.si.ops.sensorFirmwareUpload = windowOrientationFirmwareUpload;
-    mTask.si.ops.sensorSetRate = windowOrientationSetRate;
-    mTask.si.ops.sensorTriggerOndemand = NULL;
-    mTask.si.sensorType = SENS_TYPE_WIN_ORIENTATION;
-    mTask.si.numAxes = 1;
-
     mTask.current_rotation = -1;
     mTask.prev_valid_rotation = -1;
     reset();
 
-    mTask.handle = sensorRegister(&mTask.si);
+    mTask.handle = sensorRegister(&mSi, &mSops);
 
     mTask.rate = SENSOR_HZ(10.0f);
     mTask.active = false;

@@ -226,7 +226,6 @@ enum MagConfigState {
 };
 
 struct BMI160Sensor {
-    static const struct SensorInfo si;
     struct ConfigStat pConfig; // pending config status request
     struct TrippleAxisDataEvent *data_evt;
     uint32_t handle;
@@ -333,6 +332,30 @@ static uint8_t mRetryLeft = 5;
 static uint64_t mIntTime = 0;
 
 static struct SlabAllocator *mDataSlab;
+
+static const struct SensorInfo mSiAcc =
+{
+    "Accelerometer",
+    AccRates,
+    SENS_TYPE_ACCEL,
+    {3}
+};
+
+static const struct SensorInfo mSiGyr =
+{
+    "Gyroscope",
+    GyrRates,
+    SENS_TYPE_GYRO,
+    {3}
+};
+
+static const struct SensorInfo mSiMag =
+{
+    "Magnetometer",
+    MagRates,
+    SENS_TYPE_MAG,
+    {3}
+};
 
 static void dataEvtFree(void *ptr)
 {
@@ -802,8 +825,8 @@ static void configEvent(struct BMI160Sensor *mSensor, struct ConfigStat *ConfigD
             sensorRequestRateChange(ConfigData->clientId, mSensor->handle, ConfigData->rate, ConfigData->latency);
         }
     } else {
-        osLog(LOG_INFO, "BUSYYYYYY: Current State: %d, put CONFIG_EVT for %s to pending\n",
-                mTask.state, mSensor->si.sensorName);
+        osLog(LOG_INFO, "BUSYYYYYY: Current State: %d, put CONFIG_EVT to pending\n",
+                mTask.state);
         mSensor->pending[1] = true;
         mSensor->pConfig = *ConfigData;
     }
@@ -1432,7 +1455,7 @@ static void handleSpiDoneEvt(const void* evtData)
                     SENSOR_INTERNAL_EVT_POWER_STATE_CHG, mSensor->rate, mSensor->latency[0]);
             mTask.state = SENSOR_IDLE;
             processPendingEvt();
-            osLog(LOG_INFO, "Done powering up %s\n", mSensor->si.sensorName);
+            osLog(LOG_INFO, "Done powering up\n");
             osLog(LOG_INFO, "   NEW POWER STATUS: %02x, ERROR: %02x\n", mTask.rxBuffer[103], mTask.rxBuffer[101]);
             break;
         case SENSOR_POWERING_DOWN:
@@ -1451,7 +1474,7 @@ static void handleSpiDoneEvt(const void* evtData)
             mTask.state = SENSOR_IDLE;
             osLog(LOG_INFO, "process PENDING event from SENSOR_POWERING_DOWN_DONE\n");
             processPendingEvt();
-            osLog(LOG_INFO, "Done powering down %s\n", mSensor->si.sensorName);
+            osLog(LOG_INFO, "Done powering down\n");
             osLog(LOG_INFO, "   NEW POWER STATUS: %02x, ERROR: %02x\n", mTask.rxBuffer[103], mTask.rxBuffer[101]);
             break;
         case SENSOR_INT_1_HANDLING:
@@ -1478,16 +1501,16 @@ static void handleSpiDoneEvt(const void* evtData)
             mTask.state = SENSOR_IDLE;
             osLog(LOG_INFO, "process PENDING event from SENSOR_CONFIG_CHANGING\n");
             processPendingEvt();
-            osLog(LOG_INFO, "Done changing rate for %s\n", mSensor->si.sensorName);
+            osLog(LOG_INFO, "Done changing rate\n");
             break;
         case SENSOR_CALIBRATING:
             mSensor = (struct BMI160Sensor *)evtData;
             if (mTask.calibration_state == CALIBRATION_DONE) {
-                osLog(LOG_INFO, "DONE calibration for %s\n", mSensor->si.sensorName);
+                osLog(LOG_INFO, "DONE calibration\n");
                 mTask.state = SENSOR_IDLE;
                 processPendingEvt();
             } else if (mTask.calibration_state == CALIBRATION_TIMEOUT) {
-                osLog(LOG_INFO, "Calibration TIMED OUT for %s\n", mSensor->si.sensorName);
+                osLog(LOG_INFO, "Calibration TIMED OUT\n");
                 mTask.state = SENSOR_IDLE;
                 processPendingEvt();
             } else if (mSensor->idx == ACC_IDX) {
@@ -1552,6 +1575,34 @@ static void handleEvent(uint32_t evtType, const void* evtData)
     }
 }
 
+static const struct SensorOps mSopsAcc =
+{
+    accPower,
+    accFirmwareUpload,
+    accSetRate,
+    NULL,
+    NULL
+};
+
+static const struct SensorOps mSopsGyr =
+{
+    gyrPower,
+    gyrFirmwareUpload,
+    gyrSetRate,
+    NULL,
+    NULL
+};
+
+static const struct SensorOps mSopsMag =
+{
+    magPower,
+    magFirmwareUpload,
+    magSetRate,
+    NULL,
+    NULL
+};
+
+
 static void initSensorStruct(struct BMI160Sensor *sensor, enum SensorIndex idx, uint32_t rate)
 {
     sensor->idx = idx;
@@ -1597,37 +1648,12 @@ static bool startTask(uint32_t task_id)
     mTask.cs = GPIO_PB(12);
     spiMasterRequest(BMI160_SPI_BUS_ID, &mTask.spiDev);
 
-    mTask.sensors[ACC_IDX].si.sensorName = "Accelerometer";
-    mTask.sensors[ACC_IDX].si.supportedRates = AccRates;
-    mTask.sensors[ACC_IDX].si.ops.sensorPower = accPower;
-    mTask.sensors[ACC_IDX].si.ops.sensorFirmwareUpload = accFirmwareUpload;
-    mTask.sensors[ACC_IDX].si.ops.sensorSetRate = accSetRate;
-    mTask.sensors[ACC_IDX].si.ops.sensorTriggerOndemand = NULL;
-    mTask.sensors[ACC_IDX].si.sensorType = SENS_TYPE_ACCEL;
-    mTask.sensors[ACC_IDX].si.numAxes = 3;
-
-    mTask.sensors[GYR_IDX].si.sensorName = "Gyroscope";
-    mTask.sensors[GYR_IDX].si.supportedRates = GyrRates;
-    mTask.sensors[GYR_IDX].si.ops.sensorPower = gyrPower;
-    mTask.sensors[GYR_IDX].si.ops.sensorFirmwareUpload = gyrFirmwareUpload;
-    mTask.sensors[GYR_IDX].si.ops.sensorSetRate = gyrSetRate;
-    mTask.sensors[GYR_IDX].si.ops.sensorTriggerOndemand = NULL;
-    mTask.sensors[GYR_IDX].si.sensorType = SENS_TYPE_GYRO;
-    mTask.sensors[GYR_IDX].si.numAxes = 3;
-
-    mTask.sensors[MAG_IDX].si.sensorName = "Magnetometer";
-    mTask.sensors[MAG_IDX].si.supportedRates = MagRates;
-    mTask.sensors[MAG_IDX].si.ops.sensorPower = magPower;
-    mTask.sensors[MAG_IDX].si.ops.sensorFirmwareUpload = magFirmwareUpload;
-    mTask.sensors[MAG_IDX].si.ops.sensorSetRate = magSetRate;
-    mTask.sensors[MAG_IDX].si.ops.sensorTriggerOndemand = NULL;
-    mTask.sensors[MAG_IDX].si.sensorType = SENS_TYPE_MAG;
-    mTask.sensors[MAG_IDX].si.numAxes = 3;
-
     for (i = ACC_IDX; i < NUM_OF_SENSOR; i++) {
         initSensorStruct(&mTask.sensors[i], i, SENSOR_HZ(DEFAULT_RATE));
-        mTask.sensors[i].handle = sensorRegister(&mTask.sensors[i].si);
     }
+    mTask.sensors[ACC_IDX].handle = sensorRegister(&mSiAcc, &mSopsAcc);
+    mTask.sensors[GYR_IDX].handle = sensorRegister(&mSiGyr, &mSopsGyr);
+    mTask.sensors[MAG_IDX].handle = sensorRegister(&mSiMag, &mSopsMag);
 
     osEventSubscribe(mTask.tid, EVT_APP_START);
 
