@@ -24,7 +24,10 @@ struct TrippleAxisDataEvent {
     struct TrippleAxisDataPoint samples[];
 };
 
-
+struct SensorSetRateEvent {
+    uint64_t latency;
+    uint32_t rate;
+};
 
 
 
@@ -40,7 +43,6 @@ struct SensorOps {
 struct SensorInfo {
     const char *sensorName; /* sensors.c code doe snot use this */
     const uint32_t *supportedRates;
-    struct SensorOps ops;
     uint8_t sensorType;
     /* for some sensors more data may be relevant: */
     union {
@@ -74,7 +76,8 @@ bool sensorsInit(void);
 #define SENSOR_INTERNAL_EVT_FW_STATE_CHG     1
 #define SENSOR_INTERNAL_EVT_RATE_CHG         2
 
-uint32_t sensorRegister(const struct SensorInfo *si); /* returns handle, copy is not made */
+uint32_t sensorRegister(const struct SensorInfo *si, const struct SensorOps *ops); /* returns handle, copy is not made */
+uint32_t sensorRegisterAsApp(const struct SensorInfo *si, uint32_t tid); /* returns handle, copy is not made */
 bool sensorUnregister(uint32_t handle); /* your job to be sure it is off already */
 bool sensorSignalInternalEvt(uint32_t handle, uint32_t intEvtNum, uint32_t value1, uint64_t value2);
 

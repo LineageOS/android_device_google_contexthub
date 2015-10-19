@@ -29,7 +29,7 @@ static inline bool taggedPtrIsUint(TaggedPtr tPtr)
     return !taggedPtrIsPtr(tPtr);
 }
 
-static inline TaggedPtr taggedPtrMakeFromPtr(void* ptr)
+static inline TaggedPtr taggedPtrMakeFromPtr(const void* ptr)
 {
     return (uintptr_t)ptr;
 }
