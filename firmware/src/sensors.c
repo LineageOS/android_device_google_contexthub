@@ -1,3 +1,4 @@
+#include <plat/inc/taggedPtr.h>
 #include <cpu/inc/barrier.h>
 #include <atomicBitset.h>
 #include <sensors.h>
@@ -6,7 +7,7 @@
 #include <slab.h>
 #include <seos.h>
 
-#define MAX_INTERNAL_EVENTS       32
+#define MAX_INTERNAL_EVENTS       32 //also used for external app sensors' setRate() calls
 #define MAX_CLI_SENS_MATRIX_SZ    64 /* MAX(numClients * numSensors) */
 
 #define SENSOR_RATE_OFF           0x00000000UL /* used in sensor state machine */
@@ -21,12 +22,18 @@ struct Sensor {
     uint32_t handle;         /* here 0 means invalid */
     uint64_t currentLatency; /* here 0 means no batching */
     uint32_t currentRate;    /* here 0 means off */
+    TaggedPtr callInfo;      /* pointer to ops struct or app tid */
 } __attribute__((packed));
 
 struct SensorsInternalEvent {
-    uint32_t handle;
-    uint32_t value1;
-    uint64_t value2;
+    union {
+        struct {
+            uint32_t handle;
+            uint32_t value1;
+            uint64_t value2;
+        };
+        struct SensorSetRateEvent externalEvt;
+    };
 };
 
 struct SensorsClientRequest {
@@ -73,7 +80,7 @@ static struct Sensor* sensorFindByHandle(uint32_t handle)
     return NULL;
 }
 
-uint32_t sensorRegister(const struct SensorInfo *si)
+static uint32_t sensorRegisterEx(const struct SensorInfo *si, TaggedPtr callInfo)
 {
     int32_t idx = atomicBitsetFindClearAndSet(mSensorsUsed);
     struct Sensor *s;
@@ -93,10 +100,21 @@ uint32_t sensorRegister(const struct SensorInfo *si)
     s->si = si;
     s->currentRate = SENSOR_RATE_OFF;
     s->currentLatency = SENSOR_LATENCY_INVALID;
+    s->callInfo = callInfo;
     mem_reorder_barrier();
     s->handle = handle;
 
     return handle;
+}
+
+uint32_t sensorRegister(const struct SensorInfo *si, const struct SensorOps *ops)
+{
+    return sensorRegisterEx(si, taggedPtrMakeFromPtr(ops));
+}
+
+uint32_t sensorRegisterAsApp(const struct SensorInfo *si, uint32_t tid)
+{
+    return sensorRegisterEx(si, taggedPtrMakeFromUint(tid));
 }
 
 bool sensorUnregister(uint32_t handle)
@@ -116,6 +134,63 @@ bool sensorUnregister(uint32_t handle)
     return true;
 }
 
+static bool sensorCallFuncPower(struct Sensor* s, bool on)
+{
+    if (taggedPtrIsPtr(s->callInfo))
+        return ((const struct SensorOps*)taggedPtrToPtr(s->callInfo))->sensorPower(on);
+    else
+        return osEnqueuePrivateEvt(EVT_APP_SENSOR_POWER, (void*)(uintptr_t)on, NULL, taggedPtrToUint(s->callInfo));
+}
+
+static bool sensorCallFuncFwUpld(struct Sensor* s)
+{
+    if (taggedPtrIsPtr(s->callInfo))
+        return ((const struct SensorOps*)taggedPtrToPtr(s->callInfo))->sensorFirmwareUpload();
+    else
+        return osEnqueuePrivateEvt(EVT_APP_SENSOR_FW_UPLD, NULL, NULL, taggedPtrToUint(s->callInfo));
+}
+
+static void sensorCallFuncSetRateEvtFreeF(void* event)
+{
+    slabAllocatorFree(mInternalEvents, event);
+}
+
+static bool sensorCallFuncSetRate(struct Sensor* s, uint32_t rate, uint64_t latency)
+{
+    if (taggedPtrIsPtr(s->callInfo))
+        return ((const struct SensorOps*)taggedPtrToPtr(s->callInfo))->sensorSetRate(rate, latency);
+    else {
+        struct SensorsInternalEvent *evt = (struct SensorsInternalEvent*)slabAllocatorAlloc(mInternalEvents);
+
+        if (!evt)
+            return false;
+
+        evt->externalEvt.latency = latency;
+        evt->externalEvt.rate = rate;
+        if (osEnqueuePrivateEvt(EVT_APP_SENSOR_SET_RATE, &evt->externalEvt, sensorCallFuncSetRateEvtFreeF, taggedPtrToUint(s->callInfo)))
+            return true;
+
+        slabAllocatorFree(mInternalEvents, evt);
+        return false;
+    }
+}
+
+static bool sensorCallFuncFlush(struct Sensor* s)
+{
+    if (taggedPtrIsPtr(s->callInfo))
+        return ((const struct SensorOps*)taggedPtrToPtr(s->callInfo))->sensorFlush();
+    else
+        return osEnqueuePrivateEvt(EVT_APP_SENSOR_FLUSH, NULL, NULL, taggedPtrToUint(s->callInfo));
+}
+
+static bool sensorCallFuncTrigger(struct Sensor* s)
+{
+    if (taggedPtrIsPtr(s->callInfo))
+        return ((const struct SensorOps*)taggedPtrToPtr(s->callInfo))->sensorTriggerOndemand();
+    else
+        return osEnqueuePrivateEvt(EVT_APP_SENSOR_TRIGGER, NULL, NULL, taggedPtrToUint(s->callInfo));
+}
+
 static void sensorReconfig(struct Sensor* s, uint32_t newHwRate, uint64_t newHwLatency)
 {
     if (s->currentRate == newHwRate && s->currentLatency == newHwLatency) {
@@ -123,7 +198,7 @@ static void sensorReconfig(struct Sensor* s, uint32_t newHwRate, uint64_t newHwL
     }
     else if (s->currentRate == SENSOR_RATE_OFF) {
         /* if it was off or is off, tell it to come on */
-        if (s->si->ops.sensorPower(true)) {
+        if (sensorCallFuncPower(s, true)) {
             s->currentRate = SENSOR_RATE_POWERING_ON;
             s->currentLatency = SENSOR_LATENCY_INVALID;
         }
@@ -138,11 +213,11 @@ static void sensorReconfig(struct Sensor* s, uint32_t newHwRate, uint64_t newHwL
     }
     else if (newHwRate > SENSOR_RATE_OFF || newHwLatency < SENSOR_LATENCY_INVALID) {
         /* simple rate change - > do it, there is nothing we can do if this fails, so we ignore the immediate errors :( */
-        (void)s->si->ops.sensorSetRate(newHwRate, newHwLatency);
+        (void)sensorCallFuncSetRate(s, newHwRate, newHwLatency);
     }
     else {
         /* powering off */
-        if (s->si->ops.sensorPower(false)) {
+        if (sensorCallFuncPower(s, false)) {
             s->currentRate = SENSOR_RATE_POWERING_OFF;
             s->currentLatency = SENSOR_LATENCY_INVALID;
         }
@@ -232,7 +307,7 @@ static void sensorInternalFwStateChanged(void *evtP)
         if (!evt->value1) {                                       //we failed -> give up
             s->currentRate = SENSOR_RATE_POWERING_OFF;
             s->currentLatency = SENSOR_LATENCY_INVALID;
-            s->si->ops.sensorPower(false);
+            sensorCallFuncPower(s, false);
         }
         else if (s->currentRate == SENSOR_RATE_FW_UPLOADING) {    //we're up
             s->currentRate = evt->value1;
@@ -240,7 +315,7 @@ static void sensorInternalFwStateChanged(void *evtP)
             sensorReconfig(s, sensorCalcHwRate(s, 0, 0), sensorCalcHwLatency(s));
         }
         else if (s->currentRate == SENSOR_RATE_POWERING_OFF) {    //we need to power off
-            s->si->ops.sensorPower(false);
+            sensorCallFuncPower(s, false);
         }
     }
     slabAllocatorFree(mInternalEvents, evt);
@@ -256,17 +331,17 @@ static void sensorInternalPowerStateChanged(void *evtP)
         if (s->currentRate == SENSOR_RATE_POWERING_ON && evt->value1) {          //we're now on - upload firmware
             s->currentRate = SENSOR_RATE_FW_UPLOADING;
             s->currentLatency = SENSOR_LATENCY_INVALID;
-            s->si->ops.sensorFirmwareUpload();
+            sensorCallFuncFwUpld(s);
         }
         else if (s->currentRate == SENSOR_RATE_POWERING_OFF && !evt->value1) {   //we're now off
             s->currentRate = SENSOR_RATE_OFF;
             s->currentLatency = SENSOR_LATENCY_INVALID;
         }
         else if (s->currentRate == SENSOR_RATE_POWERING_ON && !evt->value1) {    //we need to power back on
-            s->si->ops.sensorPower(true);
+            sensorCallFuncPower(s, true);
         }
         else if (s->currentRate == SENSOR_RATE_POWERING_OFF && evt->value1) {    //we need to power back off
-            s->si->ops.sensorPower(false);
+            sensorCallFuncPower(s, false);
         }
     }
     slabAllocatorFree(mInternalEvents, evt);
@@ -470,7 +545,7 @@ bool sensorTriggerOndemand(uint32_t clientId, uint32_t sensorHandle)
         struct SensorsClientRequest *req = slabAllocatorGetNth(mCliSensMatrix, i);
 
         if (req && req->handle == sensorHandle && req->clientId == clientId)
-            return s->si->ops.sensorTriggerOndemand();
+            return sensorCallFuncTrigger(s);
     }
 
     // not found -> do not report
@@ -484,7 +559,7 @@ bool sensorFlush(uint32_t sensorHandle)
     if (!s)
         return false;
 
-    return s->si->ops.sensorFlush();
+    return sensorCallFuncFlush(s);
 }
 
 uint32_t sensorGetCurRate(uint32_t sensorHandle)
