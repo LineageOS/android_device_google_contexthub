@@ -148,13 +148,14 @@ const struct AppFuncs __attribute__((used,section (".app_init"),visibility("defa
 #define SYSCALL_OS_MAIN_LOG_LAST         1 // always last. holes are allowed, but not immediately before this
 
 //level 3 indices in the OS.main.sensors table
-#define SYSCALL_OS_MAIN_SENSOR_FIND      0 // (uint32_t sensorType, uint32_t idx, uint32_t *handleP) -> const struct SensorInfo* or NULL
-#define SYSCALL_OS_MAIN_SENSOR_REQUEST   1 // (uint32_t clientId, uint32_t sensorHandle, uint32_t rate) -> bool success
-#define SYSCALL_OS_MAIN_SENSOR_RATE_CHG  2 // (uint32_t clientId, uint32_t sensorHandle, uint32_t newRate) -> bool success
-#define SYSCALL_OS_MAIN_SENSOR_RELEASE   3 // (uint32_t clientId, uint32_t sensorHandle) -> bool success
-#define SYSCALL_OS_MAIN_SENSOR_TRIGGER   4 // (uint32_t clientId, uint32_t sensorHandle) -> bool success
-#define SYSCALL_OS_MAIN_SENSOR_GET_RATE  5 // (uint32_t sensorHandle) -> uint32_t rate
-#define SYSCALL_OS_MAIN_SENSOR_LAST      6 // always last. holes are allowed, but not immediately before this
+#define SYSCALL_OS_MAIN_SENSOR_SIGNAL    0 // (uint32_t handle, uint32_t intEvtNum, uint32_t value1, uint32_t value2_lo, uint32_t value2_hi) -> bool /* used by sensor-provding apps */
+#define SYSCALL_OS_MAIN_SENSOR_FIND      1 // (uint32_t sensorType, uint32_t idx, uint32_t *handleP) -> const struct SensorInfo* or NULL
+#define SYSCALL_OS_MAIN_SENSOR_REQUEST   2 // (uint32_t clientId, uint32_t sensorHandle, uint32_t rate) -> bool success
+#define SYSCALL_OS_MAIN_SENSOR_RATE_CHG  3 // (uint32_t clientId, uint32_t sensorHandle, uint32_t newRate) -> bool success
+#define SYSCALL_OS_MAIN_SENSOR_RELEASE   4 // (uint32_t clientId, uint32_t sensorHandle) -> bool success
+#define SYSCALL_OS_MAIN_SENSOR_TRIGGER   5 // (uint32_t clientId, uint32_t sensorHandle) -> bool success
+#define SYSCALL_OS_MAIN_SENSOR_GET_RATE  6 // (uint32_t sensorHandle) -> uint32_t rate
+#define SYSCALL_OS_MAIN_SENSOR_LAST      7 // always last. holes are allowed, but not immediately before this
 
 
 
