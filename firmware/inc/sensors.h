@@ -16,7 +16,7 @@ extern "C" {
 //data for accel/gyro/mag takes this form
 struct TrippleAxisDataPoint {
     uint32_t deltaTime; //delta since last sample, for 0th sample this is "num samples"
-    int16_t x, y, z;
+    float x, y, z;
 } __attribute__((packed));
 
 struct TrippleAxisDataEvent {
