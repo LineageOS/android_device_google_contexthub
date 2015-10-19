@@ -65,6 +65,12 @@ static inline uintptr_t syscallDoGeneric(uint32_t syscallNo, ...)
     #define syscallDo4P(syscallNo,p1,p2,p3,p4) syscallDoGeneric(syscallNo,p1,p2,p3,p4)
 #endif
 
+#ifdef cpuSyscallDo5P
+    #define syscallDo5P(syscallNo,p1,p2,p3,p4,p5) cpuSyscallDo5P(syscallNo,p1,p2,p3,p4,p5)
+#else
+    #define syscallDo5P(syscallNo,p1,p2,p3,p4,p5) syscallDoGeneric(syscallNo,p1,p2,p3,p4,p5)
+#endif
+
 
 
 //system syscalls live here
@@ -100,6 +106,14 @@ static inline void eOsLog(enum LogLevel level, const char *str, ...)
     va_start(vl, str);
     eOsLogvInternal(level, str, VA_LIST_TO_INTEGER(vl));
     va_end(vl);
+}
+
+static inline const struct SensorInfo* eOsSensorSignalInternalEvt(uint32_t handle, uint32_t intEvtNum, uint32_t value1, uint64_t value2)
+{
+    uint32_t value2_lo = value2;
+    uint64_t value2_hi = value2 >> 32;
+
+    return (const struct SensorInfo*)syscallDo5P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_MAIN, SYSCALL_OS_MAIN_SENSOR, SYSCALL_OS_MAIN_SENSOR_SIGNAL), handle, intEvtNum, value1, value2_lo, value2_hi);
 }
 
 static inline const struct SensorInfo* eOsSensorFind(uint32_t sensorType, uint32_t idx, uint32_t *handleP)
