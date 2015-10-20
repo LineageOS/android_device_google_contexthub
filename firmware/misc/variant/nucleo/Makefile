@@ -27,6 +27,9 @@ SRCS += src/drivers/orientation/orientation.c
 #window orientation sensor driver
 SRCS += src/drivers/window_orientation/window_orientation.c
 
+#barometer driver
+SRCS += src/drivers/bosch_bmp280/bosch_bmp280.c
+
 #linker script
 LKR = misc/variant/common/stm32f411.lkr
 OSFLAGS += -Wl,-T $(LKR)
