@@ -292,16 +292,32 @@ static const struct SensorInfo sensorInfoAls =
 {
     "ALS",
     supportedRates,
-    { sensorPowerAls, sensorFirmwareAls, sensorRateAls, sensorFlushAls, NULL },
     SENS_TYPE_ALS
+};
+
+static const struct SensorOps sensorOpsAls =
+{
+    sensorPowerAls,
+    sensorFirmwareAls,
+    sensorRateAls,
+    sensorFlushAls,
+    NULL
 };
 
 static const struct SensorInfo sensorInfoProx =
 {
     "Proximity",
     supportedRates,
-    { sensorPowerProx, sensorFirmwareProx, sensorRateProx, sensorFlushProx, NULL },
     SENS_TYPE_PROX
+};
+
+static const struct SensorOps sensorOpsProx =
+{
+    sensorPowerProx,
+    sensorFirmwareProx,
+    sensorRateProx,
+    sensorFlushProx,
+    NULL
 };
 
 /*
@@ -475,8 +491,8 @@ static bool init_app(uint32_t myTid)
     memset(&data.flush, 0x00, sizeof(data.flush));
 
     /* Register sensors */
-    data.alsHandle = sensorRegister(&sensorInfoAls);
-    data.proxHandle = sensorRegister(&sensorInfoProx);
+    data.alsHandle = sensorRegister(&sensorInfoAls, &sensorOpsAls);
+    data.proxHandle = sensorRegister(&sensorInfoProx, &sensorOpsProx);
 
     osEventSubscribe(myTid, EVT_APP_START);
 
