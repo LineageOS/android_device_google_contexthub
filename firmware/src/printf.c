@@ -111,7 +111,6 @@ uint32_t cvprintf(printf_write_c putc_f, void* userData, const char* fmtStr, va_
 
     char c, t;
     uint32_t numPrinted = 0;
-    uint32_t val32;
     uint64_t val64;
 
 #define putc_(_ud,_c)                \
@@ -248,8 +247,8 @@ more_fmt:
                     putc_(userData,'0');
                     putc_(userData,'x');
                     numPrinted += 2;
-                    val32 = va_arg(vl, unsigned long);
-                    numPrinted += StrPrvPrintfEx_number(putc_f, userData, val32, 16, zeroExtend, false, padToLength, caps, &bail);
+                    val64 = (uintptr_t)va_arg(vl, const void*);
+                    numPrinted += StrPrvPrintfEx_number(putc_f, userData, val64, 16, zeroExtend, false, padToLength, caps, &bail);
                     if (bail)
                         goto out;
                     break;
