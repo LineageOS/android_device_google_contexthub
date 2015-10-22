@@ -729,7 +729,7 @@ DECLARE_IRQ_HANDLERS(3);
 
 static inline struct Gpio* stmI2cGpioInit(const struct StmI2cBoardCfg *board, const struct StmI2cGpioCfg *cfg)
 {
-    struct Gpio* gpio = gpioRequest(cfg->num);
+    struct Gpio* gpio = gpioRequest(cfg->gpioNum);
     gpioConfigAlt(gpio, board->gpioSpeed, board->gpioPull, GPIO_OUT_OPEN_DRAIN,
             cfg->func);
 

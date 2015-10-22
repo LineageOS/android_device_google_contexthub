@@ -42,7 +42,7 @@ typedef enum
 } UsartFlowControlCfg;
 
 void usartOpen(struct usart* __restrict usart, UsartPort port, /* port number is 1-based!!!!! */
-                GpioNum tx, GpioNum rx,
+                uint32_t txGpioNum, uint32_t rxGpioNum,
                 uint32_t baud, UsartDataBitsCfg data_bits,
                 UsatStopBitsCfg stop_bits, UsartParityCfg parity,
                 UsartFlowControlCfg flow_control);

@@ -35,7 +35,7 @@ extern "C" {
 
 #define GPIO_PIN_MASK 0xf
 
-enum GpioAltFunc
+enum StmGpioAltFunc
 {
     GPIO_AF00 = 0,
     GPIO_AF01,
@@ -91,7 +91,7 @@ enum GpioAltFunc
     GPIO_AF_EVENT = GPIO_AF15,
 };
 
-enum GpioSpeed          /* CL (pF)     50,  50,   10,  10   */
+enum StmGpioSpeed       /* CL (pF)     50,  50,   10,  10   */
 {                       /* VDD (V) >=   2.7, 1.7,  2.7, 1.7 */
     GPIO_SPEED_LOW = 0, /* Max (MHz)    4,   2,    8,   4   */
     GPIO_SPEED_MEDIUM,  /*             25,  12.5, 50,  20   */
