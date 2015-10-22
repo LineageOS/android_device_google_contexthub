@@ -84,7 +84,7 @@ static uint32_t mMaxJitterPpm = 0, mMaxDriftPpm = 0, mMaxErrTotalPpm = 0;
 static uint32_t mSleepDevsToKeepAlive = 0;
 static uint64_t mWakeupTime = 0;
 static uint32_t mDevsMaxWakeTime[PLAT_MAX_SLEEP_DEVS] = {0,};
-static struct Gpio mShWakeupGpio;
+static struct Gpio *mShWakeupGpio;
 static struct ChainedIsr mShWakeupIsr;
 
 
@@ -150,12 +150,12 @@ bool platLogPutcharF(void *userData, char ch)
 
 static bool platWakeupIsr(struct ChainedIsr *isr)
 {
-    if (!extiIsPendingGpio(&mShWakeupGpio))
+    if (!extiIsPendingGpio(mShWakeupGpio))
         return false;
 
-    extiClearPendingGpio(&mShWakeupGpio);
+    extiClearPendingGpio(mShWakeupGpio);
 
-    if (gpioGet(&mShWakeupGpio) == 0)
+    if (gpioGet(mShWakeupGpio) == 0)
         hostIntfSetInterrupt(NANOHUB_INT_WAKE_COMPLETE);
     else
         platReleaseDevInSleepMode(Stm32sleepWakeup);
@@ -218,10 +218,10 @@ void platInitialize(void)
     SysTick->VAL = 0;
     SysTick->CTRL = SysTick_CTRL_CLKSOURCE_Msk | SysTick_CTRL_TICKINT_Msk | SysTick_CTRL_ENABLE_Msk;
 
-    gpioRequest(&mShWakeupGpio, SH_INT_WAKEUP);
-    gpioConfigInput(&mShWakeupGpio, GPIO_SPEED_LOW, GPIO_PULL_NONE);
-    syscfgSetExtiPort(&mShWakeupGpio);
-    extiEnableIntGpio(&mShWakeupGpio, EXTI_TRIGGER_BOTH);
+    mShWakeupGpio = gpioRequest(SH_INT_WAKEUP);
+    gpioConfigInput(mShWakeupGpio, GPIO_SPEED_LOW, GPIO_PULL_NONE);
+    syscfgSetExtiPort(mShWakeupGpio);
+    extiEnableIntGpio(mShWakeupGpio, EXTI_TRIGGER_BOTH);
     mShWakeupIsr.func = platWakeupIsr;
     extiChainIsr(SH_EXTI_WAKEUP_IRQ, &mShWakeupIsr);
 }

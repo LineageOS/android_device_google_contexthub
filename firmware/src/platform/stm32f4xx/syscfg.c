@@ -11,11 +11,12 @@ struct StmSyscfg
     volatile uint32_t CMPCR;
 };
 
-void syscfgSetExtiPort(const struct Gpio *__restrict gpio)
+void syscfgSetExtiPort(const struct Gpio *__restrict gpioHandle)
 {
+    uint32_t gpioNum = (uint32_t)gpioHandle;
     struct StmSyscfg *block = (struct StmSyscfg *)SYSCFG_BASE;
-    const uint32_t bankNo = gpio->gpio >> GPIO_PORT_SHIFT;
-    const uint32_t pinNo = gpio->gpio & GPIO_PIN_MASK;
+    const uint32_t bankNo = gpioNum >> GPIO_PORT_SHIFT;
+    const uint32_t pinNo = gpioNum & GPIO_PIN_MASK;
     const uint32_t regNo = pinNo >> SYSCFG_REG_SHIFT;
     const uint32_t nibbleNo = pinNo & ((1UL << SYSCFG_REG_SHIFT) - 1UL);
     const uint32_t shift_4b = nibbleNo << 2UL;

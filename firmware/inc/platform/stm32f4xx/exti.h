@@ -5,6 +5,7 @@
 #include <stdbool.h>
 #include <plat/inc/cmsis.h>
 #include <plat/inc/gpio.h>
+#include <gpio.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -50,21 +51,25 @@ void extiClearPendingLine(const enum ExtiLine line);
 int extiChainIsr(IRQn_Type n, struct ChainedIsr *isr);
 int extiUnchainIsr(IRQn_Type n, struct ChainedIsr *isr);
 
-static inline void extiEnableIntGpio(const struct Gpio *__restrict gpio, enum ExtiTrigger trigger)
+static inline void extiEnableIntGpio(const struct Gpio *__restrict gpioHandle, enum ExtiTrigger trigger)
 {
-    extiEnableIntLine(gpio->gpio & GPIO_PIN_MASK, trigger);
+    uint32_t gpioNum = (uint32_t)gpioHandle;
+    extiEnableIntLine(gpioNum & GPIO_PIN_MASK, trigger);
 }
-static inline void extiDisableIntGpio(const struct Gpio *__restrict gpio)
+static inline void extiDisableIntGpio(const struct Gpio *__restrict gpioHandle)
 {
-    extiDisableIntLine(gpio->gpio & GPIO_PIN_MASK);
+    uint32_t gpioNum = (uint32_t)gpioHandle;
+    extiDisableIntLine(gpioNum & GPIO_PIN_MASK);
 }
-static inline bool extiIsPendingGpio(const struct Gpio *__restrict gpio)
+static inline bool extiIsPendingGpio(const struct Gpio *__restrict gpioHandle)
 {
-    return extiIsPendingLine(gpio->gpio & GPIO_PIN_MASK);
+    uint32_t gpioNum = (uint32_t)gpioHandle;
+    return extiIsPendingLine(gpioNum & GPIO_PIN_MASK);
 }
-static inline void extiClearPendingGpio(const struct Gpio *__restrict gpio)
+static inline void extiClearPendingGpio(const struct Gpio *__restrict gpioHandle)
 {
-    extiClearPendingLine(gpio->gpio & GPIO_PIN_MASK);
+    uint32_t gpioNum = (uint32_t)gpioHandle;
+    extiClearPendingLine(gpioNum & GPIO_PIN_MASK);
 }
 
 #ifdef __cplusplus

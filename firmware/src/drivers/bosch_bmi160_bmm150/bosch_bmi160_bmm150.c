@@ -249,9 +249,9 @@ struct BMI160Task {
     uint8_t txBuffer[1024+4+4];
     struct SpiPacket packets[30];
     int xferCnt;
-    struct Gpio Int1;
+    struct Gpio *Int1;
+    struct Gpio *Int2;
     struct ChainedIsr Isr1;
-    struct Gpio Int2;
     struct ChainedIsr Isr2;
     bool Int1_EN;
     bool Int2_EN;
@@ -436,12 +436,12 @@ static bool bmi160Isr1(struct ChainedIsr *isr)
     }
     struct BMI160Task *data = container_of(isr, struct BMI160Task, Isr1);
 
-    if (!extiIsPendingGpio(&data->Int1)) {
+    if (!extiIsPendingGpio(data->Int1)) {
         return false;
     }
 
     osEnqueuePrivateEvt(EVT_SENSOR_INTERRUPT_1, data, NULL, mTask.tid);
-    extiClearPendingGpio(&data->Int1);
+    extiClearPendingGpio(data->Int1);
     return true;
 }
 
@@ -449,11 +449,11 @@ static bool bmi160Isr2(struct ChainedIsr *isr)
 {
     struct BMI160Task *data = container_of(isr, struct BMI160Task, Isr2);
 
-    if (!extiIsPendingGpio(&data->Int2))
+    if (!extiIsPendingGpio(data->Int2))
         return false;
 
     osEnqueuePrivateEvt(EVT_SENSOR_INTERRUPT_2, data, NULL, mTask.tid);
-    extiClearPendingGpio(&data->Int2);
+    extiClearPendingGpio(data->Int2);
     return true;
 }
 
@@ -1632,9 +1632,9 @@ static bool startTask(uint32_t task_id)
 
     mTask.tid = task_id;
 
-    gpioRequest(&mTask.Int1, BMI160_INT1_PIN);
+    mTask.Int1 = gpioRequest(BMI160_INT1_PIN);
     mTask.Isr1.func = bmi160Isr1;
-    gpioRequest(&mTask.Int2, BMI160_INT2_PIN);
+    mTask.Int2 = gpioRequest(BMI160_INT2_PIN);
     mTask.Isr2.func = bmi160Isr2;
     mTask.pending_int[0] = false;
     mTask.pending_int[1] = false;
@@ -1681,6 +1681,9 @@ static void endTask(void)
 {
     destroy_mag_cal(&mTask.moc);
     slabAllocatorDestroy(mDataSlab);
+    spiMasterRelease(mTask.spiDev);
+    gpioRelease(mTask.Int1);
+    gpioRelease(mTask.Int2);
 }
 
 INTERNAL_APP_INIT(0x0000000000000004ULL, startTask, endTask, handleEvent);

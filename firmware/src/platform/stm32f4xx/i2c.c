@@ -6,6 +6,7 @@
 #include <i2c.h>
 #include <seos.h>
 #include <util.h>
+#include <gpio.h>
 #include <atomicBitset.h>
 #include <atomic.h>
 #include <platform.h>
@@ -161,8 +162,8 @@ struct StmI2cDev {
     uint32_t next;
     uint32_t last;
 
-    struct Gpio scl;
-    struct Gpio sda;
+    struct Gpio *scl;
+    struct Gpio *sda;
 
     uint8_t addr;
 };
@@ -726,12 +727,13 @@ static void stmI2cIsrError(struct StmI2cDev *pdev)
 DECLARE_IRQ_HANDLERS(1);
 DECLARE_IRQ_HANDLERS(3);
 
-static inline void stmI2cGpioInit(struct Gpio *gpio,
-        const struct StmI2cBoardCfg *board, const struct StmI2cGpioCfg *cfg)
+static inline struct Gpio* stmI2cGpioInit(const struct StmI2cBoardCfg *board, const struct StmI2cGpioCfg *cfg)
 {
-    gpioRequest(gpio, cfg->num);
+    struct Gpio* gpio = gpioRequest(cfg->num);
     gpioConfigAlt(gpio, board->gpioSpeed, board->gpioPull, GPIO_OUT_OPEN_DRAIN,
             cfg->func);
+
+    return gpio;
 }
 
 int i2cMasterRequest(uint32_t busId, uint32_t speed)
@@ -756,8 +758,8 @@ int i2cMasterRequest(uint32_t busId, uint32_t speed)
         pdev->last = 1;
         atomicBitsetInit(mXfersValid, I2C_MAX_QUEUE_DEPTH);
 
-        stmI2cGpioInit(&pdev->scl, board, &board->gpioScl);
-        stmI2cGpioInit(&pdev->sda, board, &board->gpioSda);
+        pdev->scl = stmI2cGpioInit(board, &board->gpioScl);
+        pdev->sda = stmI2cGpioInit(board, &board->gpioSda);
 
         pwrUnitClock(PERIPH_BUS_APB1, cfg->clock, true);
 
@@ -795,6 +797,10 @@ int i2cMasterRelease(uint32_t busId)
             stmI2cIrqEnable(pdev, I2C_CR2_ITERREN | I2C_CR2_ITEVTEN);
             stmI2cDisable(pdev);
             pwrUnitClock(PERIPH_BUS_APB1, cfg->clock, false);
+
+            gpioRelease(pdev->scl);
+            gpioRelease(pdev->sda);
+
             return 0;
         } else {
             return -EBUSY;
@@ -892,8 +898,8 @@ int i2cSlaveRequest(uint32_t busId, uint32_t addr)
         pdev->cfg = cfg;
         pdev->board = board;
 
-        stmI2cGpioInit(&pdev->scl, board, &board->gpioScl);
-        stmI2cGpioInit(&pdev->sda, board, &board->gpioSda);
+        pdev->scl = stmI2cGpioInit(board, &board->gpioScl);
+        pdev->sda = stmI2cGpioInit(board, &board->gpioSda);
 
         return 0;
     } else {
@@ -915,6 +921,10 @@ int i2cSlaveRelease(uint32_t busId)
         stmI2cAckDisable(pdev);
         stmI2cDisable(pdev);
         pwrUnitClock(PERIPH_BUS_APB1, cfg->clock, false);
+
+        gpioRelease(pdev->scl);
+        gpioRelease(pdev->sda);
+
         return 0;
     } else {
         return -EBUSY;

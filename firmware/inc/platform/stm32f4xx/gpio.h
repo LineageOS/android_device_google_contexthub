@@ -35,11 +35,6 @@ extern "C" {
 
 #define GPIO_PIN_MASK 0xf
 
-struct Gpio
-{
-    uint8_t gpio;
-};
-
 enum GpioAltFunc
 {
     GPIO_AF00 = 0,
