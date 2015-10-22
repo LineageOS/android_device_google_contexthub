@@ -44,7 +44,7 @@ struct AppFuncs { /* do not rearrange */
 #define APP_HDR_MARKER_UPLOADING   0xFFFF
 #define APP_HDR_MARKER_VERIFYING   0xFFFE
 #define APP_HDR_MARKER_VALID       0xFF00
-#define APP_HDR_MARKER_INTERNAL    0xFF01
+#define APP_HDR_MARKER_INTERNAL    0xFF01 //no external app should at any point have this marker value!
 #define APP_HDR_MARKER_DELETED     0x0000
 
 

@@ -156,60 +156,96 @@ static void osStartTasks(void)
 {
     extern const char __code_end[];
     extern const struct AppHdr __internal_app_start, __internal_app_end, __app_start;
-    const struct AppHdr *app;
     static const char magic[] = APP_HDR_MAGIC;
+    const struct AppHdr *app;
     uint32_t i, nTasks = 0;
+    struct Task* task;
 
-    osLog(LOG_INFO, "SEOS Registering tasks\n");
 
-    for (app = &__internal_app_start; app != &__internal_app_end && nTasks < MAX_TASKS && !memcmp(magic, app->magic, sizeof(magic) - 1) && app->version == APP_HDR_VER_CUR; app++) {
-        if (app->marker == APP_HDR_MARKER_INTERNAL) {
+    /* first enum all internal apps, making sure to check for dupes */
+    osLog(LOG_DEBUG, "Reading internal app list...\n");
+    for (app = &__internal_app_start; app != &__internal_app_end && nTasks < MAX_TASKS  && app->version == APP_HDR_VER_CUR; app++) {
 
-            if (osFindTaskByAppID(app->appId)) {
-                osLog(LOG_ERROR, "Duplicate APP ID ignored\n");
-                continue;
-            }
-
-            mTasks[nTasks].appHdr = app;
-            mTasks[nTasks].subbedEvtListSz = MAX_EMBEDDED_EVT_SUBS;
-            mTasks[nTasks].subbedEvents = mTasks[nTasks].subbedEventsInt;
-            mTasks[nTasks].tid = osGetFreeTid();
-
-            if (cpuInternalAppLoad(mTasks[nTasks].appHdr, &mTasks[nTasks].platInfo))
-                nTasks++;
+        if (app->marker != APP_HDR_MARKER_INTERNAL) {
+            osLog(LOG_WARN, "Weird marker on internal app: [%p]=0x%04X\n", app, app->marker);
+            continue;
         }
+        if ((task = osFindTaskByAppID(app->appId))) {
+            osLog(LOG_WARN, "Duplicate APP ID for built-in apps are ignored: %p %p\n", task->appHdr, app);
+            continue;
+        }
+        mTasks[nTasks++].appHdr = app;
     }
 
+    /* then enum all external apps, making sure to find the latest version and checking for conflicts with internal apps */
+    osLog(LOG_DEBUG, "Reading external app list...\n");
     app = &__app_start;
-    while (((uintptr_t)&__code_end) - ((uintptr_t)app) >= sizeof(struct AppHdr) && nTasks < MAX_TASKS && !memcmp(magic, app->magic, sizeof(magic) - 1) && app->version == APP_HDR_VER_CUR) {
+    while (((uintptr_t)&__code_end) - ((uintptr_t)app) >= sizeof(struct AppHdr) && !memcmp(magic, app->magic, sizeof(magic) - 1) && app->version == APP_HDR_VER_CUR) {
 
-        if (app->marker == APP_HDR_MARKER_VALID) {
-
-            if (osFindTaskByAppID(app->appId)) {
-                osLog(LOG_ERROR, "Duplicate APP ID ignored\n");
-                continue;
+        if (app->marker != APP_HDR_MARKER_VALID)  //this may need more logic to handle partially-uploaded things
+            osLog(LOG_WARN, "Weird marker on external app: [%p]=0x%04X\n", app, app->marker);
+        else if ((task = osFindTaskByAppID(app->appId))) {
+            if (task->appHdr->marker == APP_HDR_MARKER_INTERNAL)
+                osLog(LOG_WARN, "External app @ %p attempting to update internal app @ %p. This is not allowed\n", app, task->appHdr);
+            else {
+                osLog(LOG_DEBUG, "External app @ %p updating app @ %p\n", app, task->appHdr);
+                task->appHdr = app;
             }
-
-            mTasks[nTasks].appHdr = app;
-            mTasks[nTasks].subbedEvtListSz = MAX_EMBEDDED_EVT_SUBS;
-            mTasks[nTasks].subbedEvents = mTasks[nTasks].subbedEventsInt;
-            mTasks[nTasks].tid = osGetFreeTid();
-
-            if (cpuAppLoad(mTasks[nTasks].appHdr, &mTasks[nTasks].platInfo))
-                nTasks++;
         }
-        app = (const struct AppHdr*)(((const uint8_t*)app) + app->rel_end);
+        else if (nTasks == MAX_TASKS)
+            osLog(LOG_WARN, "External app @ %p cannot be used as too many apps already exist.\n", app);
+        else
+            mTasks[nTasks++].appHdr = app;
+
+        app = (const struct AppHdr*)(((((uintptr_t)app) + app->rel_end) + 3) &~ 3);
     }
 
-    osLog(LOG_INFO, "SEOS Starting tasks\n");
+    osLog(LOG_DEBUG, "Enumerated %lu apps\n", nTasks);
+
+    /* Now that we have pointers to all the latest app headers, let's try loading then. */
+    /* Note that if a new version fails to init we will NOT try the old (no reason to assume this is safe) */
+    osLog(LOG_DEBUG, "Loading apps...\n");
     for (i = 0; i < nTasks;) {
+
+        if (mTasks[i].appHdr->marker == APP_HDR_MARKER_INTERNAL) {
+            if (cpuInternalAppLoad(mTasks[i].appHdr, &mTasks[i].platInfo)) {
+                i++;
+                continue;
+            }
+        }
+        else {
+            if (cpuAppLoad(mTasks[i].appHdr, &mTasks[i].platInfo)) {
+                i++;
+                continue;
+            }
+        }
+
+        //if we're here, an app failed to load - remove it from the list
+        osLog(LOG_WARN, "App @ %p failed to load\n", mTasks[i].appHdr);
+        memcpy(mTasks + i, mTasks + --nTasks, sizeof(struct Task));
+    }
+
+    osLog(LOG_DEBUG, "Loaded %lu apps\n", nTasks);
+
+    /* now finish initing structs, assign tids, call init funcs */
+    osLog(LOG_DEBUG, "Starting apps...\n");
+    for (i = 0; i < nTasks;) {
+
+        mTasks[i].subbedEvtListSz = MAX_EMBEDDED_EVT_SUBS;
+        mTasks[i].subbedEvents = mTasks[nTasks].subbedEventsInt;
+        mTasks[i].tid = osGetFreeTid();
+
         if (cpuAppInit(mTasks[i].appHdr, &mTasks[i].platInfo, mTasks[i].tid))
             i++;
         else {
+            //if we're here, an app failed to init - unload & remove it from the list
+            osLog(LOG_WARN, "App @ %p failed to init\n", mTasks[i].appHdr);
             cpuAppUnload(mTasks[i].appHdr, &mTasks[i].platInfo);
             memcpy(mTasks + i, mTasks + --nTasks, sizeof(struct Task));
         }
     }
+
+    osLog(LOG_DEBUG, "Started %lu apps\n", nTasks);
 }
 
 static void osInternalEvtHandle(uint32_t evtType, void *evtData)
