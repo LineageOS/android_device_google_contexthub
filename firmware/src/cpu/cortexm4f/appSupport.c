@@ -148,7 +148,8 @@ bool cpuAppLoad(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo)
 
 void cpuAppUnload(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo)
 {
-    heapFree((uint8_t*)platInfo->got - appHdr->got_start);
+    if (platInfo->got)
+        heapFree((uint8_t*)platInfo->got - appHdr->got_start);
 }
 
 static uintptr_t __attribute__((naked)) callWithR9(const struct AppHdr *appHdr, void *funcOfst, void *got, uintptr_t arg1, uintptr_t arg2)
