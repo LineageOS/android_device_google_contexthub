@@ -24,7 +24,7 @@ struct HostIntfComm {
 /**
  * Returns a HostIntfOps backed by I2C
  */
-const struct HostIntfComm *hostIntfI2cInit(I2cBus busId);
+const struct HostIntfComm *hostIntfI2cInit(uint32_t busId);
 
 /**
  * Returns a HostIntfOps backed by SPI

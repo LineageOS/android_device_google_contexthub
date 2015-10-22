@@ -10,6 +10,7 @@
 #include <stdarg.h>
 #include <printf.h>
 #include <eventQ.h>
+#include <errno.h>
 #include <apInt.h>
 #include <timer.h>
 #include <stdio.h>
@@ -18,6 +19,7 @@
 #include <slab.h>
 #include <util.h>
 #include <cpu.h>
+#include <i2c.h>
 
 
 /*
@@ -47,7 +49,7 @@ struct Task {
     uint32_t subbedEventsInt[MAX_EMBEDDED_EVT_SUBS];
 };
 
-union DeferredAction {
+union InternalThing {
     struct {
         uint32_t tid;
         uint32_t evt;
@@ -62,6 +64,11 @@ union DeferredAction {
         TaggedPtr evtFreeInfo;
         uint32_t toTid;
     } privateEvt;
+    struct {
+        uint32_t toTid;
+        void *cookie;
+    } i2cAppCbkInfo;
+    struct I2cEventData i2cAppCbkEvt;
 };
 
 #define EVT_SUBSCRIBE_TO_EVT         0x00000000
@@ -71,7 +78,7 @@ union DeferredAction {
 
 
 static struct EvtQueue *mEvtsInternal, *mEvtsExternal;
-static struct SlabAllocator* mDeferedActionsSlab;
+static struct SlabAllocator* mMiscInternalThingsSlab;
 static struct Task mTasks[MAX_TASKS];
 static uint32_t mNextTidInfo = FIRST_VALID_TID;
 
@@ -122,8 +129,8 @@ static void osInit(void)
         return;
     }
 
-    mDeferedActionsSlab = slabAllocatorNew(sizeof(union DeferredAction), 4, 32 /* for now? */);
-    if (!mDeferedActionsSlab) {
+    mMiscInternalThingsSlab = slabAllocatorNew(sizeof(union InternalThing), 4, 64 /* for now? */);
+    if (!mMiscInternalThingsSlab) {
         osLog(LOG_INFO, "deferred actions list failed to init\n");
         return;
     }
@@ -250,7 +257,7 @@ static void osStartTasks(void)
 
 static void osInternalEvtHandle(uint32_t evtType, void *evtData)
 {
-    union DeferredAction *da = (union DeferredAction*)evtData;
+    union InternalThing *da = (union InternalThing*)evtData;
     struct Task *task;
     uint32_t i;
 
@@ -416,6 +423,147 @@ static void osExpApiSensorGetRate(uintptr_t *retValP, va_list args)
     *retValP = sensorGetCurRate(sensorHandle);
 }
 
+static union InternalThing* osExpApiI2cCbkInfoAlloc(uint32_t tid, void *cookie)
+{
+    union InternalThing *thing = slabAllocatorAlloc(mMiscInternalThingsSlab);
+
+    if (thing) {
+        thing->i2cAppCbkInfo.toTid = tid;
+        thing->i2cAppCbkInfo.cookie = cookie;
+    }
+
+    return thing;
+}
+
+static void osExpApiI2cInternalEvtFreeF(void *evt)
+{
+    slabAllocatorFree(mMiscInternalThingsSlab, evt);
+}
+
+static void osExpApiI2cInternalCbk(void *cookie, size_t tx, size_t rx, int err)
+{
+    union InternalThing *thing = (union InternalThing*)cookie;
+    uint32_t tid;
+
+    tid = thing->i2cAppCbkInfo.toTid;
+    cookie = thing->i2cAppCbkInfo.cookie;
+
+    //we reuse the same slab element to send the event now
+    thing->i2cAppCbkEvt.cookie = cookie;
+    thing->i2cAppCbkEvt.tx = tx;
+    thing->i2cAppCbkEvt.rx = rx;
+    thing->i2cAppCbkEvt.err = err;
+
+    if (!osEnqueuePrivateEvt(EVT_APP_I2C_CBK, &thing->i2cAppCbkEvt, osExpApiI2cInternalEvtFreeF, tid)) {
+        osLog(LOG_WARN, "Failed to send I2C evt to app. This might end badly for the app...");
+        osExpApiI2cInternalEvtFreeF(thing);
+    }
+}
+
+static void osExpApiI2cMstReq(uintptr_t *retValP, va_list args)
+{
+    uint32_t busId = va_arg(args, uint32_t);
+    uint32_t speed = va_arg(args, uint32_t);
+
+    *retValP = i2cMasterRequest(busId, speed);
+}
+
+static void osExpApiI2cMstRel(uintptr_t *retValP, va_list args)
+{
+    uint32_t busId = va_arg(args, uint32_t);
+
+    *retValP = i2cMasterRelease(busId);
+}
+
+static void osExpApiI2cMstTxRx(uintptr_t *retValP, va_list args)
+{
+    uint32_t busId = va_arg(args, uint32_t);
+    uint32_t addr = va_arg(args, uint32_t);
+    const void *txBuf = va_arg(args, const void*);
+    size_t txSize = va_arg(args, size_t);
+    void *rxBuf = va_arg(args, void*);
+    size_t rxSize = va_arg(args, size_t);
+    uint32_t tid = va_arg(args, uint32_t);
+    void *cookie = va_arg(args, void *);
+    union InternalThing *cbkInfo = osExpApiI2cCbkInfoAlloc(tid, cookie);
+
+    if (!cbkInfo)
+        *retValP =  -ENOMEM;
+
+    *retValP = i2cMasterTxRx(busId, addr, txBuf, txSize, rxBuf, rxSize, osExpApiI2cInternalCbk, cbkInfo);
+
+    if (*retValP)
+        slabAllocatorFree(mMiscInternalThingsSlab, cbkInfo);
+}
+
+static void osExpApiI2cSlvReq(uintptr_t *retValP, va_list args)
+{
+    uint32_t busId = va_arg(args, uint32_t);
+    uint32_t addr = va_arg(args, uint32_t);
+
+    *retValP = i2cSlaveRequest(busId, addr);
+}
+
+static void osExpApiI2cSlvRel(uintptr_t *retValP, va_list args)
+{
+    uint32_t busId = va_arg(args, uint32_t);
+
+    *retValP = i2cSlaveRelease(busId);
+}
+
+static void osExpApiI2cSlvRxEn(uintptr_t *retValP, va_list args)
+{
+    uint32_t busId = va_arg(args, uint32_t);
+    void *rxBuf = va_arg(args, void*);
+    size_t rxSize = va_arg(args, size_t);
+    uint32_t tid = va_arg(args, uint32_t);
+    void *cookie = va_arg(args, void *);
+    union InternalThing *cbkInfo = osExpApiI2cCbkInfoAlloc(tid, cookie);
+
+    if (!cbkInfo)
+        *retValP =  -ENOMEM;
+
+    i2cSlaveEnableRx(busId, rxBuf, rxSize, osExpApiI2cInternalCbk, cbkInfo);
+
+    if (*retValP)
+        slabAllocatorFree(mMiscInternalThingsSlab, cbkInfo);
+}
+
+static void osExpApiI2cSlvTxPre(uintptr_t *retValP, va_list args)
+{
+    uint32_t busId = va_arg(args, uint32_t);
+    uint8_t byte = va_arg(args, int);
+    uint32_t tid = va_arg(args, uint32_t);
+    void *cookie = va_arg(args, void *);
+    union InternalThing *cbkInfo = osExpApiI2cCbkInfoAlloc(tid, cookie);
+
+    if (!cbkInfo)
+        *retValP =  -ENOMEM;
+
+    *retValP = i2cSlaveTxPreamble(busId, byte, osExpApiI2cInternalCbk, cbkInfo);
+
+    if (*retValP)
+        slabAllocatorFree(mMiscInternalThingsSlab, cbkInfo);
+}
+
+static void osExpApiI2cSlvTxPkt(uintptr_t *retValP, va_list args)
+{
+    uint32_t busId = va_arg(args, uint32_t);
+    const void *txBuf = va_arg(args, const void*);
+    size_t txSize = va_arg(args, size_t);
+    uint32_t tid = va_arg(args, uint32_t);
+    void *cookie = va_arg(args, void *);
+    union InternalThing *cbkInfo = osExpApiI2cCbkInfoAlloc(tid, cookie);
+
+    if (!cbkInfo)
+        *retValP =  -ENOMEM;
+
+    *retValP = i2cSlaveTxPacket(busId, txBuf, txSize, osExpApiI2cInternalCbk, cbkInfo);
+
+    if (*retValP)
+        slabAllocatorFree(mMiscInternalThingsSlab, cbkInfo);
+}
+
 static void osExportApi(void)
 {
     static const struct SyscallTable osMainEvtqTable = {
@@ -453,21 +601,60 @@ static void osExportApi(void)
     static const struct SyscallTable osMainTable = {
         .numEntries = SYSCALL_OS_MAIN_LAST,
         .entry = {
-            [SYSCALL_OS_MAIN_EVENTQ] =  { .subtable = (struct SyscallTable*)&osMainEvtqTable, },
-            [SYSCALL_OS_MAIN_LOGGING] = { .subtable = (struct SyscallTable*)&osMainLogTable,  },
-            [SYSCALL_OS_MAIN_SENSOR]  = { .subtable = (struct SyscallTable*)&osMainSensorsTable,  },
+            [SYSCALL_OS_MAIN_EVENTQ]  = { .subtable = (struct SyscallTable*)&osMainEvtqTable,    },
+            [SYSCALL_OS_MAIN_LOGGING] = { .subtable = (struct SyscallTable*)&osMainLogTable,     },
+            [SYSCALL_OS_MAIN_SENSOR]  = { .subtable = (struct SyscallTable*)&osMainSensorsTable, },
         },
     };
+
+    static const struct SyscallTable osDrvGpioTable = {
+        .numEntries = SYSCALL_OS_DRV_GPIO_LAST,
+        .entry = {
+            /* more eventually */
+        },
+    };
+
+    static const struct SyscallTable osGrvI2cMstTable = {
+        .numEntries = SYSCALL_OS_DRV_I2CM_LAST,
+        .entry = {
+            [SYSCALL_OS_DRV_I2CM_REQ]  = { .func = osExpApiI2cMstReq,  },
+            [SYSCALL_OS_DRV_I2CM_REL]  = { .func = osExpApiI2cMstRel,  },
+            [SYSCALL_OS_DRV_I2CM_TXRX] = { .func = osExpApiI2cMstTxRx, },
+        },
+    };
+
+    static const struct SyscallTable osGrvI2cSlvTable = {
+        .numEntries = SYSCALL_OS_DRV_I2CS_LAST,
+        .entry = {
+            [ SYSCALL_OS_DRV_I2CS_REQ]    = { .func = osExpApiI2cSlvReq,   },
+            [ SYSCALL_OS_DRV_I2CS_REL]    = { .func = osExpApiI2cSlvRel,   },
+            [ SYSCALL_OS_DRV_I2CS_RX_EN]  = { .func = osExpApiI2cSlvRxEn,  },
+            [ SYSCALL_OS_DRV_I2CS_TX_PRE] = { .func = osExpApiI2cSlvTxPre, },
+            [ SYSCALL_OS_DRV_I2CS_TX_PKT] = { .func = osExpApiI2cSlvTxPkt, },
+        },
+    };
+
+    static const struct SyscallTable osDriversTable = {
+        .numEntries = SYSCALL_OS_DRV_LAST,
+        .entry = {
+            [SYSCALL_OS_DRV_GPIO]       = { .subtable = (struct SyscallTable*)&osDrvGpioTable,   },
+            [SYSCALL_OS_DRV_I2C_MASTER] = { .subtable = (struct SyscallTable*)&osGrvI2cMstTable, },
+            [SYSCALL_OS_DRV_I2C_SLAVE]  = { .subtable = (struct SyscallTable*)&osGrvI2cSlvTable, },
+        },
+    };
+
     static const struct SyscallTable osTable = {
         .numEntries = SYSCALL_OS_LAST,
         .entry = {
-            [SYSCALL_OS_MAIN] = { .subtable = (struct SyscallTable*)&osMainTable, },
+            [SYSCALL_OS_MAIN]    = { .subtable = (struct SyscallTable*)&osMainTable,    },
+            [SYSCALL_OS_DRIVERS] = { .subtable = (struct SyscallTable*)&osDriversTable, },
         },
     };
 
     if (!syscallAddTable(SYSCALL_DOMAIN_OS, 1, (struct SyscallTable*)&osTable))
         osLog(LOG_ERROR, "Failed to export OS base API");
 }
+
 
 void abort(void)
 {
@@ -527,12 +714,12 @@ void __attribute__((noreturn)) osMain(void)
 
 static void osDeferredActionFreeF(void* event)
 {
-    slabAllocatorFree(mDeferedActionsSlab, event);
+    slabAllocatorFree(mMiscInternalThingsSlab, event);
 }
 
 static bool osEventSubscribeUnsubscribe(uint32_t tid, uint32_t evtType, bool sub)
 {
-    union DeferredAction *act = slabAllocatorAlloc(mDeferedActionsSlab);
+    union InternalThing *act = slabAllocatorAlloc(mMiscInternalThingsSlab);
 
     if (!act)
         return false;
@@ -542,7 +729,7 @@ static bool osEventSubscribeUnsubscribe(uint32_t tid, uint32_t evtType, bool sub
     if (osEnqueueEvt(sub ? EVT_SUBSCRIBE_TO_EVT : EVT_UNSUBSCRIBE_TO_EVT, act, osDeferredActionFreeF, false))
         return true;
 
-    slabAllocatorFree(mDeferedActionsSlab, act);
+    slabAllocatorFree(mMiscInternalThingsSlab, act);
     return false;
 }
 
@@ -558,7 +745,7 @@ bool osEventUnsubscribe(uint32_t tid, uint32_t evtType)
 
 bool osDefer(OsDeferCbkF callback, void *cookie)
 {
-    union DeferredAction *act = slabAllocatorAlloc(mDeferedActionsSlab);
+    union InternalThing *act = slabAllocatorAlloc(mMiscInternalThingsSlab);
     if (!act)
             return false;
 
@@ -568,13 +755,13 @@ bool osDefer(OsDeferCbkF callback, void *cookie)
     if (osEnqueueEvt(EVT_DEFERRED_CALLBACK, act, osDeferredActionFreeF, false))
         return true;
 
-    slabAllocatorFree(mDeferedActionsSlab, act);
+    slabAllocatorFree(mMiscInternalThingsSlab, act);
     return false;
 }
 
 static bool osEnqueuePrivateEvtEx(uint32_t evtType, void *evtData, TaggedPtr evtFreeInfo, uint32_t toTid)
 {
-    union DeferredAction *act = slabAllocatorAlloc(mDeferedActionsSlab);
+    union InternalThing *act = slabAllocatorAlloc(mMiscInternalThingsSlab);
     if (!act)
             return false;
 
@@ -586,7 +773,7 @@ static bool osEnqueuePrivateEvtEx(uint32_t evtType, void *evtData, TaggedPtr evt
     if (osEnqueueEvt(EVT_PRIVATE_EVT, act, osDeferredActionFreeF, false))
         return true;
 
-    slabAllocatorFree(mDeferedActionsSlab, act);
+    slabAllocatorFree(mMiscInternalThingsSlab, act);
     return false;
 }
 
