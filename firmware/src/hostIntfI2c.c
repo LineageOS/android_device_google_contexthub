@@ -4,7 +4,7 @@
 #include <i2c.h>
 
 #define NANOHUB_I2C_SLAVE_ADDRESS     0x55
-static I2cBus gBusId;
+static uint32_t gBusId;
 
 static void hostIntfI2cPreambleCallback(void *cookie, size_t tx, size_t rx, int err)
 {
@@ -58,7 +58,7 @@ static const struct HostIntfComm gI2cComm = {
    .release = hostIntfI2cRelease,
 };
 
-const struct HostIntfComm *hostIntfI2cInit(I2cBus busId)
+const struct HostIntfComm *hostIntfI2cInit(uint32_t busId)
 {
     gBusId = busId;
     return &gI2cComm;

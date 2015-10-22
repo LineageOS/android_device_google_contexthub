@@ -161,10 +161,10 @@ struct StmI2cDev {
     uint32_t next;
     uint32_t last;
 
-    I2cAddr addr;
-
     struct Gpio scl;
     struct Gpio sda;
+
+    uint8_t addr;
 };
 
 static const struct StmI2cCfg mStmI2cCfgs[] = {
@@ -205,8 +205,8 @@ struct StmI2cXfer
     size_t          rxSize;
     I2cCallbackF    callback;
     void           *cookie;
-    I2cBus          busId;
-    I2cAddr         addr;
+    uint8_t         busId; /* for us these are both fine in a uint 8 */
+    uint8_t         addr;
 };
 
 ATOMIC_BITSET_DECL(mXfersValid, I2C_MAX_QUEUE_DEPTH, static);
@@ -289,7 +289,7 @@ static inline void stmI2cDisable(struct StmI2cDev *pdev)
 }
 
 static inline void stmI2cSpeedSet(struct StmI2cDev *pdev,
-        const I2cSpeed speed)
+        const uint32_t speed)
 {
     struct StmI2c *regs = pdev->cfg->regs;
     int ccr, ccr_1, ccr_2;
@@ -734,7 +734,7 @@ static inline void stmI2cGpioInit(struct Gpio *gpio,
             cfg->func);
 }
 
-int i2cMasterRequest(I2cBus busId, I2cSpeed speed)
+int i2cMasterRequest(uint32_t busId, uint32_t speed)
 {
     if (busId >= ARRAY_SIZE(mStmI2cDevs))
         return -EINVAL;
@@ -780,7 +780,7 @@ int i2cMasterRequest(I2cBus busId, I2cSpeed speed)
     }
 }
 
-int i2cMasterRelease(I2cBus busId)
+int i2cMasterRelease(uint32_t busId)
 {
     if (busId >= ARRAY_SIZE(mStmI2cDevs))
         return -EINVAL;
@@ -805,7 +805,7 @@ int i2cMasterRelease(I2cBus busId)
 }
 
 
-int i2cMasterTxRx(I2cBus busId, I2cAddr addr,
+int i2cMasterTxRx(uint32_t busId, uint32_t addr,
         const void *txBuf, size_t txSize, void *rxBuf, size_t rxSize,
         I2cCallbackF callback, void *cookie)
 {
@@ -873,7 +873,7 @@ int i2cMasterTxRx(I2cBus busId, I2cAddr addr,
     }
 }
 
-int i2cSlaveRequest(I2cBus busId, I2cAddr addr)
+int i2cSlaveRequest(uint32_t busId, uint32_t addr)
 {
     if (busId >= ARRAY_SIZE(mStmI2cDevs))
         return -EINVAL;
@@ -901,7 +901,7 @@ int i2cSlaveRequest(I2cBus busId, I2cAddr addr)
     }
 }
 
-int i2cSlaveRelease(I2cBus busId)
+int i2cSlaveRelease(uint32_t busId)
 {
     if (busId >= ARRAY_SIZE(mStmI2cDevs))
         return -EINVAL;
@@ -921,7 +921,7 @@ int i2cSlaveRelease(I2cBus busId)
     }
 }
 
-void i2cSlaveEnableRx(I2cBus busId, void *rxBuf, size_t rxSize,
+void i2cSlaveEnableRx(uint32_t busId, void *rxBuf, size_t rxSize,
         I2cCallbackF callback, void *cookie)
 {
     struct StmI2cDev *pdev = &mStmI2cDevs[busId];
@@ -950,7 +950,7 @@ void i2cSlaveEnableRx(I2cBus busId, void *rxBuf, size_t rxSize,
     }
 }
 
-static int i2cSlaveTx(I2cBus busId, const void *txBuf, uint8_t byte,
+static int i2cSlaveTx(uint32_t busId, const void *txBuf, uint8_t byte,
         size_t txSize, I2cCallbackF callback, void *cookie)
 {
     struct StmI2cDev *pdev = &mStmI2cDevs[busId];
@@ -986,13 +986,13 @@ static int i2cSlaveTx(I2cBus busId, const void *txBuf, uint8_t byte,
     }
 }
 
-int i2cSlaveTxPreamble(I2cBus busId, uint8_t byte, I2cCallbackF callback,
+int i2cSlaveTxPreamble(uint32_t busId, uint8_t byte, I2cCallbackF callback,
         void *cookie)
 {
     return i2cSlaveTx(busId, NULL, byte, 0, callback, cookie);
 }
 
-int i2cSlaveTxPacket(I2cBus busId, const void *txBuf, size_t txSize,
+int i2cSlaveTxPacket(uint32_t busId, const void *txBuf, size_t txSize,
         I2cCallbackF callback, void *cookie)
 {
     return i2cSlaveTx(busId, txBuf, 0, txSize, callback, cookie);

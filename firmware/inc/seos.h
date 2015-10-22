@@ -129,12 +129,42 @@ const struct AppFuncs __attribute__((used,section (".app_init"),visibility("defa
 }
 
 
-
+struct I2cEventData {
+    void *cookie;
+    uint32_t tx;
+    uint32_t rx;
+    int err;
+};
 
 //EXTERNAL API
 //level 1 indices in the OS table
 #define SYSCALL_OS_MAIN                   0
-#define SYSCALL_OS_LAST                   1 // always last. holes are allowed, but not immediately before this
+#define SYSCALL_OS_DRIVERS                1
+#define SYSCALL_OS_LAST                   2 // always last. holes are allowed, but not immediately before this
+
+//level 2 indices in the OS.drivers table
+#define SYSCALL_OS_DRV_GPIO               0
+#define SYSCALL_OS_DRV_I2C_MASTER         1
+#define SYSCALL_OS_DRV_I2C_SLAVE          2
+#define SYSCALL_OS_DRV_LAST               3 // always last. holes are allowed, but not immediately before this
+
+//level 3 indices in the OS.drivers.gpio table
+/* more thing here eventually */
+#define SYSCALL_OS_DRV_GPIO_LAST          0 // always last. holes are allowed, but not immediately before this
+
+//level 3 indices in the OS.drivers.i2cM table
+#define SYSCALL_OS_DRV_I2CM_REQ           0 // (I2cBus busId, I2cSpeed speed) -> int status
+#define SYSCALL_OS_DRV_I2CM_REL           1 // (I2cBus busId) -> int status
+#define SYSCALL_OS_DRV_I2CM_TXRX          2 // (I2cBus busId, I2cAddr addr, const void *txBuf, size_t txSize, void *rxBuf, size_t rxSize, uint32_t yourTidForEvts, void *cookie) -> int status
+#define SYSCALL_OS_DRV_I2CM_LAST          3 // always last. holes are allowed, but not immediately before this
+
+//level 3 indices in the OS.drivers.i2cS table
+#define SYSCALL_OS_DRV_I2CS_REQ           0 // (I2cBus busId, I2cAddr addr) -> int status
+#define SYSCALL_OS_DRV_I2CS_REL           1 // (I2cBus busId) -> int status
+#define SYSCALL_OS_DRV_I2CS_RX_EN         2 // (I2cBus busId, void *rxBuf, size_t rxSize, uint32_t yourTidForEvts, void *cookie) -> void
+#define SYSCALL_OS_DRV_I2CS_TX_PRE        3 // (I2cBus busId, uint8_t byte, uint32_t yourTidForEvts, void *cookie) -> int status
+#define SYSCALL_OS_DRV_I2CS_TX_PKT        4 // (I2cBus busId, const void *txBuf, size_t txSize, uint32_t yourTidForEvts, void *cookie) -> int status
+#define SYSCALL_OS_DRV_I2CS_LAST          5 // always last. holes are allowed, but not immediately before this
 
 //level 2 indices in the OS.main table
 #define SYSCALL_OS_MAIN_EVENTQ            0

@@ -20,12 +20,15 @@
 //for all apps
 #define EVT_APP_FREE_EVT_DATA            0x000000FF    //sent to an external app when its event has been marked for freeing. Data: struct AppEventFreeData
 
+//for apps that use I2C
+#define EVT_APP_I2C_CBK                  0x000000F0    //data pointer points to struct I2cEventData
+
 //for apps that claim to be a sensor
-#define EVT_APP_SENSOR_POWER             0x000000FE    //data pointer is not a pointer, it is a bool encoded as (void*)
-#define EVT_APP_SENSOR_FW_UPLD           0x000000FD
-#define EVT_APP_SENSOR_SET_RATE          0x000000FC    //data pointer points to a "const struct SensorSetRateEvent"
-#define EVT_APP_SENSOR_FLUSH             0x000000FB
-#define EVT_APP_SENSOR_TRIGGER           0x000000FA
+#define EVT_APP_SENSOR_POWER             0x000000EF    //data pointer is not a pointer, it is a bool encoded as (void*)
+#define EVT_APP_SENSOR_FW_UPLD           0x000000EE
+#define EVT_APP_SENSOR_SET_RATE          0x000000ED    //data pointer points to a "const struct SensorSetRateEvent"
+#define EVT_APP_SENSOR_FLUSH             0x000000EC
+#define EVT_APP_SENSOR_TRIGGER           0x000000EB
 
 
 /* These are sensor configuration events for activation, rate, calibration, etc. */
