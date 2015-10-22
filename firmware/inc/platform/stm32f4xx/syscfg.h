@@ -2,6 +2,7 @@
 #define _STM32F4XX_SYSCFG_H_
 
 #include <plat/inc/gpio.h>
+#include <gpio.h>
 
 #ifdef __cplusplus
 extern "C" {

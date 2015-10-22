@@ -3,45 +3,38 @@
 #include <variant/inc/variant.h>
 #include <plat/inc/gpio.h>
 
+static struct Gpio *apIntWkup;
+#ifdef AP_INT_NONWAKEUP
+static struct Gpio *apIntNonWkup;
+#endif
+
 void apIntInit()
 {
-    struct Gpio gpio;
-
-    gpioRequest(&gpio, AP_INT_WAKEUP);
-    gpioConfigOutput(&gpio, GPIO_SPEED_LOW, GPIO_PULL_NONE, GPIO_OUT_PUSH_PULL, 1);
+    apIntWkup = gpioRequest(AP_INT_WAKEUP);
+    gpioConfigOutput(apIntWkup, GPIO_SPEED_LOW, GPIO_PULL_NONE, GPIO_OUT_PUSH_PULL, 1);
 
 #ifdef AP_INT_NONWAKEUP
-    gpioRequest(&gpio, AP_INT_NONWAKEUP);
-    gpioConfigOutput(&gpio, GPIO_SPEED_LOW, GPIO_PULL_NONE, GPIO_OUT_PUSH_PULL, 1);
+    apIntNonWkup = gpioRequest(AP_INT_NONWAKEUP);
+    gpioConfigOutput(apIntNonWkup, GPIO_SPEED_LOW, GPIO_PULL_NONE, GPIO_OUT_PUSH_PULL, 1);
 #endif
 }
 
 void apIntSet(bool wakeup)
 {
-    struct Gpio gpio;
-
-    if (wakeup) {
-        gpioRequest(&gpio, AP_INT_WAKEUP);
-        gpioSet(&gpio, 0);
-    } else {
+    if (wakeup)
+        gpioSet(apIntWkup, 0);
 #ifdef AP_INT_NONWAKEUP
-        gpioRequest(&gpio, AP_INT_NONWAKEUP);
-        gpioSet(&gpio, 0);
+    else
+        gpioSet(apIntNonWkup, 0);
 #endif
-    }
 }
 
 void apIntClear(bool wakeup)
 {
-    struct Gpio gpio;
-
-    if (wakeup) {
-        gpioRequest(&gpio, AP_INT_WAKEUP);
-        gpioSet(&gpio, 1);
-    } else {
+    if (wakeup)
+        gpioSet(apIntWkup, 1);
 #ifdef AP_INT_NONWAKEUP
-        gpioRequest(&gpio, AP_INT_NONWAKEUP);
-        gpioSet(&gpio, 1);
+    else
+        gpioSet(apIntNonWkup, 1);
 #endif
-    }
 }

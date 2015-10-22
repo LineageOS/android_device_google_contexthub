@@ -78,14 +78,13 @@ void usartOpen(struct usart* __restrict usart, UsartPort port,
     static const uint16_t flowCtrlVals[] = {0x0000, 0x0100, 0x0200, 0x0300}; // indexed by UsartFlowControlCfg
     struct StmUsart *block = (struct StmUsart*)mUsartPorts[usart->unit = --port];
     uint32_t baseClk, div, intPart, fraPart;
-    struct Gpio gpio;
 
     /* configure tx/rx gpios */
 
-    gpioRequest(&gpio, rx); /* rx */
-    gpioConfigAlt(&gpio, GPIO_SPEED_LOW, GPIO_PULL_UP, GPIO_OUT_PUSH_PULL, mUsartAlt[port]);
-    gpioRequest(&gpio, tx); /* tx */
-    gpioConfigAlt(&gpio, GPIO_SPEED_LOW, GPIO_PULL_UP, GPIO_OUT_PUSH_PULL, mUsartAlt[port]);
+    usart->rx = gpioRequest(rx); /* rx */
+    gpioConfigAlt(usart->rx, GPIO_SPEED_LOW, GPIO_PULL_UP, GPIO_OUT_PUSH_PULL, mUsartAlt[port]);
+    usart->tx = gpioRequest(tx); /* tx */
+    gpioConfigAlt(usart->tx, GPIO_SPEED_LOW, GPIO_PULL_UP, GPIO_OUT_PUSH_PULL, mUsartAlt[port]);
 
     /* enable clock */
     pwrUnitClock(mUsartBusses[port], mUsartPeriphs[port], true);
@@ -123,6 +122,10 @@ void usartClose(const struct usart* __restrict usart)
 
     /* Disable USART clock */
     pwrUnitClock(mUsartBusses[usart->unit], mUsartPeriphs[usart->unit], false);
+
+    /* Release gpios */
+    gpioRelease(usart->rx);
+    gpioRelease(usart->tx);
 }
 
 void usartPutchat(const struct usart* __restrict usart, char c)

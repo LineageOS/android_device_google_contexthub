@@ -34,8 +34,9 @@ enum GpioAltFunc;
 typedef uint8_t GpioNum;
 struct Gpio;
 
-/* Requests a GPIO and populates the gpio struct */
-void gpioRequest(struct Gpio* __restrict gpio, GpioNum number);
+/* Requests a GPIO and allocates the gpio handle/struct/etc */
+struct Gpio* gpioRequest(GpioNum number);
+void gpioRelease(struct Gpio* __restrict gpio);
 
 /* Configures the direction and pull type of a GPIO */
 void gpioConfigInput(const struct Gpio* __restrict gpio, enum GpioSpeed speed, enum GpioPullMode pull);

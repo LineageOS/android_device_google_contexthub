@@ -6,9 +6,12 @@ extern "C" {
 #endif
 
 #include <stdint.h>
+#include <gpio.h>
 
 struct usart
 {
+    struct Gpio *tx;
+    struct Gpio *rx;
     uint8_t unit;
 };
 
