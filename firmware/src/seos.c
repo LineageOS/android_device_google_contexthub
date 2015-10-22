@@ -349,6 +349,21 @@ static void osExpApiSensorSignal(uintptr_t *retValP, va_list args)
     *retValP = (uintptr_t)sensorSignalInternalEvt(handle, intEvtNum, value1, value2);
 }
 
+static void osExpApiSensorReg(uintptr_t *retValP, va_list args)
+{
+    const struct SensorInfo *si = va_arg(args, const struct SensorInfo*);
+    uint32_t tid = va_arg(args, uint32_t);
+
+    *retValP = (uintptr_t)sensorRegisterAsApp(si, tid);
+}
+
+static void osExpApiSensorUnreg(uintptr_t *retValP, va_list args)
+{
+    uint32_t handle = va_arg(args, uint32_t);
+
+    *retValP = (uintptr_t)sensorUnregister(handle);
+}
+
 static void osExpApiSensorFind(uintptr_t *retValP, va_list args)
 {
     uint32_t sensorType = va_arg(args, uint32_t);
@@ -423,6 +438,8 @@ static void osExportApi(void)
         .numEntries = SYSCALL_OS_MAIN_SENSOR_LAST,
         .entry = {
             [SYSCALL_OS_MAIN_SENSOR_SIGNAL]   = { .func = osExpApiSensorSignal,  },
+            [SYSCALL_OS_MAIN_SENSOR_REG]      = { .func = osExpApiSensorReg,     },
+            [SYSCALL_OS_MAIN_SENSOR_UNREG]    = { .func = osExpApiSensorUnreg,   },
             [SYSCALL_OS_MAIN_SENSOR_FIND]     = { .func = osExpApiSensorFind,    },
             [SYSCALL_OS_MAIN_SENSOR_REQUEST]  = { .func = osExpApiSensorReq,     },
             [SYSCALL_OS_MAIN_SENSOR_RATE_CHG] = { .func = osExpApiSensorRateChg, },
