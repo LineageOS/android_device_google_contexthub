@@ -14,6 +14,7 @@ extern "C" {
 #include <sensors.h>
 #include <syscall.h>
 #include <stdarg.h>
+#include <osApi.h>
 #include <seos.h>
 #include <util.h>
 
