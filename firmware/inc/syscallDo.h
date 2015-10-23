@@ -14,6 +14,7 @@ extern "C" {
 #include <sensors.h>
 #include <syscall.h>
 #include <stdarg.h>
+#include <gpio.h>
 #include <osApi.h>
 #include <seos.h>
 #include <util.h>
@@ -146,6 +147,43 @@ static inline uint32_t eOsSensorGetCurRate(uint32_t sensorHandle)
 {
     return syscallDo1P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_MAIN, SYSCALL_OS_MAIN_SENSOR, SYSCALL_OS_MAIN_SENSOR_GET_RATE), sensorHandle);
 }
+
+static inline struct Gpio* eOsGpioRequest(uint32_t gpioNum)
+{
+    return (struct Gpio*)syscallDo1P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_DRIVERS, SYSCALL_OS_DRV_GPIO, SYSCALL_OS_DRV_GPIO_REQ), gpioNum);
+}
+
+static inline void eOsGpioRelease(struct Gpio* __restrict gpio)
+{
+    syscallDo1P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_DRIVERS, SYSCALL_OS_DRV_GPIO, SYSCALL_OS_DRV_GPIO_REL), gpio);
+}
+
+static inline void eOsGpioConfigInput(const struct Gpio* __restrict gpio, int32_t gpioSpeed, enum GpioPullMode pull)
+{
+    syscallDo3P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_DRIVERS, SYSCALL_OS_DRV_GPIO, SYSCALL_OS_DRV_GPIO_CFG_IN), gpio, gpioSpeed, pull);
+}
+
+static inline void eOsGpioConfigOutput(const struct Gpio* __restrict gpio, int32_t gpioSpeed, enum GpioPullMode pull, enum GpioOpenDrainMode odrMode, bool value)
+{
+    syscallDo5P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_DRIVERS, SYSCALL_OS_DRV_GPIO, SYSCALL_OS_DRV_GPIO_CFG_OUT), gpio, gpioSpeed, pull, odrMode, value);
+}
+
+static inline void eOsGpioConfigAlt(const struct Gpio* __restrict gpio, int32_t gpioSpeed, enum GpioPullMode pull, enum GpioOpenDrainMode odrMode, uint32_t altFunc)
+{
+    syscallDo5P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_DRIVERS, SYSCALL_OS_DRV_GPIO, SYSCALL_OS_DRV_GPIO_CFG_ALT), gpio, gpioSpeed, pull, odrMode, altFunc);
+}
+
+static inline bool eOsGpioGet(const struct Gpio* __restrict gpio)
+{
+    return !!syscallDo1P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_DRIVERS, SYSCALL_OS_DRV_GPIO, SYSCALL_OS_DRV_GPIO_GET), gpio);
+}
+
+static inline void eOsGpioSet(const struct Gpio* __restrict gpio, bool value)
+{
+    syscallDo2P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_DRIVERS, SYSCALL_OS_DRV_GPIO, SYSCALL_OS_DRV_GPIO_SET), gpio, value);
+}
+
+
 
 
 #ifdef __cplusplus
