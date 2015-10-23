@@ -230,7 +230,7 @@ static void osStartTasks(void)
     for (i = 0; i < nTasks;) {
 
         mTasks[i].subbedEvtListSz = MAX_EMBEDDED_EVT_SUBS;
-        mTasks[i].subbedEvents = mTasks[nTasks].subbedEventsInt;
+        mTasks[i].subbedEvents = mTasks[i].subbedEventsInt;
         mTasks[i].tid = osGetFreeTid();
 
         if (cpuAppInit(mTasks[i].appHdr, &mTasks[i].platInfo, mTasks[i].tid))
