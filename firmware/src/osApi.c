@@ -2,6 +2,7 @@
 #include <sensors.h>
 #include <errno.h>
 #include <osApi.h>
+#include <gpio.h>
 #include <util.h>
 #include <seos.h>
 #include <slab.h>
@@ -32,7 +33,7 @@ static void osExpApiEvtqEnqueue(uintptr_t *retValP, va_list args)
     uint32_t evtType = va_arg(args, uint32_t);
     void *evtData = va_arg(args, void*);
     uint32_t tid = va_arg(args, uint32_t);
-    bool external = va_arg(args, int);
+    bool external = !!va_arg(args, int);
 
     *retValP = osEnqueueEvtAsApp(evtType, evtData, tid, external);
 }
@@ -160,6 +161,66 @@ static void osExpApiI2cInternalCbk(void *cookie, size_t tx, size_t rx, int err)
         osLog(LOG_WARN, "Failed to send I2C evt to app. This might end badly for the app...");
         osExpApiI2cInternalEvtFreeF(thing);
     }
+}
+
+static void osExpApiGpioReq(uintptr_t *retValP, va_list args)
+{
+    uint32_t gpioNum = va_arg(args, uint32_t);
+
+    *retValP = (uintptr_t)gpioRequest(gpioNum);
+}
+
+static void osExpApiGpioRel(uintptr_t *retValP, va_list args)
+{
+    struct Gpio* gpio = va_arg(args, struct Gpio*);
+
+    gpioRelease(gpio);
+}
+
+static void osExpApiGpioCfgIn(uintptr_t *retValP, va_list args)
+{
+    struct Gpio* gpio = va_arg(args, struct Gpio*);
+    int32_t speed = va_arg(args, int32_t);
+    enum GpioPullMode pullMode = va_arg(args, int);
+
+    gpioConfigInput(gpio, speed, pullMode);
+}
+
+static void osExpApiGpioCfgOut(uintptr_t *retValP, va_list args)
+{
+    struct Gpio* gpio = va_arg(args, struct Gpio*);
+    int32_t speed = va_arg(args, int32_t);
+    enum GpioPullMode pullMode = va_arg(args, int);
+    enum GpioOpenDrainMode odrMode = va_arg(args, int);
+    bool value = !!va_arg(args, int);
+
+    gpioConfigOutput(gpio, speed, pullMode, odrMode, value);
+}
+
+static void osExpApiGpioCfgAlt(uintptr_t *retValP, va_list args)
+{
+    struct Gpio* gpio = va_arg(args, struct Gpio*);
+    int32_t speed = va_arg(args, int32_t);
+    enum GpioPullMode pullMode = va_arg(args, int);
+    enum GpioOpenDrainMode odrMode = va_arg(args, int);
+    uint32_t altFunc = va_arg(args, uint32_t);
+
+    gpioConfigAlt(gpio, speed, pullMode, odrMode, altFunc);
+}
+
+static void osExpApiGpioGet(uintptr_t *retValP, va_list args)
+{
+    struct Gpio* gpio = va_arg(args, struct Gpio*);
+
+    *retValP = gpioGet(gpio);
+}
+
+static void osExpApiGpioSet(uintptr_t *retValP, va_list args)
+{
+    struct Gpio* gpio = va_arg(args, struct Gpio*);
+    bool value = !!va_arg(args, int);
+
+    gpioSet(gpio, value);
 }
 
 static void osExpApiI2cMstReq(uintptr_t *retValP, va_list args)
@@ -312,7 +373,13 @@ void osApiExport(struct SlabAllocator *mainSlubAllocator)
     static const struct SyscallTable osDrvGpioTable = {
         .numEntries = SYSCALL_OS_DRV_GPIO_LAST,
         .entry = {
-            /* more eventually */
+            [SYSCALL_OS_DRV_GPIO_REQ]     = { .func = osExpApiGpioReq,    },
+            [SYSCALL_OS_DRV_GPIO_REL]     = { .func = osExpApiGpioRel,    },
+            [SYSCALL_OS_DRV_GPIO_CFG_IN]  = { .func = osExpApiGpioCfgIn,  },
+            [SYSCALL_OS_DRV_GPIO_CFG_OUT] = { .func = osExpApiGpioCfgOut, },
+            [SYSCALL_OS_DRV_GPIO_CFG_ALT] = { .func = osExpApiGpioCfgAlt, },
+            [SYSCALL_OS_DRV_GPIO_GET]     = { .func = osExpApiGpioGet,    },
+            [SYSCALL_OS_DRV_GPIO_SET]     = { .func = osExpApiGpioSet,    },
         },
     };
 
