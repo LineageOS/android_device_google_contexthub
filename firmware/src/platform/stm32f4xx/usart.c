@@ -57,7 +57,7 @@ static bool mUsartHasFlowControl[] = {
     true,
 };
 
-static enum GpioAltFunc mUsartAlt[] = {
+static enum StmGpioAltFunc mUsartAlt[] = {
     GPIO_AF_USART1,
     GPIO_AF_USART2,
     GPIO_AF00,
@@ -67,7 +67,7 @@ static enum GpioAltFunc mUsartAlt[] = {
 };
 
 void usartOpen(struct usart* __restrict usart, UsartPort port,
-                GpioNum tx, GpioNum rx,
+                uint32_t txGpioNum, uint32_t rxGpioNum,
                 uint32_t baud, UsartDataBitsCfg data_bits,
                 UsatStopBitsCfg stop_bits, UsartParityCfg parity,
                 UsartFlowControlCfg flow_control)
@@ -81,9 +81,9 @@ void usartOpen(struct usart* __restrict usart, UsartPort port,
 
     /* configure tx/rx gpios */
 
-    usart->rx = gpioRequest(rx); /* rx */
+    usart->rx = gpioRequest(rxGpioNum); /* rx */
     gpioConfigAlt(usart->rx, GPIO_SPEED_LOW, GPIO_PULL_UP, GPIO_OUT_PUSH_PULL, mUsartAlt[port]);
-    usart->tx = gpioRequest(tx); /* tx */
+    usart->tx = gpioRequest(txGpioNum); /* tx */
     gpioConfigAlt(usart->tx, GPIO_SPEED_LOW, GPIO_PULL_UP, GPIO_OUT_PUSH_PULL, mUsartAlt[port]);
 
     /* enable clock */

@@ -13,13 +13,13 @@ struct StmSpiDmaCfg {
 };
 
 struct StmSpiBoardCfg {
-    GpioNum gpioMiso;
-    GpioNum gpioMosi;
-    GpioNum gpioSclk;
-    GpioNum gpioNss;
+    uint8_t gpioMiso;
+    uint8_t gpioMosi;
+    uint8_t gpioSclk;
+    uint8_t gpioNss;
 
-    enum GpioAltFunc gpioFunc;
-    enum GpioSpeed gpioSpeed;
+    enum StmGpioAltFunc gpioFunc;
+    enum StmGpioSpeed gpioSpeed;
     enum GpioPullMode gpioPull;
 
     IRQn_Type irqNss;

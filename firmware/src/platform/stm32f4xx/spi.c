@@ -98,23 +98,21 @@ struct StmSpiDev {
     struct Gpio *nss;
 };
 
-static inline struct Gpio *stmSpiGpioInit(GpioNum number, enum GpioSpeed speed, enum GpioAltFunc func)
+static inline struct Gpio *stmSpiGpioInit(uint32_t gpioNum, enum StmGpioSpeed speed, enum StmGpioAltFunc func)
 {
-    struct Gpio *gpio = gpioRequest(number);
+    struct Gpio *gpio = gpioRequest(gpioNum);
     gpioConfigAlt(gpio, speed, GPIO_PULL_NONE, GPIO_OUT_PUSH_PULL, func);
 
     return gpio;
 }
 
-static inline void stmSpiDataPullMode(struct StmSpiDev *pdev,
-        enum GpioSpeed dataSpeed, enum GpioPullMode dataPull)
+static inline void stmSpiDataPullMode(struct StmSpiDev *pdev, enum StmGpioSpeed dataSpeed, enum GpioPullMode dataPull)
 {
     gpioConfigAlt(pdev->miso, dataSpeed, dataPull, GPIO_OUT_PUSH_PULL, pdev->board->gpioFunc);
     gpioConfigAlt(pdev->mosi, dataSpeed, dataPull, GPIO_OUT_PUSH_PULL, pdev->board->gpioFunc);
 }
 
-static inline void stmSpiSckPullMode(struct StmSpiDev *pdev,
-        enum GpioSpeed sckSpeed, enum GpioPullMode sckPull)
+static inline void stmSpiSckPullMode(struct StmSpiDev *pdev, enum StmGpioSpeed sckSpeed, enum GpioPullMode sckPull)
 {
     gpioConfigAlt(pdev->sck, sckSpeed, sckPull, GPIO_OUT_PUSH_PULL, pdev->board->gpioFunc);
 }
