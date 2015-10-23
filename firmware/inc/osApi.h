@@ -35,7 +35,14 @@ union OsApiSlabItem { //main OS "things" slab must fit this
 
 //level 3 indices in the OS.drivers.gpio table
 /* more thing here eventually */
-#define SYSCALL_OS_DRV_GPIO_LAST          0 // always last. holes are allowed, but not immediately before this
+#define SYSCALL_OS_DRV_GPIO_REQ           0 // (uint32_t gpioNum) -> void* handle
+#define SYSCALL_OS_DRV_GPIO_REL           1 // (handle) -> void
+#define SYSCALL_OS_DRV_GPIO_CFG_IN        2 // (handle, i32 gpioSpeed, GpioPullMode pull) -> void
+#define SYSCALL_OS_DRV_GPIO_CFG_OUT       3 // (handle, i32 gpioSpeed, GpioPullMode pull, GpioOpenDrainMode output, bool value) -> void
+#define SYSCALL_OS_DRV_GPIO_CFG_ALT       4 // (handle, i32 gpioSpeed, GpioPullMode pull, GpioOpenDrainMode output, u32 altFunc) -> void
+#define SYSCALL_OS_DRV_GPIO_GET           5 // (handle) -> bool isHigh
+#define SYSCALL_OS_DRV_GPIO_SET           6 // (handle, bool value) -> void
+#define SYSCALL_OS_DRV_GPIO_LAST          7 // always last. holes are allowed, but not immediately before this
 
 //level 3 indices in the OS.drivers.i2cM table
 #define SYSCALL_OS_DRV_I2CM_REQ           0 // (I2cBus busId, I2cSpeed speed) -> int status
