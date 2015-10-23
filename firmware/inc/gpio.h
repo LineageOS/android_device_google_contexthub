@@ -53,8 +53,8 @@ void gpioRelease(struct Gpio* __restrict gpio);
 
 /* Configures the direction and pull type of a GPIO */
 void gpioConfigInput(const struct Gpio* __restrict gpio, int32_t gpioSpeed, enum GpioPullMode pull);
-void gpioConfigOutput(const struct Gpio* __restrict gpio, int32_t gpioSpeed, enum GpioPullMode pull, enum GpioOpenDrainMode output, bool value);
-void gpioConfigAlt(const struct Gpio* __restrict gpio, int32_t gpioSpeed, enum GpioPullMode pull, enum GpioOpenDrainMode output, uint32_t altFunc);
+void gpioConfigOutput(const struct Gpio* __restrict gpio, int32_t gpioSpeed, enum GpioPullMode pull, enum GpioOpenDrainMode odrMode, bool value);
+void gpioConfigAlt(const struct Gpio* __restrict gpio, int32_t gpioSpeed, enum GpioPullMode pull, enum GpioOpenDrainMode odrMode, uint32_t altFunc);
 
 /* Sets and gets a value for a specific GPIO pin */
 void gpioSet(const struct Gpio* __restrict gpio, bool value);
