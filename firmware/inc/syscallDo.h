@@ -183,6 +183,46 @@ static inline void eOsGpioSet(const struct Gpio* __restrict gpio, bool value)
     syscallDo2P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_DRIVERS, SYSCALL_OS_DRV_GPIO, SYSCALL_OS_DRV_GPIO_SET), gpio, value);
 }
 
+static inline int oEsI2cMasterRequest(uint32_t busId, uint32_t speedInHz)
+{
+    return syscallDo2P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_DRIVERS, SYSCALL_OS_DRV_I2C_MASTER, SYSCALL_OS_DRV_I2CM_REQ), busId, speedInHz);
+}
+
+static inline int oEsI2cMasterRelease(uint32_t busId)
+{
+    return syscallDo1P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_DRIVERS, SYSCALL_OS_DRV_I2C_MASTER, SYSCALL_OS_DRV_I2CM_REL), busId);
+}
+
+static inline int oEsI2cMasterTxRx(uint32_t busId, uint32_t addr, const void *txBuf, size_t txSize, void *rxBuf, size_t rxSize, uint32_t cbkTid, void *cookie)
+{
+    return syscallDoGeneric(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_DRIVERS, SYSCALL_OS_DRV_I2C_MASTER, SYSCALL_OS_DRV_I2CM_TXRX), busId, addr, txBuf, txSize, rxBuf, rxSize, cbkTid, cookie);
+}
+
+static inline int oEsI2cSlaveRequest(uint32_t busId, uint32_t addr)
+{
+    return syscallDo2P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_DRIVERS, SYSCALL_OS_DRV_I2C_SLAVE, SYSCALL_OS_DRV_I2CS_REQ), busId, addr);
+}
+
+static inline int oEsI2cSlaveRelease(uint32_t busId)
+{
+    return syscallDo1P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_DRIVERS, SYSCALL_OS_DRV_I2C_SLAVE, SYSCALL_OS_DRV_I2CS_REL), busId);
+}
+
+static inline void oEsI2cSlaveEnableRx(uint32_t busId, void *rxBuf, size_t rxSize, uint32_t cbkTid, void *cookie)
+{
+    syscallDo5P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_DRIVERS, SYSCALL_OS_DRV_I2C_SLAVE, SYSCALL_OS_DRV_I2CS_RX_EN), busId, rxBuf, rxSize, cbkTid, cookie);
+}
+
+static inline int oEsI2cSlaveTxPreamble(uint32_t busId, uint8_t byte, uint32_t cbkTid, void *cookie)
+{
+    return syscallDo4P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_DRIVERS, SYSCALL_OS_DRV_I2C_SLAVE, SYSCALL_OS_DRV_I2CS_TX_PRE), busId, byte, cbkTid, cookie);
+}
+
+static inline int oEsI2cSlaveTxPacket(uint32_t busId, const void *txBuf, size_t txSize, uint32_t cbkTid, void *cookie)
+{
+    return syscallDo5P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_DRIVERS, SYSCALL_OS_DRV_I2C_SLAVE, SYSCALL_OS_DRV_I2CS_TX_PKT), busId, txBuf, txSize, cbkTid, cookie);
+}
+
 
 
 
