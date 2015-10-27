@@ -5,6 +5,7 @@
 #include <plat/inc/rtc.h>
 #include <plat/inc/syscfg.h>
 #include <hostIntf.h>
+#include <nanohubPacket.h>
 
 #include <seos.h>
 #include <accelerometer.h>
@@ -41,7 +42,7 @@ struct OrientationTask {
     struct Fusion fusion;
 
     struct OrientationSensorSample samples[3][MAX_NUM_SAMPLES];
-    struct TrippleAxisDataEvent *ev;
+    struct TripleAxisDataEvent *ev;
     size_t sample_indices[3];
     size_t sample_counts[3];
 
@@ -82,7 +83,8 @@ static const struct SensorInfo mSi =
     "Orientation",
     OrientationRates,
     SENS_TYPE_ORIENTATION,
-    {3}
+    NUM_AXIS_THREE,
+    { NANOHUB_INT_NONWAKEUP }
 };
 
 static uint64_t mCnt = 0;
@@ -95,7 +97,7 @@ static void dataEvtFree(void *ptr)
 }
 
 // index 0: accel; 1: gyro; 2: mag.
-static void fillSamples(struct TrippleAxisDataEvent *ev, int index)
+static void fillSamples(struct TripleAxisDataEvent *ev, int index)
 {
     size_t i, sampleCnt;
 
@@ -108,7 +110,7 @@ static void fillSamples(struct TrippleAxisDataEvent *ev, int index)
 
     sampleCnt = ev->samples[0].deltaTime;
     if (sampleCnt >= MAX_NUM_SAMPLES) {
-        struct TrippleAxisDataPoint *sample;
+        struct TripleAxisDataPoint *sample;
         // Copy the last MAX_NUM_SAMPLES samples over and reset the sample index.
         mTask.sample_indices[index] = 0;
         mTask.sample_counts[index] = MAX_NUM_SAMPLES;
@@ -125,7 +127,7 @@ static void fillSamples(struct TrippleAxisDataEvent *ev, int index)
         }
 
     } else {
-        struct TrippleAxisDataPoint *sample;
+        struct TripleAxisDataPoint *sample;
         size_t n = mTask.sample_counts[index];
         size_t start = (mTask.sample_indices[index] + n) % MAX_NUM_SAMPLES;
 
@@ -173,7 +175,7 @@ static void fillSamples(struct TrippleAxisDataEvent *ev, int index)
 
 static void addSample(uint64_t time, float x, float y, float z)
 {
-    struct TrippleAxisDataPoint *sample;
+    struct TripleAxisDataPoint *sample;
     uint32_t deltaTime;
 
     if (mTask.ev == NULL) {
@@ -206,7 +208,7 @@ static void addSample(uint64_t time, float x, float y, float z)
     sample->z = z;
 
     if (mTask.ev->samples[0].deltaTime == MAX_NUM_COMMS_EVENT_SAMPLES) {
-        osEnqueueEvt(EVT_SENSOR_ORIENTATION_DATA_RDY, mTask.ev, dataEvtFree, false);
+        osEnqueueEvt(EVT_SENSOR_ORIENTATION_DATA_RDY, mTask.ev, dataEvtFree);
         mTask.ev = NULL;
     }
 }
@@ -397,9 +399,9 @@ static bool orientationPower(bool on)
         osEventUnsubscribe(mTask.tid, EVT_SENSOR_GYR_DATA_RDY);
         osEventUnsubscribe(mTask.tid, EVT_SENSOR_MAG_DATA_RDY);
 
-        osEnqueueEvt(EVT_SENSOR_ACC_CONFIG, &mImuConfig, NULL, false);
-        osEnqueueEvt(EVT_SENSOR_GYR_CONFIG, &mImuConfig, NULL, false);
-        osEnqueueEvt(EVT_SENSOR_MAG_CONFIG, &mImuConfig, NULL, false);
+        osEnqueueEvt(EVT_SENSOR_ACC_CONFIG, &mImuConfig, NULL);
+        osEnqueueEvt(EVT_SENSOR_GYR_CONFIG, &mImuConfig, NULL);
+        osEnqueueEvt(EVT_SENSOR_MAG_CONFIG, &mImuConfig, NULL);
     }
 
     sensorSignalInternalEvt(mTask.handle, SENSOR_INTERNAL_EVT_POWER_STATE_CHG, on, 0);
@@ -412,9 +414,9 @@ static bool orientationSetRate(uint32_t rate, uint64_t latency)
     mTask.rate = rate;
     mTask.latency = latency;
 
-    osEnqueueEvt(EVT_SENSOR_ACC_CONFIG, &mImuConfig, NULL, false);
-    osEnqueueEvt(EVT_SENSOR_GYR_CONFIG, &mImuConfig, NULL, false);
-    osEnqueueEvt(EVT_SENSOR_MAG_CONFIG, &mImuConfig, NULL, false);
+    osEnqueueEvt(EVT_SENSOR_ACC_CONFIG, &mImuConfig, NULL);
+    osEnqueueEvt(EVT_SENSOR_GYR_CONFIG, &mImuConfig, NULL);
+    osEnqueueEvt(EVT_SENSOR_MAG_CONFIG, &mImuConfig, NULL);
 
     return true;
 }
@@ -445,7 +447,7 @@ static void config(struct ConfigStat *orientation_config)
 static void orientationHandleEvent(uint32_t evtType, const void* evtData)
 {
     struct ConfigStat *configCmd;
-    struct TrippleAxisDataEvent *ev;
+    struct TripleAxisDataEvent *ev;
 
     switch (evtType) {
         case EVT_SENSOR_ORIENTATION_CONFIG:
@@ -455,15 +457,15 @@ static void orientationHandleEvent(uint32_t evtType, const void* evtData)
             config(configCmd);
             break;
         case EVT_SENSOR_ACC_DATA_RDY:
-            ev = (struct TrippleAxisDataEvent *)evtData;
+            ev = (struct TripleAxisDataEvent *)evtData;
             fillSamples(ev, 0);
             drainSamples();
         case EVT_SENSOR_GYR_DATA_RDY:
-            ev = (struct TrippleAxisDataEvent *)evtData;
+            ev = (struct TripleAxisDataEvent *)evtData;
             fillSamples(ev, 1);
             drainSamples();
         case EVT_SENSOR_MAG_DATA_RDY:
-            ev = (struct TrippleAxisDataEvent *)evtData;
+            ev = (struct TripleAxisDataEvent *)evtData;
             fillSamples(ev, 2);
             drainSamples();
             break;
@@ -509,8 +511,8 @@ static bool orientationStart(uint32_t tid)
     mTask.active = false;
     mTask.latency = 0;
 
-    slabSize = sizeof(struct TrippleAxisDataEvent)
-        + MAX_NUM_COMMS_EVENT_SAMPLES * sizeof(struct TrippleAxisDataPoint);
+    slabSize = sizeof(struct TripleAxisDataEvent)
+        + MAX_NUM_COMMS_EVENT_SAMPLES * sizeof(struct TripleAxisDataPoint);
     mDataSlab = slabAllocatorNew(slabSize, 4, 10); // 10 slots for now..
 
     osEventSubscribe(mTask.tid, EVT_SENSOR_ORIENTATION_CONFIG);

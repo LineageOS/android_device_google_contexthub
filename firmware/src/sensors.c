@@ -48,6 +48,8 @@ ATOMIC_BITSET_DECL(mSensorsUsed, MAX_REGISTERED_SENSORS, static);
 static struct SlabAllocator *mInternalEvents;
 static struct SlabAllocator *mCliSensMatrix;
 static uint32_t mNextSensorHandle;
+struct SingleAxisDataEvent singleAxisFlush = { .referenceTime = 0 };
+struct TripleAxisDataEvent tripleAxisFlush = { .referenceTime = 0 };
 
 
 

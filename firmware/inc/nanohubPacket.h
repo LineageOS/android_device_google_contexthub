@@ -126,6 +126,7 @@ struct NanohubGetInterruptResponse {
 #define NANOHUB_REASON_READ_EVENT             0x00001090
 
 struct NanohubReadEventRequest {
+    __le64 apBootTime;
 } __attribute__((packed));
 
 struct NanohubReadEventResponse {

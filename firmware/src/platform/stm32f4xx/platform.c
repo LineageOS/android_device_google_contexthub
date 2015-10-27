@@ -120,7 +120,7 @@ void platLogFlush(void *userData)
 {
 #if defined(DEBUG_LOG_EVT)
     if (userData) {
-        if (!osEnqueueEvt(EVENT_TYPE_BIT_DISCARDABLE | DEBUG_LOG_EVT, userData, heapFree, true))
+        if (!osEnqueueEvt(EVENT_TYPE_BIT_DISCARDABLE | DEBUG_LOG_EVT, userData, heapFree))
             heapFree(userData);
         else
             hostIntfSetInterrupt(NANOHUB_INT_NONWAKEUP);

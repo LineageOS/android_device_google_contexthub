@@ -13,7 +13,10 @@
 #include <util.h>
 #include <mpu.h>
 #include <heap.h>
+#include <sensType.h>
+#include <timer.h>
 #include <plat/inc/bl.h>
+#include <variant/inc/variant.h>
 
 #define NANOHUB_COMMAND(_reason, _handler, _minReqType, _maxReqType) \
         { .reason = _reason, .handler = _handler, \
@@ -159,23 +162,39 @@ static size_t hostIntfGetInterrupt(void *rx, uint8_t rx_len, void *tx)
     return sizeof(*resp);
 }
 
+struct EvtPacket
+{
+    uint64_t timestamp;
+    uint8_t data[];
+};
+
 static size_t hostIntfReadEvent(void *rx, uint8_t rx_len, void *tx)
 {
+    struct NanohubReadEventRequest *req = rx;
     struct NanohubReadEventResponse *resp = tx;
-    uint8_t length = 0;
-    TaggedPtr evtFreeInfo;
-    uint32_t evtType;
-    void *evtData;
-    uint8_t *packet;
+    int length, sensor;
+    struct EvtPacket *packet;
+    uint64_t currTime = timGetTime();
 
-    if (osDequeueExtEvt(&evtType, &evtData, &evtFreeInfo)) {
-        packet = (uint8_t *)evtData;
-        length = sizeof(resp->evtType) + *packet;
-        resp->evtType = htole32(evtType);
-        memcpy(resp->evtData, packet+1, length);
+    if (hostIntfPacketDequeue((void **)&packet, &length, &sensor)) {
+        length += sizeof(resp->evtType);
+        // TODO combine messages if multiple can fit in a single packet
+        if (sensor == SENS_TYPE_INVALID) {
+#ifdef DEBUG_LOG_EVT
+            resp->evtType = DEBUG_LOG_EVT;
+#else
+            resp->evtType = 0x00000000;
+#endif
+        } else {
+            resp->evtType = htole32(EVT_NO_FIRST_SENSOR_EVENT + sensor);
+            if (packet->timestamp != 0ull)
+                packet->timestamp += req->apBootTime - currTime;
+        }
+        memcpy(resp->evtData, packet, length);
 
-        if (evtFreeInfo)
-            ((EventFreeF)(taggedPtrToPtr(evtFreeInfo)))(evtData); //this is a bad hack that *WILL* break soon. Good!
+        hostIntfPacketFree(packet);
+    } else {
+        length = 0;
     }
 
     return length;
@@ -188,7 +207,7 @@ static size_t hostIntfWriteEvent(void *rx, uint8_t rx_len, void *tx)
     uint8_t *packet = heapAlloc(rx_len - sizeof(req->evtType));
 
     memcpy(packet, req->evtData, rx_len - sizeof(req->evtType));
-    resp->accepted = osEnqueueEvt(le32toh(req->evtType), packet, heapFree, false);
+    resp->accepted = osEnqueueEvt(le32toh(req->evtType), packet, heapFree);
     if (!resp->accepted)
         heapFree(packet);
 

@@ -110,8 +110,8 @@ enum MeasurementTime {
 
 struct SensorSample
 {
-    uint64_t time;
-    float sample;
+    uint64_t referenceTime;
+    struct SingleAxisDataPoint samples[1];
 } __attribute__((packed));
 
 struct SensorData
@@ -145,8 +145,6 @@ struct SensorData
     uint16_t proxHead;
     uint16_t proxPrev;
     struct SensorSample *proxFIFO;
-
-    struct SensorSample flush;
 } data;
 
 static const uint32_t supportedRates[] =
@@ -245,7 +243,7 @@ static bool sensorRateAls(uint32_t rate, uint64_t latency)
     if (data.alsTimerHandle)
         timTimerCancel(data.alsTimerHandle);
     data.alsTimerHandle = timTimerSet(1024000000000ULL / rate, 0, 50, alsTimerCallback, NULL, false);
-    data.alsFIFO[data.alsPrev].sample = -FLT_MAX;
+    data.alsFIFO[data.alsPrev].samples[0].fdata = -FLT_MAX;
     osEnqueuePrivateEvt(EVT_SENSOR_ALS_TIMER, NULL, NULL, data.tid);
     sensorSignalInternalEvt(data.alsHandle, SENSOR_INTERNAL_EVT_RATE_CHG, rate, latency);
     return true;
@@ -253,7 +251,7 @@ static bool sensorRateAls(uint32_t rate, uint64_t latency)
 
 static bool sensorFlushAls()
 {
-    return osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_ALS), &data.flush, NULL, false);
+    return osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_ALS), SENSOR_DATA_EVENT_FLUSH, NULL);
 }
 
 static bool sensorPowerProx(bool on)
@@ -277,7 +275,7 @@ static bool sensorRateProx(uint32_t rate, uint64_t latency)
     if (data.proxTimerHandle)
         timTimerCancel(data.proxTimerHandle);
     data.proxTimerHandle = timTimerSet(1024000000000ULL / rate, 0, 50, proxTimerCallback, NULL, false);
-    data.proxFIFO[data.proxPrev].sample = -FLT_MAX;
+    data.proxFIFO[data.proxPrev].samples[0].fdata = -FLT_MAX;
     osEnqueuePrivateEvt(EVT_SENSOR_PROX_TIMER, NULL, NULL, data.tid);
     sensorSignalInternalEvt(data.proxHandle, SENSOR_INTERNAL_EVT_RATE_CHG, rate, latency);
     return true;
@@ -285,7 +283,7 @@ static bool sensorRateProx(uint32_t rate, uint64_t latency)
 
 static bool sensorFlushProx()
 {
-    return osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_PROX), &data.flush, NULL, false);
+    return osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_PROX), SENSOR_DATA_EVENT_FLUSH, NULL);
 }
 
 static const struct SensorInfo sensorInfoAls =
@@ -426,30 +424,30 @@ static void handle_i2c_event(void)
 
         if (data.alsOn && data.alsReading) {
             /* Create event */
-            data.alsFIFO[data.alsHead].time = data.sampleTimeNs;
-            data.alsFIFO[data.alsHead].sample = getLuxFromAlsData(data.txrxBuf.sample.als[0],
+            data.alsFIFO[data.alsHead].referenceTime = data.sampleTimeNs;
+            data.alsFIFO[data.alsHead].samples[0].fdata = getLuxFromAlsData(data.txrxBuf.sample.als[0],
                                                                data.txrxBuf.sample.als[1]);
-            if (memcmp(&data.alsFIFO[data.alsHead].sample, &data.alsFIFO[data.alsPrev].sample, sizeof(float)) != 0) {
-                osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_ALS), &data.alsFIFO[data.alsHead], sensorAlsFree, false);
+            if (data.alsFIFO[data.alsHead].samples[0].idata != data.alsFIFO[data.alsPrev].samples[0].idata) {
+                osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_ALS), &data.alsFIFO[data.alsHead], sensorAlsFree);
                 data.alsPrev = data.alsHead;
                 data.alsHead = (data.alsHead + 1) % MAX_FIFO_SIZE_ALS;
-                hostIntfSetInterrupt(/*NANOHUB_INT_NONWAKEUP*/NANOHUB_INT_WAKEUP);
             }
         }
 
         if (data.proxOn && data.proxReading) {
             /* Create event */
-            data.proxFIFO[data.proxHead].time = data.sampleTimeNs;
+            data.proxFIFO[data.proxHead].referenceTime = data.sampleTimeNs;
             if (data.txrxBuf.sample.prox > ROHM_RPR0521_THRESHOLD_ASSERT_NEAR) {
-                data.proxFIFO[data.proxHead].sample = ROHM_RPR0521_REPORT_NEAR_VALUE;
+                data.proxFIFO[data.proxHead].samples[0].numSamples = 1;
+                data.proxFIFO[data.proxHead].samples[0].fdata = ROHM_RPR0521_REPORT_NEAR_VALUE;
             } else {
-                data.proxFIFO[data.proxHead].sample = ROHM_RPR0521_REPORT_FAR_VALUE;
+                data.proxFIFO[data.proxHead].samples[0].numSamples = 1;
+                data.proxFIFO[data.proxHead].samples[0].fdata = ROHM_RPR0521_REPORT_FAR_VALUE;
             }
-            if (memcmp(&data.proxFIFO[data.proxHead].sample, &data.proxFIFO[data.proxPrev].sample, sizeof(float)) != 0) {
-                osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_PROX), &data.proxFIFO[data.proxHead], sensorProxFree, false);
+            if (data.proxFIFO[data.proxHead].samples[0].idata != data.proxFIFO[data.proxPrev].samples[0].idata) {
+                osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_PROX), &data.proxFIFO[data.proxHead], sensorProxFree);
                 data.proxPrev = data.proxHead;
                 data.proxHead = (data.proxHead + 1) % MAX_FIFO_SIZE_PROX;
-                hostIntfSetInterrupt(NANOHUB_INT_WAKEUP);
             }
         }
 
@@ -481,14 +479,12 @@ static bool init_app(uint32_t myTid)
     data.alsHead = 0;
     data.alsPrev = MAX_FIFO_SIZE_ALS - 1;
     data.alsFIFO = heapAlloc(MAX_FIFO_SIZE_ALS * sizeof(struct SensorSample));
-    data.alsFIFO[data.alsPrev].sample = -FLT_MAX;
+    data.alsFIFO[data.alsPrev].samples[0].fdata = -FLT_MAX;
 
     data.proxHead = 0;
     data.proxPrev = MAX_FIFO_SIZE_PROX - 1;
     data.proxFIFO = heapAlloc(MAX_FIFO_SIZE_PROX * sizeof(struct SensorSample));
-    data.proxFIFO[data.proxPrev].sample = -FLT_MAX;
-
-    memset(&data.flush, 0x00, sizeof(data.flush));
+    data.proxFIFO[data.proxPrev].samples[0].fdata = -FLT_MAX;
 
     /* Register sensors */
     data.alsHandle = sensorRegister(&sensorInfoAls, &sensorOpsAls);

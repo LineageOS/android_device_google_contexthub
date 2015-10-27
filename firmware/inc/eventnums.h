@@ -6,6 +6,7 @@
 /* These define ranges of reserved events */
 #define EVT_NO_FIRST_USER_EVENT          0x00000100    //all events lower than this are reserved for the OS. all of them are nondiscardable necessarily!
 #define EVT_NO_FIRST_SENSOR_EVENT        0x00000200    //sensor type SENSOR_TYPE_x produces events of type EVT_NO_FIRST_SENSOR_EVENT + SENSOR_TYPE_x for all Google-defined sensors
+#define EVT_NO_SENSOR_CONFIG_EVENT       0x00000300    //event to configure sensors
 #define EVT_NO_FIRST_SENSOR_CONFIG_EVENT 0x00000300    //events to configure sensors
 #define EVT_APP_START                    0x00000400    //sent when an app can actually start
 

@@ -37,6 +37,7 @@ extern "C" {
 #define SENS_TYPE_HALL            29
 #define SENS_TYPE_ACTIVITY        30
 #define SENS_TYPE_FIRST_USER      64
+#define SENS_TYPE_LAST_USER      128
 
 #ifdef __cplusplus
 }
