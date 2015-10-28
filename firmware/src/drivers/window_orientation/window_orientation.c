@@ -5,6 +5,7 @@
 #include <plat/inc/rtc.h>
 #include <plat/inc/syscfg.h>
 #include <hostIntf.h>
+#include <nanohubPacket.h>
 
 #include <seos.h>
 #include <accelerometer.h>
@@ -85,7 +86,7 @@ struct WindowOrientationTask {
     uint64_t latency;
 
     uint64_t last_filtered_time;
-    struct TrippleAxisDataPoint last_filtered_sample;
+    struct TripleAxisDataPoint last_filtered_sample;
 
     uint64_t tilt_reference_time;
     uint64_t accelerating_time;
@@ -118,7 +119,8 @@ static const struct SensorInfo mSi =
     "Window Orientation",
     window_orientation_rates,
     SENS_TYPE_WIN_ORIENTATION,
-    {1}
+    NUM_AXIS_ONE,
+    { NANOHUB_INT_WAKEUP }
 };
 
 static bool isTiltAngleAcceptable(int rotation, int8_t tilt_angle)
@@ -322,7 +324,7 @@ static bool isSwinging(uint64_t now, int8_t tilt)
     return false;
 }
 
-static bool add_samples(struct TrippleAxisDataEvent *ev)
+static bool add_samples(struct TripleAxisDataEvent *ev)
 {
     float x, y, z;
 
@@ -344,7 +346,7 @@ static bool add_samples(struct TrippleAxisDataEvent *ev)
         else
             now = ev->referenceTime + ev->samples[i].deltaTime;
 
-        struct TrippleAxisDataPoint *last_sample = &mTask.last_filtered_sample;
+        struct TripleAxisDataPoint *last_sample = &mTask.last_filtered_sample;
         uint64_t then = mTask.last_filtered_time;
         uint64_t time_delta = now - then;
 
@@ -501,7 +503,7 @@ static bool windowOrientationPower(bool on)
         mTask.active = false;
 
         osEventUnsubscribe(mTask.tid, EVT_SENSOR_ACC_DATA_RDY);
-        osEnqueueEvt(EVT_SENSOR_ACC_CONFIG, &mAccelConfig, NULL, false);
+        osEnqueueEvt(EVT_SENSOR_ACC_CONFIG, &mAccelConfig, NULL);
     }
 
     sensorSignalInternalEvt(mTask.handle, SENSOR_INTERNAL_EVT_POWER_STATE_CHG, on, 0);
@@ -515,7 +517,7 @@ static bool windowOrientationSetRate(uint32_t rate, uint64_t latency)
     mTask.latency = latency;
 
     osLog(LOG_INFO, "SENDING TO ACCEL TO ACTIVATE\n");
-    osEnqueueEvt(EVT_SENSOR_ACC_CONFIG, &mAccelConfig, NULL, false);
+    osEnqueueEvt(EVT_SENSOR_ACC_CONFIG, &mAccelConfig, NULL);
 
     return true;
 }
@@ -544,7 +546,7 @@ static void config(struct ConfigStat *configCmd)
 static void windowOrientationHandleEvent(uint32_t evtType, const void* evtData)
 {
     struct ConfigStat *configCmd;
-    struct TrippleAxisDataEvent *ev;
+    struct TripleAxisDataEvent *ev;
 
     switch (evtType) {
         case EVT_SENSOR_WINDOW_ORIENTATION_CONFIG:
@@ -555,7 +557,7 @@ static void windowOrientationHandleEvent(uint32_t evtType, const void* evtData)
             config(configCmd);
             break;
         case EVT_SENSOR_ACC_DATA_RDY:
-            ev = (struct TrippleAxisDataEvent *)evtData;
+            ev = (struct TripleAxisDataEvent *)evtData;
             bool rotation_changed = add_samples(ev);
 
             if (rotation_changed) {
@@ -563,7 +565,7 @@ static void windowOrientationHandleEvent(uint32_t evtType, const void* evtData)
                 osLog(LOG_INFO, "     ********** rotation changed to ********: %d\n", (int)proposed_rotation);
 
                 // send a single int32 here so no memory alloc/free needed.
-                osEnqueueEvt(EVT_SENSOR_WIN_ORIENTATION_DATA_RDY, (void *)proposed_rotation, NULL, false);
+                osEnqueueEvt(EVT_SENSOR_WIN_ORIENTATION_DATA_RDY, (void *)proposed_rotation, NULL);
             }
             break;
         default:

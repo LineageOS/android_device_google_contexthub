@@ -13,16 +13,52 @@ extern "C" {
 
 #define MAX_REGISTERED_SENSORS  16 /* this may need to be revisted later */
 
-//data for accel/gyro/mag takes this form
-struct TrippleAxisDataPoint {
-    uint32_t deltaTime; //delta since last sample, for 0th sample this is "num samples"
+enum NumAxis {
+    NUM_AXIS_EMBEDDED = 0, // data = (uint32_t)evtData
+    NUM_AXIS_ONE = 1,      // data is in struct SingleAxisDataEvent format
+    NUM_AXIS_THREE = 3,    // data is in struct TripleAxisDataEvent format
+};
+
+// NUM_AXIS_EMBEDDED data format
+union EmbeddedDataPoint {
+    uint32_t idata;
+    float fdata;
+    void *vptr;
+};
+
+// NUM_AXIS_ONE data format
+struct SingleAxisDataPoint {
+    union {
+        uint32_t deltaTime; //delta since last sample, for 0th sample this is "num samples"
+        uint32_t numSamples;
+    };
+    union {
+        float fdata;
+        int idata;
+    };
+} __attribute__((packed));
+
+struct SingleAxisDataEvent {
+    uint64_t referenceTime;
+    struct SingleAxisDataPoint samples[];
+};
+
+// NUM_AXIS_THREE data format
+struct TripleAxisDataPoint {
+    union {
+        uint32_t deltaTime; //delta since last sample, for 0th sample this is "num samples"
+        uint32_t numSamples;
+    };
     float x, y, z;
 } __attribute__((packed));
 
-struct TrippleAxisDataEvent {
+struct TripleAxisDataEvent {
     uint64_t referenceTime;
-    struct TrippleAxisDataPoint samples[];
+    struct TripleAxisDataPoint samples[];
 };
+
+
+#define SENSOR_DATA_EVENT_FLUSH (void *)0xFFFFFFFF // flush for all data
 
 struct SensorSetRateEvent {
     uint64_t latency;
@@ -41,12 +77,13 @@ struct SensorOps {
 };
 
 struct SensorInfo {
-    const char *sensorName; /* sensors.c code doe snot use this */
+    const char *sensorName; /* sensors.c code does not use this */
     const uint32_t *supportedRates;
     uint8_t sensorType;
+    uint8_t numAxis; /* enum NumAxis */
     /* for some sensors more data may be relevant: */
     union {
-        uint8_t numAxes;
+        uint8_t interrupt; /* interrupt to generate to AP */
     };
 };
 
@@ -85,7 +122,7 @@ bool sensorSignalInternalEvt(uint32_t handle, uint32_t intEvtNum, uint32_t value
 
 
 /*
- * api for using sensors (enum is not synced with sensor sub/unusb, this is ok since we do not expect a lot of dynamic sub/unsub)
+ * api for using sensors (enum is not synced with sensor sub/unsub, this is ok since we do not expect a lot of dynamic sub/unsub)
  * client ID should almost always be your TID (as we have no other way to disambiguate them)
  */
 const struct SensorInfo* sensorFind(uint32_t sensorType, uint32_t idx, uint32_t *handleP); //enumerate all sensors of a type
@@ -103,4 +140,3 @@ uint64_t sensorGetCurLatency(uint32_t sensorHandle);
 #endif
 
 #endif
-

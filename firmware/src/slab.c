@@ -69,4 +69,14 @@ void* slabAllocatorGetNth(struct SlabAllocator *allocator, uint32_t idx)
     return allocator->dataChunks + allocator->itemSz * idx;
 }
 
+uint32_t slabAllocatorGetIndex(struct SlabAllocator *allocator, void* ptrP)
+{
+    uint8_t *ptr = (uint8_t*)ptrP;
+    uint32_t itemOffset = ptr - allocator->dataChunks;
+    uint32_t itemIdx = itemOffset / allocator->itemSz;
 
+    if ((itemOffset % allocator->itemSz) || (itemIdx >= atomicBitsetGetNumBits(allocator->bitset)) || !atomicBitsetGetBit(allocator->bitset, itemIdx))
+        return -1;
+
+    return itemIdx;
+}

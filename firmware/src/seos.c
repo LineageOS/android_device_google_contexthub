@@ -68,7 +68,7 @@ union InternalThing {
 #define EVT_PRIVATE_EVT              0x00000003
 
 
-static struct EvtQueue *mEvtsInternal, *mEvtsExternal;
+static struct EvtQueue *mEvtsInternal;
 static struct SlabAllocator* mMiscInternalThingsSlab;
 static struct Task mTasks[MAX_TASKS];
 static uint32_t mNextTidInfo = FIRST_VALID_TID;
@@ -115,7 +115,7 @@ static void osInit(void)
     memset(mTasks, 0, sizeof(mTasks));
 
     /* create the queues */
-    if (!(mEvtsInternal = evtQueueAlloc(512, handleEventFreeing)) || !(mEvtsExternal = evtQueueAlloc(256, handleEventFreeing))) {
+    if (!(mEvtsInternal = evtQueueAlloc(512, handleEventFreeing))) {
         osLog(LOG_INFO, "events failed to init\n");
         return;
     }
@@ -300,7 +300,6 @@ static void osInternalEvtHandle(uint32_t evtType, void *evtData)
     }
 }
 
-
 void abort(void)
 {
     /* this is necessary for va_* funcs... */
@@ -320,13 +319,12 @@ void __attribute__((noreturn)) osMain(void)
     sensorsInit();
     syscallInit();
     osApiExport(mMiscInternalThingsSlab);
-    hostIntfRequest();
     apIntInit();
     cpuIntsOn();
     osStartTasks();
 
     //broadcast app start to all already-loaded apps
-    (void)osEnqueueEvt(EVT_APP_START, NULL, NULL, false);
+    (void)osEnqueueEvt(EVT_APP_START, NULL, NULL);
 
     while (true) {
 
@@ -344,8 +342,8 @@ void __attribute__((noreturn)) osMain(void)
                 if (!mTasks[i].subbedEvents) /* only check real tasks */
                     continue;
                 for (j = 0; j < mTasks[i].subbedEvtCount; j++) {
-                    if (mTasks[i].subbedEvents[j] == evtType) {
-                        cpuAppHandle(mTasks[i].appHdr, &mTasks[i].platInfo, evtType, evtData);
+                    if (mTasks[i].subbedEvents[j] == (evtType & ~EVENT_TYPE_BIT_DISCARDABLE)) {
+                        cpuAppHandle(mTasks[i].appHdr, &mTasks[i].platInfo, evtType & ~EVENT_TYPE_BIT_DISCARDABLE, evtData);
                         break;
                     }
                 }
@@ -371,7 +369,7 @@ static bool osEventSubscribeUnsubscribe(uint32_t tid, uint32_t evtType, bool sub
     act->evtSub.evt = evtType;
     act->evtSub.tid = tid;
 
-    if (osEnqueueEvt(sub ? EVT_SUBSCRIBE_TO_EVT : EVT_UNSUBSCRIBE_TO_EVT, act, osDeferredActionFreeF, false))
+    if (osEnqueueEvt(sub ? EVT_SUBSCRIBE_TO_EVT : EVT_UNSUBSCRIBE_TO_EVT, act, osDeferredActionFreeF))
         return true;
 
     slabAllocatorFree(mMiscInternalThingsSlab, act);
@@ -397,7 +395,7 @@ bool osDefer(OsDeferCbkF callback, void *cookie)
     act->deferred.callback = callback;
     act->deferred.cookie = cookie;
 
-    if (osEnqueueEvt(EVT_DEFERRED_CALLBACK, act, osDeferredActionFreeF, false))
+    if (osEnqueueEvt(EVT_DEFERRED_CALLBACK, act, osDeferredActionFreeF))
         return true;
 
     slabAllocatorFree(mMiscInternalThingsSlab, act);
@@ -415,7 +413,7 @@ static bool osEnqueuePrivateEvtEx(uint32_t evtType, void *evtData, TaggedPtr evt
     act->privateEvt.evtFreeInfo = evtFreeInfo;
     act->privateEvt.toTid = toTid;
 
-    if (osEnqueueEvt(EVT_PRIVATE_EVT, act, osDeferredActionFreeF, false))
+    if (osEnqueueEvt(EVT_PRIVATE_EVT, act, osDeferredActionFreeF))
         return true;
 
     slabAllocatorFree(mMiscInternalThingsSlab, act);
@@ -432,19 +430,14 @@ bool osEnqueuePrivateEvtAsApp(uint32_t evtType, void *evtData, uint32_t fromAppT
     return osEnqueuePrivateEvtEx(evtType, evtData, taggedPtrMakeFromUint(fromAppTid), toTid);
 }
 
-bool osEnqueueEvt(uint32_t evtType, void *evtData, EventFreeF evtFreeF, bool external)
+bool osEnqueueEvt(uint32_t evtType, void *evtData, EventFreeF evtFreeF)
 {
-    return evtQueueEnqueue(external ? mEvtsExternal : mEvtsInternal, evtType, evtData, taggedPtrMakeFromPtr(evtFreeF));
+    return evtQueueEnqueue(mEvtsInternal, evtType, evtData, taggedPtrMakeFromPtr(evtFreeF));
 }
 
-bool osEnqueueEvtAsApp(uint32_t evtType, void *evtData, uint32_t fromAppTid, bool external)
+bool osEnqueueEvtAsApp(uint32_t evtType, void *evtData, uint32_t fromAppTid)
 {
-    return evtQueueEnqueue(external ? mEvtsExternal : mEvtsInternal, evtType, evtData, taggedPtrMakeFromUint(fromAppTid));
-}
-
-bool osDequeueExtEvt(uint32_t *evtType, void **evtData, TaggedPtr *evtFreeInfoP)
-{
-    return evtQueueDequeue(mEvtsExternal, evtType, evtData, evtFreeInfoP, false);
+    return evtQueueEnqueue(mEvtsInternal, evtType, evtData, taggedPtrMakeFromUint(fromAppTid));
 }
 
 void osLogv(enum LogLevel level, const char *str, va_list vl)

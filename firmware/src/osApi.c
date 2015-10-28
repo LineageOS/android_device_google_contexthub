@@ -33,9 +33,8 @@ static void osExpApiEvtqEnqueue(uintptr_t *retValP, va_list args)
     uint32_t evtType = va_arg(args, uint32_t);
     void *evtData = va_arg(args, void*);
     uint32_t tid = va_arg(args, uint32_t);
-    bool external = !!va_arg(args, int);
 
-    *retValP = osEnqueueEvtAsApp(evtType, evtData, tid, external);
+    *retValP = osEnqueueEvtAsApp(evtType, evtData, tid);
 }
 
 static void osExpApiLogLogv(uintptr_t *retValP, va_list args)

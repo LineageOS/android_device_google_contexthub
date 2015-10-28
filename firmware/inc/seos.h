@@ -91,8 +91,8 @@ bool osEventUnsubscribe(uint32_t tid, uint32_t evtType);  /* async */
 bool osEnqueuePrivateEvt(uint32_t evtType, void *evtData, EventFreeF evtFreeF, uint32_t toTid);
 bool osEnqueuePrivateEvtAsApp(uint32_t evtType, void *evtData, uint32_t fromApp, uint32_t toTid);
 
-bool osEnqueueEvt(uint32_t evtType, void *evtData, EventFreeF evtFreeF, bool external);
-bool osEnqueueEvtAsApp(uint32_t evtType, void *evtData, uint32_t fromApp, bool external);
+bool osEnqueueEvt(uint32_t evtType, void *evtData, EventFreeF evtFreeF);
+bool osEnqueueEvtAsApp(uint32_t evtType, void *evtData, uint32_t fromApp);
 
 bool osDequeueExtEvt(uint32_t *evtType, void **evtData, TaggedPtr *evtFreeInfoP); // THIS FUNCTION VIOLATES MANY THINGS, IT WILL GO AWAY SOON, fo rnow it just gets weird "free info" data till it runs out of memory
 bool osDefer(OsDeferCbkF callback, void *cookie);

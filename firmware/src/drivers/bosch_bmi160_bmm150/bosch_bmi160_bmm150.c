@@ -227,7 +227,7 @@ enum MagConfigState {
 
 struct BMI160Sensor {
     struct ConfigStat pConfig; // pending config status request
-    struct TrippleAxisDataEvent *data_evt;
+    struct TripleAxisDataEvent *data_evt;
     uint32_t handle;
     uint32_t rate;
     uint64_t latency[2];
@@ -338,7 +338,8 @@ static const struct SensorInfo mSiAcc =
     "Accelerometer",
     AccRates,
     SENS_TYPE_ACCEL,
-    {3}
+    NUM_AXIS_THREE,
+    { NANOHUB_INT_NONWAKEUP }
 };
 
 static const struct SensorInfo mSiGyr =
@@ -346,7 +347,8 @@ static const struct SensorInfo mSiGyr =
     "Gyroscope",
     GyrRates,
     SENS_TYPE_GYRO,
-    {3}
+    NUM_AXIS_THREE,
+    { NANOHUB_INT_NONWAKEUP }
 };
 
 static const struct SensorInfo mSiMag =
@@ -354,12 +356,13 @@ static const struct SensorInfo mSiMag =
     "Magnetometer",
     MagRates,
     SENS_TYPE_MAG,
-    {3}
+    NUM_AXIS_THREE,
+    { NANOHUB_INT_NONWAKEUP }
 };
 
 static void dataEvtFree(void *ptr)
 {
-    struct TrippleAxisDataEvent *ev = (struct TrippleAxisDataEvent *)ptr;
+    struct TripleAxisDataEvent *ev = (struct TripleAxisDataEvent *)ptr;
     slabAllocatorFree(mDataSlab, ev);
 }
 
@@ -606,16 +609,16 @@ static void configInt1(bool on)
 {
     enum SensorIndex i;
     if (on && mTask.Int1_EN == false) {
-        enableInterrupt(&mTask.Int1, &mTask.Isr1);
-        enableInterrupt(&mTask.Int2, &mTask.Isr2); // XXX: testing
+        enableInterrupt(mTask.Int1, &mTask.Isr1);
+        enableInterrupt(mTask.Int2, &mTask.Isr2); // XXX: testing
         mTask.Int1_EN = true;
     } else if (!on && mTask.Int1_EN == true) {
         for (i = ACC_IDX; i < MAG_IDX; i++) {
             if (mTask.sensors[i].active[0] || mTask.sensors[i].active[1])
                 return;
         }
-        disableInterrupt(&mTask.Int1, &mTask.Isr1);
-        disableInterrupt(&mTask.Int2, &mTask.Isr2); // XXX: testing
+        disableInterrupt(mTask.Int1, &mTask.Isr1);
+        disableInterrupt(mTask.Int2, &mTask.Isr2); // XXX: testing
         mTask.Int1_EN = false;
     }
 }
@@ -836,7 +839,7 @@ static void parseRawData(struct BMI160Sensor *mSensor, int i, float kScale, uint
 {
     float x, y, z;
     int16_t raw_x, raw_y, raw_z;
-    struct TrippleAxisDataPoint *sample;
+    struct TripleAxisDataPoint *sample;
     uint32_t delta_time;
 
     raw_x = (mTask.rxBuffer[i] | mTask.rxBuffer[i+1] << 8);
@@ -911,11 +914,11 @@ static void parseRawData(struct BMI160Sensor *mSensor, int i, float kScale, uint
 
     if (mSensor->data_evt->samples[0].deltaTime == MAX_NUM_COMMS_EVENT_SAMPLES) {
         if (mSensor->idx == ACC_IDX) {
-            osEnqueueEvt(EVT_SENSOR_ACC_DATA_RDY, mSensor->data_evt, dataEvtFree, false);
+            osEnqueueEvt(EVT_SENSOR_ACC_DATA_RDY, mSensor->data_evt, dataEvtFree);
         } else if (mSensor->idx == GYR_IDX) {
-            osEnqueueEvt(EVT_SENSOR_GYR_DATA_RDY, mSensor->data_evt, dataEvtFree, false);
+            osEnqueueEvt(EVT_SENSOR_GYR_DATA_RDY, mSensor->data_evt, dataEvtFree);
         } else if (mSensor->idx == MAG_IDX) {
-            osEnqueueEvt(EVT_SENSOR_GYR_DATA_RDY, mSensor->data_evt, dataEvtFree, false);
+            osEnqueueEvt(EVT_SENSOR_GYR_DATA_RDY, mSensor->data_evt, dataEvtFree);
         }
         mSensor->data_evt = NULL;
     }
@@ -999,15 +1002,15 @@ static void dispatchData(void)
     // flush data events.
     //osLog(LOG_INFO, "Sending THE LLLAAAAST data_evt for all\n");
     if (mTask.sensors[ACC_IDX].data_evt != NULL) {
-        osEnqueueEvt(EVT_SENSOR_ACC_DATA_RDY, mTask.sensors[ACC_IDX].data_evt, dataEvtFree, false);
+        osEnqueueEvt(EVT_SENSOR_ACC_DATA_RDY, mTask.sensors[ACC_IDX].data_evt, dataEvtFree);
         mTask.sensors[ACC_IDX].data_evt = NULL;
     }
     if (mTask.sensors[GYR_IDX].data_evt != NULL) {
-        osEnqueueEvt(EVT_SENSOR_GYR_DATA_RDY, mTask.sensors[GYR_IDX].data_evt, dataEvtFree, false);
+        osEnqueueEvt(EVT_SENSOR_GYR_DATA_RDY, mTask.sensors[GYR_IDX].data_evt, dataEvtFree);
         mTask.sensors[GYR_IDX].data_evt = NULL;
     }
     if (mTask.sensors[MAG_IDX].data_evt != NULL) {
-        osEnqueueEvt(EVT_SENSOR_MAG_DATA_RDY, mTask.sensors[MAG_IDX].data_evt, dataEvtFree, false);
+        osEnqueueEvt(EVT_SENSOR_MAG_DATA_RDY, mTask.sensors[MAG_IDX].data_evt, dataEvtFree);
         mTask.sensors[MAG_IDX].data_evt = NULL;
     }
 }
@@ -1667,8 +1670,8 @@ static bool startTask(uint32_t task_id)
     mTask.mag_accuracy = 2;
     mTask.mag_accuracy_restore = 2;
 
-    slabSize = sizeof(struct TrippleAxisDataEvent) +
-        MAX_NUM_COMMS_EVENT_SAMPLES * sizeof(struct TrippleAxisDataPoint);
+    slabSize = sizeof(struct TripleAxisDataEvent) +
+        MAX_NUM_COMMS_EVENT_SAMPLES * sizeof(struct TripleAxisDataPoint);
 
     // each event has 15 samples, with 7 bytes per sample from the fifo.
     // the fifo size is 1K. Therefore, 10 slots.

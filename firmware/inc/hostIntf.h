@@ -10,13 +10,12 @@
 
 #define MAX_INTERRUPTS      256
 
-void hostIntfRequest(void);
-void hostIntfRelease(void);
-
 void hostIntfCopyClearInterrupts(struct AtomicBitset *dst, uint32_t numBits);
 void hostIntfSetInterrupt(uint32_t bit);
 void hostInfClearInterrupt(uint32_t bit);
 void hostIntfSetInterruptMask(uint32_t bit);
 void hostInfClearInterruptMask(uint32_t bit);
+void hostIntfPacketFree(void *ptr);
+bool hostIntfPacketDequeue(void **ptr, int *length, int *sensor);
 
 #endif /* __HOSTINTF_H */
