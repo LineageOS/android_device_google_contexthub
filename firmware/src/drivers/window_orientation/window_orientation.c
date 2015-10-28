@@ -15,6 +15,9 @@
 #include <sensors.h>
 #include <limits.h>
 
+#define ACCEL_MIN_RATE                  SENSOR_HZ(15) // 15 HZ
+#define ACCEL_MAX_LATENCY               40000000ull   // 40 ms
+
 // all time units in usec, angles in degrees
 #define RADIANS_TO_DEGREES                              (180.0f / M_PI)
 
@@ -61,29 +64,15 @@ static int8_t Tilt_Tolerance[4][2] = {
     /* ROTATION_270 */ { -25, 65 }
 };
 
-struct ConfigStat {
-   uint32_t rate;
-   uint64_t latency;
-   uint8_t clientId;
-   uint8_t enable : 1;
-   uint8_t flush : 1;
-   uint8_t calibrate : 1;
-} __attribute__((packed));
-
 static uint32_t window_orientation_rates[] = {
-    SENSOR_HZ(12.5f),
-    SENSOR_HZ(25.0f),
-    SENSOR_HZ(50.0f),
-    SENSOR_HZ(100.0f),
-    SENSOR_HZ(200.0f),
+    SENSOR_HZ(15),
     0,
 };
 
 struct WindowOrientationTask {
     uint32_t tid;
     uint32_t handle;
-    uint32_t rate;
-    uint64_t latency;
+    uint32_t accelHandle;
 
     uint64_t last_filtered_time;
     struct TripleAxisDataPoint last_filtered_sample;
@@ -107,19 +96,16 @@ struct WindowOrientationTask {
     bool swinging;
     bool accelerating;
     bool overhead;
-
-    bool active;
 };
 
 static struct WindowOrientationTask mTask;
-static struct ConfigStat mAccelConfig;
 
 static const struct SensorInfo mSi =
 {
     "Window Orientation",
     window_orientation_rates,
     SENS_TYPE_WIN_ORIENTATION,
-    NUM_AXIS_ONE,
+    NUM_AXIS_EMBEDDED,
     { NANOHUB_INT_WAKEUP }
 };
 
@@ -494,16 +480,10 @@ static bool add_samples(struct TripleAxisDataEvent *ev)
 
 static bool windowOrientationPower(bool on)
 {
-    if (on) {
-        // if this is power on, we enable the imu when set rate.
-        mTask.active = true;
-
-        osEventSubscribe(mTask.tid, EVT_SENSOR_ACC_DATA_RDY);
-    } else {
-        mTask.active = false;
-
+    if (on == false && mTask.accelHandle != 0) {
+        sensorRelease(mTask.tid, mTask.accelHandle);
+        mTask.accelHandle = 0;
         osEventUnsubscribe(mTask.tid, EVT_SENSOR_ACC_DATA_RDY);
-        osEnqueueEvt(EVT_SENSOR_ACC_CONFIG, &mAccelConfig, NULL);
     }
 
     sensorSignalInternalEvt(mTask.handle, SENSOR_INTERNAL_EVT_POWER_STATE_CHG, on, 0);
@@ -513,11 +493,21 @@ static bool windowOrientationPower(bool on)
 
 static bool windowOrientationSetRate(uint32_t rate, uint64_t latency)
 {
-    mTask.rate = rate;
-    mTask.latency = latency;
+    int i;
 
-    osLog(LOG_INFO, "SENDING TO ACCEL TO ACTIVATE\n");
-    osEnqueueEvt(EVT_SENSOR_ACC_CONFIG, &mAccelConfig, NULL);
+    osLog(LOG_INFO, "WO: SENDING TO ACCEL TO ACTIVATE\n");
+    if (mTask.accelHandle == 0) {
+        for (i=0; sensorFind(SENS_TYPE_ACCEL, i, &mTask.accelHandle) != NULL; i++) {
+            if (sensorRequest(mTask.tid, mTask.accelHandle, ACCEL_MIN_RATE, ACCEL_MAX_LATENCY)) {
+                reset();
+                osEventSubscribe(mTask.tid, EVT_SENSOR_ACC_DATA_RDY);
+                break;
+            }
+        }
+    }
+
+    if (mTask.accelHandle != 0)
+        sensorSignalInternalEvt(mTask.handle, SENSOR_INTERNAL_EVT_RATE_CHG, rate, latency);
 
     return true;
 }
@@ -525,52 +515,33 @@ static bool windowOrientationSetRate(uint32_t rate, uint64_t latency)
 static bool windowOrientationFirmwareUpload()
 {
     sensorSignalInternalEvt(mTask.handle, SENSOR_INTERNAL_EVT_FW_STATE_CHG,
-            mTask.rate, mTask.latency);
+            1, 0);
     return true;
 }
 
-static void config(struct ConfigStat *configCmd)
+static bool windowOrientationFlush()
 {
-    if (configCmd->enable == 0 && mTask.active) {
-        // if we are on, cmd is to turn off, release sensor
-        sensorRelease(configCmd->clientId, mTask.handle);
-    } else if (configCmd->enable == 1 && !mTask.active) {
-        // if we are off, cmd is to turn on, request sensor
-        sensorRequest(configCmd->clientId, mTask.handle, configCmd->rate, configCmd->latency);
-    } else {
-        // if we are on, cmd is to turn on, change the config if needed.
-        sensorRequestRateChange(configCmd->clientId, mTask.handle, configCmd->rate, configCmd->latency);
-    }
+    return osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_WIN_ORIENTATION), SENSOR_DATA_EVENT_FLUSH, NULL);
 }
 
 static void windowOrientationHandleEvent(uint32_t evtType, const void* evtData)
 {
-    struct ConfigStat *configCmd;
     struct TripleAxisDataEvent *ev;
+    union EmbeddedDataPoint sample;
 
     switch (evtType) {
-        case EVT_SENSOR_WINDOW_ORIENTATION_CONFIG:
-            osLog(LOG_INFO, "RECEIVED WIN_ORIEN EVT\n");
-            configCmd = (struct ConfigStat *)evtData;
-            memcpy(&mAccelConfig, evtData, sizeof(mAccelConfig));
-            mAccelConfig.clientId = mTask.tid;
-            config(configCmd);
-            break;
-        case EVT_SENSOR_ACC_DATA_RDY:
-            ev = (struct TripleAxisDataEvent *)evtData;
-            bool rotation_changed = add_samples(ev);
+    case EVT_SENSOR_ACC_DATA_RDY:
+        ev = (struct TripleAxisDataEvent *)evtData;
+        bool rotation_changed = add_samples(ev);
 
-            if (rotation_changed) {
-                int32_t proposed_rotation = mTask.proposed_rotation;
-                osLog(LOG_INFO, "     ********** rotation changed to ********: %d\n", (int)proposed_rotation);
+        if (rotation_changed) {
+            osLog(LOG_INFO, "WO:     ********** rotation changed to ********: %d\n", (int)mTask.proposed_rotation);
 
-                // send a single int32 here so no memory alloc/free needed.
-                osEnqueueEvt(EVT_SENSOR_WIN_ORIENTATION_DATA_RDY, (void *)proposed_rotation, NULL);
-            }
-            break;
-        default:
-            osLog(LOG_ERROR, "WINDOW ORIENTATION SENSOR: Invalid EvtType: %ld\n", evtType);
-            break;
+            // send a single int32 here so no memory alloc/free needed.
+            sample.idata = mTask.proposed_rotation;
+            osEnqueueEvt(EVT_SENSOR_WIN_ORIENTATION_DATA_RDY, sample.vptr, NULL);
+        }
+        break;
     }
 }
 
@@ -579,8 +550,8 @@ static const struct SensorOps mSops =
     windowOrientationPower,
     windowOrientationFirmwareUpload,
     windowOrientationSetRate,
+    windowOrientationFlush,
     NULL,
-    NULL
 };
 
 static bool window_orientation_start(uint32_t tid)
@@ -595,11 +566,6 @@ static bool window_orientation_start(uint32_t tid)
 
     mTask.handle = sensorRegister(&mSi, &mSops);
 
-    mTask.rate = SENSOR_HZ(10.0f);
-    mTask.active = false;
-    mTask.latency = 0;
-
-    osEventSubscribe(mTask.tid, EVT_SENSOR_WINDOW_ORIENTATION_CONFIG);
     return true;
 }
 
