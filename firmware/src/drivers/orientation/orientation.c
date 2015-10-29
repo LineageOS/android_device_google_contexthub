@@ -23,12 +23,22 @@
 #define EVT_SENSOR_MAG_DATA_RDY sensorGetMyEventType(SENS_TYPE_MAG)
 #define EVT_SENSOR_ORIENTATION_DATA_RDY sensorGetMyEventType(SENS_TYPE_ORIENTATION)
 
-enum {
-    FUSION_FLAG_ENABLED             = 1,
-    FUSION_FLAG_INITIALIZED         = 8,
-    FUSION_FLAG_GAME_ENABLED        = 16,
-    FUSION_FLAG_GAME_INITIALIZED    = 32
+enum
+{
+    FUSION_FLAG_ENABLED             = 0x01,
+    FUSION_FLAG_INITIALIZED         = 0x08,
+    FUSION_FLAG_GAME_ENABLED        = 0x10,
+    FUSION_FLAG_GAME_INITIALIZED    = 0x20
 };
+
+enum SampleType
+{
+    SAMPLE_TYPE_ACCEL,
+    SAMPLE_TYPE_GYRO,
+    SAMPLE_TYPE_MAG,
+    SAMPLE_TYPE_COUNT
+};
+
 
 struct OrientationSensorSample {
     uint64_t time;
@@ -38,13 +48,16 @@ struct OrientationSensorSample {
 struct OrientationTask {
     uint32_t tid;
     uint32_t handle;
+    uint32_t accelHandle;
+    uint32_t gyroHandle;
+    uint32_t magHandle;
 
     struct Fusion fusion;
 
-    struct OrientationSensorSample samples[3][MAX_NUM_SAMPLES];
+    struct OrientationSensorSample samples[SAMPLE_TYPE_COUNT][MAX_NUM_SAMPLES];
     struct TripleAxisDataEvent *ev;
-    size_t sample_indices[3];
-    size_t sample_counts[3];
+    size_t sample_indices[SAMPLE_TYPE_COUNT];
+    size_t sample_counts[SAMPLE_TYPE_COUNT];
 
     uint64_t last_gyro_time;
     uint64_t last_acc_time;
@@ -55,17 +68,7 @@ struct OrientationTask {
     bool use_gyro_data;
     bool use_mag_data;
     bool first_evt;
-    bool active;
 };
-
-struct ConfigStat {
-   uint32_t rate;
-   uint64_t latency;
-   uint8_t clientId;
-   uint8_t enable : 1;
-   uint8_t flush : 1;
-   uint8_t calibrate : 1;
-} __attribute__((packed));
 
 static uint32_t OrientationRates[] = {
     SENSOR_HZ(12.5f),
@@ -77,7 +80,6 @@ static uint32_t OrientationRates[] = {
 };
 
 static struct OrientationTask mTask;
-static struct ConfigStat mImuConfig;
 static const struct SensorInfo mSi =
 {
     "Orientation",
@@ -87,8 +89,6 @@ static const struct SensorInfo mSi =
     { NANOHUB_INT_NONWAKEUP }
 };
 
-static uint64_t mCnt = 0;
-
 static struct SlabAllocator *mDataSlab;
 
 static void dataEvtFree(void *ptr)
@@ -96,21 +96,20 @@ static void dataEvtFree(void *ptr)
     slabAllocatorFree(mDataSlab, ptr);
 }
 
-// index 0: accel; 1: gyro; 2: mag.
-static void fillSamples(struct TripleAxisDataEvent *ev, int index)
+static void fillSamples(struct TripleAxisDataEvent *ev, enum SampleType index)
 {
-    size_t i, sampleCnt;
+    size_t i, sampleCnt, n, start, copy, copy2;
+    struct TripleAxisDataPoint *sample;
 
-    if (index == 1 && !mTask.use_gyro_data) {
+    if (index == SAMPLE_TYPE_GYRO && !mTask.use_gyro_data) {
         return;
     }
-    if (index == 2 && !mTask.use_mag_data) {
+    if (index == SAMPLE_TYPE_MAG && !mTask.use_mag_data) {
         return;
     }
 
-    sampleCnt = ev->samples[0].deltaTime;
+    sampleCnt = ev->samples[0].numSamples;
     if (sampleCnt >= MAX_NUM_SAMPLES) {
-        struct TripleAxisDataPoint *sample;
         // Copy the last MAX_NUM_SAMPLES samples over and reset the sample index.
         mTask.sample_indices[index] = 0;
         mTask.sample_counts[index] = MAX_NUM_SAMPLES;
@@ -127,11 +126,9 @@ static void fillSamples(struct TripleAxisDataEvent *ev, int index)
         }
 
     } else {
-        struct TripleAxisDataPoint *sample;
-        size_t n = mTask.sample_counts[index];
-        size_t start = (mTask.sample_indices[index] + n) % MAX_NUM_SAMPLES;
+        n = mTask.sample_counts[index];
+        start = (mTask.sample_indices[index] + n) % MAX_NUM_SAMPLES;
 
-        size_t copy, copy2;
         copy = MAX_NUM_SAMPLES - start;
         if (copy > sampleCnt) {
             copy = sampleCnt;
@@ -143,7 +140,7 @@ static void fillSamples(struct TripleAxisDataEvent *ev, int index)
             mTask.samples[index][start + i].y = sample->y;
             mTask.samples[index][start + i].z = sample->z;
             if (i == 0)
-                mTask.samples[index][i].time = ev->referenceTime;
+                mTask.samples[index][start + i].time = ev->referenceTime;
             else
                 mTask.samples[index][start + i].time = ev->referenceTime + sample->deltaTime;
         }
@@ -215,8 +212,6 @@ static void addSample(uint64_t time, float x, float y, float z)
 
 static void updateOutput(ssize_t last_accel_sample_index, uint64_t last_sensor_time)
 {
-    //osLog(LOG_INFO, "updating output.\n");
-
     if (fusionHasEstimate(&mTask.fusion)) {
         struct Mat33 R;
         fusionGetRotationMatrix(&mTask.fusion, &R);
@@ -235,139 +230,92 @@ static void updateOutput(ssize_t last_accel_sample_index, uint64_t last_sensor_t
         }
 
         addSample(last_sensor_time, x, y, z);
-        if (mCnt++ % 100 == 0) {
-            osLog(LOG_INFO, "orientation: %d   %d   %d\n", (int)(x), (int)(y), (int)(z));
-        }
     }
 }
 
 static void drainSamples()
 {
-    //int rv = 23769;
-    size_t i = mTask.sample_indices[0];
+    size_t i = mTask.sample_indices[SAMPLE_TYPE_ACCEL];
     size_t j = 0;
     size_t k = 0;
+    size_t which;
+    struct Vec3 a, w, m;
+    float dT;
+    uint64_t a_time, g_time, m_time;
 
-    if (mTask.use_gyro_data) {
-        j = mTask.sample_indices[1];
-    }
+    if (mTask.use_gyro_data)
+        j = mTask.sample_indices[SAMPLE_TYPE_GYRO];
 
-    if (mTask.use_mag_data) {
-        k = mTask.sample_indices[2];
-    }
+    if (mTask.use_mag_data)
+        k = mTask.sample_indices[SAMPLE_TYPE_MAG];
 
-    while (mTask.sample_counts[0] > 0
-            && (!mTask.use_gyro_data || mTask.sample_counts[1] > 0)
-            && (!mTask.use_mag_data || mTask.sample_counts[2] > 0)) {
-
-        size_t which = 0;
-
-        uint64_t a_time = mTask.samples[0][i].time;
-        uint64_t g_time = mTask.use_gyro_data ? mTask.samples[1][j].time
+    while (mTask.sample_counts[SAMPLE_TYPE_ACCEL] > 0
+            && (!mTask.use_gyro_data || mTask.sample_counts[SAMPLE_TYPE_GYRO] > 0)
+            && (!mTask.use_mag_data || mTask.sample_counts[SAMPLE_TYPE_MAG] > 0)) {
+        a_time = mTask.samples[SAMPLE_TYPE_ACCEL][i].time;
+        g_time = mTask.use_gyro_data ? mTask.samples[SAMPLE_TYPE_GYRO][j].time
                             : ULONG_LONG_MAX;
-        uint64_t m_time = mTask.use_mag_data ? mTask.samples[2][k].time
+        m_time = mTask.use_mag_data ? mTask.samples[SAMPLE_TYPE_MAG][k].time
                             : ULONG_LONG_MAX;
 
         // priority with same timestamp: gyro > acc > mag
         if (g_time <= a_time && g_time <= m_time) {
-            which = 1;
+            which = SAMPLE_TYPE_GYRO;
         } else if (a_time <= m_time) {
-            which = 0;
+            which = SAMPLE_TYPE_ACCEL;
         } else {
-            which = 2;
+            which = SAMPLE_TYPE_MAG;
         }
+
         switch (which) {
-            case 0:
-            {
-                struct Vec3 a;
-                initVec3(&a, mTask.samples[0][i].x, mTask.samples[0][i].y, mTask.samples[0][i].z);
+        case SAMPLE_TYPE_ACCEL:
+            initVec3(&a, mTask.samples[SAMPLE_TYPE_ACCEL][i].x, mTask.samples[SAMPLE_TYPE_ACCEL][i].y, mTask.samples[SAMPLE_TYPE_ACCEL][i].z);
 
-                float dT = (mTask.samples[0][i].time - mTask.last_acc_time) * 1.0E-6f;
-                mTask.last_acc_time = mTask.samples[0][i].time;
+            dT = (mTask.samples[SAMPLE_TYPE_ACCEL][i].time - mTask.last_acc_time) * 1.0E-6f;
+            mTask.last_acc_time = mTask.samples[SAMPLE_TYPE_ACCEL][i].time;
 
-                if (mCnt ++ % 100 == 0)
+            fusionHandleAcc(&mTask.fusion, &a, dT);
 
-                osLog(LOG_INFO, "   ORIENTATION_ACC:  %6d   %6d   %6d   %6d   %6d\n",
-                        (int)(mTask.samples[0][i].x * 1000),
-                        (int)(mTask.samples[0][i].y * 1000),
-                        (int)(mTask.samples[0][i].z * 1000),
-                        (int)(mTask.samples[0][i].time * 1.0E0f),
-                        (int)(dT * 1.0E6f));
+            updateOutput(i, mTask.samples[SAMPLE_TYPE_ACCEL][i].time);
 
-                fusionHandleAcc(&mTask.fusion, &a, dT);
+            --mTask.sample_counts[SAMPLE_TYPE_ACCEL];
+            if (++i == MAX_NUM_SAMPLES)
+                i = 0;
+            break;
+        case SAMPLE_TYPE_GYRO:
+            initVec3(&w, mTask.samples[SAMPLE_TYPE_GYRO][j].x, mTask.samples[SAMPLE_TYPE_GYRO][j].y, mTask.samples[SAMPLE_TYPE_GYRO][j].z);
 
-                updateOutput(i, mTask.samples[0][i].time);
+            dT = (mTask.samples[SAMPLE_TYPE_GYRO][j].time - mTask.last_gyro_time) * 1.0E-6f;
+            mTask.last_gyro_time = mTask.samples[SAMPLE_TYPE_GYRO][j].time;
 
-                --mTask.sample_counts[0];
-                if (++i == MAX_NUM_SAMPLES) {
-                    i = 0;
-                }
-                break;
-            }
+            fusionHandleGyro(&mTask.fusion, &w, dT);
 
-            case 1:
-            {
-                struct Vec3 w;
-                initVec3(&w, mTask.samples[1][j].x, mTask.samples[1][j].y, mTask.samples[1][j].z);
+            --mTask.sample_counts[SAMPLE_TYPE_GYRO];
+            if (++j == MAX_NUM_SAMPLES)
+                j = 0;
+            break;
+        case SAMPLE_TYPE_MAG:
+            initVec3(&m, mTask.samples[SAMPLE_TYPE_MAG][k].x, mTask.samples[SAMPLE_TYPE_MAG][k].y, mTask.samples[SAMPLE_TYPE_MAG][k].z);
 
-                float dT = (mTask.samples[1][j].time - mTask.last_gyro_time) * 1.0E-6f;
-                mTask.last_gyro_time = mTask.samples[1][j].time;
+            fusionHandleMag(&mTask.fusion, &m);
 
-                if (mCnt ++ % 100 == 0)
-
-                osLog(LOG_INFO, "   ORIENTATION_GYR:  %6d   %6d   %6d   %6d   %6d\n",
-                        (int)(mTask.samples[1][i].x * 1000),
-                        (int)(mTask.samples[1][i].y * 1000),
-                        (int)(mTask.samples[1][i].z * 1000),
-                        (int)(mTask.samples[1][i].time * 1.0E0f),
-                        (int)(dT * 1.0E6f));
-
-                fusionHandleGyro(&mTask.fusion, &w, dT);
-
-                --mTask.sample_counts[1];
-                if (++j == MAX_NUM_SAMPLES) {
-                    j = 0;
-                }
-                break;
-            }
-
-            case 2:
-            {
-                struct Vec3 m;
-                initVec3(&m, mTask.samples[2][k].x, mTask.samples[2][k].y, mTask.samples[2][k].z);
-
-                if (mCnt ++ % 100 == 0)
-
-                osLog(LOG_INFO, "   ORIENTATION_MAG:  %6d   %6d   %6d   %6d\n",
-                        (int)(mTask.samples[2][i].x * 1000),
-                        (int)(mTask.samples[2][i].y * 1000),
-                        (int)(mTask.samples[2][i].z * 1000),
-                        (int)(mTask.samples[2][i].time * 1.0E0f));
-
-                fusionHandleMag(&mTask.fusion, &m);
-
-                --mTask.sample_counts[2];
-                if (++k == MAX_NUM_SAMPLES) {
-                    k = 0;
-                }
-                break;
-            }
+            --mTask.sample_counts[SAMPLE_TYPE_MAG];
+            if (++k == MAX_NUM_SAMPLES)
+                k = 0;
+            break;
         }
     }
 
-    mTask.sample_indices[0] = i;
+    mTask.sample_indices[SAMPLE_TYPE_ACCEL] = i;
 
-    if (mTask.use_gyro_data) {
-        mTask.sample_indices[1] = j;
-    }
+    if (mTask.use_gyro_data)
+        mTask.sample_indices[SAMPLE_TYPE_GYRO] = j;
 
-    if (mTask.use_mag_data) {
-        mTask.sample_indices[2] = k;
-    }
+    if (mTask.use_mag_data)
+        mTask.sample_indices[SAMPLE_TYPE_MAG] = k;
 
     if (mTask.ev != NULL) {
-        //XXX: post to AP
-        heapFree(mTask.ev);
+        osEnqueueEvt(EVT_SENSOR_ORIENTATION_DATA_RDY, mTask.ev, dataEvtFree);
         mTask.ev = NULL;
     }
 }
@@ -385,23 +333,24 @@ static void configureFusion()
 
 static bool orientationPower(bool on)
 {
-    if (on) {
-        // if this is power on, we enable the imu when set rate.
-        mTask.active = true;
+    if (on == false) {
+        if (mTask.accelHandle != 0) {
+            sensorRelease(mTask.tid, mTask.accelHandle);
+            mTask.accelHandle = 0;
+            osEventUnsubscribe(mTask.tid, EVT_SENSOR_ACC_DATA_RDY);
+        }
 
-        osEventSubscribe(mTask.tid, EVT_SENSOR_ACC_DATA_RDY);
-        osEventSubscribe(mTask.tid, EVT_SENSOR_GYR_DATA_RDY);
-        osEventSubscribe(mTask.tid, EVT_SENSOR_MAG_DATA_RDY);
-    } else {
-        mTask.active = false;
+        if (mTask.gyroHandle != 0) {
+            sensorRelease(mTask.tid, mTask.gyroHandle);
+            mTask.gyroHandle = 0;
+            osEventUnsubscribe(mTask.tid, EVT_SENSOR_GYR_DATA_RDY);
+        }
 
-        osEventUnsubscribe(mTask.tid, EVT_SENSOR_ACC_DATA_RDY);
-        osEventUnsubscribe(mTask.tid, EVT_SENSOR_GYR_DATA_RDY);
-        osEventUnsubscribe(mTask.tid, EVT_SENSOR_MAG_DATA_RDY);
-
-        osEnqueueEvt(EVT_SENSOR_ACC_CONFIG, &mImuConfig, NULL);
-        osEnqueueEvt(EVT_SENSOR_GYR_CONFIG, &mImuConfig, NULL);
-        osEnqueueEvt(EVT_SENSOR_MAG_CONFIG, &mImuConfig, NULL);
+        if (mTask.magHandle != 0) {
+            sensorRelease(mTask.tid, mTask.magHandle);
+            mTask.magHandle = 0;
+            osEventUnsubscribe(mTask.tid, EVT_SENSOR_MAG_DATA_RDY);
+        }
     }
 
     sensorSignalInternalEvt(mTask.handle, SENSOR_INTERNAL_EVT_POWER_STATE_CHG, on, 0);
@@ -411,12 +360,44 @@ static bool orientationPower(bool on)
 
 static bool orientationSetRate(uint32_t rate, uint64_t latency)
 {
+    int i;
     mTask.rate = rate;
     mTask.latency = latency;
 
-    osEnqueueEvt(EVT_SENSOR_ACC_CONFIG, &mImuConfig, NULL);
-    osEnqueueEvt(EVT_SENSOR_GYR_CONFIG, &mImuConfig, NULL);
-    osEnqueueEvt(EVT_SENSOR_MAG_CONFIG, &mImuConfig, NULL);
+    if (mTask.accelHandle == 0) {
+        for (i=0; sensorFind(SENS_TYPE_ACCEL, i, &mTask.accelHandle) != NULL; i++) {
+            if (sensorRequest(mTask.tid, mTask.accelHandle, rate, latency)) {
+                osEventSubscribe(mTask.tid, EVT_SENSOR_ACC_DATA_RDY);
+                break;
+            }
+        }
+    } else {
+        sensorRequestRateChange(mTask.tid, mTask.accelHandle, rate, latency);
+    }
+
+    if (mTask.gyroHandle == 0) {
+        for (i=0; sensorFind(SENS_TYPE_GYRO, i, &mTask.gyroHandle) != NULL; i++) {
+            if (sensorRequest(mTask.tid, mTask.gyroHandle, rate, latency)) {
+                osEventSubscribe(mTask.tid, EVT_SENSOR_GYR_DATA_RDY);
+                break;
+            }
+        }
+    } else {
+        sensorRequestRateChange(mTask.tid, mTask.gyroHandle, rate, latency);
+    }
+
+    if (mTask.magHandle == 0) {
+        for (i=0; sensorFind(SENS_TYPE_MAG, i, &mTask.magHandle) != NULL; i++) {
+            if (sensorRequest(mTask.tid, mTask.magHandle, rate, latency)) {
+                osEventSubscribe(mTask.tid, EVT_SENSOR_MAG_DATA_RDY);
+                break;
+            }
+        }
+    } else {
+        sensorRequestRateChange(mTask.tid, mTask.magHandle, rate, latency);
+    }
+
+    sensorSignalInternalEvt(mTask.handle, SENSOR_INTERNAL_EVT_RATE_CHG, rate, latency);
 
     return true;
 }
@@ -424,54 +405,35 @@ static bool orientationSetRate(uint32_t rate, uint64_t latency)
 static bool orientationFirmwareUpload()
 {
     sensorSignalInternalEvt(mTask.handle, SENSOR_INTERNAL_EVT_FW_STATE_CHG,
-            mTask.rate, mTask.latency);
+              1, 0);
     return true;
 }
 
-static void config(struct ConfigStat *orientation_config)
+static bool orientationFlush()
 {
-    if (orientation_config->enable == 0 && mTask.active) {
-        // if we are on, cmd is to turn off, release sensor
-        sensorRelease(orientation_config->clientId, mTask.handle);
-    } else if (orientation_config->enable == 1 && !mTask.active) {
-        // if we are off, cmd is to turn on, request sensor
-        sensorRequest(orientation_config->clientId, mTask.handle,
-                orientation_config->rate, orientation_config->latency);
-    } else {
-        // if we are on, cmd is to turn on, change the config if needed.
-        sensorRequestRateChange(orientation_config->clientId, mTask.handle,
-                orientation_config->rate, orientation_config->latency);
-    }
+    return osEnqueueEvt(EVT_SENSOR_ORIENTATION_DATA_RDY, SENSOR_DATA_EVENT_FLUSH, NULL);
 }
 
 static void orientationHandleEvent(uint32_t evtType, const void* evtData)
 {
-    struct ConfigStat *configCmd;
     struct TripleAxisDataEvent *ev;
 
     switch (evtType) {
-        case EVT_SENSOR_ORIENTATION_CONFIG:
-            configCmd = (struct ConfigStat *)evtData;
-            memcpy(&mImuConfig, evtData, sizeof(mImuConfig));
-            mImuConfig.clientId = mTask.tid;
-            config(configCmd);
-            break;
-        case EVT_SENSOR_ACC_DATA_RDY:
-            ev = (struct TripleAxisDataEvent *)evtData;
-            fillSamples(ev, 0);
-            drainSamples();
-        case EVT_SENSOR_GYR_DATA_RDY:
-            ev = (struct TripleAxisDataEvent *)evtData;
-            fillSamples(ev, 1);
-            drainSamples();
-        case EVT_SENSOR_MAG_DATA_RDY:
-            ev = (struct TripleAxisDataEvent *)evtData;
-            fillSamples(ev, 2);
-            drainSamples();
-            break;
-        default:
-            osLog(LOG_ERROR, "ORIENTATION SENSOR: Invalid EvtType: %ld\n", evtType);
-            break;
+    case EVT_SENSOR_ACC_DATA_RDY:
+        ev = (struct TripleAxisDataEvent *)evtData;
+        fillSamples(ev, SAMPLE_TYPE_ACCEL);
+        drainSamples();
+        break;
+    case EVT_SENSOR_GYR_DATA_RDY:
+        ev = (struct TripleAxisDataEvent *)evtData;
+        fillSamples(ev, SAMPLE_TYPE_GYRO);
+        drainSamples();
+        break;
+    case EVT_SENSOR_MAG_DATA_RDY:
+        ev = (struct TripleAxisDataEvent *)evtData;
+        fillSamples(ev, SAMPLE_TYPE_MAG);
+        drainSamples();
+        break;
     }
 }
 
@@ -480,7 +442,7 @@ static const struct SensorOps mSops =
     orientationPower,
     orientationFirmwareUpload,
     orientationSetRate,
-    NULL,
+    orientationFlush,
     NULL
 };
 
@@ -498,7 +460,7 @@ static bool orientationStart(uint32_t tid)
 
     mTask.first_evt = true;
 
-    for (i = 0; i < 3; i++) {
+    for (i = 0; i < SAMPLE_TYPE_COUNT; i++) {
          mTask.sample_counts[i] = 0;
          mTask.sample_indices[i] = 0;
     }
@@ -507,15 +469,13 @@ static bool orientationStart(uint32_t tid)
 
     mTask.handle = sensorRegister(&mSi, &mSops);
 
-    mTask.rate = SENSOR_HZ(100.0f);
-    mTask.active = false;
+    mTask.rate = 0;
     mTask.latency = 0;
 
     slabSize = sizeof(struct TripleAxisDataEvent)
         + MAX_NUM_COMMS_EVENT_SAMPLES * sizeof(struct TripleAxisDataPoint);
     mDataSlab = slabAllocatorNew(slabSize, 4, 10); // 10 slots for now..
 
-    osEventSubscribe(mTask.tid, EVT_SENSOR_ORIENTATION_CONFIG);
     return true;
 }
 
@@ -530,4 +490,3 @@ INTERNAL_APP_INIT(
         orientationStart,
         orientationEnd,
         orientationHandleEvent);
-
