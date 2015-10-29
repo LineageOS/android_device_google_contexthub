@@ -64,16 +64,13 @@ enum {
 
 #define ROHM_RPR0521_REPORT_NEAR_VALUE          0.0f // centimeters
 #define ROHM_RPR0521_REPORT_FAR_VALUE           5.0f // centimeters
-#define ROHM_RPR0521_THRESHOLD_ASSERT_NEAR      2    // centimeters
-#define ROHM_RPR0521_THRESHOLD_DEASSERT_NEAR    6    // centimeters
-
-#define MAX_FIFO_SIZE_ALS                       20
-#define MAX_FIFO_SIZE_PROX                      300
+#define ROHM_RPR0521_THRESHOLD_ASSERT_NEAR      12   // value in PS_DATA
+#define ROHM_RPR0521_THRESHOLD_DEASSERT_NEAR    7    // value in PS_DATA
 
 /* Private driver events */
 enum SensorEvents
 {
-    EVT_SENSOR_I2C = EVT_NO_FIRST_USER_EVENT,
+    EVT_SENSOR_I2C = EVT_APP_START + 1,
     EVT_SENSOR_ALS_TIMER,
     EVT_SENSOR_PROX_TIMER,
 };
@@ -92,6 +89,13 @@ enum SensorState
     SENSOR_STATE_SAMPLING,
 };
 
+enum ProxState
+{
+    PROX_STATE_INIT,
+    PROX_STATE_NEAR,
+    PROX_STATE_FAR,
+};
+
 enum MeasurementTime {
     MEASUREMENT_TIME_ALS_STANDBY_PS_STANDBY     = 0,
     MEASUREMENT_TIME_ALS_STANDBY_PS_10          = 1,
@@ -108,16 +112,8 @@ enum MeasurementTime {
     MEASUREMENT_TIME_ALS_50_PS_50               = 12,
 };
 
-struct SensorSample
-{
-    uint64_t referenceTime;
-    struct SingleAxisDataPoint samples[1];
-} __attribute__((packed));
-
 struct SensorData
 {
-    uint32_t tid;
-    enum SensorState state;
     union {
         uint8_t bytes[16];
         struct {
@@ -126,25 +122,21 @@ struct SensorData
         } sample;
     } txrxBuf;
 
-    uint32_t count; /* number of samples acquired */
-    uint64_t sampleTimeNs; /* time of current sample */
+    uint32_t tid;
 
     uint32_t alsHandle;
     uint32_t proxHandle;
     uint32_t alsTimerHandle;
     uint32_t proxTimerHandle;
 
+    union EmbeddedDataPoint lastAlsSample;
+
+    uint8_t proxState; // enum ProxState
+
     bool alsOn;
     bool alsReading;
     bool proxOn;
     bool proxReading;
-
-    uint16_t alsHead;
-    uint16_t alsPrev;
-    struct SensorSample *alsFIFO;
-    uint16_t proxHead;
-    uint16_t proxPrev;
-    struct SensorSample *proxFIFO;
 } data;
 
 static const uint32_t supportedRates[] =
@@ -205,7 +197,7 @@ static inline float getLuxFromAlsData(uint16_t als0, uint16_t als1)
     return c1 * d0 + c2 * d1;
 }
 
-static void setMode(bool alsOn, bool proxOn)
+static void setMode(bool alsOn, bool proxOn, void *cookie)
 {
     static const uint8_t measurementTime[] = {
         MEASUREMENT_TIME_ALS_STANDBY_PS_STANDBY, /* als disabled, prox disabled */
@@ -219,15 +211,21 @@ static void setMode(bool alsOn, bool proxOn)
                       (alsOn ? ALS_EN_BIT : 0) |
                       (proxOn ? PS_EN_BIT : 0);
     i2cMasterTx(I2C_BUS_ID, I2C_ADDR, data.txrxBuf.bytes, 2,
-                &i2cCallback, NULL);
+                &i2cCallback, cookie);
 }
 
 static bool sensorPowerAls(bool on)
 {
-    if (data.alsOn != on) {
-        setMode(on, data.proxOn);
-        data.state = on ? SENSOR_STATE_ENABLING_ALS : SENSOR_STATE_DISABLING_ALS;
+    osLog(LOG_INFO, "ROHM: sensorPowerAls: %d\n", on);
+
+    if (data.alsTimerHandle) {
+        timTimerCancel(data.alsTimerHandle);
+        data.alsTimerHandle = 0;
+        data.alsReading = false;
     }
+
+    data.alsOn = on;
+    setMode(on, data.proxOn, (void *)(on ? SENSOR_STATE_ENABLING_ALS : SENSOR_STATE_DISABLING_ALS));
 
     return true;
 }
@@ -240,12 +238,15 @@ static bool sensorFirmwareAls()
 
 static bool sensorRateAls(uint32_t rate, uint64_t latency)
 {
+    osLog(LOG_INFO, "ROHM: sensorRateAls: %ld/%lld\n", rate, latency);
+
     if (data.alsTimerHandle)
         timTimerCancel(data.alsTimerHandle);
     data.alsTimerHandle = timTimerSet(1024000000000ULL / rate, 0, 50, alsTimerCallback, NULL, false);
-    data.alsFIFO[data.alsPrev].samples[0].fdata = -FLT_MAX;
+    data.lastAlsSample.fdata = -FLT_MAX;
     osEnqueuePrivateEvt(EVT_SENSOR_ALS_TIMER, NULL, NULL, data.tid);
     sensorSignalInternalEvt(data.alsHandle, SENSOR_INTERNAL_EVT_RATE_CHG, rate, latency);
+
     return true;
 }
 
@@ -256,10 +257,16 @@ static bool sensorFlushAls()
 
 static bool sensorPowerProx(bool on)
 {
-    if (data.proxOn != on) {
-        setMode(data.alsOn, on);
-        data.state = on ? SENSOR_STATE_ENABLING_PROX : SENSOR_STATE_DISABLING_PROX;
+    osLog(LOG_INFO, "ROHM: sensorPowerProx: %d\n", on);
+
+    if (data.proxTimerHandle) {
+        timTimerCancel(data.proxTimerHandle);
+        data.proxTimerHandle = 0;
+        data.proxReading = false;
     }
+
+    data.proxOn = on;
+    setMode(data.alsOn, on, (void *)(on ? SENSOR_STATE_ENABLING_PROX : SENSOR_STATE_DISABLING_PROX));
 
     return true;
 }
@@ -272,12 +279,15 @@ static bool sensorFirmwareProx()
 
 static bool sensorRateProx(uint32_t rate, uint64_t latency)
 {
+    osLog(LOG_INFO, "ROHM: sensorRateProx: %ld/%lld\n", rate, latency);
+
     if (data.proxTimerHandle)
         timTimerCancel(data.proxTimerHandle);
     data.proxTimerHandle = timTimerSet(1024000000000ULL / rate, 0, 50, proxTimerCallback, NULL, false);
-    data.proxFIFO[data.proxPrev].samples[0].fdata = -FLT_MAX;
+    data.proxState = PROX_STATE_INIT;
     osEnqueuePrivateEvt(EVT_SENSOR_PROX_TIMER, NULL, NULL, data.tid);
     sensorSignalInternalEvt(data.proxHandle, SENSOR_INTERNAL_EVT_RATE_CHG, rate, latency);
+
     return true;
 }
 
@@ -290,7 +300,9 @@ static const struct SensorInfo sensorInfoAls =
 {
     "ALS",
     supportedRates,
-    SENS_TYPE_ALS
+    SENS_TYPE_ALS,
+    NUM_AXIS_EMBEDDED,
+    { NANOHUB_INT_NONWAKEUP }
 };
 
 static const struct SensorOps sensorOpsAls =
@@ -306,7 +318,9 @@ static const struct SensorInfo sensorInfoProx =
 {
     "Proximity",
     supportedRates,
-    SENS_TYPE_PROX
+    SENS_TYPE_PROX,
+    NUM_AXIS_EMBEDDED,
+    { NANOHUB_INT_WAKEUP }
 };
 
 static const struct SensorOps sensorOpsProx =
@@ -330,14 +344,17 @@ static void __attribute__((unused)) sensorProxFree(void *ptr)
 {
 }
 
-static void handle_i2c_event(void)
+static void handle_i2c_event(int state)
 {
-    switch (data.state) {
+    union EmbeddedDataPoint sample;
+    bool sendData;
+
+    switch (state) {
     case SENSOR_STATE_RESET:
         data.txrxBuf.bytes[0] = ROHM_RPR0521_REG_ID;
-        data.state = SENSOR_STATE_VERIFY_ID;
         i2cMasterTxRx(I2C_BUS_ID, I2C_ADDR, data.txrxBuf.bytes, 1,
-                        data.txrxBuf.bytes, 1, &i2cCallback, NULL);
+                        data.txrxBuf.bytes, 1, &i2cCallback,
+                        (void *)SENSOR_STATE_VERIFY_ID);
         break;
     case SENSOR_STATE_VERIFY_ID:
         /* Check the sensor ID */
@@ -353,9 +370,8 @@ static void handle_i2c_event(void)
         /* PS gain */
         data.txrxBuf.bytes[1] = (ROHM_RPR0521_GAIN_PS << 4) | 0x1;
 
-        data.state = SENSOR_STATE_INIT;
         i2cMasterTx(I2C_BUS_ID, I2C_ADDR, data.txrxBuf.bytes, 2,
-                          &i2cCallback, NULL);
+                          &i2cCallback, (void *)SENSOR_STATE_INIT);
         break;
 
     case SENSOR_STATE_INIT:
@@ -363,54 +379,24 @@ static void handle_i2c_event(void)
         data.txrxBuf.bytes[0] = ROHM_RPR0521_REG_PS_OFFSET_LSB;
         data.txrxBuf.bytes[1] = ROHM_RPR0521_CAL_DEFAULT_OFFSET & 0xff;
         data.txrxBuf.bytes[2] = (ROHM_RPR0521_CAL_DEFAULT_OFFSET >> 8) & 0x3;
-        data.state = SENSOR_STATE_IDLE;
         i2cMasterTx(I2C_BUS_ID, I2C_ADDR, data.txrxBuf.bytes, 3,
-                          &i2cCallback, NULL);
+                          &i2cCallback, (void *)SENSOR_STATE_IDLE);
         break;
 
     case SENSOR_STATE_ENABLING_ALS:
-        data.alsOn = true;
-        data.state = SENSOR_STATE_IDLE;
         sensorSignalInternalEvt(data.alsHandle, SENSOR_INTERNAL_EVT_POWER_STATE_CHG, true, 0);
         break;
 
     case SENSOR_STATE_ENABLING_PROX:
-        data.proxOn = true;
-        data.state = SENSOR_STATE_IDLE;
         sensorSignalInternalEvt(data.proxHandle, SENSOR_INTERNAL_EVT_POWER_STATE_CHG, true, 0);
         break;
 
     case SENSOR_STATE_DISABLING_ALS:
-        /* Signal OS that the sensor was disabled */
         sensorSignalInternalEvt(data.alsHandle, SENSOR_INTERNAL_EVT_POWER_STATE_CHG, false, 0);
-
-        /* Cancel timer */
-        if (data.alsTimerHandle) {
-            timTimerCancel(data.alsTimerHandle);
-            data.alsTimerHandle = 0;
-        }
-
-        data.alsOn = false;
-        data.state = SENSOR_STATE_IDLE;
         break;
 
     case SENSOR_STATE_DISABLING_PROX:
-        /* Signal OS that the sensor was disabled */
         sensorSignalInternalEvt(data.proxHandle, SENSOR_INTERNAL_EVT_POWER_STATE_CHG, false, 0);
-
-        /* Cancel timer */
-        if (data.proxTimerHandle) {
-            timTimerCancel(data.proxTimerHandle);
-            data.proxTimerHandle = 0;
-        }
-
-        data.proxOn = false;
-        data.state = SENSOR_STATE_IDLE;
-        break;
-
-    case SENSOR_STATE_IDLE:
-        osLog(LOG_INFO, "ROHM: idle\n");
-
         break;
 
     case SENSOR_STATE_SAMPLING:
@@ -419,42 +405,47 @@ static void handle_i2c_event(void)
               data.txrxBuf.sample.prox, data.txrxBuf.sample.als[0], data.txrxBuf.sample.als[1]);
         */
 
-        data.sampleTimeNs = timGetTime();
-        data.count++;
-
         if (data.alsOn && data.alsReading) {
             /* Create event */
-            data.alsFIFO[data.alsHead].referenceTime = data.sampleTimeNs;
-            data.alsFIFO[data.alsHead].samples[0].fdata = getLuxFromAlsData(data.txrxBuf.sample.als[0],
-                                                               data.txrxBuf.sample.als[1]);
-            if (data.alsFIFO[data.alsHead].samples[0].idata != data.alsFIFO[data.alsPrev].samples[0].idata) {
-                osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_ALS), &data.alsFIFO[data.alsHead], sensorAlsFree);
-                data.alsPrev = data.alsHead;
-                data.alsHead = (data.alsHead + 1) % MAX_FIFO_SIZE_ALS;
+            sample.fdata = getLuxFromAlsData(data.txrxBuf.sample.als[0],
+                                             data.txrxBuf.sample.als[1]);
+            if (data.lastAlsSample.idata != sample.idata) {
+                osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_ALS), sample.vptr, NULL);
+                data.lastAlsSample.fdata = sample.fdata;
             }
         }
 
         if (data.proxOn && data.proxReading) {
             /* Create event */
-            data.proxFIFO[data.proxHead].referenceTime = data.sampleTimeNs;
-            if (data.txrxBuf.sample.prox > ROHM_RPR0521_THRESHOLD_ASSERT_NEAR) {
-                data.proxFIFO[data.proxHead].samples[0].numSamples = 1;
-                data.proxFIFO[data.proxHead].samples[0].fdata = ROHM_RPR0521_REPORT_NEAR_VALUE;
+            sendData = true;
+            if (data.proxState == PROX_STATE_INIT) {
+                if (data.txrxBuf.sample.prox > ROHM_RPR0521_THRESHOLD_ASSERT_NEAR) {
+                    sample.fdata = ROHM_RPR0521_REPORT_NEAR_VALUE;
+                    data.proxState = PROX_STATE_NEAR;
+                } else {
+                    sample.fdata = ROHM_RPR0521_REPORT_FAR_VALUE;
+                    data.proxState = PROX_STATE_FAR;
+                }
             } else {
-                data.proxFIFO[data.proxHead].samples[0].numSamples = 1;
-                data.proxFIFO[data.proxHead].samples[0].fdata = ROHM_RPR0521_REPORT_FAR_VALUE;
+                if (data.proxState == PROX_STATE_NEAR &&
+                    data.txrxBuf.sample.prox < ROHM_RPR0521_THRESHOLD_DEASSERT_NEAR) {
+                    sample.fdata = ROHM_RPR0521_REPORT_FAR_VALUE;
+                    data.proxState = PROX_STATE_FAR;
+                } else if (data.proxState == PROX_STATE_FAR &&
+                    data.txrxBuf.sample.prox > ROHM_RPR0521_THRESHOLD_ASSERT_NEAR) {
+                    sample.fdata = ROHM_RPR0521_REPORT_NEAR_VALUE;
+                    data.proxState = PROX_STATE_NEAR;
+                } else {
+                    sendData = false;
+                }
             }
-            if (data.proxFIFO[data.proxHead].samples[0].idata != data.proxFIFO[data.proxPrev].samples[0].idata) {
-                osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_PROX), &data.proxFIFO[data.proxHead], sensorProxFree);
-                data.proxPrev = data.proxHead;
-                data.proxHead = (data.proxHead + 1) % MAX_FIFO_SIZE_PROX;
-            }
+
+            if (sendData)
+                osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_PROX), sample.vptr, NULL);
         }
 
         data.alsReading = false;
         data.proxReading = false;
-        /* Go back to idle state because timer is repeating */
-        data.state = SENSOR_STATE_IDLE;
         break;
     }
 }
@@ -469,22 +460,10 @@ static bool init_app(uint32_t myTid)
 
     /* Set up driver private data */
     data.tid = myTid;
-    data.count = 0;
     data.alsOn = false;
     data.alsReading = false;
     data.proxOn = false;
     data.proxReading = false;
-
-    /* Allocate FIFOs */
-    data.alsHead = 0;
-    data.alsPrev = MAX_FIFO_SIZE_ALS - 1;
-    data.alsFIFO = heapAlloc(MAX_FIFO_SIZE_ALS * sizeof(struct SensorSample));
-    data.alsFIFO[data.alsPrev].samples[0].fdata = -FLT_MAX;
-
-    data.proxHead = 0;
-    data.proxPrev = MAX_FIFO_SIZE_PROX - 1;
-    data.proxFIFO = heapAlloc(MAX_FIFO_SIZE_PROX * sizeof(struct SensorSample));
-    data.proxFIFO[data.proxPrev].samples[0].fdata = -FLT_MAX;
 
     /* Register sensors */
     data.alsHandle = sensorRegister(&sensorInfoAls, &sensorOpsAls);
@@ -500,9 +479,6 @@ static void end_app(void)
     sensorUnregister(data.alsHandle);
     sensorUnregister(data.proxHandle);
 
-    heapFree(data.alsFIFO);
-    heapFree(data.proxFIFO);
-
     i2cMasterRelease(I2C_BUS_ID);
 }
 
@@ -510,41 +486,33 @@ static void handle_event(uint32_t evtType, const void* evtData)
 {
     switch (evtType) {
     case EVT_APP_START:
-        osEventUnsubscribe(data.tid, EVT_APP_START);
         i2cMasterRequest(I2C_BUS_ID, I2C_SPEED);
 
-        data.state = SENSOR_STATE_RESET;
         /* Reset chip */
         data.txrxBuf.bytes[0] = ROHM_RPR0521_REG_SYSTEM_CONTROL;
         data.txrxBuf.bytes[1] = SW_RESET_BIT;
         i2cMasterTx(I2C_BUS_ID, I2C_ADDR, data.txrxBuf.bytes, 2,
-                              &i2cCallback, NULL);
+                              &i2cCallback, (void *)SENSOR_STATE_RESET);
         break;
 
     case EVT_SENSOR_I2C:
-        handle_i2c_event();
+        handle_i2c_event((int)evtData);
         break;
 
     case EVT_SENSOR_ALS_TIMER:
-        /* Start sampling for a value */
-        if (!data.alsReading && !data.proxReading) {
-            data.alsReading = true;
-            data.txrxBuf.bytes[0] = ROHM_RPR0521_REG_PS_DATA_LSB;
-            data.state = SENSOR_STATE_SAMPLING;
-            i2cMasterTxRx(I2C_BUS_ID, I2C_ADDR, data.txrxBuf.bytes, 1,
-                                data.txrxBuf.bytes, 6, &i2cCallback, NULL);
-        }
-        break;
-
     case EVT_SENSOR_PROX_TIMER:
         /* Start sampling for a value */
         if (!data.alsReading && !data.proxReading) {
-            data.proxReading = true;
             data.txrxBuf.bytes[0] = ROHM_RPR0521_REG_PS_DATA_LSB;
-            data.state = SENSOR_STATE_SAMPLING;
             i2cMasterTxRx(I2C_BUS_ID, I2C_ADDR, data.txrxBuf.bytes, 1,
-                                data.txrxBuf.bytes, 6, &i2cCallback, NULL);
+                                data.txrxBuf.bytes, 6, &i2cCallback,
+                                (void *)SENSOR_STATE_SAMPLING);
         }
+
+        if (evtType == EVT_SENSOR_ALS_TIMER)
+            data.alsReading = true;
+        else
+            data.proxReading = true;
         break;
     }
 }
