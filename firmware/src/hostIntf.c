@@ -52,7 +52,13 @@ static struct SlabAllocator *mTxSlab, *mActiveSensorSlab;
 static const struct HostIntfComm *gComm;
 static uint8_t gRxBuf[NANOHUB_PACKET_SIZE_MAX];
 static size_t gRxSize;
-static uint8_t gTxBuf[NANOHUB_PACKET_SIZE_MAX + 1];
+static bool gTxRetrans;
+static struct
+{
+    uint8_t prePreamble;
+    uint8_t buf[NANOHUB_PACKET_SIZE_MAX];
+    uint8_t postPreamble;
+} gTxBuf = { .prePreamble = NANOHUB_PREAMBLE_BYTE, .postPreamble = NANOHUB_PREAMBLE_BYTE };
 static size_t gTxSize;
 static uint8_t *gTxBufPtr;
 static uint32_t gSeq;
@@ -133,6 +139,13 @@ static inline const struct NanohubCommand *hostIntfFindHandler(uint8_t *buf, siz
         return NULL;
     }
 
+    if (gSeq == packet->seq) {
+        gTxRetrans = true;
+        return gRxCmd;
+    } else {
+        gTxRetrans = false;
+    }
+
     gSeq = packet->seq;
     packetReason = le32toh(packet->reason);
 
@@ -152,21 +165,27 @@ static inline const struct NanohubCommand *hostIntfFindHandler(uint8_t *buf, siz
     return NULL;
 }
 
+static void hostIntfTxBuf(int size, uint8_t *buf, HostIntfCommCallbackF callback)
+{
+    gTxSize = size;
+    gTxBufPtr = buf;
+    gComm->txPacket(gTxBufPtr, gTxSize, callback);
+}
+
 static void hostIntfTxPacket(__le32 reason, uint8_t len,
         HostIntfCommCallbackF callback)
 {
-    struct NanohubPacket *txPacket = (struct NanohubPacket *)gTxBuf;
+    struct NanohubPacket *txPacket = (struct NanohubPacket *)(gTxBuf.buf);
     txPacket->reason = reason;
     txPacket->seq = gSeq;
     txPacket->sync = NANOHUB_SYNC_BYTE;
     txPacket->len = len;
 
-    struct NanohubPacketFooter *txFooter = hostIntfGetFooter(gTxBuf);
-    txFooter->crc = hostIntfComputeCrc(gTxBuf);
+    struct NanohubPacketFooter *txFooter = hostIntfGetFooter(gTxBuf.buf);
+    txFooter->crc = hostIntfComputeCrc(gTxBuf.buf);
 
-    gTxSize = NANOHUB_PACKET_SIZE(len);
-    gTxBufPtr = gTxBuf;
-    gComm->txPacket(gTxBufPtr, gTxSize, callback);
+    // send starting with the prePremable byte
+    hostIntfTxBuf(1+NANOHUB_PACKET_SIZE(len), &gTxBuf.prePreamble, callback);
 }
 
 static inline void hostIntfTxPacketDone(int err, size_t tx,
@@ -230,15 +249,16 @@ static void hostIntfRxDone(size_t rx, int err)
 
 static void hostIntfGenerateAck(void *cookie)
 {
-    uint32_t reason;
-
     gRxCmd = hostIntfFindHandler(gRxBuf, gRxSize);
-    if (gRxCmd)
-        reason = NANOHUB_REASON_ACK;
-    else
-        reason = NANOHUB_REASON_NAK;
 
-    hostIntfTxPacket(reason, 0, hostIntfTxAckDone);
+    if (gRxCmd) {
+        if (gTxRetrans)
+            hostIntfTxBuf(gTxSize, &gTxBuf.prePreamble, hostIntfTxPayloadDone);
+        else
+            hostIntfTxPacket(NANOHUB_REASON_ACK, 0, hostIntfTxAckDone);
+    } else {
+        hostIntfTxPacket(NANOHUB_REASON_NAK, 0, hostIntfTxAckDone);
+    }
 }
 
 static void hostIntfTxAckDone(size_t tx, int err)
@@ -263,7 +283,7 @@ static void hostIntfGenerateResponse(void *cookie)
 {
     void *rxPayload = hostIntfGetPayload(gRxBuf);
     uint8_t rx_len = hostIntfGetPayloadLen(gRxBuf);
-    void *txPayload = hostIntfGetPayload(gTxBuf);
+    void *txPayload = hostIntfGetPayload(gTxBuf.buf);
     uint8_t respLen = gRxCmd->handler(rxPayload, rx_len, txPayload);
 
     hostIntfTxPacket(gRxCmd->reason, respLen, hostIntfTxPayloadDone);
@@ -425,7 +445,11 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
                 // TODO: handle mismatch latency between hostIntf and sensor
                 // sensorGetCurLatency(sensor->sensorHandle) != sensor->latency
                 if (currentTime >= sensor->lastInterrupt + sensor->latency) {
+#if 0 // TODO: when non-wakeup sensors are enabled/disabled over AP suspend
                     hostIntfSetInterrupt(sensor->interrupt);
+#else
+                    hostIntfSetInterrupt(NANOHUB_INT_WAKEUP);
+#endif
                     sensor->lastInterrupt = currentTime;
                 }
             }
