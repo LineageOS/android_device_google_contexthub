@@ -20,6 +20,18 @@ extern "C" {
 #define DEBUG_UART_GPIO_TX          GPIO_PA(2)
 #define DEBUG_UART_GPIO_RX          GPIO_PA(3)
 
+#define BMI160_TO_ANDROID_COORDINATE(x, y, z)   \
+    do {                                        \
+        int32_t xi = x, yi = y, zi = z;         \
+        x = xi; y = yi; z = zi;                 \
+    } while (0)
+
+#define BMM150_TO_ANDROID_COORDINATE(x, y, z)   \
+    do {                                        \
+        int32_t xi = x, yi = y, zi = z;         \
+        x = xi; y = -yi; z = -zi;               \
+    } while (0)
+
 #ifdef __cplusplus
 }
 #endif
