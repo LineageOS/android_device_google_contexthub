@@ -100,6 +100,11 @@ struct SensorInfo {
 #define SENSOR_RATE_ONCHANGE    0xFFFFFF01UL
 #define SENSOR_HZ(_hz)          ((uint32_t)((_hz) * 1024.0f))
 
+/*
+ * Sensor latency is a 64-bit integer specifying the allowable delay in ns
+ * that data can be buffered.
+ */
+#define SENSOR_LATENCY_NODATA   0xFFFFFFFFFFFFFF00ULL
 
 /*
  * sensors module api
