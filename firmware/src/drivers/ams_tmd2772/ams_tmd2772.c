@@ -153,9 +153,10 @@ struct SensorData
 /* TODO: check rates are supported */
 static const uint32_t supportedRates[] =
 {
+    SENSOR_HZ(0.1),
+    SENSOR_HZ(1),
     SENSOR_HZ(4),
     SENSOR_HZ(5),
-    SENSOR_HZ(10),
     0,
 };
 
