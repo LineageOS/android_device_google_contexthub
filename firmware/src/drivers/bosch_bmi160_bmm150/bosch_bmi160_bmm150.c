@@ -19,7 +19,6 @@
 #include <seos.h>
 #include <accelerometer.h>
 
-
 #include "mag_cal.h"
 #include <nanohub_math.h>
 
@@ -249,6 +248,7 @@ struct BMI160Sensor {
     bool active; // activate status
     bool offset_enable;
     enum SensorIndex idx;
+    uint8_t flush;
 };
 
 struct BMI160Task {
@@ -286,15 +286,14 @@ struct BMI160Task {
 
     uint8_t err;
 
-    bool latest_sensortime_valid;
-    bool frame_sensortime_valid;
-    uint64_t latest_sensortime;
-    uint64_t frame_sensortime;
+    uint64_t cur_time;
+    uint64_t new_time;
 
     uint8_t interrupt_enable_0;
     uint8_t interrupt_enable_2;
 
     uint8_t active_oneshot_sensor_cnt;
+    uint8_t active_data_sensor_cnt;
 };
 
 static uint32_t AccRates[] = {
@@ -656,12 +655,13 @@ static void configFifo(bool on)
     if (mTask.sensors[MAG].active && mTask.sensors[MAG].latency != SENSOR_LATENCY_NODATA)
         val |= 0x20;
 
+    // clear all fifo data;
+    mTask.xferCnt = 1024;
+    mTask.new_time = timGetTime();
+    SPI_READ(BMI160_REG_FIFO_DATA, mTask.xferCnt, mTask.rxBuffer);
+
     // write the composed byte to fifo_config reg.
     SPI_WRITE(BMI160_REG_FIFO_CONFIG_1, val);
-
-    // if we are turning off all sensors, flush the fifo
-    if (!on)
-        SPI_WRITE(BMI160_REG_CMD, 0xB0);
 }
 
 static bool accPower(bool on)
@@ -1017,19 +1017,43 @@ static bool noMotionSetRate(uint32_t rate, uint64_t latency)
     return true;
 }
 
+static void sendFlushEvt(void)
+{
+    while (mTask.sensors[ACC].flush > 0) {
+        osEnqueueEvt(EVT_SENSOR_ACC_DATA_RDY, SENSOR_DATA_EVENT_FLUSH, NULL);
+        mTask.sensors[ACC].flush--;
+    }
+    while (mTask.sensors[GYR].flush > 0) {
+        osEnqueueEvt(EVT_SENSOR_GYR_DATA_RDY, SENSOR_DATA_EVENT_FLUSH, NULL);
+        mTask.sensors[GYR].flush--;
+    }
+    while (mTask.sensors[MAG].flush > 0) {
+        osEnqueueEvt(EVT_SENSOR_ACC_DATA_RDY, SENSOR_DATA_EVENT_FLUSH, NULL);
+        mTask.sensors[MAG].flush--;
+    }
+}
+
+static void int1Evt(void);
+
 static bool accFlush()
 {
-    return osEnqueueEvt(EVT_SENSOR_ACC_DATA_RDY, SENSOR_DATA_EVENT_FLUSH, NULL);
+    mTask.sensors[ACC].flush++;
+    int1Evt();
+    return true;
 }
 
 static bool gyrFlush()
 {
-    return osEnqueueEvt(EVT_SENSOR_GYR_DATA_RDY, SENSOR_DATA_EVENT_FLUSH, NULL);
+    mTask.sensors[GYR].flush++;
+    int1Evt();
+    return true;
 }
 
 static bool magFlush()
 {
-    return osEnqueueEvt(EVT_SENSOR_MAG_DATA_RDY, SENSOR_DATA_EVENT_FLUSH, NULL);
+    mTask.sensors[MAG].flush++;
+    int1Evt();
+    return true;
 }
 
 static bool stepFlush()
@@ -1148,7 +1172,6 @@ static void parseRawData(struct BMI160Sensor *mSensor, int i, float kScale, uint
     }
 
     sample = &mSensor->data_evt->samples[mSensor->data_evt->samples[0].deltaTime++];
-
     delta_time = time - mSensor->data_evt->referenceTime;
     delta_time = delta_time<0?0:delta_time; //XXX: needed?
 
@@ -1176,22 +1199,43 @@ static void parseRawData(struct BMI160Sensor *mSensor, int i, float kScale, uint
 static void dispatchData(void)
 {
     size_t i = 1, j;
-    size_t size = mTask.xferCnt - 1; // the first bit is the RW
+    size_t size = mTask.xferCnt;
     int fh_mode, fh_param;
     uint8_t *buf = mTask.rxBuffer;
-    //uint64_t frame_sensor_time = mTask.frame_sensortime;
-    uint64_t frame_sensor_time = mTask.frame_sensortime;
-    //bool frame_sensor_time_valid = mTask.frame_sensortime_valid;
-    uint64_t min_delta = ULONG_LONG_MAX;
+    uint64_t frame_sensor_time = mTask.cur_time;
+    uint32_t min_delta = ULONG_MAX;
+    uint8_t sample_cnt = 0;
 
-    for (j = 0; j < NUM_OF_SENSOR; j++) {
-        if (mTask.sensors[j].active) {
-            uint64_t delta = 1000000ull * 1024ull / (uint64_t)mTask.sensors[j].rate;
-            min_delta = min_delta <= delta ? min_delta : delta;
+	mTask.cur_time = mTask.new_time;
+
+    if (frame_sensor_time > mTask.cur_time) {
+        osLog(LOG_ERROR, "Invalid timestamp! Dropping all fifo data\n");
+        return;
+    }
+
+    for (j = 1; j <= size && buf[j] != 0x80; j++) {
+        fh_mode = buf[j] >> 6;
+        fh_param = (buf[j] & 0x1f) >> 2;
+        if (fh_mode == 1) {
+            j++;
+        } else if (fh_mode == 2) {
+            sample_cnt ++;
+            if (fh_param & 4)
+                j += 8;
+            if (fh_param & 2)
+                j += 6;
+            if (fh_param & 1)
+                j += 6;
         }
     }
 
+    min_delta = (mTask.cur_time - frame_sensor_time) / sample_cnt;
+
     while (size > 0) {
+        // 0x80 marks the end of valid data. Fifo is overread by this time.
+        if (buf[i] == 0x80)
+            break;
+
         fh_mode = buf[i] >> 6;
         fh_param = (buf[i] & 0x1f) >> 2;
 
@@ -1201,27 +1245,14 @@ static void dispatchData(void)
         if (fh_mode == 1) {
             // control frame.
             if (fh_param == 1) {
-                // sensortime frame
-                if (size >= 3) {
-                    uint64_t sensorTime24 = buf[i+2] << 16 | buf[i+1] << 8 | buf[i];
-                    //sensorTime24 &= ~(min_delta - 1);
-                    //uint64_t fullSensorTime = update_sensortime(sensorTime24);
-                    uint64_t fullSensorTime = (uint64_t)(sensorTime24 * 39ull);
-                    mTask.frame_sensortime = fullSensorTime;
-                    mTask.frame_sensortime_valid = true;
-
-                    mTask.frame_sensortime += min_delta;
-                    i += 3;
-                    size -= 3;
-                } else {
-                    size = 0;
-                }
+                // sensortime frame, means no more data
+                size = 0;
             } else {
                 // skip frame or FIFO_input config fram, we skip it
                 i++;
                 size--;
             }
-        } else if (mTask.frame_sensortime_valid && fh_mode == 2) {
+        } else if (fh_mode == 2) {
             // regular frame, dispatch data to each sensor's own fifo
             if (fh_param & 4) { // have mag data
                 parseRawData(&mTask.sensors[MAG], i, kScale_mag, frame_sensor_time);
@@ -1285,10 +1316,7 @@ static void int2Handling(void)
 
 static void int2Evt(void)
 {
-    if (mTask.state < SENSOR_IDLE) {
-        osLog(LOG_ERROR, "chip not initialized yet. No interrupt allowed\n");
-        return;
-    } else if (mTask.state == SENSOR_IDLE) {
+    if (mTask.state == SENSOR_IDLE) {
         mTask.state = SENSOR_INT_2_HANDLING;
 
         // Read the interrupt reg value to determine what interrupts
@@ -1316,13 +1344,10 @@ static void int1Handling(void)
     case FIFO_READ_DATA:
         mTask.fifo_state = FIFO_DONE;
         mTask.xferCnt = ((mTask.rxBuffer[2] & 0x07) << 8) | mTask.rxBuffer[1];
-        // always read out the full fifo + 4 bytes to get the sensor time
-        // frame.
-        mTask.xferCnt = 1024+4;
         // read out fifo.
         SPI_READ(BMI160_REG_FIFO_DATA, mTask.xferCnt, mTask.rxBuffer);
-        // flush the fifo to clear/reset water mark interrupt.
-        SPI_WRITE(BMI160_REG_CMD, 0xb0);
+        // record the time.
+        mTask.new_time = timGetTime() / 1000;
         spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask);
         break;
     default:
@@ -1333,10 +1358,7 @@ static void int1Handling(void)
 
 static void int1Evt(void)
 {
-    if (mTask.state < SENSOR_IDLE) {
-        osLog(LOG_ERROR, "chip not initialized yet. No interrupt allowed\n");
-        return;
-    } else if (mTask.state == SENSOR_IDLE) {
+    if (mTask.state == SENSOR_IDLE) {
         mTask.state = SENSOR_INT_1_HANDLING;
         mTask.fifo_state = FIFO_READ_LENGTH;
         int1Handling();
@@ -1738,6 +1760,11 @@ static void handleSpiDoneEvt(const void* evtData)
             magConfig();
         } else {
             if (mSensor->idx <= MAG) {
+                if (++mTask.active_data_sensor_cnt == 1) {
+                    // if this is the first data sensor to enable, we need to
+                    // update the current timestap;
+                    mTask.cur_time = timGetTime() / 1000;
+                }
                 configInt1(true);
             } else {
                 if (++mTask.active_oneshot_sensor_cnt == 1) {
@@ -1768,6 +1795,7 @@ static void handleSpiDoneEvt(const void* evtData)
         if (mSensor->idx <= MAG) {
             configInt1(false);
             configFifo(false);
+            mTask.active_data_sensor_cnt--;
             SPI_READ(BMI160_REG_ERR, 1, mTask.errBuffer);
             SPI_READ(BMI160_REG_PMU_STATUS, 1, mTask.pmuBuffer);
             spiBatchTxRx(&mTask.mode, sensorSpiCallback, mSensor);
@@ -1787,12 +1815,14 @@ static void handleSpiDoneEvt(const void* evtData)
         mTask.state = SENSOR_IDLE;
         osLog(LOG_INFO, "Done powering down for %s\n", mSensorInfo[mSensor->idx].sensorName);
         osLog(LOG_INFO, "   NEW POWER STATUS: %02x, ERROR: %02x\n", mTask.pmuBuffer[1], mTask.errBuffer[1]);
+        dispatchData();
         processPendingEvt();
         break;
     case SENSOR_INT_1_HANDLING:
         if (mTask.fifo_state == FIFO_DONE) {
 
             dispatchData();
+            sendFlushEvt();
             mTask.state = SENSOR_IDLE;
 
             processPendingEvt();
@@ -1810,6 +1840,7 @@ static void handleSpiDoneEvt(const void* evtData)
                 SENSOR_INTERNAL_EVT_RATE_CHG, mSensor->rate, mSensor->latency);
         mTask.state = SENSOR_IDLE;
         osLog(LOG_INFO, "Done changing config\n");
+        dispatchData();
         processPendingEvt();
         break;
     case SENSOR_CALIBRATING:
@@ -1830,7 +1861,7 @@ static void handleSpiDoneEvt(const void* evtData)
         break;
     default:
         break;
-}
+    }
 }
 
 static void handleEvent(uint32_t evtType, const void* evtData)
@@ -1878,6 +1909,7 @@ static void initSensorStruct(struct BMI160Sensor *sensor, enum SensorIndex idx)
     sensor->batch_size = 0;
     sensor->latency = 0;
     sensor->data_evt = NULL;
+    sensor->flush = 0;
 }
 
 static bool startTask(uint32_t task_id)
