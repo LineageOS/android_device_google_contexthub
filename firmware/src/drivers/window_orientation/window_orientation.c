@@ -529,6 +529,9 @@ static void windowOrientationHandleEvent(uint32_t evtType, const void* evtData)
     struct TripleAxisDataEvent *ev;
     union EmbeddedDataPoint sample;
 
+    if (evtData == SENSOR_DATA_EVENT_FLUSH)
+        return;
+
     switch (evtType) {
     case EVT_SENSOR_ACC_DATA_RDY:
         ev = (struct TripleAxisDataEvent *)evtData;
