@@ -10,6 +10,7 @@
 #include <eventnums.h>
 #include <sensType.h>
 
+#define SENSOR_RATE_ONCHANGE    0xFFFFFF01UL
 #define SENSOR_HZ(_hz)          ((uint32_t)((_hz) * 1024.0f))
 
 struct ConfigCmd
@@ -77,14 +78,28 @@ int main(int argc, char *argv[])
             mConfigCmd.sensorType = SENS_TYPE_WIN_ORIENTATION;
         } else if (strcmp(argv[2], "step") == 0) {
             mConfigCmd.sensorType = SENS_TYPE_STEP_DETECT;
+            mConfigCmd.rate = SENSOR_RATE_ONCHANGE;
         } else if (strcmp(argv[2], "double_tap") == 0) {
             mConfigCmd.sensorType = SENS_TYPE_DOUBLE_TAP;
+            mConfigCmd.rate = SENSOR_RATE_ONCHANGE;
         } else if (strcmp(argv[2], "flat") == 0) {
             mConfigCmd.sensorType = SENS_TYPE_FLAT;
+            mConfigCmd.rate = SENSOR_RATE_ONCHANGE;
         } else if (strcmp(argv[2], "anymo") == 0) {
             mConfigCmd.sensorType = SENS_TYPE_ANY_MOTION;
+            mConfigCmd.rate = SENSOR_RATE_ONCHANGE;
         } else if (strcmp(argv[2], "nomo") == 0) {
             mConfigCmd.sensorType = SENS_TYPE_NO_MOTION;
+            mConfigCmd.rate = SENSOR_RATE_ONCHANGE;
+        } else if (strcmp(argv[2], "hall") == 0) {
+            mConfigCmd.sensorType = SENS_TYPE_HALL;
+            mConfigCmd.rate = SENSOR_RATE_ONCHANGE;
+        } else if (strcmp(argv[2], "vsync") == 0) {
+            mConfigCmd.sensorType = SENS_TYPE_VSYNC;
+            mConfigCmd.rate = SENSOR_RATE_ONCHANGE;
+        } else if (strcmp(argv[2], "activity") == 0) {
+            mConfigCmd.sensorType = SENS_TYPE_ACTIVITY;
+            mConfigCmd.rate = SENSOR_RATE_ONCHANGE;
         } else {
             printf("Unsupported sensor: %s For action: %s\n", argv[2], argv[1]);
             return 1;
