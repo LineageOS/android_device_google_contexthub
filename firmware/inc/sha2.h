@@ -7,6 +7,10 @@
 
 #define SHA2_BLOCK_SIZE         64 //in bytes
 #define SHA2_WORDS_STATE_SIZE   64 //in words
+
+#define SHA2_HASH_SIZE          32 //in bytes
+#define SHA2_HASH_WORDS         8  //in words
+
 struct Sha2state {
     uint32_t h[8];
     uint64_t msgLen;
