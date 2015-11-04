@@ -24,18 +24,70 @@ struct ConfigCmd
     uint8_t calibrate : 1;
 } __attribute__((packed));
 
+static int setType(struct ConfigCmd *cmd, char *sensor)
+{
+    if (strcmp(sensor, "accel") == 0) {
+        cmd->sensorType = SENS_TYPE_ACCEL;
+    } else if (strcmp(sensor, "gyro") == 0) {
+        cmd->sensorType = SENS_TYPE_GYRO;
+    } else if (strcmp(sensor, "mag") == 0) {
+        cmd->sensorType = SENS_TYPE_MAG;
+    } else if (strcmp(sensor, "als") == 0) {
+        cmd->sensorType = SENS_TYPE_ALS;
+    } else if (strcmp(sensor, "prox") == 0) {
+        cmd->sensorType = SENS_TYPE_PROX;
+    } else if (strcmp(sensor, "baro") == 0) {
+        cmd->sensorType = SENS_TYPE_BARO;
+    } else if (strcmp(sensor, "temp") == 0) {
+        cmd->sensorType = SENS_TYPE_TEMP;
+    } else if (strcmp(sensor, "orien") == 0) {
+        cmd->sensorType = SENS_TYPE_ORIENTATION;
+    } else if (strcmp(sensor, "win_orien") == 0) {
+        cmd->sensorType = SENS_TYPE_WIN_ORIENTATION;
+    } else if (strcmp(sensor, "step") == 0) {
+        cmd->sensorType = SENS_TYPE_STEP_DETECT;
+        cmd->rate = SENSOR_RATE_ONCHANGE;
+    } else if (strcmp(sensor, "double_tap") == 0) {
+        cmd->sensorType = SENS_TYPE_DOUBLE_TAP;
+        cmd->rate = SENSOR_RATE_ONCHANGE;
+    } else if (strcmp(sensor, "flat") == 0) {
+        cmd->sensorType = SENS_TYPE_FLAT;
+        cmd->rate = SENSOR_RATE_ONCHANGE;
+    } else if (strcmp(sensor, "anymo") == 0) {
+        cmd->sensorType = SENS_TYPE_ANY_MOTION;
+        cmd->rate = SENSOR_RATE_ONCHANGE;
+    } else if (strcmp(sensor, "nomo") == 0) {
+        cmd->sensorType = SENS_TYPE_NO_MOTION;
+        cmd->rate = SENSOR_RATE_ONCHANGE;
+    } else if (strcmp(sensor, "hall") == 0) {
+        cmd->sensorType = SENS_TYPE_HALL;
+        cmd->rate = SENSOR_RATE_ONCHANGE;
+    } else if (strcmp(sensor, "vsync") == 0) {
+        cmd->sensorType = SENS_TYPE_VSYNC;
+        cmd->rate = SENSOR_RATE_ONCHANGE;
+    } else if (strcmp(sensor, "activity") == 0) {
+        cmd->sensorType = SENS_TYPE_ACTIVITY;
+        cmd->rate = SENSOR_RATE_ONCHANGE;
+    } else {
+        return 1;
+    }
+
+    return 0;
+}
+
 int main(int argc, char *argv[])
 {
     struct ConfigCmd mConfigCmd;
     int fd;
-    char wakeup;
+    int ret;
 
     if (argc < 3) {
         printf("usage: %s <action> <sensor> <data>\n", argv[0]);
-        printf("       action: config|calibrate\n");
+        printf("       action: config|calibrate|flush\n");
         printf("       sensor: accel|gyro|mag|als|prox|baro|temp|orien|win_orien\n");
         printf("       data: config: <true|false> <rate in Hz> <latency in u-sec>\n");
         printf("             calibrate: [N.A.]\n");
+        printf("             flush: [N.A.]\n");
 
         return 1;
     }
@@ -58,49 +110,7 @@ int main(int argc, char *argv[])
         mConfigCmd.latency = atoi(argv[5]) * 1000ull;
         mConfigCmd.flush = 0;
         mConfigCmd.calibrate = 0;
-        if (strcmp(argv[2], "accel") == 0) {
-            mConfigCmd.sensorType = SENS_TYPE_ACCEL;
-        } else if (strcmp(argv[2], "gyro") == 0) {
-            mConfigCmd.sensorType = SENS_TYPE_GYRO;
-        } else if (strcmp(argv[2], "mag") == 0) {
-            mConfigCmd.sensorType = SENS_TYPE_MAG;
-        } else if (strcmp(argv[2], "als") == 0) {
-            mConfigCmd.sensorType = SENS_TYPE_ALS;
-        } else if (strcmp(argv[2], "prox") == 0) {
-            mConfigCmd.sensorType = SENS_TYPE_PROX;
-        } else if (strcmp(argv[2], "baro") == 0) {
-            mConfigCmd.sensorType = SENS_TYPE_BARO;
-        } else if (strcmp(argv[2], "temp") == 0) {
-            mConfigCmd.sensorType = SENS_TYPE_TEMP;
-        } else if (strcmp(argv[2], "orien") == 0) {
-            mConfigCmd.sensorType = SENS_TYPE_ORIENTATION;
-        } else if (strcmp(argv[2], "win_orien") == 0) {
-            mConfigCmd.sensorType = SENS_TYPE_WIN_ORIENTATION;
-        } else if (strcmp(argv[2], "step") == 0) {
-            mConfigCmd.sensorType = SENS_TYPE_STEP_DETECT;
-            mConfigCmd.rate = SENSOR_RATE_ONCHANGE;
-        } else if (strcmp(argv[2], "double_tap") == 0) {
-            mConfigCmd.sensorType = SENS_TYPE_DOUBLE_TAP;
-            mConfigCmd.rate = SENSOR_RATE_ONCHANGE;
-        } else if (strcmp(argv[2], "flat") == 0) {
-            mConfigCmd.sensorType = SENS_TYPE_FLAT;
-            mConfigCmd.rate = SENSOR_RATE_ONCHANGE;
-        } else if (strcmp(argv[2], "anymo") == 0) {
-            mConfigCmd.sensorType = SENS_TYPE_ANY_MOTION;
-            mConfigCmd.rate = SENSOR_RATE_ONCHANGE;
-        } else if (strcmp(argv[2], "nomo") == 0) {
-            mConfigCmd.sensorType = SENS_TYPE_NO_MOTION;
-            mConfigCmd.rate = SENSOR_RATE_ONCHANGE;
-        } else if (strcmp(argv[2], "hall") == 0) {
-            mConfigCmd.sensorType = SENS_TYPE_HALL;
-            mConfigCmd.rate = SENSOR_RATE_ONCHANGE;
-        } else if (strcmp(argv[2], "vsync") == 0) {
-            mConfigCmd.sensorType = SENS_TYPE_VSYNC;
-            mConfigCmd.rate = SENSOR_RATE_ONCHANGE;
-        } else if (strcmp(argv[2], "activity") == 0) {
-            mConfigCmd.sensorType = SENS_TYPE_ACTIVITY;
-            mConfigCmd.rate = SENSOR_RATE_ONCHANGE;
-        } else {
+        if (setType(&mConfigCmd, argv[2])) {
             printf("Unsupported sensor: %s For action: %s\n", argv[2], argv[1]);
             return 1;
         }
@@ -115,11 +125,22 @@ int main(int argc, char *argv[])
         mConfigCmd.enable = 0;
         mConfigCmd.flush = 0;
         mConfigCmd.calibrate = 1;
-        if (strcmp(argv[2], "accel") == 0) {
-            mConfigCmd.sensorType = SENS_TYPE_ACCEL;
-        } else if (strcmp(argv[2], "gyro") == 0) {
-            mConfigCmd.sensorType = SENS_TYPE_GYRO;
-        } else {
+        if (setType(&mConfigCmd, argv[2])) {
+            printf("Unsupported sensor: %s For action: %s\n", argv[2], argv[1]);
+            return 1;
+        }
+    } else if (strcmp(argv[1], "flush") == 0) {
+        if (argc != 3) {
+            printf("Wrong arg number\n");
+            return 1;
+        }
+        mConfigCmd.evtType = EVT_NO_SENSOR_CONFIG_EVENT;
+        mConfigCmd.rate = 0;
+        mConfigCmd.latency = 0;
+        mConfigCmd.enable = 0;
+        mConfigCmd.flush = 1;
+        mConfigCmd.calibrate = 0;
+        if (setType(&mConfigCmd, argv[2])) {
             printf("Unsupported sensor: %s For action: %s\n", argv[2], argv[1]);
             return 1;
         }
@@ -129,7 +150,9 @@ int main(int argc, char *argv[])
     }
 
     fd = open("/dev/nanohub", O_RDWR);
-    write(fd, &mConfigCmd, sizeof(mConfigCmd));
+    do {
+        ret = write(fd, &mConfigCmd, sizeof(mConfigCmd));
+    } while (ret < 0);
     close(fd);
 
     return 0;
