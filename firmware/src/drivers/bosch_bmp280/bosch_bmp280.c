@@ -70,12 +70,23 @@ static struct BMP280Task
     bool tempReading;
 } mTask;
 
-static const uint32_t supportedRates[] =
+static const uint32_t tempSupportedRates[] =
 {
+    SENSOR_HZ(0.1),
     SENSOR_HZ(1),
     SENSOR_HZ(5),
     SENSOR_HZ(10),
+    SENSOR_HZ(25),
     0,
+};
+
+static const uint32_t baroSupportedRates[] =
+{
+    SENSOR_HZ(0.1),
+    SENSOR_HZ(1),
+    SENSOR_HZ(5),
+    SENSOR_HZ(10),
+    0
 };
 
 /* sensor callbacks from nanohub */
@@ -194,7 +205,7 @@ static bool sensorFlushTemp()
 static const struct SensorInfo sensorInfoBaro =
 {
     "Pressure",
-    supportedRates,
+    baroSupportedRates,
     SENS_TYPE_BARO,
     NUM_AXIS_EMBEDDED,
     { NANOHUB_INT_NONWAKEUP}
@@ -211,7 +222,7 @@ static const struct SensorOps sensorOpsBaro =
 static const struct SensorInfo sensorInfoTemp =
 {
     "Temperature",
-    supportedRates,
+    tempSupportedRates,
     SENS_TYPE_TEMP,
     NUM_AXIS_EMBEDDED,
     { NANOHUB_INT_NONWAKEUP}
