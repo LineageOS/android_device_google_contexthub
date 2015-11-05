@@ -11,7 +11,7 @@ extern "C" {
 #include <eventnums.h>
 #include <sensType.h>
 
-#define MAX_REGISTERED_SENSORS  16 /* this may need to be revisted later */
+#define MAX_REGISTERED_SENSORS  32 /* this may need to be revisted later */
 
 enum NumAxis {
     NUM_AXIS_EMBEDDED = 0, // data = (uint32_t)evtData
