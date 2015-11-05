@@ -118,19 +118,35 @@ static inline const struct SensorInfo* eOsSensorSignalInternalEvt(uint32_t handl
     return (const struct SensorInfo*)syscallDo5P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_MAIN, SYSCALL_OS_MAIN_SENSOR, SYSCALL_OS_MAIN_SENSOR_SIGNAL), handle, intEvtNum, value1, value2_lo, value2_hi);
 }
 
+static inline const uint32_t eOsSensorRegister(const struct SensorInfo *si, uint32_t tid)
+{
+    return syscallDo2P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_MAIN, SYSCALL_OS_MAIN_SENSOR, SYSCALL_OS_MAIN_SENSOR_REG), si, tid);
+}
+
+static inline const bool eOsSensorUnregister(uint32_t handle)
+{
+    return syscallDo1P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_MAIN, SYSCALL_OS_MAIN_SENSOR, SYSCALL_OS_MAIN_SENSOR_UNREG), handle);
+}
+
 static inline const struct SensorInfo* eOsSensorFind(uint32_t sensorType, uint32_t idx, uint32_t *handleP)
 {
     return (const struct SensorInfo*)syscallDo3P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_MAIN, SYSCALL_OS_MAIN_SENSOR, SYSCALL_OS_MAIN_SENSOR_FIND), sensorType, idx, handleP);
 }
 
-static inline bool eOsSensorRequest(uint32_t clientId, uint32_t sensorHandle, uint32_t rate)
+static inline bool eOsSensorRequest(uint32_t clientId, uint32_t sensorHandle, uint32_t rate, uint64_t latency)
 {
-    return syscallDo3P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_MAIN, SYSCALL_OS_MAIN_SENSOR, SYSCALL_OS_MAIN_SENSOR_REQUEST), clientId, sensorHandle, rate);
+    uint32_t latency_lo = latency;
+    uint64_t latency_hi = latency >> 32;
+
+    return syscallDo5P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_MAIN, SYSCALL_OS_MAIN_SENSOR, SYSCALL_OS_MAIN_SENSOR_REQUEST), clientId, sensorHandle, rate, latency_lo, latency_hi);
 }
 
-static inline bool eOsSensorRequestRateChange(uint32_t clientId, uint32_t sensorHandle, uint32_t newRate)
+static inline bool eOsSensorRequestRateChange(uint32_t clientId, uint32_t sensorHandle, uint32_t newRate, uint64_t newLatency)
 {
-    return syscallDo3P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_MAIN, SYSCALL_OS_MAIN_SENSOR, SYSCALL_OS_MAIN_SENSOR_RATE_CHG), clientId, sensorHandle, newRate);
+    uint32_t newLatency_lo = newLatency;
+    uint64_t newLatency_hi = newLatency >> 32;
+
+    return syscallDo5P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_MAIN, SYSCALL_OS_MAIN_SENSOR, SYSCALL_OS_MAIN_SENSOR_RATE_CHG), clientId, sensorHandle, newRate, newLatency_lo, newLatency_hi);
 }
 
 static inline bool eOsSensorRelease(uint32_t clientId, uint32_t sensorHandle)
