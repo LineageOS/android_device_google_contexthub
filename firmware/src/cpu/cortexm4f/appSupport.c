@@ -128,7 +128,7 @@ bool cpuAppLoad(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo)
         return false;
 
     //calcualte and assign got
-    platInfo->got = mem + appHdr->got_start;
+    platInfo->got = mem + appHdr->data_start;
 
     //clear bss
     memset(mem + appHdr->bss_start, 0, appHdr->bss_end - appHdr->bss_start);
