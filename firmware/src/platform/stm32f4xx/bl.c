@@ -574,6 +574,8 @@ static int BOOTLOADER __blEraseShared(uint32_t key1, uint32_t key2)
         if (__blFlashTable[i].type == BL_FLASH_SHARED) {
             erase_mask[i] = 1;
             erase_cnt ++;
+        } else {
+            erase_mask[i] = 0;
         }
     }
 
