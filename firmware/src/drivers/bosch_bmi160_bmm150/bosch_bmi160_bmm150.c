@@ -242,6 +242,7 @@ struct BMI160Sensor {
     uint32_t handle;
     uint32_t rate;
     uint64_t latency;
+    uint64_t prev_time;
     uint32_t batch_size;
     uint32_t offset[3];
     bool pending[4]; // set if there is any pending event
@@ -1162,8 +1163,9 @@ static void parseRawData(struct BMI160Sensor *mSensor, int i, float kScale, uint
             return;
         }
         // delta time for the first sample is sample count
-        mSensor->data_evt->samples[0].deltaTime = 0;
+        mSensor->data_evt->samples[0].numSamples = 0;
         mSensor->data_evt->referenceTime = time;
+        mSensor->prev_time = time;
     }
 
     if (mSensor->data_evt->samples[0].deltaTime >= MAX_NUM_COMMS_EVENT_SAMPLES) {
@@ -1171,13 +1173,15 @@ static void parseRawData(struct BMI160Sensor *mSensor, int i, float kScale, uint
         return;
     }
 
-    sample = &mSensor->data_evt->samples[mSensor->data_evt->samples[0].deltaTime++];
-    delta_time = time - mSensor->data_evt->referenceTime;
-    delta_time = delta_time<0?0:delta_time; //XXX: needed?
+    sample = &mSensor->data_evt->samples[mSensor->data_evt->samples[0].numSamples++];
 
     // the first deltatime is for sample size
-    if (mSensor->data_evt->samples[0].deltaTime > 1)
+    if (mSensor->data_evt->samples[0].numSamples > 1) {
+        delta_time = time - mSensor->prev_time;
+        delta_time = delta_time < 0 ? 0 : delta_time;
         sample->deltaTime = delta_time;
+        mSensor->prev_time = time;
+    }
 
     sample->x = x;
     sample->y = y;
@@ -1206,7 +1210,7 @@ static void dispatchData(void)
     uint32_t min_delta = ULONG_MAX;
     uint8_t sample_cnt = 0;
 
-	mTask.cur_time = mTask.new_time;
+    mTask.cur_time = mTask.new_time;
 
     if (frame_sensor_time > mTask.cur_time) {
         osLog(LOG_ERROR, "Invalid timestamp! Dropping all fifo data\n");
@@ -1347,7 +1351,7 @@ static void int1Handling(void)
         // read out fifo.
         SPI_READ(BMI160_REG_FIFO_DATA, mTask.xferCnt, mTask.rxBuffer);
         // record the time.
-        mTask.new_time = timGetTime() / 1000;
+        mTask.new_time = timGetTime();
         spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask);
         break;
     default:
@@ -1763,7 +1767,7 @@ static void handleSpiDoneEvt(const void* evtData)
                 if (++mTask.active_data_sensor_cnt == 1) {
                     // if this is the first data sensor to enable, we need to
                     // update the current timestap;
-                    mTask.cur_time = timGetTime() / 1000;
+                    mTask.cur_time = timGetTime();
                 }
                 configInt1(true);
             } else {
@@ -1796,9 +1800,6 @@ static void handleSpiDoneEvt(const void* evtData)
             configInt1(false);
             configFifo(false);
             mTask.active_data_sensor_cnt--;
-            SPI_READ(BMI160_REG_ERR, 1, mTask.errBuffer);
-            SPI_READ(BMI160_REG_PMU_STATUS, 1, mTask.pmuBuffer);
-            spiBatchTxRx(&mTask.mode, sensorSpiCallback, mSensor);
         } else {
             configInt2(false);
             if (--mTask.active_oneshot_sensor_cnt == 0) {
@@ -1807,6 +1808,9 @@ static void handleSpiDoneEvt(const void* evtData)
                 sensorRelease(mTask.tid, mTask.sensors[ACC].handle);
             }
         }
+        SPI_READ(BMI160_REG_ERR, 1, mTask.errBuffer);
+        SPI_READ(BMI160_REG_PMU_STATUS, 1, mTask.pmuBuffer);
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, mSensor);
         break;
     case SENSOR_POWERING_DOWN_DONE:
         mSensor = (struct BMI160Sensor *)evtData;
@@ -1910,6 +1914,7 @@ static void initSensorStruct(struct BMI160Sensor *sensor, enum SensorIndex idx)
     sensor->latency = 0;
     sensor->data_evt = NULL;
     sensor->flush = 0;
+    sensor->prev_time = 0;
 }
 
 static bool startTask(uint32_t task_id)

@@ -100,6 +100,7 @@ static void fillSamples(struct TripleAxisDataEvent *ev, enum SampleType index)
 {
     size_t i, sampleCnt, n, start, copy, copy2;
     struct TripleAxisDataPoint *sample;
+    uint64_t time = ev->referenceTime;
 
     if (index == SAMPLE_TYPE_GYRO && !mTask.use_gyro_data) {
         return;
@@ -116,15 +117,12 @@ static void fillSamples(struct TripleAxisDataEvent *ev, enum SampleType index)
 
         for (i = 0; i < MAX_NUM_SAMPLES; ++i) {
             sample = &ev->samples[sampleCnt - MAX_NUM_SAMPLES + i];
+            time += (sampleCnt - MAX_NUM_SAMPLES + i) > 0 ? sample->deltaTime : 0;
             mTask.samples[index][i].x = sample->x;
             mTask.samples[index][i].y = sample->y;
             mTask.samples[index][i].z = sample->z;
-            if (i == 0)
-                mTask.samples[index][i].time = ev->referenceTime;
-            else
-                mTask.samples[index][i].time = ev->referenceTime + sample->deltaTime;
+            mTask.samples[index][i].time = time;
         }
-
     } else {
         n = mTask.sample_counts[index];
         start = (mTask.sample_indices[index] + n) % MAX_NUM_SAMPLES;
@@ -136,26 +134,22 @@ static void fillSamples(struct TripleAxisDataEvent *ev, enum SampleType index)
 
         for (i = 0; i < copy; ++i) {
             sample = &ev->samples[i];
+            time += i > 0 ? sample->deltaTime : 0;
             mTask.samples[index][start + i].x = sample->x;
             mTask.samples[index][start + i].y = sample->y;
             mTask.samples[index][start + i].z = sample->z;
-            if (i == 0)
-                mTask.samples[index][start + i].time = ev->referenceTime;
-            else
-                mTask.samples[index][start + i].time = ev->referenceTime + sample->deltaTime;
+            mTask.samples[index][start + i].time = time;
         }
 
         copy2 = sampleCnt - copy;
 
         for (i = 0; i < copy2; ++i) {
             sample = &ev->samples[copy + i];
+            time += (copy + 1) > 0 ? sample->deltaTime : 0;
             mTask.samples[index][i].x = sample->x;
             mTask.samples[index][i].y = sample->y;
             mTask.samples[index][i].z = sample->z;
-            if (copy + i == 0)
-                mTask.samples[index][i].time = ev->referenceTime;
-            else
-                mTask.samples[index][i].time = ev->referenceTime + sample->deltaTime;
+            mTask.samples[index][i].time = time;
         }
 
         mTask.sample_counts[index] += sampleCnt;
@@ -271,7 +265,7 @@ static void drainSamples()
         case SAMPLE_TYPE_ACCEL:
             initVec3(&a, mTask.samples[SAMPLE_TYPE_ACCEL][i].x, mTask.samples[SAMPLE_TYPE_ACCEL][i].y, mTask.samples[SAMPLE_TYPE_ACCEL][i].z);
 
-            dT = (mTask.samples[SAMPLE_TYPE_ACCEL][i].time - mTask.last_acc_time) * 1.0E-6f;
+            dT = (mTask.samples[SAMPLE_TYPE_ACCEL][i].time - mTask.last_acc_time) * 1.0E-9f;
             mTask.last_acc_time = mTask.samples[SAMPLE_TYPE_ACCEL][i].time;
 
             fusionHandleAcc(&mTask.fusion, &a, dT);
@@ -285,7 +279,7 @@ static void drainSamples()
         case SAMPLE_TYPE_GYRO:
             initVec3(&w, mTask.samples[SAMPLE_TYPE_GYRO][j].x, mTask.samples[SAMPLE_TYPE_GYRO][j].y, mTask.samples[SAMPLE_TYPE_GYRO][j].z);
 
-            dT = (mTask.samples[SAMPLE_TYPE_GYRO][j].time - mTask.last_gyro_time) * 1.0E-6f;
+            dT = (mTask.samples[SAMPLE_TYPE_GYRO][j].time - mTask.last_gyro_time) * 1.0E-9f;
             mTask.last_gyro_time = mTask.samples[SAMPLE_TYPE_GYRO][j].time;
 
             fusionHandleGyro(&mTask.fusion, &w, dT);
