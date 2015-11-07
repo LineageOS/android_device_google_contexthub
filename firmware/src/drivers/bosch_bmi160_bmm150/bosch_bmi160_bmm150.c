@@ -340,10 +340,6 @@ static uint32_t MagRates[] = {
     0,
 };
 
-static uint32_t NoRates[] = {
-    0,
-};
-
 static struct BMI160Task mTask;
 static uint16_t mWbufCnt = 0;
 static uint8_t mRegCnt = 0;
@@ -357,11 +353,11 @@ static const struct SensorInfo mSensorInfo[NUM_OF_SENSOR] =
     {"Accelerometer",       AccRates,   SENS_TYPE_ACCEL,        NUM_AXIS_THREE,     {NANOHUB_INT_NONWAKEUP}},
     {"Gyroscope",           GyrRates,   SENS_TYPE_GYRO,         NUM_AXIS_THREE,     {NANOHUB_INT_NONWAKEUP}},
     {"Magnetometer",        MagRates,   SENS_TYPE_MAG,          NUM_AXIS_THREE,     {NANOHUB_INT_NONWAKEUP}},
-    {"Step Detector",       NoRates,    SENS_TYPE_STEP_DETECT,  NUM_AXIS_EMBEDDED,  {NANOHUB_INT_NONWAKEUP}},
-    {"Double Tap Detector", NoRates,    SENS_TYPE_DOUBLE_TAP,   NUM_AXIS_EMBEDDED,  {NANOHUB_INT_NONWAKEUP}},
-    {"Flat Detector",       NoRates,    SENS_TYPE_FLAT,         NUM_AXIS_EMBEDDED,  {NANOHUB_INT_NONWAKEUP}},
-    {"Any Motion Detector", NoRates,    SENS_TYPE_ANY_MOTION,   NUM_AXIS_EMBEDDED,  {NANOHUB_INT_NONWAKEUP}},
-    {"No Motion Detector",  NoRates,    SENS_TYPE_NO_MOTION,    NUM_AXIS_EMBEDDED,  {NANOHUB_INT_NONWAKEUP}},
+    {"Step Detector",       NULL,       SENS_TYPE_STEP_DETECT,  NUM_AXIS_EMBEDDED,  {NANOHUB_INT_NONWAKEUP}},
+    {"Double Tap",          NULL,       SENS_TYPE_DOUBLE_TAP,   NUM_AXIS_EMBEDDED,  {NANOHUB_INT_NONWAKEUP}},
+    {"Flat",                NULL,       SENS_TYPE_FLAT,         NUM_AXIS_EMBEDDED,  {NANOHUB_INT_NONWAKEUP}},
+    {"Any Motion",          NULL,       SENS_TYPE_ANY_MOTION,   NUM_AXIS_EMBEDDED,  {NANOHUB_INT_NONWAKEUP}},
+    {"No Motion",           NULL,       SENS_TYPE_NO_MOTION,    NUM_AXIS_EMBEDDED,  {NANOHUB_INT_NONWAKEUP}},
 };
 
 static void dataEvtFree(void *ptr)

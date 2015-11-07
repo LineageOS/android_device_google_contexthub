@@ -292,7 +292,7 @@ static uint32_t sensorCalcHwRate(struct Sensor* s, uint32_t extraReqedRate, uint
             return SENSOR_RATE_ONDEMAND;
     }
 
-    for (i = 0; s->si->supportedRates[i]; i++)
+    for (i = 0; s->si->supportedRates && s->si->supportedRates[i]; i++)
         if (s->si->supportedRates[i] >= highestReq)
             return s->si->supportedRates[i];
 
