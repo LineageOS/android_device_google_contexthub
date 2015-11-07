@@ -489,7 +489,7 @@ static void orientationEnd()
 }
 
 INTERNAL_APP_INIT(
-        0x0000000000000005ULL,
+        0x0000000000000004ULL,
         orientationStart,
         orientationEnd,
         orientationHandleEvent);
