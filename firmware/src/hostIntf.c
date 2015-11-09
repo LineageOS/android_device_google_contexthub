@@ -424,7 +424,7 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
                 case NUM_AXIS_ONE:
                     single = (struct SingleAxisDataEvent *)evtData;
                     discard = true;
-                    length = sizeof(struct SingleAxisDataEvent) + sizeof(struct SingleAxisDataPoint);
+                    length = sizeof(struct SingleAxisDataEvent) + single->samples[0].numSamples * sizeof(struct SingleAxisDataPoint);
                     memcpy(data, single, length);
                     break;
                 case NUM_AXIS_THREE:
