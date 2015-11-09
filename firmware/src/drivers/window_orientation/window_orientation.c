@@ -21,20 +21,20 @@
 // all time units in usec, angles in degrees
 #define RADIANS_TO_DEGREES                              (180.0f / M_PI)
 
-#define PROPOSAL_SETTLE_TIME                            40000       // 40 ms
-#define PROPOSAL_MIN_TIME_SINCE_FLAT_ENDED              500000      // 500 ms
-#define PROPOSAL_MIN_TIME_SINCE_SWING_ENDED             300000      // 300 ms
-#define PROPOSAL_MIN_TIME_SINCE_ACCELERATION_ENDED      500000      // 500 ms
-// #define PROPOSAL_MIN_TIME_SINCE_TOUCH_END               500000   // 500 ms
+#define PROPOSAL_SETTLE_TIME                            40000000ull       // 40 ms
+#define PROPOSAL_MIN_TIME_SINCE_FLAT_ENDED              500000000ull      // 500 ms
+#define PROPOSAL_MIN_TIME_SINCE_SWING_ENDED             300000000ull      // 300 ms
+#define PROPOSAL_MIN_TIME_SINCE_ACCELERATION_ENDED      500000000ull      // 500 ms
+// #define PROPOSAL_MIN_TIME_SINCE_TOUCH_END               500000000ull   // 500 ms
 
 #define FLAT_ANGLE                      80
-#define FLAT_TIME                       1000000     // 1 sec
+#define FLAT_TIME                       1000000000ull     // 1 sec
 
 #define SWING_AWAY_ANGLE_DELTA          20
-#define SWING_TIME                      300000      // 300 ms
+#define SWING_TIME                      300000000ull      // 300 ms
 
-#define MAX_FILTER_DELTA_TIME           1000000     // 1 sec
-#define FILTER_TIME_CONSTANT            200000      // 200 ms
+#define MAX_FILTER_DELTA_TIME           1000000000ull     // 1 sec
+#define FILTER_TIME_CONSTANT            200000000ull      // 200 ms
 
 #define NEAR_ZERO_MAGNITUDE             1.0f        // m/s^2
 #define ACCELERATION_TOLERANCE          4.0f
@@ -49,10 +49,10 @@
 #define ADJACENT_ORIENTATION_ANGLE_GAP  45
 
 #define TILT_HISTORY_SIZE               200
-#define TILT_REFERENCE_PERIOD           1800000000  // 30 min
-#define TILT_REFERENCE_BACKOFF          300000000   // 5 min
+#define TILT_REFERENCE_PERIOD           1800000000000ull  // 30 min
+#define TILT_REFERENCE_BACKOFF          300000000000ull   // 5 min
 
-#define MIN_ACCEL_INTERVAL              33333       // 33.3 ms for 30 Hz
+#define MIN_ACCEL_INTERVAL              33333333ull       // 33.3 ms for 30 Hz
 
 #define EVT_SENSOR_ACC_DATA_RDY sensorGetMyEventType(SENS_TYPE_ACCEL)
 #define EVT_SENSOR_WIN_ORIENTATION_DATA_RDY sensorGetMyEventType(SENS_TYPE_WIN_ORIENTATION)
@@ -121,6 +121,7 @@ static bool isOrientationAngleAcceptable(int current_rotation, int rotation,
     // If there is no current rotation, then there is no gap.
     // The gap is used only to introduce hysteresis among advertised orientation
     // changes to avoid flapping.
+    int lower_bound, upper_bound;
 
     if (current_rotation >= 0) {
         // If the specified rotation is the same or is counter-clockwise
@@ -130,7 +131,7 @@ static bool isOrientationAngleAcceptable(int current_rotation, int rotation,
         // ROTATION_90, then we want to check orientationAngle > 45 + GAP / 2.
         if ((rotation == current_rotation)
                 || (rotation == (current_rotation + 1) % 4)) {
-            int lower_bound = rotation * 90 - 45
+            lower_bound = rotation * 90 - 45
                     + ADJACENT_ORIENTATION_ANGLE_GAP / 2;
             if (rotation == 0) {
                 if ((orientation_angle >= 315)
@@ -150,7 +151,7 @@ static bool isOrientationAngleAcceptable(int current_rotation, int rotation,
         // ROTATION_270, then we want to check orientationAngle < 315 - GAP / 2.
         if ((rotation == current_rotation)
                 || (rotation == (current_rotation + 3) % 4)) {
-            int upper_bound = rotation * 90 + 45
+            upper_bound = rotation * 90 + 45
                     - ADJACENT_ORIENTATION_ANGLE_GAP / 2;
             if (rotation == 0) {
                 if ((orientation_angle <= 45)
@@ -245,6 +246,10 @@ static bool isAccelerating(float magnitude)
 
 static void addTiltHistoryEntry(uint64_t now, int8_t tilt)
 {
+    uint64_t old_reference_time, delta;
+    size_t i;
+    int index;
+
     if (mTask.tilt_reference_time == 0) {
         // set reference_time after reset()
 
@@ -253,18 +258,17 @@ static void addTiltHistoryEntry(uint64_t now, int8_t tilt)
         // proactively shift reference_time every 30 min,
         // all history entries are within 5 min interval (15Hz x 200 samples)
 
-        uint64_t old_reference_time = mTask.tilt_reference_time;
+        old_reference_time = mTask.tilt_reference_time;
         mTask.tilt_reference_time = now - TILT_REFERENCE_BACKOFF;
 
-        uint64_t delta = mTask.tilt_reference_time - old_reference_time;
-        size_t i;
+        delta = mTask.tilt_reference_time - old_reference_time;
         for (i = 0; i < TILT_HISTORY_SIZE; ++i) {
             mTask.tilt_history_time[i] = (mTask.tilt_history_time[i] > delta)
                 ? (mTask.tilt_history_time[i] - delta) : 0;
         }
     }
 
-    int index = mTask.tilt_history_index;
+    index = mTask.tilt_history_index;
     mTask.tilt_history[index] = tilt;
     mTask.tilt_history_time[index] = now - mTask.tilt_reference_time;
 
@@ -312,10 +316,19 @@ static bool isSwinging(uint64_t now, int8_t tilt)
 
 static bool add_samples(struct TripleAxisDataEvent *ev)
 {
-    float x, y, z;
-
-    int i;
+    int i, tilt_tmp;
+    int orientation_angle, nearest_rotation;
+    float x, y, z, alpha, magnitude;
+    uint64_t now = ev->referenceTime;
+    uint64_t then, time_delta;
+    struct TripleAxisDataPoint *last_sample;
     size_t sampleCnt = ev->samples[0].deltaTime;
+    bool skip_sample;
+    bool accelerating, flat, swinging;
+    bool change_detected;
+    int8_t old_proposed_rotation, proposed_rotation;
+    int8_t tilt_angle;
+
     for (i = 0; i < sampleCnt; i++) {
 
         x = ev->samples[i].x;
@@ -325,24 +338,18 @@ static bool add_samples(struct TripleAxisDataEvent *ev)
         // Apply a low-pass filter to the acceleration up vector in cartesian space.
         // Reset the orientation listener state if the samples are too far apart in time.
 
-        uint64_t now;
+        now += i > 0 ? ev->samples[i].deltaTime : 0;
 
-        if (i == 0)
-            now = ev->referenceTime;
-        else
-            now = ev->referenceTime + ev->samples[i].deltaTime;
+        last_sample = &mTask.last_filtered_sample;
+        then = mTask.last_filtered_time;
+        time_delta = now - then;
 
-        struct TripleAxisDataPoint *last_sample = &mTask.last_filtered_sample;
-        uint64_t then = mTask.last_filtered_time;
-        uint64_t time_delta = now - then;
-
-        bool skip_sample;
         if ((now < then) || (now > then + MAX_FILTER_DELTA_TIME)) {
             reset();
             skip_sample = true;
         } else {
             // alpha is the weight on the new sample
-            float alpha = (float)time_delta / (FILTER_TIME_CONSTANT + time_delta);
+            alpha = (float)time_delta / (FILTER_TIME_CONSTANT + time_delta);
             x = alpha * (x - last_sample->x) + last_sample->x;
             y = alpha * (y - last_sample->y) + last_sample->y;
             z = alpha * (z - last_sample->z) + last_sample->z;
@@ -360,13 +367,13 @@ static bool add_samples(struct TripleAxisDataEvent *ev)
             mTask.last_filtered_sample.z = z;
         }
 
-        bool accelerating = false;
-        bool flat = false;
-        bool swinging = false;
+        accelerating = false;
+        flat = false;
+        swinging = false;
 
         if (!skip_sample) {
             // Calculate the magnitude of the acceleration vector.
-            float magnitude = sqrtf(x * x + y * y + z * z);
+            magnitude = sqrtf(x * x + y * y + z * z);
 
             if (magnitude < NEAR_ZERO_MAGNITUDE) {
                 clearPredictedRotation();
@@ -384,10 +391,10 @@ static bool add_samples(struct TripleAxisDataEvent *ev)
                 //  -90 degrees: screen horizontal and facing the ground (overhead)
                 //    0 degrees: screen vertical
                 //   90 degrees: screen horizontal and facing the sky (on table)
-                int tilt_tmp = (int)(asinf(z / magnitude) * RADIANS_TO_DEGREES);
+                tilt_tmp = (int)(asinf(z / magnitude) * RADIANS_TO_DEGREES);
                 tilt_tmp = (tilt_tmp > 127) ? 127 : tilt_tmp;
                 tilt_tmp = (tilt_tmp < -128) ? -128 : tilt_tmp;
-                int8_t tilt_angle = tilt_tmp;
+                tilt_angle = tilt_tmp;
                 addTiltHistoryEntry(now, tilt_angle);
 
                 // Determine whether the device appears to be flat or swinging.
@@ -417,14 +424,14 @@ static bool add_samples(struct TripleAxisDataEvent *ev)
                     // This is the angle between the x-y projection of the up
                     // vector onto the +y-axis, increasing clockwise in a range
                     // of [0, 360] degrees.
-                    int orientation_angle = (int)(-atan2f(-x, y) * RADIANS_TO_DEGREES);
+                    orientation_angle = (int)(-atan2f(-x, y) * RADIANS_TO_DEGREES);
                     if (orientation_angle < 0) {
                         // atan2 returns [-180, 180]; normalize to [0, 360]
                         orientation_angle += 360;
                     }
 
                     // Find the nearest rotation.
-                    int nearest_rotation = (orientation_angle + 45) / 90;
+                    nearest_rotation = (orientation_angle + 45) / 90;
                     if (nearest_rotation == 4) {
                         nearest_rotation = 0;
                     }
@@ -446,13 +453,13 @@ static bool add_samples(struct TripleAxisDataEvent *ev)
         mTask.accelerating = accelerating;
 
         // Determine new proposed rotation.
-        int8_t old_proposed_rotation = mTask.proposed_rotation;
+        old_proposed_rotation = mTask.proposed_rotation;
         if ((mTask.predicted_rotation < 0)
                 || isPredictedRotationAcceptable(now)) {
 
             mTask.proposed_rotation = mTask.predicted_rotation;
         }
-        int8_t proposed_rotation = mTask.proposed_rotation;
+        proposed_rotation = mTask.proposed_rotation;
 
         //dprintf("rotation: current %d, proposed %d, predicted %d: a %d f %d s %d o %d\r\n",
         //        mTask.current_rotation, proposed_rotation, mTask.predicted_rotation,
@@ -462,7 +469,7 @@ static bool add_samples(struct TripleAxisDataEvent *ev)
                 && (proposed_rotation >= 0)) {
             mTask.current_rotation = proposed_rotation;
 
-            bool change_detected = true;
+            change_detected = true;
             change_detected = (proposed_rotation != mTask.prev_valid_rotation);
             mTask.prev_valid_rotation = proposed_rotation;
 
@@ -528,6 +535,7 @@ static void windowOrientationHandleEvent(uint32_t evtType, const void* evtData)
 {
     struct TripleAxisDataEvent *ev;
     union EmbeddedDataPoint sample;
+    bool rotation_changed;
 
     if (evtData == SENSOR_DATA_EVENT_FLUSH)
         return;
@@ -535,7 +543,7 @@ static void windowOrientationHandleEvent(uint32_t evtType, const void* evtData)
     switch (evtType) {
     case EVT_SENSOR_ACC_DATA_RDY:
         ev = (struct TripleAxisDataEvent *)evtData;
-        bool rotation_changed = add_samples(ev);
+        rotation_changed = add_samples(ev);
 
         if (rotation_changed) {
             osLog(LOG_INFO, "WO:     ********** rotation changed to ********: %d\n", (int)mTask.proposed_rotation);
