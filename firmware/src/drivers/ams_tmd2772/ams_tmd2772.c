@@ -47,15 +47,16 @@
 #define AMS_TMD2772_REG_PDATAH                 (AMS_TMD2772_CMD_TYPE_AUTO_INCREMENT | 0x19)
 #define AMS_TMD2772_REG_POFFSET                (AMS_TMD2772_CMD_TYPE_AUTO_INCREMENT | 0x1E)
 
-#define AMS_TMD2772_ATIME_SETTING              0xed
+#define AMS_TMD2772_ATIME_SETTING              0xdb
 #define AMS_TMD2772_ATIME_MS                   ((256 - AMS_TMD2772_ATIME_SETTING) * 2.73) // in milliseconds
 #define AMS_TMD2772_PTIME_SETTING              0xff
 #define AMS_TMD2772_PTIME_MS                   ((256 - AMS_TMD2772_PTIME_SETTING) * 2.73) // in milliseconds
-#define AMS_TMD2772_WTIME_SETTING              0xee
-#define AMS_TMD2772_WTIME_MS                   ((256 - AMS_TMD2772_WTIME_SETTING) * 2.73) // in milliseconds
+#define AMS_TMD2772_WTIME_SETTING_ALS_ON       0xdd // (256 - 221) * 2.73 ms = 95.55 ms
+#define AMS_TMD2772_WTIME_SETTING_ALS_OFF      0xb8 // (256 - 184) * 2.73 ms = 196.56 ms
 #define AMS_TMD2772_PPULSE_SETTING             8
 
-#define AMS_TMD2772_CAL_MAX_OFFSET             150
+#define AMS_TMD2772_CAL_DEFAULT_OFFSET         0
+#define AMS_TMD2772_CAL_MAX_OFFSET             500
 
 /* AMS_TMD2772_REG_ENABLE */
 #define POWER_ON_BIT                           (1 << 0)
@@ -67,18 +68,14 @@
 #define PROX_INT_BIT                           (1 << 5)
 #define ALS_INT_BIT                            (1 << 4)
 
-// TODO: Tune for our parts
-#define AMS_TMD2772_CAL_DEFAULT_OFFSET         0
-#define AMS_TMD2772_CAL_MAX_OFFSET             150
-
 #define AMS_TMD2772_REPORT_NEAR_VALUE          0.0f // centimeters
 #define AMS_TMD2772_REPORT_FAR_VALUE           5.0f // centimeters
 
 #define AMS_TMD2772_THRESHOLD_ASSERT_NEAR      213  // in PS units
 #define AMS_TMD2772_THRESHOLD_DEASSERT_NEAR    96   // in PS units
 
-#define AMS_TMD2772_TRANSMITTANCE_VISIBLE      10   // percent
-#define AMS_TMD2772_TRANSMITTANCE_IR           75   // percent
+#define AMS_TMD2772_ALS_MAX_CHANNEL_COUNT      37888 // in raw data
+#define AMS_TMD2772_ALS_MAX_REPORT_VALUE       10000 // in lux
 
 /* Private driver events */
 enum SensorEvents
@@ -122,10 +119,10 @@ struct SensorData
     union {
         uint8_t bytes[16];
         struct {
+            uint8_t status;
             uint16_t als[2];
             uint16_t prox;
-            uint8_t status;
-        } sample;
+        } __attribute__((packed)) sample;
         struct {
             uint16_t prox;
         } calibration;
@@ -184,18 +181,30 @@ static void proxTimerCallback(uint32_t timerId, void *cookie)
 
 static inline float getLuxFromAlsData(uint16_t als0, uint16_t als1)
 {
-    float als0_boost = als0 * (100.0f / AMS_TMD2772_TRANSMITTANCE_VISIBLE);
-    float als1_boost = als1 * (100.0f / AMS_TMD2772_TRANSMITTANCE_IR);
+    float cpl = 1.0f / AMS_TMD2772_ATIME_MS;
+    float GA;
 
-    float fudge_factor = 5;
+    if ((als0 * 10) < (als1 * 21)) {
+        // A light
+        GA = 0.274f;
+    } else if (((als0 * 10) >= (als1 * 21)) && ((als0 * 10) <= (als1 * 43)) && (als0 > 300)) {
+        // D65
+        GA = 0.592f;
+    } else {
+        // cool white
+        GA = 1.97f;
+    }
 
-    float cpl = AMS_TMD2772_ATIME_MS / 20.0f;
-    float lux1 = (als0_boost - (1.75f * als1_boost)) / cpl;
-    float lux2 = ((0.63f * als0_boost) - als1_boost) / cpl;
-    if ((lux1 > lux2) && (lux1 > 0)) {
-        return lux1 * fudge_factor;
-    } else if (lux2 > 0) {
-        return lux2 * fudge_factor;
+    float lux1 = GA * 207 * (als0 - (1.799 * als1)) * cpl;
+    float lux2 = GA * 207 * ((0.188f * als0) - (0.303 * als1)) * cpl;
+
+    if ((als0 >= AMS_TMD2772_ALS_MAX_CHANNEL_COUNT) ||
+        (als1 >= AMS_TMD2772_ALS_MAX_CHANNEL_COUNT)) {
+        return AMS_TMD2772_ALS_MAX_REPORT_VALUE;
+    } else if ((lux1 > lux2) && (lux1 > 0.0f)) {
+        return lux1 > AMS_TMD2772_ALS_MAX_REPORT_VALUE ? AMS_TMD2772_ALS_MAX_REPORT_VALUE : lux1;
+    } else if (lux2 > 0.0f) {
+        return lux2 > AMS_TMD2772_ALS_MAX_REPORT_VALUE ? AMS_TMD2772_ALS_MAX_REPORT_VALUE : lux2;
     } else {
         return 0.0f;
     }
@@ -206,7 +215,10 @@ static void setMode(bool alsOn, bool proxOn, void *cookie)
     data.txrxBuf.bytes[0] = AMS_TMD2772_REG_ENABLE;
     data.txrxBuf.bytes[1] = POWER_ON_BIT | WAIT_ENABLE_BIT |
                             (alsOn ? ALS_ENABLE_BIT : 0) | (proxOn ? PROX_ENABLE_BIT : 0);
-    i2cMasterTx(I2C_BUS_ID, I2C_ADDR, data.txrxBuf.bytes, 2,
+    data.txrxBuf.bytes[2] = AMS_TMD2772_ATIME_SETTING;
+    data.txrxBuf.bytes[3] = AMS_TMD2772_PTIME_SETTING;
+    data.txrxBuf.bytes[4] = alsOn ? AMS_TMD2772_WTIME_SETTING_ALS_ON : AMS_TMD2772_WTIME_SETTING_ALS_OFF;
+    i2cMasterTx(I2C_BUS_ID, I2C_ADDR, data.txrxBuf.bytes, 5,
                 &i2cCallback, cookie);
 }
 
@@ -420,7 +432,7 @@ static void handle_i2c_event(int state)
         /* PTIME */
         data.txrxBuf.bytes[3] = AMS_TMD2772_PTIME_SETTING;
         /* WTIME */
-        data.txrxBuf.bytes[4] = AMS_TMD2772_WTIME_SETTING;
+        data.txrxBuf.bytes[4] = 0xFF;
         i2cMasterTx(I2C_BUS_ID, I2C_ADDR, data.txrxBuf.bytes, 5,
                     &i2cCallback, (void *)SENSOR_STATE_INIT);
         break;
