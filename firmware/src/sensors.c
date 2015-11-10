@@ -177,6 +177,14 @@ static bool sensorCallFuncSetRate(struct Sensor* s, uint32_t rate, uint64_t late
     }
 }
 
+static bool sensorCallFuncCalibrate(struct Sensor* s)
+{
+    if (taggedPtrIsPtr(s->callInfo) && ((const struct SensorOps*)taggedPtrToPtr(s->callInfo))->sensorCalibrate)
+        return ((const struct SensorOps*)taggedPtrToPtr(s->callInfo))->sensorCalibrate();
+    else
+        return osEnqueuePrivateEvt(EVT_APP_SENSOR_CALIBRATE, NULL, NULL, taggedPtrToUint(s->callInfo));
+}
+
 static bool sensorCallFuncFlush(struct Sensor* s)
 {
     if (taggedPtrIsPtr(s->callInfo))
@@ -562,6 +570,16 @@ bool sensorFlush(uint32_t sensorHandle)
         return false;
 
     return sensorCallFuncFlush(s);
+}
+
+bool sensorCalibrate(uint32_t sensorHandle)
+{
+    struct Sensor* s = sensorFindByHandle(sensorHandle);
+
+    if (!s)
+        return false;
+
+    return sensorCallFuncCalibrate(s);
 }
 
 uint32_t sensorGetCurRate(uint32_t sensorHandle)

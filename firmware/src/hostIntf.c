@@ -335,6 +335,7 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
     struct SingleAxisDataEvent *single;
     struct ActiveSensor *sensor;
     const struct SensorInfo *si;
+    uint32_t tempSensorHandle;
 
 #ifdef DEBUG_LOG_EVT
     if (evtType == DEBUG_LOG_EVT) {
@@ -352,8 +353,6 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
             sensor = slabAllocatorGetNth(mActiveSensorSlab, mSensorList[cmd->sensorType]);
             if (cmd->flush) {
                 sensorFlush(sensor->sensorHandle);
-            } else if (cmd->calibrate) {
-                /* sensorCalibrate(sensor->sensorHandle); */
             } else if (cmd->enabled) {
                 sensorRequestRateChange(gHostIntfTid, sensor->sensorHandle, cmd->rate, cmd->latency);
             } else {
@@ -380,6 +379,10 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
             }
             if (!si)
                 slabAllocatorFree(mActiveSensorSlab, sensor);
+        } else if (cmd->calibrate) {
+            for (i=0; sensorFind(cmd->sensorType, i, &tempSensorHandle) != NULL; i++) {
+                sensorCalibrate(tempSensorHandle);
+            }
         }
     } else if (evtType >= EVT_NO_FIRST_SENSOR_EVENT && evtType < EVT_NO_SENSOR_CONFIG_EVENT) { // data
         if (mSensorList[evtType & 0xFF] < MAX_REGISTERED_SENSORS) {
