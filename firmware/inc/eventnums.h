@@ -26,6 +26,7 @@
 #define EVT_APP_SENSOR_SET_RATE          0x000000ED    //data pointer points to a "const struct SensorSetRateEvent"
 #define EVT_APP_SENSOR_FLUSH             0x000000EC
 #define EVT_APP_SENSOR_TRIGGER           0x000000EB
+#define EVT_APP_SENSOR_CALIBRATE         0x000000EA
 
 
 #endif /* EVENTNUMS_H */

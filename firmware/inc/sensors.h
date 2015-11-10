@@ -74,6 +74,7 @@ struct SensorOps {
                                            /* -> SENSOR_INTERNAL_EVT_RATE_CHG (rate)                   */
     bool (*sensorFlush)(void);
     bool (*sensorTriggerOndemand)(void);
+    bool (*sensorCalibrate)(void);
 };
 
 struct SensorInfo {
@@ -136,6 +137,7 @@ bool sensorRequestRateChange(uint32_t clientId, uint32_t sensorHandle, uint32_t 
 bool sensorRelease(uint32_t clientId, uint32_t sensorHandle);
 bool sensorTriggerOndemand(uint32_t clientId, uint32_t sensorHandle);
 bool sensorFlush(uint32_t sensorHandle);
+bool sensorCalibrate(uint32_t sensorHandle);
 uint32_t sensorGetCurRate(uint32_t sensorHandle);
 uint64_t sensorGetCurLatency(uint32_t sensorHandle);
 
