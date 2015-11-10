@@ -44,6 +44,9 @@ static int setType(struct ConfigCmd *cmd, char *sensor)
         cmd->sensorType = SENS_TYPE_ORIENTATION;
     } else if (strcmp(sensor, "win_orien") == 0) {
         cmd->sensorType = SENS_TYPE_WIN_ORIENTATION;
+    } else if (strcmp(sensor, "tilt") == 0) {
+        cmd->sensorType = SENS_TYPE_TILT;
+        cmd->rate = SENSOR_RATE_ONCHANGE;
     } else if (strcmp(sensor, "step") == 0) {
         cmd->sensorType = SENS_TYPE_STEP_DETECT;
         cmd->rate = SENSOR_RATE_ONCHANGE;
