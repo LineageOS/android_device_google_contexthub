@@ -700,7 +700,7 @@ static void configFifo(bool on)
     mTask.xferCnt = 1024;
     mTask.new_time = timGetTime();
     SPI_READ(BMI160_REG_FIFO_DATA, mTask.xferCnt, mTask.rxBuffer);
-    SPI_WRITE(BMI160_REG_FIFO_CONFIG_0, calWaterMark());
+    SPI_WRITE(BMI160_REG_FIFO_CONFIG_0, calcWaterMark());
 
     // write the composed byte to fifo_config reg.
     SPI_WRITE(BMI160_REG_FIFO_CONFIG_1, val);
