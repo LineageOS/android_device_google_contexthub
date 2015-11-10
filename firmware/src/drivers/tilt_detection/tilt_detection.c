@@ -19,7 +19,7 @@
 #define ACCEL_MIN_RATE    SENSOR_HZ(50)
 #define ACCEL_MAX_LATENCY 250000000ull   // 40 ms
 
-#define BATCH_TIME      (2000000) // 2.0 seconds
+#define BATCH_TIME      (2000000000) // 2.0 seconds
 #define ANGLE_THRESH    (0.819 * 9.81 * 9.81) // ~cos(35) * (1G in m/s^2)^2
 
 struct TiltAlgoState {
@@ -54,16 +54,16 @@ static bool algoUpdate(struct TripleAxisDataEvent *ev)
     bool latch_g_vector = false;
     bool tilt_detected = false;
     struct TiltAlgoState *state = &mTask.algoState;
-    uint64_t referenceTime = ev->referenceTime;
+    uint64_t sample_ts = ev->referenceTime;
     uint32_t numSamples = ev->samples[0].numSamples;
     uint32_t i;
     struct TripleAxisDataPoint *sample;
-    uint64_t sample_ts;
     float invN;
 
     for (i = 0; i < numSamples; i++) {
         sample = &ev->samples[i];
-        sample_ts = referenceTime + sample->deltaTime;
+        if(i > 0)
+            sample_ts += sample->deltaTime;
 
         if(state->this_batch_init_ts == 0) {
             state->this_batch_init_ts = sample_ts;

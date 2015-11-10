@@ -32,6 +32,12 @@ extern "C" {
         x = xi; y = -yi; z = -zi;               \
     } while (0)
 
+#define HALL_PIN GPIO_PB(5)
+#define HALL_IRQ EXTI9_5_IRQn
+
+#define VSYNC_PIN GPIO_PB(1)
+#define VSYNC_IRQ EXTI1_IRQn
+
 //define tap sensor threshould
 #define TAP_THRESHOULD 0x01
 
