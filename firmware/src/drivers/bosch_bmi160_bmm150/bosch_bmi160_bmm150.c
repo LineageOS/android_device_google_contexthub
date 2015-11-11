@@ -1070,7 +1070,7 @@ static void sendFlushEvt(void)
         mTask.sensors[GYR].flush--;
     }
     while (mTask.sensors[MAG].flush > 0) {
-        osEnqueueEvt(EVT_SENSOR_ACC_DATA_RDY, SENSOR_DATA_EVENT_FLUSH, NULL);
+        osEnqueueEvt(EVT_SENSOR_MAG_DATA_RDY, SENSOR_DATA_EVENT_FLUSH, NULL);
         mTask.sensors[MAG].flush--;
     }
 }
