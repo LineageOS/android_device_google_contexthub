@@ -78,7 +78,7 @@ static struct Task* osTaskFindByTid(uint32_t tid)
     uint32_t i;
 
     for(i = 0; i < MAX_TASKS; i++)
-        if (mTasks[i].tid == tid)
+        if (mTasks[i].tid && mTasks[i].tid == tid)
             return mTasks + i;
 
     return NULL;
@@ -86,7 +86,8 @@ static struct Task* osTaskFindByTid(uint32_t tid)
 
 static void handleEventFreeing(uint32_t evtType, void *evtData, uintptr_t evtFreeData) // watch out, this is synchronous
 {
-    if (!evtFreeData)
+    if ((taggedPtrIsPtr(evtFreeData) && !taggedPtrToPtr(evtFreeData)) ||
+        (taggedPtrIsUint(evtFreeData) && !taggedPtrToUint(evtFreeData)))
         return;
 
     if (taggedPtrIsPtr(evtFreeData))
@@ -96,7 +97,7 @@ static void handleEventFreeing(uint32_t evtType, void *evtData, uintptr_t evtFre
         struct Task* task = osTaskFindByTid(taggedPtrToUint(evtFreeData));
 
         if (!task)
-            osLog(LOG_ERROR, "EINCEPTION: Failed to find app to call app to free event sent to app(s).");
+            osLog(LOG_ERROR, "EINCEPTION: Failed to find app to call app to free event sent to app(s).\n");
         else
             cpuAppHandle(task->appHdr, &task->platInfo, EVT_APP_FREE_EVT_DATA, &fd);
     }
@@ -127,12 +128,12 @@ static void osInit(void)
     }
 }
 
-static struct Task* osFindTaskByAppID(uint64_t appID)
+static struct Task* osTaskFindByAppID(uint64_t appID)
 {
     uint32_t i;
 
-    for (i = 0; i < MAX_TASKS && mTasks[i].tid; i++)
-        if (mTasks[i].appHdr->appId == appID)
+    for (i = 0; i < MAX_TASKS; i++)
+        if (mTasks[i].appHdr && mTasks[i].appHdr->appId == appID)
             return mTasks + i;
 
     return NULL;
@@ -168,8 +169,8 @@ static void osStartTasks(void)
             osLog(LOG_WARN, "Weird marker on internal app: [%p]=0x%04X\n", app, app->marker);
             continue;
         }
-        if ((task = osFindTaskByAppID(app->appId))) {
-            osLog(LOG_WARN, "Duplicate APP ID for built-in apps are ignored: %p %p\n", task->appHdr, app);
+        if ((task = osTaskFindByAppID(app->appId))) {
+            osLog(LOG_WARN, "Internal app id %016llx @ %p attempting to update internal app @ %p. Ignored.\n", app->appId, app, task->appHdr);
             continue;
         }
         mTasks[nTasks++].appHdr = app;
@@ -182,16 +183,16 @@ static void osStartTasks(void)
 
         if (app->marker != APP_HDR_MARKER_VALID)  //this may need more logic to handle partially-uploaded things
             osLog(LOG_WARN, "Weird marker on external app: [%p]=0x%04X\n", app, app->marker);
-        else if ((task = osFindTaskByAppID(app->appId))) {
+        else if ((task = osTaskFindByAppID(app->appId))) {
             if (task->appHdr->marker == APP_HDR_MARKER_INTERNAL)
-                osLog(LOG_WARN, "External app @ %p attempting to update internal app @ %p. This is not allowed\n", app, task->appHdr);
+                osLog(LOG_WARN, "External app id %016llx @ %p attempting to update internal app @ %p. This is not allowed.\n", app->appId, app, task->appHdr);
             else {
-                osLog(LOG_DEBUG, "External app @ %p updating app @ %p\n", app, task->appHdr);
+                osLog(LOG_DEBUG, "External app id %016llx @ %p updating app @ %p\n", app->appId, app, task->appHdr);
                 task->appHdr = app;
             }
         }
         else if (nTasks == MAX_TASKS)
-            osLog(LOG_WARN, "External app @ %p cannot be used as too many apps already exist.\n", app);
+            osLog(LOG_WARN, "External app id %016llx @ %p cannot be used as too many apps already exist.\n", app->appId, app);
         else
             mTasks[nTasks++].appHdr = app;
 

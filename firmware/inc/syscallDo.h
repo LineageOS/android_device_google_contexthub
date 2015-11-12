@@ -113,7 +113,7 @@ static inline void eOsLog(enum LogLevel level, const char *str, ...)
 static inline const struct SensorInfo* eOsSensorSignalInternalEvt(uint32_t handle, uint32_t intEvtNum, uint32_t value1, uint64_t value2)
 {
     uint32_t value2_lo = value2;
-    uint64_t value2_hi = value2 >> 32;
+    uint32_t value2_hi = value2 >> 32;
 
     return (const struct SensorInfo*)syscallDo5P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_MAIN, SYSCALL_OS_MAIN_SENSOR, SYSCALL_OS_MAIN_SENSOR_SIGNAL), handle, intEvtNum, value1, value2_lo, value2_hi);
 }
@@ -136,7 +136,7 @@ static inline const struct SensorInfo* eOsSensorFind(uint32_t sensorType, uint32
 static inline bool eOsSensorRequest(uint32_t clientId, uint32_t sensorHandle, uint32_t rate, uint64_t latency)
 {
     uint32_t latency_lo = latency;
-    uint64_t latency_hi = latency >> 32;
+    uint32_t latency_hi = latency >> 32;
 
     return syscallDo5P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_MAIN, SYSCALL_OS_MAIN_SENSOR, SYSCALL_OS_MAIN_SENSOR_REQUEST), clientId, sensorHandle, rate, latency_lo, latency_hi);
 }
@@ -144,7 +144,7 @@ static inline bool eOsSensorRequest(uint32_t clientId, uint32_t sensorHandle, ui
 static inline bool eOsSensorRequestRateChange(uint32_t clientId, uint32_t sensorHandle, uint32_t newRate, uint64_t newLatency)
 {
     uint32_t newLatency_lo = newLatency;
-    uint64_t newLatency_hi = newLatency >> 32;
+    uint32_t newLatency_hi = newLatency >> 32;
 
     return syscallDo5P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_MAIN, SYSCALL_OS_MAIN_SENSOR, SYSCALL_OS_MAIN_SENSOR_RATE_CHG), clientId, sensorHandle, newRate, newLatency_lo, newLatency_hi);
 }

@@ -585,7 +585,7 @@ static void windowOrientationEnd()
 }
 
 INTERNAL_APP_INIT(
-        0x0000000000000006ULL,
+        0x0000000000000003ULL,
         window_orientation_start,
         windowOrientationEnd,
         windowOrientationHandleEvent);
