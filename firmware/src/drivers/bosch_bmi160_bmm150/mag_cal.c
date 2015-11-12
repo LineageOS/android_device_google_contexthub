@@ -12,8 +12,8 @@
 #define MAX_FIT_MAG         80.0f
 #define MIN_FIT_MAG         10.0f
 
-#define MIN_BATCH_WINDOW    1.0e6   // 1 sec
-#define MAX_BATCH_WINDOW    15.0e6  // 15 sec
+#define MIN_BATCH_WINDOW    1.0e9   // 1 sec
+#define MAX_BATCH_WINDOW    15.0e9  // 15 sec
 #define MIN_BATCH_SIZE      25      // samples
 
 #define BMM150_REG_REPXY          0x51
@@ -129,16 +129,16 @@ static void moc_reset(struct MagCal *moc)
     moc->start_time = 0;
 }
 
-static int moc_batch_complete(struct MagCal *moc, uint64_t sample_time_usec)
+static int moc_batch_complete(struct MagCal *moc, uint64_t sample_time_ns)
 {
     int complete = 0;
 
-    if ((sample_time_usec - moc->start_time > MIN_BATCH_WINDOW)
+    if ((sample_time_ns - moc->start_time > MIN_BATCH_WINDOW)
         && (moc->nsamples > MIN_BATCH_SIZE)) {
 
         complete = 1;
 
-    } else if (sample_time_usec - moc->start_time > MAX_BATCH_WINDOW) {
+    } else if (sample_time_ns - moc->start_time > MAX_BATCH_WINDOW) {
         // not enough samples collected in MAX_BATCH_WINDOW
         moc_reset(moc);
     }
@@ -170,7 +170,7 @@ void destroy_mag_cal(struct MagCal *moc)
     (void)moc;
 }
 
-int magCalUpdate(struct MagCal *moc, uint64_t sample_time_usec,
+int magCalUpdate(struct MagCal *moc, uint64_t sample_time_ns,
                    float x, float y, float z)
 {
     int new_bias = 0;
@@ -196,11 +196,11 @@ int magCalUpdate(struct MagCal *moc, uint64_t sample_time_usec,
     moc->acc_zw += z * w;
 
     if (++moc->nsamples == 1) {
-        moc->start_time = sample_time_usec;
+        moc->start_time = sample_time_ns;
     }
 
     // 2. batch has enough samples?
-    if (moc_batch_complete(moc, sample_time_usec)) {
+    if (moc_batch_complete(moc, sample_time_ns)) {
 
         float inv = 1.0f / moc->nsamples;
 
@@ -235,7 +235,7 @@ int magCalUpdate(struct MagCal *moc, uint64_t sample_time_usec,
                 moc->z_bias = bias.z;
 
                 moc->radius = radius;
-                moc->update_time = sample_time_usec;
+                moc->update_time = sample_time_ns;
 
                 new_bias = 1;
             }
