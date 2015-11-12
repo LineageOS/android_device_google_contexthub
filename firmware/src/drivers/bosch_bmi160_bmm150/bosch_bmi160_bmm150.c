@@ -1999,4 +1999,4 @@ static void endTask(void)
     gpioRelease(mTask.Int2);
 }
 
-INTERNAL_APP_INIT(0x0000000000000004ULL, startTask, endTask, handleEvent);
+INTERNAL_APP_INIT(0x0000000000000002ULL, startTask, endTask, handleEvent);
