@@ -133,15 +133,17 @@ void pwrEnableAndClockRtc(enum RtcClock rtcClock)
 {
     /* Enable power clock */
     RCC->APB1ENR |= PERIPH_APB1_PWR;
-    /* Reset backup domain */
-    RCC->BDCR |= RCC_BDCR_BDRST;
-    /* Exit reset of backup domain */
-    RCC->BDCR &= ~RCC_BDCR_BDRST;
 
     /* Enable write permission for backup domain */
     pwrEnableWriteBackupDomainRegs();
     /* Prevent compiler reordering across this boundary. */
     mem_reorder_barrier();
+
+    /* Reset backup domain */
+    RCC->BDCR |= RCC_BDCR_BDRST;
+    /* Exit reset of backup domain */
+    RCC->BDCR &= ~RCC_BDCR_BDRST;
+
     if (rtcClock == RTC_CLK_LSE || rtcClock == RTC_CLK_LSE_BYPASS) {
         /* Disable LSI */
         RCC->CSR &= ~RCC_CSR_LSION;
