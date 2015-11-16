@@ -55,6 +55,7 @@
 #define BMI160_REG_GYR_CONF       0x42
 #define BMI160_REG_GYR_RANGE      0x43
 #define BMI160_REG_MAG_CONF       0x44
+#define BMI160_REG_FIFO_DOWNS     0x45
 #define BMI160_REG_FIFO_CONFIG_0  0x46
 #define BMI160_REG_FIFO_CONFIG_1  0x47
 #define BMI160_REG_MAG_IF_0       0x4b
@@ -158,6 +159,13 @@
 #define kScale_acc 0.00239501953f  // ACC_range * 9.81f / 32768.0f;
 #define kScale_gyr 0.00106472439f  // GYR_range * M_PI / (180.0f * 32768.0f);
 #define kScale_mag 0.0625f         // 1.0f / 16.0f;
+
+#define ACC_MIN_RATE    5
+#define GYR_MIN_RATE    6
+#define ACC_MAX_RATE    12
+#define GYR_MAX_RATE    13
+#define SENSOR_OSR      3
+#define OSR_THRESHOULD  8
 
 enum SensorIndex {
     ACC = 0,
@@ -294,11 +302,12 @@ struct BMI160Task {
 
     uint8_t active_oneshot_sensor_cnt;
     uint8_t active_data_sensor_cnt;
+
+    uint8_t acc_downsample;
+    uint8_t gyr_downsample;
 };
 
 static uint32_t AccRates[] = {
-    SENSOR_HZ(25.0f/32.0f),
-    SENSOR_HZ(25.0f/16.0f),
     SENSOR_HZ(25.0f/8.0f),
     SENSOR_HZ(25.0f/4.0f),
     SENSOR_HZ(25.0f/2.0f),
@@ -307,26 +316,10 @@ static uint32_t AccRates[] = {
     SENSOR_HZ(100.0f),
     SENSOR_HZ(200.0f),
     SENSOR_HZ(400.0f),
-    SENSOR_HZ(800.0f),
-    SENSOR_HZ(1600.0f),
     0,
 };
 
 static uint32_t GyrRates[] = {
-    SENSOR_HZ(25.0f),
-    SENSOR_HZ(50.0f),
-    SENSOR_HZ(100.0f),
-    SENSOR_HZ(200.0f),
-    SENSOR_HZ(400.0f),
-    SENSOR_HZ(800.0f),
-    SENSOR_HZ(1600.0f),
-    SENSOR_HZ(3200.0f),
-    0,
-};
-
-static uint32_t MagRates[] = {
-    SENSOR_HZ(25.0f/32.0f),
-    SENSOR_HZ(25.0f/16.0f),
     SENSOR_HZ(25.0f/8.0f),
     SENSOR_HZ(25.0f/4.0f),
     SENSOR_HZ(25.0f/2.0f),
@@ -335,7 +328,16 @@ static uint32_t MagRates[] = {
     SENSOR_HZ(100.0f),
     SENSOR_HZ(200.0f),
     SENSOR_HZ(400.0f),
-    SENSOR_HZ(800.0f),
+    0,
+};
+
+static uint32_t MagRates[] = {
+    SENSOR_HZ(25.0f/8.0f),
+    SENSOR_HZ(25.0f/4.0f),
+    SENSOR_HZ(25.0f/2.0f),
+    SENSOR_HZ(25.0f),
+    SENSOR_HZ(50.0f),
+    SENSOR_HZ(100.0f),
     0,
 };
 
@@ -700,8 +702,8 @@ static void configFifo(bool on)
     mTask.xferCnt = 1024;
     mTask.new_time = timGetTime();
     SPI_READ(BMI160_REG_FIFO_DATA, mTask.xferCnt, mTask.rxBuffer);
+    // calculate the new water mark level
     SPI_WRITE(BMI160_REG_FIFO_CONFIG_0, calcWaterMark());
-
     // write the composed byte to fifo_config reg.
     SPI_WRITE(BMI160_REG_FIFO_CONFIG_1, val);
 }
@@ -909,30 +911,47 @@ static uint8_t computeOdr(uint32_t rate)
 
 static bool accSetRate(uint32_t rate, uint64_t latency)
 {
-    uint32_t actual_rate = rate;
-    int odr;
+    int odr, osr = 0;
 
     osLog(LOG_INFO, "BMI160: accSetRate: rate=%ld, latency=%lld, state=%d\n", rate, latency, mTask.state);
 
     if (mTask.state == SENSOR_IDLE) {
         mTask.state = SENSOR_CONFIG_CHANGING;
 
-        // minimum supported rate for ACCEL is 12.5Hz.
-        // Anything lower than that shall be acheived by downsampling.
-        if (rate < SENSOR_HZ(12.5f)) {
-            actual_rate = SENSOR_HZ(12.5f);
-        }
-        mTask.sensors[ACC].rate = actual_rate;
-        mTask.sensors[ACC].latency = latency;
-
-        odr = computeOdr(actual_rate);
+        osr = mTask.acc_downsample;
+        odr = computeOdr(rate);
         if (odr == -1)
             return false;
 
-        configFifo(true);
+        // minimum supported rate for ACCEL is 12.5Hz.
+        // Anything lower than that shall be acheived by downsampling.
+        if (odr < ACC_MIN_RATE) {
+            osr = ACC_MIN_RATE - odr;
+            odr = ACC_MIN_RATE;
+        }
+
+        // for high odrs, oversample to reduce hw latency and downsample
+        // to get desired odr
+        if (odr > OSR_THRESHOULD) {
+            osr = (SENSOR_OSR + odr) > ACC_MAX_RATE ? (ACC_MAX_RATE - odr) : SENSOR_OSR;
+            odr += osr;
+        }
+
+        mTask.sensors[ACC].rate = rate;
+        mTask.sensors[ACC].latency = latency;
+        mTask.acc_downsample = osr;
+
         // set ACC bandwidth parameter to 2 (bits[4:6])
         // set the rate (bits[0:3])
         SPI_WRITE(BMI160_REG_ACC_CONF, 0x20 | odr);
+
+        // configure down sampling ratio, 0x88 is to specify we are using
+        // filtered samples
+        SPI_WRITE(BMI160_REG_FIFO_DOWNS, (mTask.acc_downsample << 4) | mTask.gyr_downsample | 0x88);
+
+        // flush the data and configure the fifo
+        configFifo(true);
+
         spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[ACC]);
     } else {
         mTask.pending_config[ACC] = true;
@@ -945,30 +964,47 @@ static bool accSetRate(uint32_t rate, uint64_t latency)
 
 static bool gyrSetRate(uint32_t rate, uint64_t latency)
 {
-    uint32_t actual_rate = rate;
-    int odr;
+    int odr, osr = 0;
 
     osLog(LOG_INFO, "BMI160: gyrSetRate: rate=%ld, latency=%lld, state=%d\n", rate, latency, mTask.state);
 
     if (mTask.state == SENSOR_IDLE) {
         mTask.state = SENSOR_CONFIG_CHANGING;
 
-        // minimum supported rate for GYRO is 25.0Hz.
-        // Anything lower than that shall be acheived by downsampling.
-        if (rate < SENSOR_HZ(25.0f)) {
-            actual_rate = SENSOR_HZ(25.0f);
-        }
-        mTask.sensors[GYR].rate = actual_rate;
-        mTask.sensors[GYR].latency = latency;
-
-        odr = computeOdr(actual_rate);
+        osr = mTask.gyr_downsample;
+        odr = computeOdr(rate);
         if (odr == -1)
             return false;
 
-        configFifo(true);
+        // minimum supported rate for GYRO is 25.0Hz.
+        // Anything lower than that shall be acheived by downsampling.
+        if (odr < GYR_MIN_RATE) {
+            osr = GYR_MIN_RATE - odr;
+            odr = GYR_MIN_RATE;
+        }
+
+        // for high odrs, oversample to reduce hw latency and downsample
+        // to get desired odr
+        if (odr > OSR_THRESHOULD) {
+            osr = (SENSOR_OSR + odr) > GYR_MAX_RATE ? (GYR_MAX_RATE - odr) : SENSOR_OSR;
+            odr += osr;
+        }
+
+        mTask.sensors[GYR].rate = rate;
+        mTask.sensors[GYR].latency = latency;
+        mTask.gyr_downsample = osr;
+
         // set GYR bandwidth parameter to 2 (bits[4:6])
         // set the rate (bits[0:3])
         SPI_WRITE(BMI160_REG_GYR_CONF, 0x20 | odr);
+
+        // configure down sampling ratio, 0x88 is to specify we are using
+        // filtered samples
+        SPI_WRITE(BMI160_REG_FIFO_DOWNS, (mTask.acc_downsample << 4) | mTask.gyr_downsample | 0x88);
+
+        // flush the data and configure the fifo
+        configFifo(true);
+
         spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[GYR]);
     } else {
         mTask.pending_config[GYR] = true;
@@ -995,9 +1031,9 @@ static bool magSetRate(uint32_t rate, uint64_t latency)
         if (odr == -1)
             return false;
 
-        configFifo(true);
         // set the rate for MAG
         SPI_WRITE(BMI160_REG_MAG_CONF, odr);
+        configFifo(true);
         spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[MAG]);
     } else {
         mTask.pending_config[MAG] = true;
