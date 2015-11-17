@@ -646,6 +646,7 @@ static uint8_t calcWaterMark(void)
 {
     int i;
     uint64_t min_latency = ULONG_LONG_MAX;
+    uint32_t max_rate = 0;
     uint8_t min_water_mark = 6;
     uint8_t max_water_mark = 200;
     uint8_t water_mark;
@@ -653,12 +654,19 @@ static uint8_t calcWaterMark(void)
     uint32_t header_cnt = ULONG_MAX;
 
     for (i = ACC; i <= MAG; i++) {
-        if (mTask.sensors[i].active) {
+        if (mTask.sensors[i].active && mTask.sensors[i].latency != SENSOR_LATENCY_NODATA) {
             min_latency = mTask.sensors[i].latency < min_latency ? mTask.sensors[i].latency : min_latency;
+            max_rate = mTask.sensors[i].rate > max_rate ? mTask.sensors[i].rate : max_rate;
         }
     }
 
-    // if any sensor request no batching, we set a minimum watermark of 24 bytes.
+    // if max_rate is less than 50Hz, we lower the minimum water mark level
+    if (max_rate < SENSOR_HZ(50.0f)) {
+        min_water_mark = 3;
+    }
+
+    // if any sensor request no batching, we set a minimum watermark
+    // of 24 bytes (12 bytes if all rates are below 50Hz).
     if (min_latency == 0) {
         return min_water_mark;
     }
@@ -669,7 +677,7 @@ static uint8_t calcWaterMark(void)
     // the actual number of header byte may exceed this estimate but it's ok to
     // batch a bit faster.
     for (i = ACC; i <= MAG; i++) {
-        if (mTask.sensors[i].active) {
+        if (mTask.sensors[i].active && mTask.sensors[i].latency != SENSOR_LATENCY_NODATA) {
             temp_cnt = (uint32_t)(min_latency * (mTask.sensors[i].rate / 1024) / 1000000000ull);
             header_cnt = temp_cnt < header_cnt ? temp_cnt : header_cnt;
             total_cnt += temp_cnt * (i == MAG ? 8 : 6);
@@ -1244,7 +1252,7 @@ static void parseRawData(struct BMI160Sensor *mSensor, int i, float kScale, uint
         } else if (mSensor->idx == GYR) {
             osEnqueueEvt(EVT_SENSOR_GYR_DATA_RDY, mSensor->data_evt, dataEvtFree);
         } else if (mSensor->idx == MAG) {
-            osEnqueueEvt(EVT_SENSOR_GYR_DATA_RDY, mSensor->data_evt, dataEvtFree);
+            osEnqueueEvt(EVT_SENSOR_MAG_DATA_RDY, mSensor->data_evt, dataEvtFree);
         }
         mSensor->data_evt = NULL;
     }
@@ -1448,9 +1456,6 @@ static void accCalibrationHandling(void)
     case CALIBRATION_START:
         mTask.calibration_timeout_cnt = 0;
 
-        //disable all fifo data during calibration.
-        SPI_WRITE(BMI160_REG_FIFO_CONFIG_1, 0x12);
-
         //if power is off, turn ACC on to NORMAL mode
         if (!mTask.sensors[ACC].active)
             SPI_WRITE(BMI160_REG_CMD, 0x11);
@@ -1516,9 +1521,6 @@ static void accCalibrationHandling(void)
         // Enable offset compensation for accel
         uint8_t mode = offset6Mode();
         SPI_WRITE(BMI160_REG_OFFSET_6, mode);
-
-        // turn back on fifo
-        configFifo(true);
 
         // if ACC was previous off, turn ACC to SUSPEND
         if (!mTask.sensors[ACC].active)

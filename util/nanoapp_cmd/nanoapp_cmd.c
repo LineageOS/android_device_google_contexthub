@@ -42,6 +42,16 @@ static int setType(struct ConfigCmd *cmd, char *sensor)
         cmd->sensorType = SENS_TYPE_TEMP;
     } else if (strcmp(sensor, "orien") == 0) {
         cmd->sensorType = SENS_TYPE_ORIENTATION;
+    } else if (strcmp(sensor, "gravity") == 0) {
+        cmd->sensorType = SENS_TYPE_GRAVITY;
+    } else if (strcmp(sensor, "geomag") == 0) {
+        cmd->sensorType = SENS_TYPE_GEO_MAG_ROT_VEC;
+    } else if (strcmp(sensor, "linear_acc") == 0) {
+        cmd->sensorType = SENS_TYPE_LINEAR_ACCEL;
+    } else if (strcmp(sensor, "rotation") == 0) {
+        cmd->sensorType = SENS_TYPE_ROTATION_VECTOR;
+    } else if (strcmp(sensor, "game") == 0) {
+        cmd->sensorType = SENS_TYPE_GAME_ROT_VECTOR;
     } else if (strcmp(sensor, "win_orien") == 0) {
         cmd->sensorType = SENS_TYPE_WIN_ORIENTATION;
     } else if (strcmp(sensor, "tilt") == 0) {
