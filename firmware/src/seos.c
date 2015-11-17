@@ -15,6 +15,7 @@
  */
 
 #include <plat/inc/plat.h>
+#include <plat/inc/bl.h>
 #include <platform.h>
 #include <hostIntf.h>
 #include <syscall.h>
@@ -31,6 +32,7 @@
 #include <heap.h>
 #include <slab.h>
 #include <cpu.h>
+#include <crc.h>
 
 
 /*
@@ -169,13 +171,18 @@ static uint32_t osGetFreeTid(void)
 
 static void osStartTasks(void)
 {
-    extern const char __code_end[];
-    extern const struct AppHdr __internal_app_start, __internal_app_end, __app_start;
+    extern char __shared_start[];
+    extern char __shared_end[];
+    extern const struct AppHdr __internal_app_start, __internal_app_end;
     static const char magic[] = APP_HDR_MAGIC;
     const struct AppHdr *app;
     uint32_t i, nTasks = 0;
     struct Task* task;
-
+    uint8_t *shared_start = (uint8_t *)&__shared_start;
+    uint8_t *shared_end = (uint8_t *)&__shared_end;
+    uint8_t *shared;
+    int len, total_len;
+    uint8_t id1, id2;
 
     /* first enum all internal apps, making sure to check for dupes */
     osLog(LOG_DEBUG, "Reading internal app list...\n");
@@ -194,25 +201,41 @@ static void osStartTasks(void)
 
     /* then enum all external apps, making sure to find the latest (by position in flash) and checking for conflicts with internal apps */
     osLog(LOG_DEBUG, "Reading external app list...\n");
-    app = &__app_start;
-    while (((uintptr_t)&__code_end) - ((uintptr_t)app) >= sizeof(struct AppHdr) && !memcmp(magic, app->magic, sizeof(magic) - 1) && app->fmtVer == APP_HDR_VER_CUR) {
+    for (shared = shared_start;
+         shared < shared_end && shared[0] != 0xFF;
+         shared += total_len) {
+        id1 = shared[0] & 0x0F;
+        id2 = (shared[0] >> 4) & 0x0F;
+        len = (shared[1] << 16) | (shared[2] << 8) | shared[3];
+        total_len = sizeof(uint32_t) + ((len + 3) & ~3) + sizeof(uint32_t);
 
-        if (app->marker != APP_HDR_MARKER_VALID)  //this may need more logic to handle partially-uploaded things
-            osLog(LOG_WARN, "Weird marker on external app: [%p]=0x%04X\n", app, app->marker);
-        else if ((task = osTaskFindByAppID(app->appId))) {
-            if (task->appHdr->marker == APP_HDR_MARKER_INTERNAL)
-                osLog(LOG_WARN, "External app id %016llx @ %p attempting to update internal app @ %p. This is not allowed.\n", app->appId, app, task->appHdr);
-            else {
-                osLog(LOG_DEBUG, "External app id %016llx @ %p updating app @ %p\n", app->appId, app, task->appHdr);
-                task->appHdr = app;
+        if (shared + total_len > shared_end)
+            break;
+
+        //skip over erased sections
+        if (id1 != id2 || id1 != BL_FLASH_APP_ID)
+            continue;
+
+        if (crc32(shared, total_len, ~0) == CRC_RESIDUE) {
+            app = (const struct AppHdr *)&shared[4];
+            if (len >= sizeof(struct AppHdr) && !memcmp(magic, app->magic, sizeof(magic) - 1) && app->fmtVer == APP_HDR_VER_CUR) {
+
+                if (app->marker != APP_HDR_MARKER_VALID)  //this may need more logic to handle partially-uploaded things
+                    osLog(LOG_WARN, "Weird marker on external app: [%p]=0x%04X\n", app, app->marker);
+                else if ((task = osTaskFindByAppID(app->appId))) {
+                    if (task->appHdr->marker == APP_HDR_MARKER_INTERNAL)
+                        osLog(LOG_WARN, "External app id %016llx @ %p attempting to update internal app @ %p. This is not allowed.\n", app->appId, app, task->appHdr);
+                    else {
+                        osLog(LOG_DEBUG, "External app id %016llx @ %p updating app @ %p\n", app->appId, app, task->appHdr);
+                        task->appHdr = app;
+                    }
+                }
+                else if (nTasks == MAX_TASKS)
+                    osLog(LOG_WARN, "External app id %016llx @ %p cannot be used as too many apps already exist.\n", app->appId, app);
+                else
+                    mTasks[nTasks++].appHdr = app;
             }
         }
-        else if (nTasks == MAX_TASKS)
-            osLog(LOG_WARN, "External app id %016llx @ %p cannot be used as too many apps already exist.\n", app->appId, app);
-        else
-            mTasks[nTasks++].appHdr = app;
-
-        app = (const struct AppHdr*)(((((uintptr_t)app) + app->rel_end) + 3) &~ 3);
     }
 
     osLog(LOG_DEBUG, "Enumerated %lu apps\n", nTasks);

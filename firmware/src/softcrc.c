@@ -38,11 +38,11 @@ static uint32_t crcOneWord(uint32_t crc, uint32_t data, int cnt)
         return crc;
 }
 
-uint32_t crc32(const void *buf, size_t size)
+uint32_t crc32(const void *buf, size_t size, uint32_t crc)
 {
         const uint32_t *data32 = (const uint32_t *)buf;
         const uint8_t *data8;
-        uint32_t word, i, crc = ~0;
+        uint32_t word, i;
 
         // word by word crc32
         for (i = 0; i < size / 4; i++)
