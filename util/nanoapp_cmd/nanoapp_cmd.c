@@ -11,6 +11,7 @@
 #include <sensType.h>
 
 #define SENSOR_RATE_ONCHANGE    0xFFFFFF01UL
+#define SENSOR_RATE_ONESHOT     0xFFFFFF02UL
 #define SENSOR_HZ(_hz)          ((uint32_t)((_hz) * 1024.0f))
 
 struct ConfigCmd
@@ -72,6 +73,12 @@ static int setType(struct ConfigCmd *cmd, char *sensor)
     } else if (strcmp(sensor, "nomo") == 0) {
         cmd->sensorType = SENS_TYPE_NO_MOTION;
         cmd->rate = SENSOR_RATE_ONCHANGE;
+    } else if (strcmp(sensor, "sigmo") == 0) {
+        cmd->sensorType = SENS_TYPE_SIG_MOTION;
+        cmd->rate = SENSOR_RATE_ONESHOT;
+    } else if (strcmp(sensor, "gesture") == 0) {
+        cmd->sensorType = SENS_TYPE_GESTURE;
+        cmd->rate = SENSOR_RATE_ONESHOT;
     } else if (strcmp(sensor, "hall") == 0) {
         cmd->sensorType = SENS_TYPE_HALL;
         cmd->rate = SENSOR_RATE_ONCHANGE;
