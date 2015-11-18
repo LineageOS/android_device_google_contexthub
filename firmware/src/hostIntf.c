@@ -38,11 +38,12 @@ struct ActiveSensor
     uint64_t lastInterrupt;
     uint64_t latency;
     uint32_t rate;
+    uint32_t sensorHandle;
     uint8_t sensorType;
     uint8_t numAxis;
     uint8_t interrupt;
-    uint8_t reserved[2];
-    uint32_t sensorHandle;
+    uint8_t oneshot : 1;
+    uint8_t reserved : 7;
 } __attribute__((packed));
 
 static uint8_t mSensorList[SENS_TYPE_LAST_USER];
@@ -58,7 +59,7 @@ static struct
     uint8_t prePreamble;
     uint8_t buf[NANOHUB_PACKET_SIZE_MAX];
     uint8_t postPreamble;
-} gTxBuf = { .prePreamble = NANOHUB_PREAMBLE_BYTE, .postPreamble = NANOHUB_PREAMBLE_BYTE };
+} gTxBuf;
 static size_t gTxSize;
 static uint8_t *gTxBufPtr;
 static uint32_t gSeq;
@@ -205,6 +206,8 @@ static bool hostIntfRequest(uint32_t tid)
     atomicBitsetInit(gInterrupt, MAX_INTERRUPTS);
     atomicBitsetInit(gInterruptMask, MAX_INTERRUPTS);
     hostIntfSetInterruptMask(NANOHUB_INT_NONWAKEUP);
+    gTxBuf.prePreamble = NANOHUB_PREAMBLE_BYTE;
+    gTxBuf.postPreamble = NANOHUB_PREAMBLE_BYTE;
 
     gComm = platHostIntfInit();
     if (gComm) {
@@ -363,6 +366,11 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
                 slabAllocatorFree(mActiveSensorSlab, sensor);
             }
         } else if (cmd->enabled && (sensor = slabAllocatorAlloc(mActiveSensorSlab))) {
+            if (cmd->rate == SENSOR_RATE_ONESHOT) {
+                cmd->rate = SENSOR_RATE_ONCHANGE;
+                sensor->oneshot = true;
+            }
+
             for (i=0; (si = sensorFind(cmd->sensorType, i, &sensor->sensorHandle)) != NULL; i++) {
                 if (sensorRequest(gHostIntfTid, sensor->sensorHandle, cmd->rate, cmd->latency)) {
                     mSensorList[cmd->sensorType] = slabAllocatorGetIndex(mActiveSensorSlab, sensor);
@@ -455,6 +463,15 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
 #endif
                     sensor->lastInterrupt = currentTime;
                 }
+            }
+
+            if (sensor->oneshot) {
+                sensorRelease(gHostIntfTid, sensor->sensorHandle);
+                osEventUnsubscribe(gHostIntfTid, sensorGetMyEventType(sensor->sensorType));
+                mSensorList[sensor->sensorType] = 0xFF;
+                sensor->sensorType = SENS_TYPE_INVALID;
+                sensor->oneshot = false;
+                slabAllocatorFree(mActiveSensorSlab, sensor);
             }
         }
     }

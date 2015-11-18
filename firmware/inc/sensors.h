@@ -99,6 +99,7 @@ struct SensorInfo {
  */
 #define SENSOR_RATE_ONDEMAND    0xFFFFFF00UL
 #define SENSOR_RATE_ONCHANGE    0xFFFFFF01UL
+#define SENSOR_RATE_ONESHOT     0xFFFFFF02UL
 #define SENSOR_HZ(_hz)          ((uint32_t)((_hz) * 1024.0f))
 
 /*
