@@ -1350,8 +1350,15 @@ static void dispatchData(void)
     }
 }
 
+/*
+ * Read the interrupt type and send corresponding event
+ * If it's anymo or double tap, also send a single uint32 to indicate which axies
+ * is this interrupt triggered.
+ * If it's flat, also send a bit to indicate flat/non-flat position.
+ */
 static void int2Handling(void)
 {
+    union EmbeddedDataPoint trigger_axies;
     uint8_t int_status_0 = mTask.rxBuffer[1];
     uint8_t int_status_1 = mTask.rxBuffer[2];
     if (int_status_0 & INT_STEP) {
@@ -1359,16 +1366,24 @@ static void int2Handling(void)
         osEnqueueEvt(EVT_SENSOR_STEP, NULL, NULL);
     }
     if (int_status_0 & INT_ANY_MOTION) {
+        // bit [0:2] of INT_STATUS[2] is set when anymo is triggered by x, y or
+        // z axies respectively. bit [3] indicates the slope.
+        trigger_axies.idata = (mTask.rxBuffer[3] & 0x0f);
         osLog(LOG_INFO, "BMI160: Detected any motion\n");
-        osEnqueueEvt(EVT_SENSOR_ANY_MOTION, NULL, NULL);
+        osEnqueueEvt(EVT_SENSOR_ANY_MOTION, trigger_axies.vptr, NULL);
     }
     if (int_status_0 & INT_DOUBLE_TAP) {
+        // bit [4:6] of INT_STATUS[2] is set when double tap is triggered by
+        // x, y or z axies respectively. bit [7] indicates the slope.
+        trigger_axies.idata = ((mTask.rxBuffer[3] & 0xf0) >> 4);
         osLog(LOG_INFO, "BMI160: Detected double tap\n");
-        osEnqueueEvt(EVT_SENSOR_DOUBLE_TAP, NULL, NULL);
+        osEnqueueEvt(EVT_SENSOR_DOUBLE_TAP, trigger_axies.vptr, NULL);
     }
     if (int_status_0 & INT_FLAT) {
+        // bit [7] of INT_STATUS[3] indicates flat/non-flat position
+        trigger_axies.idata = ((mTask.rxBuffer[4] & 0x80) >> 7);
         osLog(LOG_INFO, "BMI160: Detected flat\n");
-        osEnqueueEvt(EVT_SENSOR_FLAT, NULL, NULL);
+        osEnqueueEvt(EVT_SENSOR_FLAT, trigger_axies.vptr, NULL);
     }
     if (int_status_1 & INT_NO_MOTION) {
         osLog(LOG_INFO, "BMI160: Detected no motion\n");
