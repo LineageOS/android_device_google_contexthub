@@ -13,6 +13,9 @@
 
 #define RSA_WORDS                   (RSA_BYTES / sizeof(uint32_t))
 
+#define APP_SEC_SIG_ALIGN           APP_DATA_CHUNK_SIZE
+#define APP_SEC_ENCR_ALIGN          APP_DATA_CHUNK_SIZE
+
 #define STATE_INIT                  0 //nothing gotten yet
 #define STATE_RXING_HEADERS         1 //each is APP_HDR_SIZE bytes
 #define STATE_RXING_DATA            2 //each data block is AES_BLOCK_WORDS 32-bit words (for AES reasons)
@@ -48,11 +51,13 @@ struct AppSecState {
         uint32_t dataWords[0];
     };
 
-    uint32_t signedBytes;
-    uint32_t encryptedBytes;
+    uint32_t signedBytesIn;
+    uint32_t encryptedBytesIn;
+    uint32_t signedBytesOut;
+    uint32_t encryptedBytesOut;
     uint32_t numSigs;
 
-    uint8_t haveBytes;       //in dataBytes...
+    uint16_t haveBytes;       //in dataBytes...
     uint8_t curState;
     uint8_t needSig    :1;
     uint8_t haveSig    :1;
@@ -80,16 +85,14 @@ struct AppSecState *appSecInit(AppSecWriteCbk writeCbk, AppSecPubKeyFindCbk pubK
     if (!state)
         return NULL;
 
+    memset(state, 0, sizeof(struct AppSecState));
+
     state->writeCbk = writeCbk;
     state->pubKeyFindCbk = pubKeyFindCbk;
     state->aesKeyAccessCbk = aesKeyAccessCbk;
-    state->haveBytes = 0;
     state->curState = STATE_INIT;
-    state->signedBytes = 0;
-    state->encryptedBytes = 0;
-    state->needSig = mandateSigning ? 1 : 0;
-    state->haveSig = 0;
-    state->haveEncr = 0;
+    if (mandateSigning)
+        state->needSig = 1;
 
     return state;
 }
@@ -99,13 +102,62 @@ void appSecDeinit(struct AppSecState *state)
     heapFree(state);
 }
 
-static AppSecErr appSecProcessIncomingHdr(struct AppSecState *state)
+
+//if needed, decrypt and hash incoming data
+static AppSecErr appSecBlockRx(struct AppSecState *state)
+{
+    //if signatures are on, hash it
+    if (state->haveSig) {
+
+        //make sure we do not get too much data & account for the data we got
+        if (state->haveBytes > state->signedBytesIn)
+            return APP_SEC_TOO_MUCH_DATA;
+        state->signedBytesIn -= state->haveBytes;
+
+        //make sure we do not produce too much data (discard padding) & make sure we account for it
+        if (state->signedBytesOut < state->haveBytes)
+            state->haveBytes = state->signedBytesOut;
+        state->signedBytesOut -= state->haveBytes;
+
+        //hash the data
+        sha2processBytes(&state->sha, state->dataBytes, state->haveBytes);
+    }
+
+    //decrypt if encryption is on
+    if (state->haveEncr) {
+
+        uint32_t *dataP = state->dataWords;
+        uint32_t i, numBlocks = state->haveBytes / APP_DATA_CHUNK_SIZE;
+
+        //we should not be called with partial encr blocks
+        if (state->haveBytes % APP_DATA_CHUNK_SIZE)
+            return APP_SEC_TOO_LITTLE_DATA;
+
+        //make sure we do not get too much data & account for the data we got
+        if (state->haveBytes > state->encryptedBytesIn)
+            return APP_SEC_TOO_MUCH_DATA;
+        state->encryptedBytesIn -= state->haveBytes;
+
+        //decrypt
+        for (i = 0; i < numBlocks; i++, dataP += AES_BLOCK_WORDS)
+            aesCbcDecr(&state->cbc, dataP, dataP);
+
+        //make sure we do not produce too much data (discard padding) & make sure we account for it
+        if (state->encryptedBytesOut < state->haveBytes)
+            state->haveBytes = state->encryptedBytesOut;
+        state->encryptedBytesOut -= state->haveBytes;
+    }
+
+    return APP_SEC_NO_ERROR;
+}
+
+static AppSecErr appSecProcessIncomingHdr(struct AppSecState *state, bool *sendDataToDataHandlerP)
 {
     static const char hdrAddEncrKey[] = "EncrKey+";
     static const char hdrDelEncrKey[] = "EncrKey+";
-    static const char hdrNanoApp[] = "GoogleNanoApp\x00\xff\xff"; //we chack marker is set to 0xFF and version set to 0, as we must as per spec
+    static const char hdrNanoApp[] = "GoogleNanoApp\x00\xff\xff"; //we check marker is set to 0xFF and version set to 0, as we must as per spec
     static const char hdrEncrHdr[] = "Encr";
-    static const char hdrSigHdr[] = "SignedApp";
+    static const char hdrSigHdr[] = "SigndApp";
 
     //check for signature header
     if (!memcmp(state->dataBytes, hdrSigHdr, sizeof(hdrSigHdr) - 1)) {
@@ -121,7 +173,8 @@ static AppSecErr appSecProcessIncomingHdr(struct AppSecState *state)
         if (!sigHdr->appDataLen || !sigHdr->numSigs) //no data bytes or no sigs?
             return APP_SEC_INVALID_DATA;
 
-        state->signedBytes = sigHdr->appDataLen;
+        state->signedBytesOut = sigHdr->appDataLen;
+        state->signedBytesIn = ((state->signedBytesOut + APP_SEC_SIG_ALIGN - 1) / APP_SEC_SIG_ALIGN) * APP_SEC_SIG_ALIGN;
         state->numSigs = sigHdr->numSigs;
         state->haveSig = 1;
         sha2init(&state->sha);
@@ -133,6 +186,7 @@ static AppSecErr appSecProcessIncomingHdr(struct AppSecState *state)
     if (!memcmp(state->dataBytes, hdrEncrHdr, sizeof(hdrEncrHdr) - 1)) {
 
         struct AppSecEncrHdr *encrHdr = (struct AppSecEncrHdr*)state->dataBytes;
+	uint32_t k[AES_KEY_WORDS];
         AppSecErr ret;
 
         if (state->haveEncr) //we do not allow encryption of already-encrypted data
@@ -141,26 +195,19 @@ static AppSecErr appSecProcessIncomingHdr(struct AppSecState *state)
         if (!encrHdr->dataLen || !encrHdr->keyID)
             return APP_SEC_INVALID_DATA;
 
-        ret = state->aesKeyAccessCbk(encrHdr->keyID, state->dataBytes);
+        ret = state->aesKeyAccessCbk(encrHdr->keyID, k);
         if (ret)
             return ret;
 
-        aesCbcInitForDecr(&state->cbc, state->dataWords, encrHdr->IV);
-        state->encryptedBytes = encrHdr->dataLen;
+        aesCbcInitForDecr(&state->cbc, k, encrHdr->IV);
+        state->encryptedBytesOut = encrHdr->dataLen;
+        state->encryptedBytesIn = ((state->encryptedBytesOut + APP_SEC_ENCR_ALIGN - 1) / APP_SEC_ENCR_ALIGN) * APP_SEC_ENCR_ALIGN;
         state->haveEncr = 1;
-
-        //encr header is signed if signatures are on, so hash it
-        if (state->haveSig) {
-            if (APP_HDR_SIZE >= state->signedBytes)
-                return APP_SEC_TOO_MUCH_DATA;
-            state->signedBytes -= APP_HDR_SIZE;
-            sha2processBytes(&state->sha, state->dataBytes, APP_HDR_SIZE);
-        }
 
         return APP_SEC_NO_ERROR;
     }
 
-    //check for valid app or sopmething else that we pass directly to caller
+    //check for valid app or something else that we pass directly to caller
     if (memcmp(state->dataBytes, hdrAddEncrKey, sizeof(hdrAddEncrKey) - 1) && memcmp(state->dataBytes, hdrDelEncrKey, sizeof(hdrDelEncrKey) - 1) && memcmp(state->dataBytes, hdrNanoApp, sizeof(hdrNanoApp) - 1))
         return APP_SEC_HEADER_ERROR;
 
@@ -172,46 +219,29 @@ static AppSecErr appSecProcessIncomingHdr(struct AppSecState *state)
     state->curState = STATE_RXING_DATA;
 
     //send data to caller as is
-    return state->writeCbk(state->dataBytes, APP_HDR_SIZE);
+    *sendDataToDataHandlerP = true;
+    return APP_SEC_NO_ERROR;
 }
 
-static AppSecErr appSecProcessIncomingData(struct AppSecState *state, uint32_t len)
+static AppSecErr appSecProcessIncomingData(struct AppSecState *state)
 {
-    //hash if sig-checking is on
-    if (state->haveSig) {
-        if (len >= state->signedBytes)
-            return APP_SEC_TOO_MUCH_DATA;
-        state->signedBytes -= len;
-        sha2processBytes(&state->sha, state->dataBytes, len);
-    }
-
-    //decrypt if encryption is on
-    if (state->haveEncr) {
-        if (len != APP_DATA_CHUNK_SIZE)
-            return APP_SEC_TOO_LITTLE_DATA;
-        if (len >= state->encryptedBytes)
-            return APP_SEC_TOO_MUCH_DATA;
-        state->encryptedBytes -= len;
-        aesCbcDecr(&state->cbc, state->dataWords, state->dataWords);
-    }
-
     //check for data-ending conditions
-    if (state->haveSig && !state->signedBytes) {      //we're all done with the signed portion of the data, now come the signatures
-        if (state->haveEncr && state->encryptedBytes) //somehow we still have more "encrypted" bytes now - this is not valid
+    if (state->haveSig && !state->signedBytesIn) {      //we're all done with the signed portion of the data, now come the signatures
+        if (state->haveEncr && state->encryptedBytesIn) //somehow we still have more "encrypted" bytes now - this is not valid
             return APP_SEC_INVALID_DATA;
         state->curState = STATE_RXING_SIG_HASH;
 
         //collect the hash
         memcpy(state->lastHash, sha2finish(&state->sha), SHA2_HASH_SIZE);
     }
-    else if (state->haveEncr && !state->encryptedBytes) { //we're all done with encrypted bytes
-        if (state->haveSig && state->signedBytes)         //somehow we still have more "signed" bytes now - this is not valid
+    else if (state->haveEncr && !state->encryptedBytesIn) { //we're all done with encrypted bytes
+        if (state->haveSig && state->signedBytesIn)           //somehow we still have more "signed" bytes now - this is not valid
             return APP_SEC_INVALID_DATA;
         state->curState = STATE_DONE;
     }
 
     //pass to caller
-    return state->writeCbk(state->dataBytes, len);
+    return state->writeCbk(state->dataBytes, state->haveBytes);
 }
 
 static AppSecErr appSecProcessIncomingSigData(struct AppSecState *state)
@@ -288,6 +318,7 @@ AppSecErr appSecRxData(struct AppSecState *state, const void *dataP, uint32_t le
 {
     const uint8_t *data = (const uint8_t*)dataP;
     AppSecErr ret = APP_SEC_NO_ERROR;
+    bool sendToDataHandler = false;
 
     if (state->curState == STATE_INIT)
         state->curState = STATE_RXING_HEADERS;
@@ -298,16 +329,34 @@ AppSecErr appSecRxData(struct AppSecState *state, const void *dataP, uint32_t le
 
         case STATE_RXING_HEADERS:
             if (state->haveBytes == APP_HDR_SIZE) {
-                ret = appSecProcessIncomingHdr(state);
-                state->haveBytes = 0;
+
+                ret = appSecBlockRx(state);
                 if (ret != APP_SEC_NO_ERROR)
                     break;
+
+                ret = appSecProcessIncomingHdr(state, &sendToDataHandler);
+                if (ret != APP_SEC_NO_ERROR)
+                    break;
+                if (!sendToDataHandler) {
+                    state->haveBytes = 0;
+                    break;
+                }
+                //fallthrough
             }
-            break;
+            else
+                break;
 
         case STATE_RXING_DATA:
-            if (state->haveBytes == APP_DATA_CHUNK_SIZE) {
-                ret = appSecProcessIncomingData(state, APP_DATA_CHUNK_SIZE);
+            if (state->haveBytes >= APP_DATA_CHUNK_SIZE) {
+
+                //if data is already processed, do not re-process it
+                if (!sendToDataHandler) {
+                    ret = appSecBlockRx(state);
+                    if (ret != APP_SEC_NO_ERROR)
+                        break;
+                }
+
+                ret = appSecProcessIncomingData(state);
                 state->haveBytes = 0;
                 if (ret != APP_SEC_NO_ERROR)
                     break;
@@ -316,6 +365,8 @@ AppSecErr appSecRxData(struct AppSecState *state, const void *dataP, uint32_t le
 
         case STATE_RXING_SIG_HASH:
         case STATE_RXING_SIG_PUBKEY:
+
+            //no need for calling appSecBlockRx() as sigs are not signed, and encryption cannot be done after signing
             if (state->haveBytes == APP_SIG_SIZE) {
                 ret = appSecProcessIncomingSigData(state);
                 state->haveBytes = 0;
@@ -344,14 +395,14 @@ AppSecErr appSecRxDataOver(struct AppSecState *state)
     //Feed remianing data to data processor, if any
     if (state->haveBytes) {
 
-        //not in data rx stage when the incoming data ends? This is not good
+        //not in data rx stage when the incoming data ends? This is not good (if we had encr or sign we'd not be here)
         if (state->curState != STATE_RXING_DATA) {
             state->curState = STATE_BAD;
             return APP_SEC_TOO_LITTLE_DATA;
         }
 
         //feed the remaining data to the data processor
-        ret = appSecProcessIncomingData(state, state->haveBytes);
+        ret = appSecProcessIncomingData(state);
         if (ret != APP_SEC_NO_ERROR) {
             state->curState = STATE_BAD;
             return ret;

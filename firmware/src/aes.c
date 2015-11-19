@@ -344,13 +344,14 @@ void aesCbcEncr(struct AesCbcContext *ctx, const uint32_t *src, uint32_t *dst)
 
 void aesCbcDecr(struct AesCbcContext *ctx, const uint32_t *src, uint32_t *dst)
 {
-    uint32_t i;
+    uint32_t i, tmp[AES_BLOCK_WORDS];
 
-    aesDecr(&ctx->aes, src, dst);
+    aesDecr(&ctx->aes, src, tmp);
     for (i = 0; i < AES_BLOCK_WORDS; i++)
-        *dst++ ^= ctx->iv[i];
+        tmp[i] ^= ctx->iv[i];
 
     memcpy(ctx->iv, src, sizeof(uint32_t[AES_BLOCK_WORDS]));
+    memcpy(dst, tmp, sizeof(uint32_t[AES_BLOCK_WORDS]));
 }
 
 
