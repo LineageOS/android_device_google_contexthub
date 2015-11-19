@@ -369,6 +369,8 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
             if (cmd->rate == SENSOR_RATE_ONESHOT) {
                 cmd->rate = SENSOR_RATE_ONCHANGE;
                 sensor->oneshot = true;
+            } else {
+                sensor->oneshot = false;
             }
 
             for (i=0; (si = sensorFind(cmd->sensorType, i, &sensor->sensorHandle)) != NULL; i++) {
