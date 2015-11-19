@@ -350,7 +350,9 @@ AppSecErr appSecRxData(struct AppSecState *state, const void *dataP, uint32_t le
             if (state->haveBytes >= APP_DATA_CHUNK_SIZE) {
 
                 //if data is already processed, do not re-process it
-                if (!sendToDataHandler) {
+                if (sendToDataHandler)
+                    sendToDataHandler = false;
+                else {
                     ret = appSecBlockRx(state);
                     if (ret != APP_SEC_NO_ERROR)
                         break;
