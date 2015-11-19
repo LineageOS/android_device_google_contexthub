@@ -105,8 +105,13 @@ then
 			i=$[$i+1]
 		done
 
-		#get and save file size
+		#get and save file size, pad data to 32 bytes
 		signed_sz=$(du -b "$stage/postencr" | cut -f1)
+		while [ $[$signed_sz%32] -ne 0 ]
+		do
+			echo -ne "\0" >> "$stage/postencr"
+			signed_sz=$(du -b "$stage/postencr" | cut -f1)
+		done
 
 		nanoapp_sign sign "$priv1" "$pub1" < "$stage/postencr" > "$stage/sig"
 		cat "$stage/postencr" "$stage/sig" "$pub1" > "$stage/signed"
