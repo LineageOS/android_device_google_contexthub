@@ -129,6 +129,33 @@ static void osExpApiSensorGetRate(uintptr_t *retValP, va_list args)
     *retValP = sensorGetCurRate(sensorHandle);
 }
 
+static void osExpApiTimGetTime(uintptr_t *retValP, va_list args)
+{
+    uint64_t *timeNanos = va_arg(args, uint64_t *);
+    *timeNanos = timGetTime();
+}
+
+static void osExpApiTimSetTimer(uintptr_t *retValP, va_list args)
+{
+    uint32_t length_lo = va_arg(args, uint32_t);
+    uint32_t length_hi = va_arg(args, uint32_t);
+    uint32_t jitterPpm = va_arg(args, uint32_t);
+    uint32_t driftPpm = va_arg(args, uint32_t);
+    uint32_t tid = va_arg(args, uint32_t);
+    void *cookie = va_arg(args, void *);
+    bool oneshot = va_arg(args, int);
+    uint64_t length = (((uint64_t)length_hi) << 32) + length_lo;
+
+    *retValP = timTimerSetAsApp(length, jitterPpm, driftPpm, tid, cookie, oneshot);
+}
+
+static void osExpApiTimCancelTimer(uintptr_t *retValP, va_list args)
+{
+    uint32_t timerId = va_arg(args, uint32_t);
+
+    *retValP = timTimerCancel(timerId);
+}
+
 static union OsApiSlabItem* osExpApiI2cCbkInfoAlloc(uint32_t tid, void *cookie)
 {
     union OsApiSlabItem *thing = slabAllocatorAlloc(mSlabAllocator);
@@ -330,12 +357,6 @@ static void osExpApiI2cSlvTxPkt(uintptr_t *retValP, va_list args)
         slabAllocatorFree(mSlabAllocator, cbkInfo);
 }
 
-static void osExpApiTimGetTime(uintptr_t *retValP, va_list args)
-{
-    uint64_t *timeNanos = va_arg(args, uint64_t *);
-    *timeNanos = timGetTime();
-}
-
 void osApiExport(struct SlabAllocator *mainSlubAllocator)
 {
     static const struct SyscallTable osMainEvtqTable = {
@@ -373,7 +394,9 @@ void osApiExport(struct SlabAllocator *mainSlubAllocator)
     static const struct SyscallTable osMainTimerTable = {
         .numEntries = SYSCALL_OS_MAIN_TIME_LAST,
         .entry = {
-            [ SYSCALL_OS_MAIN_TIME_GET_TIME] = { .func = osExpApiTimGetTime, },
+            [SYSCALL_OS_MAIN_TIME_GET_TIME]     = { .func = osExpApiTimGetTime,  },
+            [SYSCALL_OS_MAIN_TIME_SET_TIMER]    = { .func = osExpApiTimSetTimer,     },
+            [SYSCALL_OS_MAIN_TIME_CANCEL_TIMER] = { .func = osExpApiTimCancelTimer,   },
         },
     };
 
