@@ -58,8 +58,11 @@ static int setType(struct ConfigCmd *cmd, char *sensor)
     } else if (strcmp(sensor, "tilt") == 0) {
         cmd->sensorType = SENS_TYPE_TILT;
         cmd->rate = SENSOR_RATE_ONCHANGE;
-    } else if (strcmp(sensor, "step") == 0) {
+    } else if (strcmp(sensor, "step_det") == 0) {
         cmd->sensorType = SENS_TYPE_STEP_DETECT;
+        cmd->rate = SENSOR_RATE_ONCHANGE;
+    } else if (strcmp(sensor, "step_cnt") == 0) {
+        cmd->sensorType = SENS_TYPE_STEP_COUNT;
         cmd->rate = SENSOR_RATE_ONCHANGE;
     } else if (strcmp(sensor, "double_tap") == 0) {
         cmd->sensorType = SENS_TYPE_DOUBLE_TAP;
@@ -104,7 +107,11 @@ int main(int argc, char *argv[])
     if (argc < 3) {
         printf("usage: %s <action> <sensor> <data>\n", argv[0]);
         printf("       action: config|calibrate|flush\n");
-        printf("       sensor: accel|gyro|mag|als|prox|baro|temp|orien|win_orien\n");
+        printf("       sensor: accel|gyro|mag|als|prox|baro|temp|orien\n");
+        printf("               gravity|geomag|linear_acc|rotation|game\n");
+        printf("               win_orien|tilt|step_det|step_cnt|double_tap\n");
+        printf("               flat|anymo|nomo|sigmo|gesture|hall|vsync\n");
+        printf("               activity\n");
         printf("       data: config: <true|false> <rate in Hz> <latency in u-sec>\n");
         printf("             calibrate: [N.A.]\n");
         printf("             flush: [N.A.]\n");
