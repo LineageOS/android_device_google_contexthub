@@ -115,19 +115,27 @@ static const uint32_t RevTab0[] = { //other 3 tables are this same table, RORed 
     0x39A80171, 0x080CB3DE, 0xD8B4E49C, 0x6456C190, 0x7BCB8461, 0xD532B670, 0x486C5C74, 0xD0B85742,
 };
 
-inline static uint32_t ror(uint32_t val, uint32_t by)
-{
-    if (!by)
-        return val;
-
 #ifdef ARM
-    asm volatile("ror %0, %1":"=r"(val):"0"(val),"r"(by));
+
+    #define STRINFIGY2(b) #b
+    #define STRINGIFY(b) STRINFIGY2(b)
+    #define ror(v, b) ({uint32_t ret; if (b) asm("ror %0, #" STRINGIFY(b) :"=r"(ret):"0"(v)); else ret = v; ret;})
+
 #else
-    val = (val >> by) | (val << (32 - by));
+
+    inline static uint32_t ror(uint32_t val, uint32_t by)
+    {
+        if (!by)
+            return val;
+
+        val = (val >> by) | (val << (32 - by));
+
+        return val;
+    }
+
 #endif
 
-    return val;
-}
+
 void aesInitForEncr(struct AesContext *ctx, const uint32_t *k)
 {
     uint32_t i, *ks = ctx->K, roundConstant = 0x01000000;
