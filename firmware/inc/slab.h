@@ -16,6 +16,7 @@ void slabAllocatorFree(struct SlabAllocator *allocator, void *ptr);
 
 void* slabAllocatorGetNth(struct SlabAllocator *allocator, uint32_t idx); // -> pointer or NULL if that slot is empty   may be not int-safe. YMMV
 uint32_t slabAllocatorGetIndex(struct SlabAllocator *allocator, void *ptr); // -> index or -1 if invalid pointer
+uint32_t slabAllocatorGetNumItems(struct SlabAllocator *allocator); // simply say hwo many items it can hold max (numItems passed to constructor)
 
 #endif
 
