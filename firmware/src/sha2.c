@@ -16,19 +16,26 @@ void sha2init(struct Sha2state *state)
     state->bufBytesUsed = 0;
 }
 
-inline static uint32_t ror(uint32_t val, uint32_t by)
-{
-    if (!by)
-        return val;
-
 #ifdef ARM
-    asm volatile("ror %0, %1":"=r"(val):"0"(val),"r"(by));
+
+    #define STRINFIGY2(b) #b
+    #define STRINGIFY(b) STRINFIGY2(b)
+    #define ror(v, b) ({uint32_t ret; if (b) asm("ror %0, #" STRINGIFY(b) :"=r"(ret):"0"(v)); else ret = v; ret;})
+
 #else
-    val = (val >> by) | (val << (32 - by));
+
+    inline static uint32_t ror(uint32_t val, uint32_t by)
+    {
+        if (!by)
+            return val;
+
+        val = (val >> by) | (val << (32 - by));
+
+        return val;
+    }
+
 #endif
 
-    return val;
-}
 
 static void sha2processBlock(struct Sha2state *state)
 {
