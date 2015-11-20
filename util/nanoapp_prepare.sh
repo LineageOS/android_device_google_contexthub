@@ -7,9 +7,9 @@ terminate() { #cleanup and exit
 
 usage () { #show usage and bail out
 	echo "USAGE:" >&2
-	echo "    $1 [-e <ENCR_KEY_NUM> <ENCR_KEY_FILE>] [-e <PRIV_KEY_FILE> <PUB_KEY_FILE> [<SIG_TO_CHAIN_1> [<SIG_TO_CHAIN_2> [...]]]] < app.napp > app.final.napp" >&2
+	echo "    $1 [-e <ENCR_KEY_NUM> <ENCR_KEY_FILE>] [-s <PRIV_KEY_FILE> <PUB_KEY_FILE> [<SIG_TO_CHAIN_1> [<SIG_TO_CHAIN_2> [...]]]] < app.napp > app.final.napp" >&2
 	terminate -1
-} 
+}
 
 putchar() {
 	hexch="0123456789abcdef"
@@ -61,7 +61,6 @@ then
 			usage $0
 		fi
 
-		echo "Will encrypt using key ID $encr_key_num from file $encr_key_file" >&2
 		nanoapp_encr encr "$encr_key_num" "$encr_key_file" > "$stage/postencr"
 	fi
 fi
@@ -123,7 +122,7 @@ fi
 
 #if app is not signed, just copy it to staging area
 if [ ! -f "$stage/finished" ]; then
-	cat > "$stage/finished"
+	mv "$stage/postencr" "$stage/finished"
 fi
 
 #produce output
