@@ -62,7 +62,8 @@ union OsApiSlabItem { //main OS "things" slab must fit this
 #define SYSCALL_OS_MAIN_EVENTQ            0
 #define SYSCALL_OS_MAIN_LOGGING           1
 #define SYSCALL_OS_MAIN_SENSOR            2
-#define SYSCALL_OS_MAIN_LAST              3 // always last. holes are allowed, but not immediately before this
+#define SYSCALL_OS_MAIN_TIME              3
+#define SYSCALL_OS_MAIN_LAST              4 // always last. holes are allowed, but not immediately before this
 
 //level 3 indices in the OS.main.event_queue table
 #define SYSCALL_OS_MAIN_EVTQ_SUBCRIBE    0 // (uint32_t tid, uint32_t evtType) -> bool success
@@ -86,8 +87,9 @@ union OsApiSlabItem { //main OS "things" slab must fit this
 #define SYSCALL_OS_MAIN_SENSOR_GET_RATE  8 // (uint32_t sensorHandle) -> uint32_t rate
 #define SYSCALL_OS_MAIN_SENSOR_LAST      9 // always last. holes are allowed, but not immediately before this
 
-
-
+//level 3 indices in the OS.drivers.tim table
+#define SYSCALL_OS_MAIN_TIME_GET_TIME    0 // (uint64_t *timeNanos) -> void
+#define SYSCALL_OS_MAIN_TIME_LAST        1 // always last. holes are allowed, but not immediately before this
 
 
 
