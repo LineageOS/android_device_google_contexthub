@@ -43,6 +43,18 @@ printhex() {
 stage=$(mktemp -dt "$(basename $0).XXXXXXXXXX")
 args=( "$@" )
 
+#sanity checks (on the user)
+if [ -t 1 ]
+then
+	usage $0
+fi
+
+if [ -t 0 ]
+then
+	usage $0
+fi
+
+
 #get encryption key if it exists & encrypt app
 encr_key_num=""
 if [ ${#args[@]} -ge 1 ]
@@ -72,7 +84,7 @@ if [ ! -f "$stage/postencr" ]; then
 fi
 
 #handle signing
-if [ ${#args[@]} -ge 0 ]
+if [ ${#args[@]} -ge 1 ]
 then
 	if [[ ${args[0]} = "-s" ]]
 	then
