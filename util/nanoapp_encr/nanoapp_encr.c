@@ -116,7 +116,7 @@ int main(int argc, char **argv)
         readInput((void**)&inputData, &inputLen, &inputBufLen);
         origLen = inputLen;
         fprintf(stderr, "Read %lu bytes\n", (unsigned long)origLen);
-        while (inputLen & 31) { //round to 32 bytes
+        while (inputLen & 15) { //round to 16 bytes
             rand_bytes(&tmp, 1);
             appendToBuf((void**)&inputData, &inputLen, &inputBufLen, tmp);
         }

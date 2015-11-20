@@ -11,7 +11,7 @@ typedef uint32_t AppSecErr;
 //callbacks
 typedef AppSecErr (*AppSecWriteCbk)(const void *data, uint32_t len);
 typedef AppSecErr (*AppSecPubKeyFindCbk)(const uint32_t *gotKey, bool *foundP); // fill in *foundP on result of lookup
-typedef AppSecErr (*AppSecGetAesKeyCbk)(uint64_t keyIdx, uint8_t *keyBuf); // return APP_SEC_KEY_NOT_FOUND or APP_SEC_NO_ERROR
+typedef AppSecErr (*AppSecGetAesKeyCbk)(uint64_t keyIdx, void *keyBuf); // return APP_SEC_KEY_NOT_FOUND or APP_SEC_NO_ERROR
 
 //return values
 #define APP_SEC_NO_ERROR            0 //all went ok
