@@ -80,3 +80,10 @@ uint32_t slabAllocatorGetIndex(struct SlabAllocator *allocator, void* ptrP)
 
     return itemIdx;
 }
+
+uint32_t slabAllocatorGetNumItems(struct SlabAllocator *allocator)
+{
+    return atomicBitsetGetNumBits(allocator->bitset);
+}
+
+
