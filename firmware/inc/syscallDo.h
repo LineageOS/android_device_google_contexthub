@@ -199,6 +199,13 @@ static inline void eOsGpioSet(const struct Gpio* __restrict gpio, bool value)
     syscallDo2P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_DRIVERS, SYSCALL_OS_DRV_GPIO, SYSCALL_OS_DRV_GPIO_SET), gpio, value);
 }
 
+static inline uint64_t eOsTimGetTime(void)
+{
+    uint64_t timeNanos;
+    syscallDo1P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_MAIN, SYSCALL_OS_MAIN_TIME, SYSCALL_OS_MAIN_TIME_GET_TIME), &timeNanos);
+    return timeNanos;
+}
+
 static inline int oEsI2cMasterRequest(uint32_t busId, uint32_t speedInHz)
 {
     return syscallDo2P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_DRIVERS, SYSCALL_OS_DRV_I2C_MASTER, SYSCALL_OS_DRV_I2CM_REQ), busId, speedInHz);

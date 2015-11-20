@@ -7,7 +7,7 @@
 #include <seos.h>
 #include <slab.h>
 #include <i2c.h>
-
+#include <timer.h>
 
 static struct SlabAllocator *mSlabAllocator;
 
@@ -330,6 +330,12 @@ static void osExpApiI2cSlvTxPkt(uintptr_t *retValP, va_list args)
         slabAllocatorFree(mSlabAllocator, cbkInfo);
 }
 
+static void osExpApiTimGetTime(uintptr_t *retValP, va_list args)
+{
+    uint64_t *timeNanos = va_arg(args, uint64_t *);
+    *timeNanos = timGetTime();
+}
+
 void osApiExport(struct SlabAllocator *mainSlubAllocator)
 {
     static const struct SyscallTable osMainEvtqTable = {
@@ -364,12 +370,20 @@ void osApiExport(struct SlabAllocator *mainSlubAllocator)
         },
     };
 
+    static const struct SyscallTable osMainTimerTable = {
+        .numEntries = SYSCALL_OS_MAIN_TIME_LAST,
+        .entry = {
+            [ SYSCALL_OS_MAIN_TIME_GET_TIME] = { .func = osExpApiTimGetTime, },
+        },
+    };
+
     static const struct SyscallTable osMainTable = {
         .numEntries = SYSCALL_OS_MAIN_LAST,
         .entry = {
             [SYSCALL_OS_MAIN_EVENTQ]  = { .subtable = (struct SyscallTable*)&osMainEvtqTable,    },
             [SYSCALL_OS_MAIN_LOGGING] = { .subtable = (struct SyscallTable*)&osMainLogTable,     },
             [SYSCALL_OS_MAIN_SENSOR]  = { .subtable = (struct SyscallTable*)&osMainSensorsTable, },
+            [SYSCALL_OS_MAIN_TIME]    = { .subtable = (struct SyscallTable*)&osMainTimerTable,   },
         },
     };
 
