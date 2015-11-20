@@ -153,6 +153,7 @@
 #define EVT_SENSOR_ANY_MOTION sensorGetMyEventType(SENS_TYPE_ANY_MOTION)
 #define EVT_SENSOR_FLAT sensorGetMyEventType(SENS_TYPE_FLAT)
 #define EVT_SENSOR_DOUBLE_TAP sensorGetMyEventType(SENS_TYPE_DOUBLE_TAP)
+#define EVT_SENSOR_STEP_COUNTER sensorGetMyEventType(SENS_TYPE_STEP_COUNT)
 
 #define MAX_NUM_COMMS_EVENT_SAMPLES 15
 
@@ -176,6 +177,7 @@ enum SensorIndex {
     FLAT,
     ANYMO,
     NOMO,
+    STEPCNT,
     NUM_OF_SENSOR,
 };
 
@@ -222,6 +224,7 @@ enum SensorState {
     SENSOR_INT_1_HANDLING,
     SENSOR_INT_2_HANDLING,
     SENSOR_CALIBRATING,
+    SENSOR_STEP_CNT,
 };
 
 enum MagConfigState {
@@ -292,10 +295,11 @@ struct BMI160Task {
     enum CalibrationState calibration_state;
     uint8_t calibration_timeout_cnt;
 
-    uint8_t err;
-
     uint64_t cur_time;
     uint64_t new_time;
+
+    uint32_t total_step_cnt;
+    uint32_t last_step_cnt;
 
     uint8_t interrupt_enable_0;
     uint8_t interrupt_enable_2;
@@ -359,6 +363,7 @@ static const struct SensorInfo mSensorInfo[NUM_OF_SENSOR] =
     {"Flat",                NULL,       SENS_TYPE_FLAT,         NUM_AXIS_EMBEDDED,  {NANOHUB_INT_NONWAKEUP}},
     {"Any Motion",          NULL,       SENS_TYPE_ANY_MOTION,   NUM_AXIS_EMBEDDED,  {NANOHUB_INT_NONWAKEUP}},
     {"No Motion",           NULL,       SENS_TYPE_NO_MOTION,    NUM_AXIS_EMBEDDED,  {NANOHUB_INT_NONWAKEUP}},
+    {"Step Counter",        NULL,       SENS_TYPE_STEP_COUNT,   NUM_AXIS_EMBEDDED,  {NANOHUB_INT_NONWAKEUP}},
 };
 
 static void dataEvtFree(void *ptr)
@@ -495,6 +500,13 @@ static bool anyMotionFirmwareUpload(void)
 static bool flatFirmwareUpload(void)
 {
     sensorSignalInternalEvt(mTask.sensors[FLAT].handle,
+            SENSOR_INTERNAL_EVT_FW_STATE_CHG, 1, 0);
+    return true;
+}
+
+static bool stepCntFirmwareUpload(void)
+{
+    sensorSignalInternalEvt(mTask.sensors[STEPCNT].handle,
             SENSOR_INTERNAL_EVT_FW_STATE_CHG, 1, 0);
     return true;
 }
@@ -796,6 +808,12 @@ static bool magPower(bool on)
 static bool stepPower(bool on)
 {
     if (mTask.state == SENSOR_IDLE) {
+        // if step counter is active, no need to change actual config of step
+        // detector.
+        if (mTask.sensors[STEPCNT].active) {
+            mTask.sensors[STEP].active = on;
+            return true;
+        }
         if (on) {
             mTask.state = SENSOR_POWERING_UP;
             mTask.interrupt_enable_2 |= 0x08;
@@ -889,6 +907,35 @@ static bool noMotionPower(bool on)
     } else {
         mTask.pending_config[NOMO] = true;
         mTask.sensors[NOMO].pConfig.enable = on;
+    }
+    return true;
+}
+
+static bool stepCntPower(bool on)
+{
+    if (mTask.state == SENSOR_IDLE) {
+        if (on) {
+            mTask.state = SENSOR_POWERING_UP;
+            if (!mTask.sensors[STEP].active) {
+                mTask.interrupt_enable_2 |= 0x08;
+                SPI_WRITE(BMI160_REG_INT_EN_2, mTask.interrupt_enable_2);
+            }
+            // set step_cnt_en bit
+            SPI_WRITE(BMI160_REG_STEP_CONF_1, 0x08 | 0x03, 1000);
+        } else {
+            mTask.state = SENSOR_POWERING_DOWN;
+            if (!mTask.sensors[STEP].active) {
+                mTask.interrupt_enable_2 &= ~0x08;
+                SPI_WRITE(BMI160_REG_INT_EN_2, mTask.interrupt_enable_2);
+            }
+            // unset step_cnt_en bit
+            SPI_WRITE(BMI160_REG_STEP_CONF_1, 0x03);
+        }
+        mTask.sensors[STEPCNT].active = on;
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[STEPCNT]);
+    } else {
+        mTask.pending_config[STEPCNT] = true;
+        mTask.sensors[STEPCNT].pConfig.enable = on;
     }
     return true;
 }
@@ -1103,6 +1150,16 @@ static bool noMotionSetRate(uint32_t rate, uint64_t latency)
     return true;
 }
 
+static bool stepCntSetRate(uint32_t rate, uint64_t latency)
+{
+    mTask.sensors[STEPCNT].rate = rate;
+    mTask.sensors[STEPCNT].latency = latency;
+
+    sensorSignalInternalEvt(mTask.sensors[STEPCNT].handle,
+            SENSOR_INTERNAL_EVT_RATE_CHG, rate, latency);
+    return true;
+}
+
 static void sendFlushEvt(void)
 {
     while (mTask.sensors[ACC].flush > 0) {
@@ -1165,6 +1222,49 @@ static bool anyMotionFlush()
 static bool noMotionFlush()
 {
     return osEnqueueEvt(EVT_SENSOR_NO_MOTION, SENSOR_DATA_EVENT_FLUSH, NULL);
+}
+
+static bool stepCntFlush()
+{
+    mTask.sensors[STEPCNT].flush++;
+    if (mTask.state == SENSOR_IDLE) {
+        mTask.state = SENSOR_STEP_CNT;
+        SPI_READ(BMI160_REG_STEP_CNT_0, 2, mTask.rxBuffer);
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[STEPCNT]);
+    }
+    return true;
+}
+
+static void sendStepCnt()
+{
+    union EmbeddedDataPoint step_cnt;
+    uint32_t cur_step_cnt;
+    cur_step_cnt = (int)(mTask.rxBuffer[1] | (mTask.rxBuffer[2] << 8));
+
+    if (cur_step_cnt != mTask.last_step_cnt) {
+        // Check for possible overflow
+        if (cur_step_cnt < mTask.last_step_cnt) {
+            // Sanity check: if the 16bits hardware counter is already
+            // overflowed, total_step_cnt should greater or equal to
+            // last_step_cnt. Otherwise, something is corrupted.
+            if (mTask.total_step_cnt < mTask.last_step_cnt) {
+                osLog(LOG_ERROR, "step count corrupted, start over\n");
+                mTask.total_step_cnt = cur_step_cnt;
+            } else {
+                mTask.total_step_cnt += cur_step_cnt + (0xFFFF - mTask.last_step_cnt);
+            }
+        } else {
+            mTask.total_step_cnt += (cur_step_cnt - mTask.last_step_cnt);
+        }
+        mTask.last_step_cnt = cur_step_cnt;
+        step_cnt.idata = mTask.total_step_cnt;
+        osEnqueueEvt(EVT_SENSOR_STEP_COUNTER, step_cnt.vptr, NULL);
+    }
+
+    while(mTask.sensors[STEPCNT].flush) {
+        osEnqueueEvt(EVT_SENSOR_STEP_COUNTER, SENSOR_DATA_EVENT_FLUSH, NULL);
+        mTask.sensors[STEPCNT].flush--;
+    }
 }
 
 static void parseRawData(struct BMI160Sensor *mSensor, int i, float kScale, uint64_t time)
@@ -1355,6 +1455,7 @@ static void dispatchData(void)
  * If it's anymo or double tap, also send a single uint32 to indicate which axies
  * is this interrupt triggered.
  * If it's flat, also send a bit to indicate flat/non-flat position.
+ * If it's step detector, check if we need to send the total step count.
  */
 static void int2Handling(void)
 {
@@ -1362,8 +1463,15 @@ static void int2Handling(void)
     uint8_t int_status_0 = mTask.rxBuffer[1];
     uint8_t int_status_1 = mTask.rxBuffer[2];
     if (int_status_0 & INT_STEP) {
-        osLog(LOG_INFO, "BMI160: Detected step\n");
-        osEnqueueEvt(EVT_SENSOR_STEP, NULL, NULL);
+        if (mTask.sensors[STEP].active) {
+            osLog(LOG_INFO, "BMI160: Detected step\n");
+            osEnqueueEvt(EVT_SENSOR_STEP, NULL, NULL);
+        }
+        if (mTask.sensors[STEPCNT].active) {
+            mTask.state = SENSOR_STEP_CNT;
+            SPI_READ(BMI160_REG_STEP_CNT_0, 2, mTask.rxBuffer);
+            spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[STEPCNT]);
+        }
     }
     if (int_status_0 & INT_ANY_MOTION) {
         // bit [0:2] of INT_STATUS[2] is set when anymo is triggered by x, y or
@@ -1595,6 +1703,7 @@ static const struct SensorOps mSensorOps[NUM_OF_SENSOR] =
     {flatPower, flatFirmwareUpload, flatSetRate, flatFlush, NULL, NULL},
     {anyMotionPower, anyMotionFirmwareUpload, anyMotionSetRate, anyMotionFlush, NULL, NULL},
     {noMotionPower, noMotionFirmwareUpload, noMotionSetRate, noMotionFlush, NULL, NULL},
+    {stepCntPower, stepCntFirmwareUpload, stepCntSetRate, stepCntFlush, NULL, NULL},
 };
 
 static void configEvent(struct BMI160Sensor *mSensor, struct ConfigStat *ConfigData)
@@ -1785,6 +1894,10 @@ static void processPendingEvt(void)
             return;
         }
     }
+    if (mTask.sensors[STEPCNT].flush > 0) {
+        stepCntFlush();
+        return;
+    }
 }
 
 static void handleSpiDoneEvt(const void* evtData)
@@ -1909,7 +2022,10 @@ static void handleSpiDoneEvt(const void* evtData)
         break;
     case SENSOR_INT_2_HANDLING:
         int2Handling();
-        mTask.state = SENSOR_IDLE;
+        if (mTask.state == SENSOR_INT_2_HANDLING) {
+            mTask.state = SENSOR_IDLE;
+            processPendingEvt();
+        }
         break;
     case SENSOR_CONFIG_CHANGING:
         mSensor = (struct BMI160Sensor *)evtData;
@@ -1935,6 +2051,11 @@ static void handleSpiDoneEvt(const void* evtData)
         } else if (mSensor->idx == GYR) {
             gyrCalibrationHandling();
         }
+        break;
+    case SENSOR_STEP_CNT:
+        sendStepCnt();
+        mTask.state = SENSOR_IDLE;
+        processPendingEvt();
         break;
     default:
         break;
