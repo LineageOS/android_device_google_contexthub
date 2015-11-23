@@ -237,8 +237,13 @@ uint64_t platGetTicks(void)
     uint32_t val;
 
     do {
+        mem_reorder_barrier(); //mTimeAccumulated may change since it was read in condition check
+
         ret = mTimeAccumulated;
         val = SysTick->VAL;
+
+        mem_reorder_barrier(); //mTimeAccumulated may change since it was read above
+
     } while (mTimeAccumulated != ret || SysTick->VAL > val);
 
     return platsystickTicksToNs(0x01000000 - val) + ret;
