@@ -23,6 +23,7 @@ struct Sensor {
     uint64_t currentLatency; /* here 0 means no batching */
     uint32_t currentRate;    /* here 0 means off */
     TaggedPtr callInfo;      /* pointer to ops struct or app tid */
+    bool initComplete;       /* sensor finished initializing */
 } __attribute__((packed));
 
 struct SensorsInternalEvent {
@@ -117,6 +118,19 @@ uint32_t sensorRegister(const struct SensorInfo *si, const struct SensorOps *ops
 uint32_t sensorRegisterAsApp(const struct SensorInfo *si, uint32_t tid)
 {
     return sensorRegisterEx(si, taggedPtrMakeFromUint(tid));
+}
+
+bool sensorRegisterInitComplete(uint32_t handle)
+{
+    struct Sensor *s = sensorFindByHandle(handle);
+
+    if (!s)
+        return false;
+
+    s->initComplete = true;
+    mem_reorder_barrier();
+
+    return true;
 }
 
 bool sensorUnregister(uint32_t handle)
@@ -594,4 +608,11 @@ uint64_t sensorGetCurLatency(uint32_t sensorHandle)
     struct Sensor* s = sensorFindByHandle(sensorHandle);
 
     return s ? s->currentLatency : SENSOR_LATENCY_INVALID;
+}
+
+bool sensorGetInitComplete(uint32_t sensorHandle)
+{
+    struct Sensor* s = sensorFindByHandle(sensorHandle);
+
+    return s ? s->initComplete : false;
 }

@@ -16,6 +16,6 @@ void hostInfClearInterrupt(uint32_t bit);
 void hostIntfSetInterruptMask(uint32_t bit);
 void hostInfClearInterruptMask(uint32_t bit);
 void hostIntfPacketFree(void *ptr);
-bool hostIntfPacketDequeue(void **ptr, int *length, int *sensor);
+bool hostIntfPacketDequeue(void *ptr);
 
 #endif /* __HOSTINTF_H */

@@ -75,7 +75,8 @@ static const struct SensorInfo mSensorInfo =
     NULL,
     SENS_TYPE_VSYNC,
     NUM_AXIS_EMBEDDED,
-    {NANOHUB_INT_NONWAKEUP}
+    NANOHUB_INT_NONWAKEUP,
+    20,
 };
 
 static bool vsyncPower(bool on)
@@ -127,6 +128,7 @@ static bool startTask(uint32_t taskId)
 
     mTask.id = taskId;
     mTask.sensorHandle = sensorRegister(&mSensorInfo, &mSensorOps);
+    sensorRegisterInitComplete(mTask.sensorHandle);
     mTask.pin = gpioRequest(VSYNC_PIN);
     mTask.isr.func = vsyncIsr;
 

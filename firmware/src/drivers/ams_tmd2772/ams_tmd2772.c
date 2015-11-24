@@ -309,8 +309,11 @@ static const struct SensorInfo sensorInfoAls =
     "ALS",
     supportedRates,
     SENS_TYPE_ALS,
-    NUM_AXIS_EMBEDDED,
-    { NANOHUB_INT_NONWAKEUP }
+    {
+        NUM_AXIS_EMBEDDED,
+        NANOHUB_INT_NONWAKEUP,
+        20
+    }
 };
 
 static const struct SensorOps sensorOpsAls =
@@ -327,9 +330,11 @@ static const struct SensorInfo sensorInfoProx =
     "Proximity",
     supportedRates,
     SENS_TYPE_PROX,
-    NUM_AXIS_EMBEDDED,
-    { NANOHUB_INT_WAKEUP }
-
+    {
+        NUM_AXIS_EMBEDDED,
+        NANOHUB_INT_WAKEUP,
+        300
+    }
 };
 
 static const struct SensorOps sensorOpsProx =
@@ -420,6 +425,8 @@ static void handle_i2c_event(int state)
         /* Check the sensor ID */
         if (data.txrxBuf.bytes[0] != AMS_TMD2772_ID) {
             osLog(LOG_INFO, DRIVER_NAME "not detected\n");
+            sensorUnregister(data.alsHandle);
+            sensorUnregister(data.proxHandle);
             break;
         }
 
@@ -450,6 +457,11 @@ static void handle_i2c_event(int state)
         data.txrxBuf.bytes[4] = 0x20;
         i2cMasterTx(I2C_BUS_ID, I2C_ADDR, data.txrxBuf.bytes, 5,
                     &i2cCallback, (void *)SENSOR_STATE_IDLE);
+        break;
+
+    case SENSOR_STATE_IDLE:
+        sensorRegisterInitComplete(data.alsHandle);
+        sensorRegisterInitComplete(data.proxHandle);
         break;
 
     case SENSOR_STATE_ENABLING_ALS:

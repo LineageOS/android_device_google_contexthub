@@ -22,41 +22,41 @@
         { .reason = _reason, .handler = _handler, \
           .minDataLen = sizeof(_minReqType), .maxDataLen = sizeof(_maxReqType) }
 
-static size_t hostIntfGetOsHwVersion(void *rx, uint8_t, void *tx);
-static size_t hostIntfStartFirmwareUpload(void *rx, uint8_t, void *tx);
-static size_t hostIntfFirmwareChunk(void *rx, uint8_t, void *tx);
-static size_t hostIntfGetInterrupt(void *rx, uint8_t, void *tx);
-static size_t hostIntfReadEvent(void *rx, uint8_t, void *tx);
-static size_t hostIntfWriteEvent(void *rx, uint8_t, void *tx);
+static size_t getOsHwVersion(void *rx, uint8_t, void *tx);
+static size_t startFirmwareUpload(void *rx, uint8_t, void *tx);
+static size_t firmwareChunk(void *rx, uint8_t, void *tx);
+static size_t getInterrupt(void *rx, uint8_t, void *tx);
+static size_t readEvent(void *rx, uint8_t, void *tx);
+static size_t writeEvent(void *rx, uint8_t, void *tx);
 
 const struct NanohubCommand gBuiltinCommands[] = {
         NANOHUB_COMMAND(NANOHUB_REASON_GET_OS_HW_VERSIONS,
-                hostIntfGetOsHwVersion,
+                getOsHwVersion,
                 struct NanohubOsHwVersionsRequest,
                 struct NanohubOsHwVersionsRequest),
         NANOHUB_COMMAND(NANOHUB_REASON_START_FIRMWARE_UPLOAD,
-                hostIntfStartFirmwareUpload,
+                startFirmwareUpload,
                 struct NanohubStartFirmwareUploadRequest,
                 struct NanohubStartFirmwareUploadRequest),
         NANOHUB_COMMAND(NANOHUB_REASON_FIRMWARE_CHUNK,
-                hostIntfFirmwareChunk,
+                firmwareChunk,
                 __le32,
                 struct NanohubFirmwareChunkRequest),
         NANOHUB_COMMAND(NANOHUB_REASON_GET_INTERRUPT,
-                hostIntfGetInterrupt,
+                getInterrupt,
                 struct NanohubGetInterruptRequest,
                 struct NanohubGetInterruptRequest),
         NANOHUB_COMMAND(NANOHUB_REASON_READ_EVENT,
-                hostIntfReadEvent,
+                readEvent,
                 struct NanohubReadEventRequest,
                 struct NanohubReadEventRequest),
         NANOHUB_COMMAND(NANOHUB_REASON_WRITE_EVENT,
-                hostIntfWriteEvent,
+                writeEvent,
                 __le32,
                 struct NanohubWriteEventRequest),
 };
 
-static size_t hostIntfGetOsHwVersion(void *rx, uint8_t rx_len, void *tx)
+static size_t getOsHwVersion(void *rx, uint8_t rx_len, void *tx)
 {
     struct NanohubOsHwVersionsResponse *resp = tx;
     resp->hwType = htole16(platHwType());
@@ -72,7 +72,7 @@ static uint32_t mFirmwareOffset;
 static uint8_t *mFirmwareStart;
 static bool mFirmwareErase;
 
-static size_t hostIntfStartFirmwareUpload(void *rx, uint8_t rx_len, void *tx)
+static size_t startFirmwareUpload(void *rx, uint8_t rx_len, void *tx)
 {
     extern char __shared_start[];
     extern char __shared_end[];
@@ -106,7 +106,7 @@ static size_t hostIntfStartFirmwareUpload(void *rx, uint8_t rx_len, void *tx)
     return sizeof(*resp);
 }
 
-static void hostIntfFirmwareErase(void *cookie)
+static void firmwareErase(void *cookie)
 {
     if (mFirmwareErase == true) {
         mpuAllowRamExecution(true);
@@ -119,7 +119,7 @@ static void hostIntfFirmwareErase(void *cookie)
     }
 }
 
-static size_t hostIntfFirmwareChunk(void *rx, uint8_t rx_len, void *tx)
+static size_t firmwareChunk(void *rx, uint8_t rx_len, void *tx)
 {
     uint32_t offset;
     uint8_t len;
@@ -131,7 +131,7 @@ static size_t hostIntfFirmwareChunk(void *rx, uint8_t rx_len, void *tx)
 
     if (mFirmwareErase == true) {
         resp->chunkReply = NANOHUB_FIRMWARE_CHUNK_REPLY_WAIT;
-        osDefer(hostIntfFirmwareErase, NULL);
+        osDefer(firmwareErase, NULL);
     } else if (offset != mFirmwareOffset) {
         resp->chunkReply = NANOHUB_FIRMWARE_CHUNK_REPLY_RESTART;
         mFirmwareOffset = 0;
@@ -151,7 +151,7 @@ static size_t hostIntfFirmwareChunk(void *rx, uint8_t rx_len, void *tx)
     return sizeof(*resp);
 }
 
-static size_t hostIntfGetInterrupt(void *rx, uint8_t rx_len, void *tx)
+static size_t getInterrupt(void *rx, uint8_t rx_len, void *tx)
 {
     struct NanohubGetInterruptResponse *resp = tx;
     ATOMIC_BITSET_DECL(interrupts, MAX_INTERRUPTS,);
@@ -164,35 +164,37 @@ static size_t hostIntfGetInterrupt(void *rx, uint8_t rx_len, void *tx)
 
 struct EvtPacket
 {
+    uint8_t sensType;
+    uint8_t length;
+    uint16_t pad;
     uint64_t timestamp;
-    uint8_t data[];
-};
+    uint8_t data[NANOHUB_SENSOR_DATA_MAX];
+} __attribute__((packed));
 
-static size_t hostIntfReadEvent(void *rx, uint8_t rx_len, void *tx)
+static size_t readEvent(void *rx, uint8_t rx_len, void *tx)
 {
     struct NanohubReadEventRequest *req = rx;
     struct NanohubReadEventResponse *resp = tx;
+    struct EvtPacket *packet = tx;
     int length, sensor;
-    struct EvtPacket *packet;
     uint64_t currTime = timGetTime();
 
-    if (hostIntfPacketDequeue((void **)&packet, &length, &sensor)) {
-        length += sizeof(resp->evtType);
+    if (hostIntfPacketDequeue(packet)) {
+        length = packet->length + sizeof(resp->evtType);
+        sensor = packet->sensType;
         // TODO combine messages if multiple can fit in a single packet
         if (sensor == SENS_TYPE_INVALID) {
 #ifdef DEBUG_LOG_EVT
-            resp->evtType = DEBUG_LOG_EVT;
+            resp->evtType = htole32(DEBUG_LOG_EVT);
 #else
             resp->evtType = 0x00000000;
 #endif
         } else {
             resp->evtType = htole32(EVT_NO_FIRST_SENSOR_EVENT + sensor);
-            if (packet->timestamp != 0ull)
+            if (packet->timestamp) {
                 packet->timestamp += req->apBootTime - currTime;
+            }
         }
-        memcpy(resp->evtData, packet, length);
-
-        hostIntfPacketFree(packet);
     } else {
         length = 0;
     }
@@ -200,7 +202,7 @@ static size_t hostIntfReadEvent(void *rx, uint8_t rx_len, void *tx)
     return length;
 }
 
-static size_t hostIntfWriteEvent(void *rx, uint8_t rx_len, void *tx)
+static size_t writeEvent(void *rx, uint8_t rx_len, void *tx)
 {
     struct NanohubWriteEventRequest *req = rx;
     struct NanohubWriteEventResponse *resp = tx;

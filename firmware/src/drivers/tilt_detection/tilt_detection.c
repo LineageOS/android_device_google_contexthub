@@ -55,7 +55,7 @@ static bool algoUpdate(struct TripleAxisDataEvent *ev)
     bool tilt_detected = false;
     struct TiltAlgoState *state = &mTask.algoState;
     uint64_t sample_ts = ev->referenceTime;
-    uint32_t numSamples = ev->samples[0].numSamples;
+    uint32_t numSamples = ev->samples[0].firstSample.numSamples;
     uint32_t i;
     struct TripleAxisDataPoint *sample;
     float invN;
@@ -123,7 +123,8 @@ static const struct SensorInfo mSi =
     NULL,
     SENS_TYPE_TILT,
     NUM_AXIS_EMBEDDED,
-    { NANOHUB_INT_WAKEUP }
+    NANOHUB_INT_WAKEUP,
+    20
 };
 
 static bool tiltDetectionPower(bool on)
@@ -197,6 +198,7 @@ static bool tiltDetectionStart(uint32_t taskId)
 {
     mTask.taskId = taskId;
     mTask.handle = sensorRegister(&mSi, &mSops);
+    sensorRegisterInitComplete(mTask.handle);
     algoInit();
     osEventSubscribe(taskId, EVT_APP_START);
     return true;

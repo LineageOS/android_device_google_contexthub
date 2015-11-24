@@ -20,35 +20,71 @@
 #include <gpio.h>
 #include <apInt.h>
 #include <sensors.h>
-#include <slab.h>
 #include <timer.h>
+#include <heap.h>
+#include <simpleQ.h>
+
+#define MAX_NUM_BLOCKS      350 /* times 252 = 88200 bytes */
+#define SENSOR_INIT_DELAY   500000000 /* ns */
 
 struct ConfigCmd
 {
     uint64_t latency;
     uint32_t rate;
-    uint8_t sensorType;
-    uint8_t enabled : 1;
-    uint8_t flush : 1;
-    uint8_t calibrate : 1;
+    uint8_t sensType;
+    union
+    {
+        struct
+        {
+            uint8_t enabled : 1;
+            uint8_t flush : 1;
+            uint8_t calibrate : 1;
+            uint8_t reserved : 5;
+        };
+        uint8_t flags;
+    };
+} __attribute__((packed));
+
+struct DataBuffer
+{
+    uint8_t sensType;
+    uint8_t length;
+    uint16_t pad;
+    uint64_t referenceTime;
+    union
+    {
+        struct SensorFirstSample firstSample;
+        struct SingleAxisDataPoint single[NANOHUB_SENSOR_DATA_MAX / sizeof(struct SingleAxisDataPoint)];
+        struct TripleAxisDataPoint triple[NANOHUB_SENSOR_DATA_MAX / sizeof(struct TripleAxisDataPoint)];
+        uint8_t buffer[NANOHUB_SENSOR_DATA_MAX];
+    };
 } __attribute__((packed));
 
 struct ActiveSensor
 {
     uint64_t lastInterrupt;
+    uint64_t lastTimestamp;
     uint64_t latency;
+    uint64_t lastTime;
+    struct DataBuffer buffer;
     uint32_t rate;
     uint32_t sensorHandle;
-    uint8_t sensorType;
+    uint16_t minSamples;
+    uint16_t curSamples;
     uint8_t numAxis;
     uint8_t interrupt;
+    uint8_t numSamples;
+    uint8_t packetSamples;
     uint8_t oneshot : 1;
-    uint8_t reserved : 7;
+    uint8_t discard : 1;
+    uint8_t reserved : 6;
 } __attribute__((packed));
 
 static uint8_t mSensorList[SENS_TYPE_LAST_USER];
-static struct EvtQueue *mEvtsExternal;
-static struct SlabAllocator *mTxSlab, *mActiveSensorSlab;
+static struct SimpleQueue *mOutputQ;
+static struct ActiveSensor *mActiveSensorTable;
+static uint8_t mNumSensors;
+static uint8_t mLastSensor;
 
 static const struct HostIntfComm *gComm;
 static uint8_t gRxBuf[NANOHUB_PACKET_SIZE_MAX];
@@ -56,6 +92,7 @@ static size_t gRxSize;
 static bool gTxRetrans;
 static struct
 {
+    uint8_t pad; // packet header is 10 bytes. + 2 to word align
     uint8_t prePreamble;
     uint8_t buf[NANOHUB_PACKET_SIZE_MAX];
     uint8_t postPreamble;
@@ -79,14 +116,6 @@ static void hostIntfTxAckDone(size_t tx, int err);
 static void hostIntfGenerateResponse(void *cookie);
 
 static void hostIntfTxPayloadDone(size_t tx, int err);
-
-static void handleEventFreeing(uint32_t evtType, void *evtData, uintptr_t evtFreeData) // watch out, this is synchronous
-{
-    if (!evtFreeData)
-        return;
-
-    ((EventFreeF)taggedPtrToPtr(evtFreeData))(evtData);
-}
 
 static inline void *hostIntfGetPayload(uint8_t *buf)
 {
@@ -214,17 +243,7 @@ static bool hostIntfRequest(uint32_t tid)
         int err = gComm->request();
         if (!err) {
             hostIntfRxPacket();
-            mEvtsExternal = evtQueueAlloc(64, handleEventFreeing);
-            // TODO: Can possibly switch mTxSlab to heap. Need to make sure
-            // fragmentation doesn't negatively impact performance.
-            // (hopefully should be ok cause the allocations are large)
-            mTxSlab = slabAllocatorNew(255, 4, 66);
-            mActiveSensorSlab = slabAllocatorNew(sizeof(struct ActiveSensor), 4, MAX_REGISTERED_SENSORS);
-            memset(mSensorList, 0xFF, sizeof(mSensorList));
-            osEventSubscribe(tid, EVT_NO_SENSOR_CONFIG_EVENT);
-#ifdef DEBUG_LOG_EVT
-            osEventSubscribe(tid, DEBUG_LOG_EVT);
-#endif
+            osEventSubscribe(gHostIntfTid, EVT_APP_START);
             return true;
         }
     }
@@ -307,23 +326,287 @@ static void hostIntfRelease()
     gComm->release();
 }
 
-void hostIntfPacketFree(void *ptr)
+static void resetBuffer(struct ActiveSensor *sensor)
 {
-    slabAllocatorFree(mTxSlab, ptr);
+    sensor->discard = true;
+    sensor->buffer.length = 0;
+    memset(&sensor->buffer.firstSample, 0x00, sizeof(struct SensorFirstSample));
 }
 
-bool hostIntfPacketDequeue(void **ptr, int *length, int *sensor)
+bool hostIntfPacketDequeue(void *data)
 {
-    bool ret;
-    uintptr_t free;
-    uint32_t evtType;
+    struct DataBuffer *buffer;
+    bool ret = false;
+    struct ActiveSensor *sensor;
+    int i;
 
-    ret = evtQueueDequeue(mEvtsExternal, &evtType, ptr, &free, false);
+    if (!(ret = simpleQueueDequeue(mOutputQ, data))) {
+        // nothing in queue. look for partial buffers to flush
+        for (i = 0; i < mNumSensors; i++, mLastSensor = (mLastSensor + 1) % mNumSensors) {
+            if (mActiveSensorTable[mLastSensor].buffer.length > 0) {
+                memcpy(data, &mActiveSensorTable[mLastSensor].buffer, sizeof(struct DataBuffer));
+                resetBuffer(mActiveSensorTable + mLastSensor);
+                ret = true;
+                break;
+            }
+        }
+    }
 
-    *length = evtType & 0xFF;
-    *sensor = (evtType >> 8) & 0xFF;
+    if (ret) {
+        buffer = data;
+        sensor = mActiveSensorTable + mSensorList[buffer->sensType - 1];
+        sensor->curSamples -= buffer->firstSample.numSamples;
+    }
 
     return ret;
+}
+
+static void initCompleteCallback(uint32_t timerId, void *data)
+{
+    osEnqueuePrivateEvt(EVT_APP_START, NULL, NULL, gHostIntfTid);
+}
+
+static bool queueDiscard(void *data, bool onDelete)
+{
+    struct DataBuffer *buffer = data;
+    struct ActiveSensor *sensor;
+
+    if (buffer->sensType > SENS_TYPE_INVALID && buffer->sensType <= SENS_TYPE_LAST_USER && mSensorList[buffer->sensType - 1] < MAX_REGISTERED_SENSORS) { // data
+        sensor = mActiveSensorTable + mSensorList[buffer->sensType - 1];
+
+        if (sensor->curSamples - buffer->firstSample.numSamples >= sensor->minSamples || onDelete) {
+            sensor->curSamples -= buffer->firstSample.numSamples;
+
+            return true;
+        } else {
+            return false;
+        }
+    } else {
+        return true;
+    }
+}
+
+static bool initSensors()
+{
+    int i, j, blocks, maxBlocks, numBlocks = 0, numAxis, packetSamples;
+    bool present, error;
+    const struct SensorInfo *si;
+    uint32_t handle;
+
+    mNumSensors = 0;
+
+    for (i = SENS_TYPE_INVALID + 1; i <= SENS_TYPE_LAST_USER; i++) {
+        for (j = 0, present = 0, error = 0; (si = sensorFind(i, j, &handle)) != NULL; j++) {
+            if (!sensorGetInitComplete(handle)) {
+                osLog(LOG_INFO, "initSensors: %s not ready!\n", si->sensorName);
+                timTimerSet(SENSOR_INIT_DELAY, 0, 50, initCompleteCallback, NULL, true);
+                return false;
+            } else {
+                if (!present) {
+                    present = 1;
+                    numAxis = si->numAxis;
+                    switch (si->numAxis) {
+                    case NUM_AXIS_EMBEDDED:
+                    case NUM_AXIS_ONE:
+                        packetSamples = NANOHUB_SENSOR_DATA_MAX / sizeof(struct SingleAxisDataPoint);
+                        break;
+                    case NUM_AXIS_THREE:
+                        packetSamples = NANOHUB_SENSOR_DATA_MAX / sizeof(struct TripleAxisDataPoint);
+                        break;
+                    default:
+                        packetSamples = 1;
+                        error = true;
+                    }
+                    if (si->minSamples > MAX_MIN_SAMPLES)
+                        maxBlocks = (MAX_MIN_SAMPLES + packetSamples - 1) / packetSamples;
+                    else
+                        maxBlocks = (si->minSamples + packetSamples - 1) / packetSamples;
+                } else {
+                    if (si->numAxis != numAxis) {
+                        error = true;
+                    } else {
+                        if (si->minSamples > MAX_MIN_SAMPLES)
+                            blocks = (MAX_MIN_SAMPLES + packetSamples - 1) / packetSamples;
+                        else
+                            blocks = (si->minSamples + packetSamples - 1) / packetSamples;
+
+                        maxBlocks = maxBlocks > blocks ? maxBlocks : blocks;
+                    }
+                }
+            }
+        }
+
+        if (present && !error) {
+            mNumSensors ++;
+            numBlocks += maxBlocks;
+        }
+    }
+
+    if (numBlocks > MAX_NUM_BLOCKS) {
+        osLog(LOG_INFO, "initSensors: numBlocks of %d exceeds maximum of %d\n", numBlocks, MAX_NUM_BLOCKS);
+        numBlocks = MAX_NUM_BLOCKS;
+    }
+
+    mOutputQ = simpleQueueAlloc(numBlocks, sizeof(struct DataBuffer), queueDiscard);
+    mActiveSensorTable = heapAlloc(mNumSensors * sizeof(struct ActiveSensor));
+    memset(mActiveSensorTable, 0x00, mNumSensors * sizeof(struct ActiveSensor));
+
+    for (i = SENS_TYPE_INVALID + 1, j = 0; i <= SENS_TYPE_LAST_USER && j < mNumSensors; i++) {
+        if ((si = sensorFind(i, 0, &handle)) != NULL) {
+            mSensorList[i - 1] = j;
+            mActiveSensorTable[j].rate = 0ul;
+            mActiveSensorTable[j].latency = 0ull;
+            mActiveSensorTable[j].numAxis = si->numAxis;
+            mActiveSensorTable[j].interrupt = si->interrupt;
+            if (si->minSamples > MAX_MIN_SAMPLES) {
+                mActiveSensorTable[j].minSamples = MAX_MIN_SAMPLES;
+                osLog(LOG_INFO, "initSensors: %s: minSamples of %d exceeded max of %d\n", si->sensorName, si->minSamples, MAX_MIN_SAMPLES);
+            } else {
+                mActiveSensorTable[j].minSamples = si->minSamples;
+            }
+            mActiveSensorTable[j].curSamples = 0;
+            resetBuffer(mActiveSensorTable + j);
+            mActiveSensorTable[j].buffer.sensType = i;
+            mActiveSensorTable[j].oneshot = false;
+            mActiveSensorTable[j].lastInterrupt = 0ull;
+            switch (si->numAxis) {
+            case NUM_AXIS_EMBEDDED:
+            case NUM_AXIS_ONE:
+                mActiveSensorTable[j].packetSamples = NANOHUB_SENSOR_DATA_MAX / sizeof(struct SingleAxisDataPoint);
+                break;
+            case NUM_AXIS_THREE:
+                mActiveSensorTable[j].packetSamples = NANOHUB_SENSOR_DATA_MAX / sizeof(struct TripleAxisDataPoint);
+                break;
+            }
+            j++;
+        } else {
+            mSensorList[i-1] = MAX_REGISTERED_SENSORS;
+        }
+    }
+
+    return true;
+}
+
+static void copySingleSamples(struct ActiveSensor *sensor, const struct SingleAxisDataEvent *single)
+{
+    int i;
+    uint32_t deltaTime;
+    uint8_t numSamples;
+
+    for (i=0; i<single->samples[0].firstSample.numSamples; i++) {
+        if (sensor->buffer.firstSample.numSamples == sensor->packetSamples) {
+            simpleQueueEnqueue(mOutputQ, &sensor->buffer, sensor->discard);
+            resetBuffer(sensor);
+        }
+
+        if (sensor->buffer.firstSample.numSamples == 0) {
+            if (i == 0) {
+                sensor->lastTime = sensor->buffer.referenceTime = single->referenceTime;
+            } else {
+                sensor->lastTime += single->samples[i].deltaTime;
+                sensor->buffer.referenceTime = sensor->lastTime;
+            }
+            sensor->buffer.length = sizeof(struct SingleAxisDataEvent) + sizeof(struct SingleAxisDataPoint);
+            sensor->buffer.single[0].idata = single->samples[i].idata;
+            sensor->buffer.firstSample.numSamples = 1;
+            sensor->curSamples ++;
+        } else {
+            if (i == 0) {
+                if (sensor->lastTime > single->referenceTime) {
+                    // shouldn't happen. flush current packet
+                    simpleQueueEnqueue(mOutputQ, &sensor->buffer, sensor->discard);
+                    resetBuffer(sensor);
+                    i --;
+                } else if (single->referenceTime - sensor->lastTime > UINT32_MAX) {
+                    simpleQueueEnqueue(mOutputQ, &sensor->buffer, sensor->discard);
+                    resetBuffer(sensor);
+                    i --;
+                } else {
+                    deltaTime = single->referenceTime - sensor->lastTime;
+                    numSamples = sensor->buffer.firstSample.numSamples;
+
+                    sensor->buffer.length += sizeof(struct SingleAxisDataPoint);
+                    sensor->buffer.single[numSamples].deltaTime = deltaTime;
+                    sensor->buffer.single[numSamples].idata = single->samples[0].idata;
+                    sensor->lastTime = single->referenceTime;
+                    sensor->buffer.firstSample.numSamples ++;
+                    sensor->curSamples ++;
+                }
+            } else {
+                deltaTime = single->samples[i].deltaTime;
+                numSamples = sensor->buffer.firstSample.numSamples;
+
+                sensor->buffer.length += sizeof(struct SingleAxisDataPoint);
+                sensor->buffer.single[numSamples].deltaTime = deltaTime;
+                sensor->buffer.single[numSamples].idata = single->samples[i].idata;
+                sensor->lastTime += deltaTime;
+                sensor->buffer.firstSample.numSamples ++;
+                sensor->curSamples ++;
+            }
+        }
+    }
+}
+
+static void copyTripleSamples(struct ActiveSensor *sensor, const struct TripleAxisDataEvent *triple)
+{
+    int i;
+    uint32_t deltaTime;
+    uint8_t numSamples;
+
+    for (i=0; i<triple->samples[0].firstSample.numSamples; i++) {
+        if (sensor->buffer.firstSample.numSamples == sensor->packetSamples) {
+            simpleQueueEnqueue(mOutputQ, &sensor->buffer, sensor->discard);
+            resetBuffer(sensor);
+        }
+
+        if (sensor->buffer.firstSample.numSamples == 0) {
+            if (i == 0) {
+                sensor->lastTime = sensor->buffer.referenceTime = triple->referenceTime;
+            } else {
+                sensor->lastTime += triple->samples[i].deltaTime;
+                sensor->buffer.referenceTime = sensor->lastTime;
+            }
+            sensor->buffer.length = sizeof(struct TripleAxisDataEvent) + sizeof(struct TripleAxisDataPoint);
+            sensor->buffer.triple[0].ix = triple->samples[i].ix;
+            sensor->buffer.triple[0].iy = triple->samples[i].iy;
+            sensor->buffer.triple[0].iz = triple->samples[i].iz;
+            sensor->buffer.firstSample.numSamples = 1;
+            sensor->curSamples ++;
+        } else {
+            if (i == 0) {
+                if (sensor->lastTime > triple->referenceTime) {
+                    // shouldn't happen. flush current packet
+                    simpleQueueEnqueue(mOutputQ, &sensor->buffer, sensor->discard);
+                    resetBuffer(sensor);
+                    i --;
+                } else {
+                    deltaTime = triple->referenceTime - sensor->lastTime;
+                    numSamples = sensor->buffer.firstSample.numSamples;
+
+                    sensor->buffer.length += sizeof(struct TripleAxisDataPoint);
+                    sensor->buffer.triple[numSamples].deltaTime = deltaTime;
+                    sensor->buffer.triple[numSamples].ix = triple->samples[0].ix;
+                    sensor->buffer.triple[numSamples].iy = triple->samples[0].iy;
+                    sensor->buffer.triple[numSamples].iz = triple->samples[0].iz;
+                    sensor->lastTime = triple->referenceTime;
+                    sensor->buffer.firstSample.numSamples ++;
+                    sensor->curSamples ++;
+                }
+            } else {
+                deltaTime = triple->samples[i].deltaTime;
+                numSamples = sensor->buffer.firstSample.numSamples;
+
+                sensor->buffer.length += sizeof(struct TripleAxisDataPoint);
+                sensor->buffer.triple[numSamples].deltaTime = deltaTime;
+                sensor->buffer.triple[numSamples].ix = triple->samples[i].ix;
+                sensor->buffer.triple[numSamples].iy = triple->samples[i].iy;
+                sensor->buffer.triple[numSamples].iz = triple->samples[i].iz;
+                sensor->lastTime += deltaTime;
+                sensor->buffer.firstSample.numSamples ++;
+                sensor->curSamples ++;
+            }
+        }
+    }
 }
 
 static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
@@ -331,149 +614,149 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
     struct ConfigCmd *cmd;
     int i;
     uint64_t currentTime;
-    int length;
-    bool discard;
-    uint8_t *data;
-    struct TripleAxisDataEvent *triple;
-    struct SingleAxisDataEvent *single;
     struct ActiveSensor *sensor;
     const struct SensorInfo *si;
     uint32_t tempSensorHandle;
-
 #ifdef DEBUG_LOG_EVT
-    if (evtType == DEBUG_LOG_EVT) {
-        data = slabAllocatorAlloc(mTxSlab);
-        discard = true;
-        length = *(uint8_t *)evtData;
-        memcpy(data, (uint8_t *)evtData+1, length);
-        if (!evtQueueEnqueue(mEvtsExternal, (discard << 31) | ((SENS_TYPE_INVALID & 0xFF) << 8) | (length & 0xFF), data, taggedPtrMakeFromPtr(hostIntfPacketFree)))
-            hostIntfPacketFree(data);
+    struct DataBuffer *data;
+#endif
+
+    if (evtType == EVT_APP_START) {
+        if (initSensors()) {
+            osEventUnsubscribe(gHostIntfTid, EVT_APP_START);
+            osEventSubscribe(gHostIntfTid, EVT_NO_SENSOR_CONFIG_EVENT);
+#ifdef DEBUG_LOG_EVT
+            osEventSubscribe(gHostIntfTid, DEBUG_LOG_EVT);
+#endif
+        }
+    }
+#ifdef DEBUG_LOG_EVT
+    else if (evtType == DEBUG_LOG_EVT) {
+        data = (struct DataBuffer *)evtData;
+        data->sensType = SENS_TYPE_INVALID;
+        simpleQueueEnqueue(mOutputQ, evtData, true);
     } else
 #endif
     if (evtType == EVT_NO_SENSOR_CONFIG_EVENT) { // config
         cmd = (struct ConfigCmd *)evtData;
-        if (mSensorList[cmd->sensorType] < MAX_REGISTERED_SENSORS) {
-            sensor = slabAllocatorGetNth(mActiveSensorSlab, mSensorList[cmd->sensorType]);
-            if (cmd->flush) {
-                sensorFlush(sensor->sensorHandle);
-            } else if (cmd->enabled) {
-                sensorRequestRateChange(gHostIntfTid, sensor->sensorHandle, cmd->rate, cmd->latency);
-            } else {
-                sensorRelease(gHostIntfTid, sensor->sensorHandle);
-                osEventUnsubscribe(gHostIntfTid, sensorGetMyEventType(cmd->sensorType));
-                mSensorList[cmd->sensorType] = 0xFF;
-                sensor->sensorType = SENS_TYPE_INVALID;
-                slabAllocatorFree(mActiveSensorSlab, sensor);
-            }
-        } else if (cmd->enabled && (sensor = slabAllocatorAlloc(mActiveSensorSlab))) {
-            if (cmd->rate == SENSOR_RATE_ONESHOT) {
-                cmd->rate = SENSOR_RATE_ONCHANGE;
-                sensor->oneshot = true;
-            } else {
-                sensor->oneshot = false;
-            }
+        if (cmd->sensType > SENS_TYPE_INVALID && cmd->sensType <= SENS_TYPE_LAST_USER && mSensorList[cmd->sensType - 1] < MAX_REGISTERED_SENSORS) {
+            sensor = mActiveSensorTable + mSensorList[cmd->sensType - 1];
 
-            for (i=0; (si = sensorFind(cmd->sensorType, i, &sensor->sensorHandle)) != NULL; i++) {
-                if (sensorRequest(gHostIntfTid, sensor->sensorHandle, cmd->rate, cmd->latency)) {
-                    mSensorList[cmd->sensorType] = slabAllocatorGetIndex(mActiveSensorSlab, sensor);
-                    sensor->sensorType = cmd->sensorType;
-                    sensor->numAxis = si->numAxis;
-                    sensor->interrupt = si->interrupt;
-                    sensor->rate = cmd->rate;
-                    sensor->latency = cmd->latency;
-                    osEventSubscribe(gHostIntfTid, sensorGetMyEventType(cmd->sensorType));
-                    break;
-                } else {
-                    si = NULL;
+            if (sensor->sensorHandle) {
+                if (cmd->flush) {
+                    sensorFlush(sensor->sensorHandle);
+                } else if (cmd->enabled) {
+                    if (sensorRequestRateChange(gHostIntfTid, sensor->sensorHandle, cmd->rate, cmd->latency)) {
+                        sensor->rate = cmd->rate;
+                        if (sensor->latency != cmd->latency) {
+                            sensor->latency = cmd->latency;
+                            sensor->lastInterrupt = timGetTime();
+                        }
+                    }
+                } else if (!cmd->flags) {
+                    sensorRelease(gHostIntfTid, sensor->sensorHandle);
+                    osEventUnsubscribe(gHostIntfTid, sensorGetMyEventType(cmd->sensType));
+                    sensor->sensorHandle = 0;
+                    if (sensor->buffer.length) {
+                        simpleQueueEnqueue(mOutputQ, &sensor->buffer, sensor->discard);
+                        hostIntfSetInterrupt(sensor->interrupt);
+                        resetBuffer(sensor);
+                    }
                 }
-            }
-            if (!si)
-                slabAllocatorFree(mActiveSensorSlab, sensor);
-        } else if (cmd->calibrate) {
-            for (i=0; sensorFind(cmd->sensorType, i, &tempSensorHandle) != NULL; i++) {
-                sensorCalibrate(tempSensorHandle);
+            } else if (cmd->enabled) {
+                for (i=0; (si = sensorFind(cmd->sensType, i, &sensor->sensorHandle)) != NULL; i++) {
+                    if (cmd->rate == SENSOR_RATE_ONESHOT) {
+                        cmd->rate = SENSOR_RATE_ONCHANGE;
+                        sensor->oneshot = true;
+                    } else {
+                        sensor->oneshot = false;
+                    }
+
+                    if (sensorRequest(gHostIntfTid, sensor->sensorHandle, cmd->rate, cmd->latency)) {
+                        sensor->rate = cmd->rate;
+                        sensor->latency = cmd->latency;
+                        sensor->lastInterrupt = timGetTime();
+                        osEventSubscribe(gHostIntfTid, sensorGetMyEventType(cmd->sensType));
+                        break;
+                    } else {
+                        sensor->sensorHandle = 0;
+                    }
+                }
+            } else if (cmd->calibrate) {
+                for (i=0; sensorFind(cmd->sensType, i, &tempSensorHandle) != NULL; i++)
+                    sensorCalibrate(tempSensorHandle);
             }
         }
-    } else if (evtType >= EVT_NO_FIRST_SENSOR_EVENT && evtType < EVT_NO_SENSOR_CONFIG_EVENT) { // data
-        if (mSensorList[evtType & 0xFF] < MAX_REGISTERED_SENSORS) {
+    } else if (evtType > EVT_NO_FIRST_SENSOR_EVENT && evtType < EVT_NO_SENSOR_CONFIG_EVENT && mSensorList[(evtType & 0xFF)-1] < MAX_REGISTERED_SENSORS) { // data
+        sensor = mActiveSensorTable + mSensorList[(evtType & 0xFF) - 1];
+
+        if (sensor->sensorHandle) {
             currentTime = timGetTime();
-            data = slabAllocatorAlloc(mTxSlab);
-            if (!data) {
-                osLog(LOG_INFO, "slabAllocator returned NULL\n");
-                return;
-            }
-            sensor = slabAllocatorGetNth(mActiveSensorSlab, mSensorList[evtType & 0xFF]);
-            // TODO: batch multiple samples from the same sensor
-            // TODO: also split if the incoming data is too big
             if (evtData == SENSOR_DATA_EVENT_FLUSH) {
-                switch (sensor->numAxis) {
-                case NUM_AXIS_EMBEDDED:
-                case NUM_AXIS_ONE:
-                    single = (struct SingleAxisDataEvent *)data;
-                    discard = false;
-                    length = sizeof(struct SingleAxisDataEvent);
-                    single->referenceTime = 0ull;
-                    break;
-                case NUM_AXIS_THREE:
-                    triple = (struct TripleAxisDataEvent *)data;
-                    discard = false;
-                    length = sizeof(struct TripleAxisDataEvent);
-                    triple->referenceTime = 0ull;
-                    break;
-                default:
-                    slabAllocatorFree(mTxSlab, data);
-                    return;
+                if (sensor->buffer.length == 0) {
+                    sensor->buffer.length = sizeof(sensor->buffer.referenceTime) + sizeof(struct SensorFirstSample);
+                    sensor->buffer.referenceTime = 0ull;
+                    sensor->buffer.firstSample.numFlushes = 1;
+                } else {
+                    sensor->buffer.firstSample.numFlushes ++;
                 }
+                sensor->discard = false;
             } else {
+                if (sensor->buffer.length > 0) {
+                    if (sensor->buffer.firstSample.numFlushes > 0) {
+                        if (!(simpleQueueEnqueue(mOutputQ, &sensor->buffer, sensor->discard)))
+                            return; // flushes more important than samples
+                        else
+                            resetBuffer(sensor);
+                    } else if (sensor->buffer.firstSample.numSamples == sensor->packetSamples) {
+                        simpleQueueEnqueue(mOutputQ, &sensor->buffer, sensor->discard);
+                        resetBuffer(sensor);
+                    }
+                }
+
                 switch (sensor->numAxis) {
                 case NUM_AXIS_EMBEDDED:
-                    single = (struct SingleAxisDataEvent *)data;
-                    discard = true;
-                    length = sizeof(struct SingleAxisDataEvent) + sizeof(struct SingleAxisDataPoint);
-                    single->referenceTime = currentTime;
-                    single->samples[0].numSamples = 1;
-                    single->samples[0].idata = (uint32_t)evtData;
+                    if (sensor->buffer.length == 0) {
+                        sensor->buffer.length = sizeof(struct SingleAxisDataEvent) + sizeof(struct SingleAxisDataPoint);
+                        sensor->lastTime = sensor->buffer.referenceTime = currentTime;
+                        sensor->buffer.firstSample.numSamples = 1;
+                        sensor->buffer.single[0].idata = (uint32_t)evtData;
+                    } else {
+                        sensor->buffer.length += sizeof(struct SingleAxisDataPoint);
+                        sensor->buffer.single[sensor->buffer.firstSample.numSamples].deltaTime = currentTime - sensor->lastTime;
+                        sensor->lastTime = currentTime;
+                        sensor->buffer.single[sensor->buffer.firstSample.numSamples].idata = (uint32_t)evtData;
+                        sensor->buffer.firstSample.numSamples ++;
+                    }
+                    sensor->curSamples ++;
                     break;
                 case NUM_AXIS_ONE:
-                    single = (struct SingleAxisDataEvent *)evtData;
-                    discard = true;
-                    length = sizeof(struct SingleAxisDataEvent) + single->samples[0].numSamples * sizeof(struct SingleAxisDataPoint);
-                    memcpy(data, single, length);
+                    copySingleSamples(sensor, evtData);
                     break;
                 case NUM_AXIS_THREE:
-                    triple = (struct TripleAxisDataEvent *)evtData;
-                    discard = true;
-                    length = sizeof(struct TripleAxisDataEvent) + triple->samples[0].numSamples * sizeof(struct TripleAxisDataPoint);
-                    memcpy(data, triple, length);
+                    copyTripleSamples(sensor, evtData);
                     break;
                 default:
-                    slabAllocatorFree(mTxSlab, data);
                     return;
                 }
             }
 
-            if (!evtQueueEnqueue(mEvtsExternal, (discard << 31) | ((sensor->sensorType & 0xFF) << 8) | (length & 0xFF), data, taggedPtrMakeFromPtr(hostIntfPacketFree))) {
-                hostIntfPacketFree(data);
-            } else {
-                // TODO: handle mismatch latency between hostIntf and sensor
-                // sensorGetCurLatency(sensor->sensorHandle) != sensor->latency
-                if (currentTime >= sensor->lastInterrupt + sensor->latency) {
+            if ((currentTime >= sensor->lastInterrupt + sensor->latency) ||
+                ((sensor->latency > sensorGetCurLatency(sensor->sensorHandle)) &&
+                    (currentTime + sensorGetCurLatency(sensor->sensorHandle) > sensor->lastInterrupt + sensor->latency))) {
 #if 0 // TODO: when non-wakeup sensors are enabled/disabled over AP suspend
-                    hostIntfSetInterrupt(sensor->interrupt);
+                hostIntfSetInterrupt(sensor->interrupt);
 #else
-                    hostIntfSetInterrupt(NANOHUB_INT_WAKEUP);
+                hostIntfSetInterrupt(NANOHUB_INT_WAKEUP);
 #endif
-                    sensor->lastInterrupt = currentTime;
-                }
+                sensor->lastInterrupt = currentTime;
             }
 
             if (sensor->oneshot) {
                 sensorRelease(gHostIntfTid, sensor->sensorHandle);
-                osEventUnsubscribe(gHostIntfTid, sensorGetMyEventType(sensor->sensorType));
-                mSensorList[sensor->sensorType] = 0xFF;
-                sensor->sensorType = SENS_TYPE_INVALID;
+                osEventUnsubscribe(gHostIntfTid, evtType);
+                sensor->sensorHandle = 0;
                 sensor->oneshot = false;
-                slabAllocatorFree(mActiveSensorSlab, sensor);
             }
         }
     }

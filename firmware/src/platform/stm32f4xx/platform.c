@@ -22,6 +22,7 @@
 #include <hostIntf.h>
 #include <atomic.h>
 #include <nanohubPacket.h>
+#include <sensType.h>
 #include <variant/inc/variant.h>
 
 
@@ -97,8 +98,10 @@ void platUninitialize(void)
 
 struct LogBuffer
 {
+    uint8_t invalidSensor;
     uint8_t offset;
-    char data[255];
+    uint16_t pad;
+    char data[248];
 } __attribute__((packed));
 
 void *platLogAllocUserData()
@@ -107,8 +110,10 @@ void *platLogAllocUserData()
     struct LogBuffer *userData;
 
     userData = heapAlloc(sizeof(struct LogBuffer));
-    if (userData)
+    if (userData) {
+        userData->invalidSensor = SENS_TYPE_INVALID;
         userData->offset = 0;
+    }
 
     return userData;
 #else
