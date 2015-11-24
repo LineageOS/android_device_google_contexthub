@@ -696,7 +696,7 @@ static uint8_t calcWaterMark(void)
         }
     }
     total_cnt += header_cnt;
-    water_mark = total_cnt / 4; // 4 bytes per count in the water_mark register.
+    water_mark = ((total_cnt / 4) < 0xff) ? (total_cnt / 4) : 0xff; // 4 bytes per count in the water_mark register.
     water_mark = water_mark < min_water_mark ? min_water_mark : water_mark;
     water_mark = water_mark > max_water_mark ? max_water_mark : water_mark;
 
