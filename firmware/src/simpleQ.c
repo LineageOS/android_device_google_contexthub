@@ -115,6 +115,8 @@ static struct SimpleQueueEntry* simpleQueueAllocWithDiscard(struct SimpleQueue* 
             //unlink
             if (prev == SIMPLE_QUEUE_IDX_NONE)
                 sq->head = cur->nextIdx;
+            else
+                simpleQueueGetNth(sq, prev)->nextIdx = cur->nextIdx;
             if (sq->tail == idx)
                 sq->tail = prev;
 
@@ -145,9 +147,11 @@ bool simpleQueueEnqueue(struct SimpleQueue* sq, const void *data, bool possiblyD
 
     //link it in
     e->nextIdx = SIMPLE_QUEUE_IDX_NONE;
+    if (sq->head == SIMPLE_QUEUE_IDX_NONE) // head = none implies tail = none
+        sq->head = simpleQueueGetIdx(sq, e);
+    else
+        simpleQueueGetNth(sq, sq->tail)->nextIdx = simpleQueueGetIdx(sq, e);
     sq->tail = simpleQueueGetIdx(sq, e);
-    if (sq->head == SIMPLE_QUEUE_IDX_NONE)
-        sq->head = sq->tail;
 
     //fill in the data
     memcpy(e->data, data, sq->entrySz - sizeof(struct SimpleQueueEntry));
@@ -155,10 +159,3 @@ bool simpleQueueEnqueue(struct SimpleQueue* sq, const void *data, bool possiblyD
 
     return true;
 }
-
-
-
-
-
-
-
