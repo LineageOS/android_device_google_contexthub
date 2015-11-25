@@ -973,7 +973,6 @@ static bool accSetRate(uint32_t rate, uint64_t latency)
     if (mTask.state == SENSOR_IDLE) {
         mTask.state = SENSOR_CONFIG_CHANGING;
 
-        osr = mTask.acc_downsample;
         odr = computeOdr(rate);
         if (odr == -1)
             return false;
@@ -1026,7 +1025,6 @@ static bool gyrSetRate(uint32_t rate, uint64_t latency)
     if (mTask.state == SENSOR_IDLE) {
         mTask.state = SENSOR_CONFIG_CHANGING;
 
-        osr = mTask.gyr_downsample;
         odr = computeOdr(rate);
         if (odr == -1)
             return false;
