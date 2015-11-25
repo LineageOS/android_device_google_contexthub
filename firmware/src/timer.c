@@ -8,21 +8,23 @@
 #include <timer.h>
 #include <seos.h>
 #include <cpu.h>
+#include <slab.h>
 
+#define MAX_INTERNAL_EVENTS       32 //also used for external app timer() calls
 
 struct Timer {
     uint64_t      expires; /* time of next expiration */
     uint64_t      period;  /* 0 for oneshot */
     uint32_t      id;      /* 0 for disabled */
-    TimTimerCbkF  cbk;
     uint32_t      jitterPpm;
     uint32_t      driftPpm;
-    TimTimerCbkF  cbkF;
-    void         *cbkData;
+    TaggedPtr     callInfo;
+    void         *callData;
 };
 
 
 ATOMIC_BITSET_DECL(mTimersValid, MAX_TIMERS, static);
+static struct SlabAllocator *mInternalEvents;
 static struct Timer mTimers[MAX_TIMERS];
 static volatile uint32_t mNextTimerId = 0;
 
@@ -43,14 +45,39 @@ static struct Timer *timFindTimerById(uint32_t timId) /* no locks taken. be care
     return NULL;
 }
 
+static void timerCallFuncFreeF(void* event)
+{
+    slabAllocatorFree(mInternalEvents, event);
+}
+
+static void timCallFunc(TaggedPtr callInfo, uint32_t id, void *callData)
+{
+    if (taggedPtrIsPtr(callInfo)) {
+        return ((TimTimerCbkF)taggedPtrToPtr(callInfo))(id, callData);
+    } else {
+        struct TimerEvent *evt = (struct TimerEvent *)slabAllocatorAlloc(mInternalEvents);
+
+        if (!evt)
+            return;
+
+        evt->timerId = id;
+        evt->data = callData;
+        if (osEnqueuePrivateEvt(EVT_APP_TIMER, evt, timerCallFuncFreeF, taggedPtrToUint(callInfo)))
+            return;
+
+        slabAllocatorFree(mInternalEvents, evt);
+        return;
+    }
+}
+
 static bool timFireAsNeededAndUpdateAlarms(void)
 {
     uint32_t maxDrift = 0, maxJitter = 0, maxErrTotal = 0;
     bool somethingDone, totalSomethingDone = false;
     uint64_t nextTimer;
-    TimTimerCbkF cbkF;
+    TaggedPtr callInfo;
     uint32_t i, id;
-    void *cbkD;
+    void *callData;
 
     do {
         somethingDone = false;
@@ -62,8 +89,8 @@ static bool timFireAsNeededAndUpdateAlarms(void)
 
             if (mTimers[i].expires <= timGetTime()) {
                 somethingDone = true;
-                cbkF = mTimers[i].cbkF;
-                cbkD = mTimers[i].cbkData;
+                callInfo = mTimers[i].callInfo;
+                callData = mTimers[i].callData;
                 id = mTimers[i].id;
                 if (mTimers[i].period)
                     mTimers[i].expires += mTimers[i].period;
@@ -71,7 +98,7 @@ static bool timFireAsNeededAndUpdateAlarms(void)
                     mTimers[i].id = 0;
                     atomicBitsetClearBit(mTimersValid, i);
                 }
-                cbkF(id, cbkD);
+                timCallFunc(callInfo, id, callData);
             }
             else {
                 if (mTimers[i].jitterPpm > maxJitter)
@@ -96,7 +123,7 @@ static bool timFireAsNeededAndUpdateAlarms(void)
     return totalSomethingDone;
 }
 
-uint32_t timTimerSet(uint64_t length, uint32_t jitterPpm, uint32_t driftPpm, TimTimerCbkF cbk, void* data, bool oneShot)
+static uint32_t timTimerSetEx(uint64_t length, uint32_t jitterPpm, uint32_t driftPpm, TaggedPtr info, void* data, bool oneShot)
 {
     uint64_t curTime = timGetTime();
     int32_t idx = atomicBitsetFindClearAndSet(mTimersValid);
@@ -117,8 +144,8 @@ uint32_t timTimerSet(uint64_t length, uint32_t jitterPpm, uint32_t driftPpm, Tim
     t->period = oneShot ? 0 : length;
     t->jitterPpm = jitterPpm;
     t->driftPpm = driftPpm;
-    t->cbkF = cbk;
-    t->cbkData = data;
+    t->callInfo = info;
+    t->callData = data;
 
     /* as soon as we write timer Id, it becomes valid and might fire */
     t->id = timId;
@@ -128,6 +155,16 @@ uint32_t timTimerSet(uint64_t length, uint32_t jitterPpm, uint32_t driftPpm, Tim
 
     /* woo hoo - done */
     return timId;
+}
+
+uint32_t timTimerSet(uint64_t length, uint32_t jitterPpm, uint32_t driftPpm, TimTimerCbkF cbk, void* data, bool oneShot)
+{
+    return timTimerSetEx(length, jitterPpm, driftPpm, taggedPtrMakeFromPtr(cbk), data, oneShot);
+}
+
+uint32_t timTimerSetAsApp(uint64_t length, uint32_t jitterPpm, uint32_t driftPpm, uint32_t tid, void* data, bool oneShot)
+{
+    return timTimerSetEx(length, jitterPpm, driftPpm, taggedPtrMakeFromUint(tid), data, oneShot);
 }
 
 bool timTimerCancel(uint32_t timerId)
@@ -157,4 +194,6 @@ bool timIntHandler(void)
 void timInit(void)
 {
     atomicBitsetInit(mTimersValid, MAX_TIMERS);
+
+    mInternalEvents = slabAllocatorNew(sizeof(struct TimerEvent), 4, MAX_INTERNAL_EVENTS);
 }

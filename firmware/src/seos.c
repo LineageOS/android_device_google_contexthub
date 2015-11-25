@@ -315,8 +315,8 @@ void __attribute__((noreturn)) osMain(void)
     void *evtData;
 
     cpuIntsOff();
-    timInit();
     osInit();
+    timInit();
     sensorsInit();
     syscallInit();
     osApiExport(mMiscInternalThingsSlab);

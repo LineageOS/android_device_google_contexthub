@@ -1,6 +1,7 @@
 #makefile for test0 app
 
 SELF_MKFILE := $(abspath $(lastword $(MAKEFILE_LIST)))
-APP_ID := 0000000000000002
+# Google + 0x8000
+APP_ID := 476f6f676c658000
 
 include app/common.mk

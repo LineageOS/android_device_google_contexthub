@@ -87,9 +87,11 @@ union OsApiSlabItem { //main OS "things" slab must fit this
 #define SYSCALL_OS_MAIN_SENSOR_GET_RATE  8 // (uint32_t sensorHandle) -> uint32_t rate
 #define SYSCALL_OS_MAIN_SENSOR_LAST      9 // always last. holes are allowed, but not immediately before this
 
-//level 3 indices in the OS.drivers.tim table
-#define SYSCALL_OS_MAIN_TIME_GET_TIME    0 // (uint64_t *timeNanos) -> void
-#define SYSCALL_OS_MAIN_TIME_LAST        1 // always last. holes are allowed, but not immediately before this
+//level 3 indices in the OS.main.timer table
+#define SYSCALL_OS_MAIN_TIME_GET_TIME     0 // (uint64_t *timeNanos) -> void
+#define SYSCALL_OS_MAIN_TIME_SET_TIMER    1 // (uint32_t len_lo, uint32_t len_hi, uint32_t jitterPpm, uint32_t driftPpm, uint32_t tidForTimerEvt, void *cookie, bool oneshot) -> u32 timerId
+#define SYSCALL_OS_MAIN_TIME_CANCEL_TIMER 2 // (uint32_t timer_id) -> bool success
+#define SYSCALL_OS_MAIN_TIME_LAST         3 // always last. holes are allowed, but not immediately before this
 
 
 

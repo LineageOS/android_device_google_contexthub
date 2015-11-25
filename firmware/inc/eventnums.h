@@ -28,5 +28,7 @@
 #define EVT_APP_SENSOR_TRIGGER           0x000000EB
 #define EVT_APP_SENSOR_CALIBRATE         0x000000EA
 
+//for timers
+#define EVT_APP_TIMER                    0x000000DF
 
 #endif /* EVENTNUMS_H */
