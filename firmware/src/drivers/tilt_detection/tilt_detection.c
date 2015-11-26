@@ -14,7 +14,9 @@
 #include <sensors.h>
 #include <limits.h>
 
-#define EVT_SENSOR_ACC_DATA_RDY sensorGetMyEventType(SENS_TYPE_ACCEL)
+#define EVT_SENSOR_ANY_MOTION sensorGetMyEventType(SENS_TYPE_ANY_MOTION)
+#define EVT_SENSOR_NO_MOTION sensorGetMyEventType(SENS_TYPE_NO_MOTION)
+#define EVT_SENSOR_ACCEL sensorGetMyEventType(SENS_TYPE_ACCEL)
 
 #define ACCEL_MIN_RATE    SENSOR_HZ(50)
 #define ACCEL_MAX_LATENCY 250000000ull   // 40 ms
@@ -37,7 +39,14 @@ static struct TiltDetectionTask {
     struct TiltAlgoState algoState;
     uint32_t taskId;
     uint32_t handle;
+    uint32_t anyMotionHandle;
+    uint32_t noMotionHandle;
     uint32_t accelHandle;
+    enum {
+        STATE_DISABLED,
+        STATE_AWAITING_ANY_MOTION,
+        STATE_AWAITING_TILT,
+    } taskState;
 } mTask;
 
 // *****************************************************************************
@@ -115,6 +124,38 @@ static bool algoUpdate(struct TripleAxisDataEvent *ev)
     return tilt_detected;
 }
 
+static void configAnyMotion(bool on) {
+    if (on) {
+        sensorRequest(mTask.taskId, mTask.anyMotionHandle, SENSOR_RATE_ONCHANGE, 0);
+        osEventSubscribe(mTask.taskId, EVT_SENSOR_ANY_MOTION);
+    } else {
+        sensorRelease(mTask.taskId, mTask.anyMotionHandle);
+        osEventUnsubscribe(mTask.taskId, EVT_SENSOR_ANY_MOTION);
+    }
+}
+
+static void configNoMotion(bool on) {
+    if (on) {
+        sensorRequest(mTask.taskId, mTask.noMotionHandle, SENSOR_RATE_ONCHANGE, 0);
+        osEventSubscribe(mTask.taskId, EVT_SENSOR_NO_MOTION);
+    } else {
+        sensorRelease(mTask.taskId, mTask.noMotionHandle);
+        osEventUnsubscribe(mTask.taskId, EVT_SENSOR_NO_MOTION);
+    }
+}
+
+static void configAccel(bool on) {
+    if (on) {
+        sensorRequest(mTask.taskId, mTask.accelHandle, ACCEL_MIN_RATE,
+                      ACCEL_MAX_LATENCY);
+        osEventSubscribe(mTask.taskId, EVT_SENSOR_ACCEL);
+    } else {
+        sensorRelease(mTask.taskId, mTask.accelHandle);
+        osEventUnsubscribe(mTask.taskId, EVT_SENSOR_ACCEL);
+    }
+
+}
+
 // *****************************************************************************
 
 static const struct SensorInfo mSi =
@@ -130,12 +171,13 @@ static const struct SensorInfo mSi =
 static bool tiltDetectionPower(bool on)
 {
     if (on) {
-        sensorRequest(mTask.taskId, mTask.accelHandle, ACCEL_MIN_RATE,
-                      ACCEL_MAX_LATENCY);
-        osEventSubscribe(mTask.taskId, EVT_SENSOR_ACC_DATA_RDY);
+        configAnyMotion(true);
+        mTask.taskState = STATE_AWAITING_ANY_MOTION;
     } else {
-        sensorRelease(mTask.taskId, mTask.accelHandle);
-        osEventUnsubscribe(mTask.taskId, EVT_SENSOR_ACC_DATA_RDY);
+        configAnyMotion(false);
+        configNoMotion(false);
+        configAccel(false);
+        mTask.taskState = STATE_DISABLED;
     }
 
     sensorSignalInternalEvt(mTask.handle, SENSOR_INTERNAL_EVT_POWER_STATE_CHG,
@@ -172,14 +214,38 @@ static void tiltDetectionHandleEvent(uint32_t evtType, const void* evtData)
     case EVT_APP_START:
         osLog(LOG_INFO, "[Tilt] idle\n");
         osEventUnsubscribe(mTask.taskId, EVT_APP_START);
+        sensorFind(SENS_TYPE_ANY_MOTION, 0, &mTask.anyMotionHandle);
+        sensorFind(SENS_TYPE_NO_MOTION, 0, &mTask.noMotionHandle);
         sensorFind(SENS_TYPE_ACCEL, 0, &mTask.accelHandle);
         break;
 
-    case EVT_SENSOR_ACC_DATA_RDY:
-        if (algoUpdate((struct TripleAxisDataEvent *)evtData)) {
-            union EmbeddedDataPoint sample;
-            sample.idata = 1;
-            osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_TILT), sample.vptr, NULL);
+    case EVT_SENSOR_ANY_MOTION:
+        if (mTask.taskState == STATE_AWAITING_ANY_MOTION) {
+            configAnyMotion(false);
+            configNoMotion(true);
+            configAccel(true);
+
+            mTask.taskState = STATE_AWAITING_TILT;
+        }
+        break;
+
+    case EVT_SENSOR_NO_MOTION:
+        if (mTask.taskState == STATE_AWAITING_TILT) {
+            configAnyMotion(true);
+            configNoMotion(false);
+            configAccel(false);
+
+            mTask.taskState = STATE_AWAITING_ANY_MOTION;
+        }
+        break;
+
+    case EVT_SENSOR_ACCEL:
+        if (mTask.taskState == STATE_AWAITING_TILT) {
+            if (algoUpdate((struct TripleAxisDataEvent *)evtData)) {
+                union EmbeddedDataPoint sample;
+                sample.idata = 1;
+                osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_TILT), sample.vptr, NULL);
+            }
         }
         break;
     }
