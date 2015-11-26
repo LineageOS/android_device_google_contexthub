@@ -170,10 +170,10 @@ void destroy_mag_cal(struct MagCal *moc)
     (void)moc;
 }
 
-int magCalUpdate(struct MagCal *moc, uint64_t sample_time_ns,
+bool magCalUpdate(struct MagCal *moc, uint64_t sample_time_ns,
                    float x, float y, float z)
 {
-    int new_bias = 0;
+    bool new_bias = false;
 
     // 1. run accumulators
     float w = x * x + y * y + z * z;
@@ -237,7 +237,7 @@ int magCalUpdate(struct MagCal *moc, uint64_t sample_time_ns,
                 moc->radius = radius;
                 moc->update_time = sample_time_ns;
 
-                new_bias = 1;
+                new_bias = true;
             }
         }
 
