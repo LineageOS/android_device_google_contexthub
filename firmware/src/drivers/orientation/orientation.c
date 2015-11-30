@@ -21,12 +21,6 @@
 #define EVT_SENSOR_ACC_DATA_RDY         sensorGetMyEventType(SENS_TYPE_ACCEL)
 #define EVT_SENSOR_GYR_DATA_RDY         sensorGetMyEventType(SENS_TYPE_GYRO)
 #define EVT_SENSOR_MAG_DATA_RDY         sensorGetMyEventType(SENS_TYPE_MAG)
-#define EVT_SENSOR_ORIENTATION_DATA_RDY sensorGetMyEventType(SENS_TYPE_ORIENTATION)
-#define EVT_SENSOR_GRAVITY_DATA_RDY     sensorGetMyEventType(SENS_TYPE_GRAVITY)
-#define EVT_SENSOR_GEO_MAG_DATA_RDY     sensorGetMyEventType(SENS_TYPE_GEO_MAG_ROT_VEC)
-#define EVT_SENSOR_LINEAR_ACC_DATA_RDY  sensorGetMyEventType(SENS_TYPE_LINEAR_ACCEL)
-#define EVT_SENSOR_GAME_DATA_RDY        sensorGetMyEventType(SENS_TYPE_GAME_ROT_VECTOR)
-#define EVT_SENSOR_ROTATION_DATA_RDY    sensorGetMyEventType(SENS_TYPE_ROTATION_VECTOR)
 
 #define kGravityEarth 9.80665f
 #define DEFAULT_GYRO_RATE_HZ    SENSOR_HZ(100.0f)
@@ -261,7 +255,7 @@ static void addSample(struct FusionSensor *mSensor, uint64_t time, float x, floa
     sample->z = z;
 
     if (mSensor->ev->samples[0].deltaTime == MAX_NUM_COMMS_EVENT_SAMPLES) {
-        osEnqueueEvt(EVT_SENSOR_ORIENTATION_DATA_RDY, mSensor->ev, dataEvtFree);
+        osEnqueueEvt(sensorGetMyEventType(mSi[mSensor->idx].sensorType), mSensor->ev, dataEvtFree);
         mSensor->ev = NULL;
     }
 }
@@ -436,7 +430,7 @@ static void drainSamples()
 
     for (i = ORIENT; i < NUM_OF_FUSION_SENSOR; i++) {
         if (mTask.sensors[i].ev != NULL) {
-            osEnqueueEvt(EVT_SENSOR_ORIENTATION_DATA_RDY, mTask.sensors[i].ev, dataEvtFree);
+            osEnqueueEvt(sensorGetMyEventType(mSi[i].sensorType), mTask.sensors[i].ev, dataEvtFree);
             mTask.sensors[i].ev = NULL;
         }
     }
