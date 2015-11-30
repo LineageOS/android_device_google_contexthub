@@ -309,11 +309,9 @@ static const struct SensorInfo sensorInfoAls =
     "ALS",
     supportedRates,
     SENS_TYPE_ALS,
-    {
-        NUM_AXIS_EMBEDDED,
-        NANOHUB_INT_NONWAKEUP,
-        20
-    }
+    NUM_AXIS_EMBEDDED,
+    NANOHUB_INT_NONWAKEUP,
+    20
 };
 
 static const struct SensorOps sensorOpsAls =
@@ -330,11 +328,9 @@ static const struct SensorInfo sensorInfoProx =
     "Proximity",
     supportedRates,
     SENS_TYPE_PROX,
-    {
-        NUM_AXIS_EMBEDDED,
-        NANOHUB_INT_WAKEUP,
-        300
-    }
+    NUM_AXIS_EMBEDDED,
+    NANOHUB_INT_WAKEUP,
+    300
 };
 
 static const struct SensorOps sensorOpsProx =
