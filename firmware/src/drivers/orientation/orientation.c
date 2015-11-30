@@ -720,8 +720,6 @@ static bool rotationFirmwareUpload()
 static bool fusionFlush(struct FusionSensor *mSensor)
 {
     uint32_t evtType = sensorGetMyEventType(mSi[mSensor->idx].sensorType);
-    if (mSensor->ev)
-        osEnqueueEvt(evtType, mSensor->ev, dataEvtFree);
     osEnqueueEvt(evtType, SENSOR_DATA_EVENT_FLUSH, NULL);
     return true;
 }
