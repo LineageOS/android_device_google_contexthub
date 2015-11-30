@@ -303,7 +303,8 @@ static const struct SensorInfo sensorInfoAls =
     supportedRates,
     SENS_TYPE_ALS,
     NUM_AXIS_EMBEDDED,
-    { NANOHUB_INT_NONWAKEUP }
+    NANOHUB_INT_NONWAKEUP,
+    20
 };
 
 static const struct SensorOps sensorOpsAls =
@@ -321,7 +322,8 @@ static const struct SensorInfo sensorInfoProx =
     supportedRates,
     SENS_TYPE_PROX,
     NUM_AXIS_EMBEDDED,
-    { NANOHUB_INT_WAKEUP }
+    NANOHUB_INT_WAKEUP,
+    300
 };
 
 static const struct SensorOps sensorOpsProx =
@@ -361,6 +363,8 @@ static void handle_i2c_event(int state)
         /* Check the sensor ID */
         if (data.txrxBuf.bytes[0] != ROHM_RPR0521_ID) {
             osLog(LOG_INFO, "ROHM: not detected\n");
+            sensorUnregister(data.alsHandle);
+            sensorUnregister(data.proxHandle);
             break;
         }
 
@@ -382,6 +386,11 @@ static void handle_i2c_event(int state)
         data.txrxBuf.bytes[2] = (ROHM_RPR0521_CAL_DEFAULT_OFFSET >> 8) & 0x3;
         i2cMasterTx(I2C_BUS_ID, I2C_ADDR, data.txrxBuf.bytes, 3,
                           &i2cCallback, (void *)SENSOR_STATE_IDLE);
+        break;
+
+    case SENSOR_STATE_IDLE:
+        sensorRegisterInitComplete(data.alsHandle);
+        sensorRegisterInitComplete(data.proxHandle);
         break;
 
     case SENSOR_STATE_ENABLING_ALS:

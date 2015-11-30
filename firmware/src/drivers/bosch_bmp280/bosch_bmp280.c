@@ -208,7 +208,8 @@ static const struct SensorInfo sensorInfoBaro =
     baroSupportedRates,
     SENS_TYPE_BARO,
     NUM_AXIS_EMBEDDED,
-    { NANOHUB_INT_NONWAKEUP}
+    NANOHUB_INT_NONWAKEUP,
+    300
 };
 
 static const struct SensorOps sensorOpsBaro =
@@ -225,7 +226,8 @@ static const struct SensorInfo sensorInfoTemp =
     tempSupportedRates,
     SENS_TYPE_TEMP,
     NUM_AXIS_EMBEDDED,
-    { NANOHUB_INT_NONWAKEUP}
+    NANOHUB_INT_NONWAKEUP,
+    20
 };
 
 static const struct SensorOps sensorOpsTemp =
@@ -356,6 +358,8 @@ static void handleI2cEvent(enum BMP280TaskState state)
         }
 
         case STATE_IDLE: {
+            sensorRegisterInitComplete(mTask.baroHandle);
+            sensorRegisterInitComplete(mTask.tempHandle);
             osLog(LOG_INFO, "BMP280: idle\n");
             break;
         }

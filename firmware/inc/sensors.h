@@ -12,11 +12,22 @@ extern "C" {
 #include <sensType.h>
 
 #define MAX_REGISTERED_SENSORS  32 /* this may need to be revisted later */
+#define MAX_MIN_SAMPLES         3000
 
 enum NumAxis {
     NUM_AXIS_EMBEDDED = 0, // data = (uint32_t)evtData
     NUM_AXIS_ONE = 1,      // data is in struct SingleAxisDataEvent format
     NUM_AXIS_THREE = 3,    // data is in struct TripleAxisDataEvent format
+};
+
+struct SensorFirstSample
+{
+    uint8_t numSamples;
+    uint8_t numFlushes;
+    uint8_t biasCurrent : 1;
+    uint8_t biasPresent : 1;
+    uint8_t biasSample : 6;
+    uint8_t pad;
 };
 
 // NUM_AXIS_EMBEDDED data format
@@ -29,12 +40,12 @@ union EmbeddedDataPoint {
 // NUM_AXIS_ONE data format
 struct SingleAxisDataPoint {
     union {
-        uint32_t deltaTime; //delta since last sample, for 0th sample this is "num samples"
-        uint32_t numSamples;
+        uint32_t deltaTime; //delta since last sample, for 0th sample this is firstSample
+        struct SensorFirstSample firstSample;
     };
     union {
         float fdata;
-        int idata;
+        int32_t idata;
     };
 } __attribute__((packed));
 
@@ -46,10 +57,21 @@ struct SingleAxisDataEvent {
 // NUM_AXIS_THREE data format
 struct TripleAxisDataPoint {
     union {
-        uint32_t deltaTime; //delta since last sample, for 0th sample this is "num samples"
-        uint32_t numSamples;
+        uint32_t deltaTime; //delta since last sample, for 0th sample this is firstSample
+        struct SensorFirstSample firstSample;
     };
-    float x, y, z;
+    union {
+        float x;
+        int32_t ix;
+    };
+    union {
+        float y;
+        int32_t iy;
+    };
+    union {
+        float z;
+        int32_t iz;
+    };
 } __attribute__((packed));
 
 struct TripleAxisDataEvent {
@@ -82,10 +104,8 @@ struct SensorInfo {
     const uint32_t *supportedRates;
     uint8_t sensorType;
     uint8_t numAxis; /* enum NumAxis */
-    /* for some sensors more data may be relevant: */
-    union {
-        uint8_t interrupt; /* interrupt to generate to AP */
-    };
+    uint8_t interrupt; /* interrupt to generate to AP */
+    uint16_t minSamples; /* minimum host fifo size (in # of samples) */
 };
 
 
@@ -122,6 +142,7 @@ bool sensorsInit(void);
 
 uint32_t sensorRegister(const struct SensorInfo *si, const struct SensorOps *ops); /* returns handle, copy is not made */
 uint32_t sensorRegisterAsApp(const struct SensorInfo *si, uint32_t tid); /* returns handle, copy is not made */
+bool sensorRegisterInitComplete(uint32_t handle);
 bool sensorUnregister(uint32_t handle); /* your job to be sure it is off already */
 bool sensorSignalInternalEvt(uint32_t handle, uint32_t intEvtNum, uint32_t value1, uint64_t value2);
 
@@ -141,6 +162,7 @@ bool sensorFlush(uint32_t sensorHandle);
 bool sensorCalibrate(uint32_t sensorHandle);
 uint32_t sensorGetCurRate(uint32_t sensorHandle);
 uint64_t sensorGetCurLatency(uint32_t sensorHandle);
+bool sensorGetInitComplete(uint32_t sensorHandle); // DO NOT poll on this value
 
 
 #ifdef __cplusplus

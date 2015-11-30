@@ -79,13 +79,14 @@ union OsApiSlabItem { //main OS "things" slab must fit this
 #define SYSCALL_OS_MAIN_SENSOR_SIGNAL    0 // (uint32_t handle, uint32_t intEvtNum, uint32_t value1, uint32_t value2_lo, uint32_t value2_hi) -> bool /* used by sensor-provding apps */
 #define SYSCALL_OS_MAIN_SENSOR_REG       1 // (const struct SensorInfo *si, uint32_t tid) -> u32 handle
 #define SYSCALL_OS_MAIN_SENSOR_UNREG     2 // (uint32_t handle) -> bool
-#define SYSCALL_OS_MAIN_SENSOR_FIND      3 // (uint32_t sensorType, uint32_t idx, uint32_t *handleP) -> const struct SensorInfo* or NULL
-#define SYSCALL_OS_MAIN_SENSOR_REQUEST   4 // (uint32_t clientId, uint32_t sensorHandle, uint32_t rate) -> bool success
-#define SYSCALL_OS_MAIN_SENSOR_RATE_CHG  5 // (uint32_t clientId, uint32_t sensorHandle, uint32_t newRate) -> bool success
-#define SYSCALL_OS_MAIN_SENSOR_RELEASE   5 // (uint32_t clientId, uint32_t sensorHandle) -> bool success
-#define SYSCALL_OS_MAIN_SENSOR_TRIGGER   7 // (uint32_t clientId, uint32_t sensorHandle) -> bool success
-#define SYSCALL_OS_MAIN_SENSOR_GET_RATE  8 // (uint32_t sensorHandle) -> uint32_t rate
-#define SYSCALL_OS_MAIN_SENSOR_LAST      9 // always last. holes are allowed, but not immediately before this
+#define SYSCALL_OS_MAIN_SENSOR_REG_INIT_COMP 3 // (uint32_t handle) -> bool
+#define SYSCALL_OS_MAIN_SENSOR_FIND      4 // (uint32_t sensorType, uint32_t idx, uint32_t *handleP) -> const struct SensorInfo* or NULL
+#define SYSCALL_OS_MAIN_SENSOR_REQUEST   5 // (uint32_t clientId, uint32_t sensorHandle, uint32_t rate) -> bool success
+#define SYSCALL_OS_MAIN_SENSOR_RATE_CHG  6 // (uint32_t clientId, uint32_t sensorHandle, uint32_t newRate) -> bool success
+#define SYSCALL_OS_MAIN_SENSOR_RELEASE   7 // (uint32_t clientId, uint32_t sensorHandle) -> bool success
+#define SYSCALL_OS_MAIN_SENSOR_TRIGGER   8 // (uint32_t clientId, uint32_t sensorHandle) -> bool success
+#define SYSCALL_OS_MAIN_SENSOR_GET_RATE  9 // (uint32_t sensorHandle) -> uint32_t rate
+#define SYSCALL_OS_MAIN_SENSOR_LAST      10 // always last. holes are allowed, but not immediately before this
 
 //level 3 indices in the OS.main.timer table
 #define SYSCALL_OS_MAIN_TIME_GET_TIME     0 // (uint64_t *timeNanos) -> void

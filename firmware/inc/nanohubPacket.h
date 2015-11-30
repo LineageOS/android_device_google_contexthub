@@ -42,6 +42,7 @@ static inline struct NanohubPacketFooter *nanohubGetPacketFooter(struct NanohubP
 
 #define NANOHUB_PACKET_PAYLOAD_MAX    255
 #define NANOHUB_PACKET_SIZE_MAX       NANOHUB_PACKET_SIZE(NANOHUB_PACKET_PAYLOAD_MAX)
+#define NANOHUB_SENSOR_DATA_MAX       240
 
 #define NANOHUB_SYNC_BYTE             0x31
 

@@ -73,6 +73,13 @@ static void osExpApiSensorUnreg(uintptr_t *retValP, va_list args)
     *retValP = (uintptr_t)sensorUnregister(handle);
 }
 
+static void osExpApiSensorRegInitComp(uintptr_t *retValP, va_list args)
+{
+    uint32_t handle = va_arg(args, uint32_t);
+
+    *retValP = (uintptr_t)sensorRegisterInitComplete(handle);
+}
+
 static void osExpApiSensorFind(uintptr_t *retValP, va_list args)
 {
     uint32_t sensorType = va_arg(args, uint32_t);
@@ -381,6 +388,7 @@ void osApiExport(struct SlabAllocator *mainSlubAllocator)
             [SYSCALL_OS_MAIN_SENSOR_SIGNAL]   = { .func = osExpApiSensorSignal,  },
             [SYSCALL_OS_MAIN_SENSOR_REG]      = { .func = osExpApiSensorReg,     },
             [SYSCALL_OS_MAIN_SENSOR_UNREG]    = { .func = osExpApiSensorUnreg,   },
+            [SYSCALL_OS_MAIN_SENSOR_REG_INIT_COMP] = { .func = osExpApiSensorRegInitComp },
             [SYSCALL_OS_MAIN_SENSOR_FIND]     = { .func = osExpApiSensorFind,    },
             [SYSCALL_OS_MAIN_SENSOR_REQUEST]  = { .func = osExpApiSensorReq,     },
             [SYSCALL_OS_MAIN_SENSOR_RATE_CHG] = { .func = osExpApiSensorRateChg, },

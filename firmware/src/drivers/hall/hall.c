@@ -80,7 +80,8 @@ static const struct SensorInfo mSensorInfo =
     NULL,
     SENS_TYPE_HALL,
     NUM_AXIS_EMBEDDED,
-    {NANOHUB_INT_WAKEUP}
+    NANOHUB_INT_WAKEUP,
+    20
 };
 
 static bool hallPower(bool on)
@@ -142,6 +143,7 @@ static bool startTask(uint32_t taskId)
 
     mTask.id = taskId;
     mTask.sensorHandle = sensorRegister(&mSensorInfo, &mSensorOps);
+    sensorRegisterInitComplete(mTask.sensorHandle);
     mTask.pin = gpioRequest(HALL_PIN);
     mTask.isr.func = hallIsr;
 

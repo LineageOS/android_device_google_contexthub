@@ -109,12 +109,12 @@ static uint32_t FusionRates[] = {
 static struct FusionTask mTask;
 static const struct SensorInfo mSi[NUM_OF_FUSION_SENSOR] =
 {
-    {"Orientation",		            FusionRates, SENS_TYPE_ORIENTATION,     NUM_AXIS_THREE, { NANOHUB_INT_NONWAKEUP }},
-    {"Gravity",                     FusionRates, SENS_TYPE_GRAVITY,         NUM_AXIS_THREE, { NANOHUB_INT_NONWAKEUP }},
-    {"Geomagnetic Rotation Vector", FusionRates, SENS_TYPE_GEO_MAG_ROT_VEC, NUM_AXIS_THREE, { NANOHUB_INT_NONWAKEUP }},
-    {"Linear Acceleration",         FusionRates, SENS_TYPE_LINEAR_ACCEL,    NUM_AXIS_THREE, { NANOHUB_INT_NONWAKEUP }},
-    {"Game Rotation Vector",        FusionRates, SENS_TYPE_GAME_ROT_VECTOR, NUM_AXIS_THREE, { NANOHUB_INT_NONWAKEUP }},
-    {"Rotation Vector",             FusionRates, SENS_TYPE_ROTATION_VECTOR, NUM_AXIS_THREE, { NANOHUB_INT_NONWAKEUP }},
+    {"Orientation",                 FusionRates, SENS_TYPE_ORIENTATION,     NUM_AXIS_THREE, NANOHUB_INT_NONWAKEUP,  20 },
+    {"Gravity",                     FusionRates, SENS_TYPE_GRAVITY,         NUM_AXIS_THREE, NANOHUB_INT_NONWAKEUP,  20 },
+    {"Geomagnetic Rotation Vector", FusionRates, SENS_TYPE_GEO_MAG_ROT_VEC, NUM_AXIS_THREE, NANOHUB_INT_NONWAKEUP,  20 },
+    {"Linear Acceleration",         FusionRates, SENS_TYPE_LINEAR_ACCEL,    NUM_AXIS_THREE, NANOHUB_INT_NONWAKEUP,  20 },
+    {"Game Rotation Vector",        FusionRates, SENS_TYPE_GAME_ROT_VECTOR, NUM_AXIS_THREE, NANOHUB_INT_NONWAKEUP, 300 },
+    {"Rotation Vector",             FusionRates, SENS_TYPE_ROTATION_VECTOR, NUM_AXIS_THREE, NANOHUB_INT_NONWAKEUP,  20 },
 };
 
 static struct SlabAllocator *mDataSlab;
@@ -129,8 +129,8 @@ static void fillSamples(struct TripleAxisDataEvent *ev, enum RawSensorType index
     bool bad_timestamp;
     size_t i, w, n, num_samples;
     struct TripleAxisDataPoint *curr_sample, *next_sample;
-	uint32_t counter;
-	uint64_t ResamplePeriodNs, curr_time, next_time;
+    uint32_t counter;
+    uint64_t ResamplePeriodNs, curr_time, next_time;
     uint64_t sample_spacing_ns;
     float weight_next;
 
@@ -151,12 +151,12 @@ static void fillSamples(struct TripleAxisDataEvent *ev, enum RawSensorType index
     if (mTask.last_time[index] == ULONG_LONG_MAX) {
         curr_sample = ev->samples;
         next_sample = curr_sample + 1;
-        num_samples = ev->samples[0].numSamples;
+        num_samples = ev->samples[0].firstSample.numSamples;
         curr_time = ev->referenceTime;
     } else {
         curr_sample = &mTask.last_sample[index];
         next_sample = ev->samples;
-        num_samples = ev->samples[0].numSamples + 1;
+        num_samples = ev->samples[0].firstSample.numSamples + 1;
         curr_time = mTask.last_time[index];
     }
 
@@ -232,29 +232,28 @@ static void addSample(struct FusionSensor *mSensor, uint64_t time, float x, floa
             osLog(LOG_ERROR, "Slab Allocation Failed\n");
             return;
         }
-        mSensor->ev->samples[0].deltaTime = 0;
+        mSensor->ev->samples[0].firstSample.numSamples = 0;
         mSensor->ev->referenceTime = time;
     }
 
-    if (mSensor->ev->samples[0].deltaTime >= MAX_NUM_COMMS_EVENT_SAMPLES) {
+    if (mSensor->ev->samples[0].firstSample.numSamples >= MAX_NUM_COMMS_EVENT_SAMPLES) {
         osLog(LOG_ERROR, "BAD_INDEX\n");
         return;
     }
 
-    sample = &mSensor->ev->samples[mSensor->ev->samples[0].deltaTime++];
+    sample = &mSensor->ev->samples[mSensor->ev->samples[0].firstSample.numSamples++];
 
     deltaTime = (time > mSensor->ev->referenceTime)
                 ? (time - mSensor->ev->referenceTime) : 0;
 
-    // the first deltatime is for sample count
-    if (mSensor->ev->samples[0].deltaTime > 1)
+    if (mSensor->ev->samples[0].firstSample.numSamples > 1)
         sample->deltaTime = deltaTime;
 
     sample->x = x;
     sample->y = y;
     sample->z = z;
 
-    if (mSensor->ev->samples[0].deltaTime == MAX_NUM_COMMS_EVENT_SAMPLES) {
+    if (mSensor->ev->samples[0].firstSample.numSamples == MAX_NUM_COMMS_EVENT_SAMPLES) {
         osEnqueueEvt(sensorGetMyEventType(mSi[mSensor->idx].sensorType), mSensor->ev, dataEvtFree);
         mSensor->ev = NULL;
     }
@@ -473,13 +472,13 @@ static void fusionSetRateAcc(struct FusionSensor *mSensor)
     uint32_t max_rate = 0;
     uint64_t min_latency = ULONG_LONG_MAX;
 
-	for (i = ORIENT; i < NUM_OF_FUSION_SENSOR; i++) {
-		if (mTask.sensors[i].active) {
-			max_rate = max_rate > mTask.sensors[i].rate ? max_rate : mTask.sensors[i].rate;
-			min_latency = min_latency < mTask.sensors[i].latency ? min_latency : mTask.sensors[i].latency;
-		}
-	}
-	mTask.ResamplePeriodNs[ACC] = (1000000000ull * 1024ull / max_rate);
+    for (i = ORIENT; i < NUM_OF_FUSION_SENSOR; i++) {
+        if (mTask.sensors[i].active) {
+            max_rate = max_rate > mTask.sensors[i].rate ? max_rate : mTask.sensors[i].rate;
+            min_latency = min_latency < mTask.sensors[i].latency ? min_latency : mTask.sensors[i].latency;
+        }
+    }
+    mTask.ResamplePeriodNs[ACC] = (1000000000ull * 1024ull / max_rate);
 
     if  (mTask.accelHandle == 0) {
         mTask.sample_counts[ACC] = 0;
@@ -509,8 +508,8 @@ static void fusionSetRateGyr(struct FusionSensor *mSensor)
             min_latency = min_latency < mTask.sensors[i].latency ? min_latency : mTask.sensors[i].latency;
         }
     }
-	max_rate = max_rate > DEFAULT_GYRO_RATE_HZ ? max_rate : DEFAULT_GYRO_RATE_HZ;
-	mTask.ResamplePeriodNs[GYR] = (1000000000ull * 1024ull / max_rate);
+    max_rate = max_rate > DEFAULT_GYRO_RATE_HZ ? max_rate : DEFAULT_GYRO_RATE_HZ;
+    mTask.ResamplePeriodNs[GYR] = (1000000000ull * 1024ull / max_rate);
 
     if (mTask.gyroHandle == 0) {
         mTask.sample_counts[GYR] = 0;
@@ -534,14 +533,14 @@ static void fusionSetRateMag(struct FusionSensor *mSensor)
     uint32_t max_rate = 0;
     uint64_t min_latency = ULONG_LONG_MAX;
 
-	for (i = ORIENT; i < NUM_OF_FUSION_SENSOR; i++) {
-		if (mTask.sensors[i].active && mTask.sensors[i].use_mag_data) {
-			max_rate = max_rate > mTask.sensors[i].rate ? max_rate : mTask.sensors[i].rate;
-			min_latency = min_latency < mTask.sensors[i].latency ? min_latency : mTask.sensors[i].latency;
-		}
-	}
-	max_rate = max_rate < DEFAULT_MAG_RATE_HZ ? max_rate : DEFAULT_MAG_RATE_HZ;
-	mTask.ResamplePeriodNs[MAG] = (1000000000ull * 1024ull / max_rate);
+    for (i = ORIENT; i < NUM_OF_FUSION_SENSOR; i++) {
+        if (mTask.sensors[i].active && mTask.sensors[i].use_mag_data) {
+            max_rate = max_rate > mTask.sensors[i].rate ? max_rate : mTask.sensors[i].rate;
+            min_latency = min_latency < mTask.sensors[i].latency ? min_latency : mTask.sensors[i].latency;
+        }
+    }
+    max_rate = max_rate < DEFAULT_MAG_RATE_HZ ? max_rate : DEFAULT_MAG_RATE_HZ;
+    mTask.ResamplePeriodNs[MAG] = (1000000000ull * 1024ull / max_rate);
 
     if (mTask.magHandle == 0) {
         mTask.sample_counts[MAG] = 0;
@@ -808,6 +807,7 @@ static bool fusionStart(uint32_t tid)
 
     for (i = ORIENT; i < NUM_OF_FUSION_SENSOR; i++) {
         mTask.sensors[i].handle = sensorRegister(&mSi[i], &mSops[i]);
+        sensorRegisterInitComplete(mTask.sensors[i].handle);
         mTask.sensors[i].idx = i;
         mTask.sensors[i].use_gyr_data = true;
         mTask.sensors[i].use_mag_data = true;

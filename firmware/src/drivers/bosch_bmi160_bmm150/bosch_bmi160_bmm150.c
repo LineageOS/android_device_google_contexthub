@@ -355,15 +355,15 @@ static struct SlabAllocator *mDataSlab;
 
 static const struct SensorInfo mSensorInfo[NUM_OF_SENSOR] =
 {
-    {"Accelerometer",       AccRates,   SENS_TYPE_ACCEL,        NUM_AXIS_THREE,     {NANOHUB_INT_NONWAKEUP}},
-    {"Gyroscope",           GyrRates,   SENS_TYPE_GYRO,         NUM_AXIS_THREE,     {NANOHUB_INT_NONWAKEUP}},
-    {"Magnetometer",        MagRates,   SENS_TYPE_MAG,          NUM_AXIS_THREE,     {NANOHUB_INT_NONWAKEUP}},
-    {"Step Detector",       NULL,       SENS_TYPE_STEP_DETECT,  NUM_AXIS_EMBEDDED,  {NANOHUB_INT_NONWAKEUP}},
-    {"Double Tap",          NULL,       SENS_TYPE_DOUBLE_TAP,   NUM_AXIS_EMBEDDED,  {NANOHUB_INT_NONWAKEUP}},
-    {"Flat",                NULL,       SENS_TYPE_FLAT,         NUM_AXIS_EMBEDDED,  {NANOHUB_INT_NONWAKEUP}},
-    {"Any Motion",          NULL,       SENS_TYPE_ANY_MOTION,   NUM_AXIS_EMBEDDED,  {NANOHUB_INT_NONWAKEUP}},
-    {"No Motion",           NULL,       SENS_TYPE_NO_MOTION,    NUM_AXIS_EMBEDDED,  {NANOHUB_INT_NONWAKEUP}},
-    {"Step Counter",        NULL,       SENS_TYPE_STEP_COUNT,   NUM_AXIS_EMBEDDED,  {NANOHUB_INT_NONWAKEUP}},
+    {"Accelerometer",      AccRates, SENS_TYPE_ACCEL,       NUM_AXIS_THREE,    NANOHUB_INT_NONWAKEUP, 3000},
+    {"Gyroscope",          GyrRates, SENS_TYPE_GYRO,        NUM_AXIS_THREE,    NANOHUB_INT_NONWAKEUP,   20},
+    {"Magnetometer",       MagRates, SENS_TYPE_MAG,         NUM_AXIS_THREE,    NANOHUB_INT_NONWAKEUP,   20},
+    {"Step Detector",      NULL,     SENS_TYPE_STEP_DETECT, NUM_AXIS_EMBEDDED, NANOHUB_INT_NONWAKEUP,  100},
+    {"Double Tap",         NULL,     SENS_TYPE_DOUBLE_TAP,  NUM_AXIS_EMBEDDED, NANOHUB_INT_NONWAKEUP,   20},
+    {"Flat",               NULL,     SENS_TYPE_FLAT,        NUM_AXIS_EMBEDDED, NANOHUB_INT_NONWAKEUP,   20},
+    {"Any Motion",         NULL,     SENS_TYPE_ANY_MOTION,  NUM_AXIS_EMBEDDED, NANOHUB_INT_NONWAKEUP,   20},
+    {"No Motion",          NULL,     SENS_TYPE_NO_MOTION,   NUM_AXIS_EMBEDDED, NANOHUB_INT_NONWAKEUP,   20},
+    {"Step Counter",       NULL,     SENS_TYPE_STEP_COUNT,  NUM_AXIS_EMBEDDED, NANOHUB_INT_NONWAKEUP,   20},
 };
 
 static void dataEvtFree(void *ptr)
@@ -1320,20 +1320,20 @@ static void parseRawData(struct BMI160Sensor *mSensor, int i, float kScale, uint
             return;
         }
         // delta time for the first sample is sample count
-        mSensor->data_evt->samples[0].numSamples = 0;
+        mSensor->data_evt->samples[0].firstSample.numSamples = 0;
         mSensor->data_evt->referenceTime = time;
         mSensor->prev_time = time;
     }
 
-    if (mSensor->data_evt->samples[0].deltaTime >= MAX_NUM_COMMS_EVENT_SAMPLES) {
+    if (mSensor->data_evt->samples[0].firstSample.numSamples >= MAX_NUM_COMMS_EVENT_SAMPLES) {
         osLog(LOG_ERROR, "BAD INDEX\n");
         return;
     }
 
-    sample = &mSensor->data_evt->samples[mSensor->data_evt->samples[0].numSamples++];
+    sample = &mSensor->data_evt->samples[mSensor->data_evt->samples[0].firstSample.numSamples++];
 
     // the first deltatime is for sample size
-    if (mSensor->data_evt->samples[0].numSamples > 1) {
+    if (mSensor->data_evt->samples[0].firstSample.numSamples > 1) {
         delta_time = time - mSensor->prev_time;
         delta_time = delta_time < 0 ? 0 : delta_time;
         sample->deltaTime = delta_time;
@@ -1344,7 +1344,7 @@ static void parseRawData(struct BMI160Sensor *mSensor, int i, float kScale, uint
     sample->y = y;
     sample->z = z;
 
-    if (mSensor->data_evt->samples[0].deltaTime == MAX_NUM_COMMS_EVENT_SAMPLES) {
+    if (mSensor->data_evt->samples[0].firstSample.numSamples == MAX_NUM_COMMS_EVENT_SAMPLES) {
         if (mSensor->idx == ACC) {
             osEnqueueEvt(EVT_SENSOR_ACC_DATA_RDY, mSensor->data_evt, dataEvtFree);
         } else if (mSensor->idx == GYR) {
@@ -1901,6 +1901,7 @@ static void processPendingEvt(void)
 static void handleSpiDoneEvt(const void* evtData)
 {
     struct BMI160Sensor *mSensor;
+    int i;
 
     switch (mTask.state) {
     case SENSOR_BOOT:
@@ -1934,6 +1935,8 @@ static void handleSpiDoneEvt(const void* evtData)
 
         if (mTask.init_state == INIT_DONE) {
             osLog(LOG_INFO, "Done initialzing, system IDLE\n");
+            for (i=0; i<NUM_OF_SENSOR; i++)
+                sensorRegisterInitComplete(mTask.sensors[i].handle);
             mTask.state = SENSOR_IDLE;
             // In case other tasks have already requested us before we finish booting up.
             processPendingEvt();

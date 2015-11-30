@@ -106,7 +106,8 @@ static const struct SensorInfo mSi =
     window_orientation_rates,
     SENS_TYPE_WIN_ORIENTATION,
     NUM_AXIS_EMBEDDED,
-    { NANOHUB_INT_WAKEUP }
+    NANOHUB_INT_WAKEUP,
+    20
 };
 
 static bool isTiltAngleAcceptable(int rotation, int8_t tilt_angle)
@@ -322,7 +323,7 @@ static bool add_samples(struct TripleAxisDataEvent *ev)
     uint64_t now = ev->referenceTime;
     uint64_t then, time_delta;
     struct TripleAxisDataPoint *last_sample;
-    size_t sampleCnt = ev->samples[0].deltaTime;
+    size_t sampleCnt = ev->samples[0].firstSample.numSamples;
     bool skip_sample;
     bool accelerating, flat, swinging;
     bool change_detected;
@@ -576,6 +577,7 @@ static bool window_orientation_start(uint32_t tid)
     reset();
 
     mTask.handle = sensorRegister(&mSi, &mSops);
+    sensorRegisterInitComplete(mTask.handle);
 
     return true;
 }
