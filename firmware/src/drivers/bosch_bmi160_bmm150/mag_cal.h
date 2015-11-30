@@ -3,6 +3,7 @@
 #define MAG_CAL_H_
 
 #include <stdint.h>
+#include <stdbool.h>
 #include <sys/types.h>
 
 #ifdef __cplusplus
@@ -41,7 +42,7 @@ void initMagCal(struct MagCal *moc,
 
 void destroy_mag_cal(struct MagCal *moc);
 
-int magCalUpdate(struct MagCal *moc, uint64_t sample_time_usec,
+bool magCalUpdate(struct MagCal *moc, uint64_t sample_time_usec,
                    float x, float y, float z);
 
 void magCalGetBias(struct MagCal *moc, float *x, float *y, float *z);

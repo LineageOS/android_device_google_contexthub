@@ -288,9 +288,7 @@ struct BMI160Task {
     enum SensorState state;
 
     struct MagCal moc;
-    bool mag_bias_posted;
-    uint8_t mag_accuracy;
-    uint8_t mag_accuracy_restore;
+    bool new_mag_bias;
 
     enum CalibrationState calibration_state;
     uint8_t calibration_timeout_cnt;
@@ -525,6 +523,31 @@ static bool disableInterrupt(struct Gpio *pin, struct ChainedIsr *isr)
     extiUnchainIsr(BMI160_INT_IRQ, isr);
     extiDisableIntGpio(pin);
     return true;
+}
+
+static void magBias(void)
+{
+    struct TripleAxisDataEvent *evt = mTask.sensors[MAG].data_evt;
+    uint8_t idx;
+
+    if (evt == NULL) {
+        idx = 0;
+        evt = slabAllocatorAlloc(mDataSlab);
+        if (evt == NULL) {
+            // slab allocation failed
+            osLog(LOG_ERROR, "Slab allocation failed for MAG bias event\n");
+            return;
+        }
+        evt->referenceTime = timGetTime();
+    } else {
+        idx = evt->samples[0].firstSample.numSamples++;
+        evt->samples[idx].deltaTime = timGetTime() - mTask.sensors[MAG].prev_time;
+    }
+    evt->samples[0].firstSample.biasPresent = 1;
+    evt->samples[0].firstSample.biasSample = idx;
+    evt->samples[idx].x = mTask.moc.x_bias;
+    evt->samples[idx].y = mTask.moc.y_bias;
+    evt->samples[idx].z = mTask.moc.z_bias;
 }
 
 static void magIfConfig(void)
@@ -1295,14 +1318,9 @@ static void parseRawData(struct BMI160Sensor *mSensor, int i, float kScale, uint
                 (float)mag_z * kScale,
                 &xi, &yi, &zi);
 
-        (void) magCalUpdate(&mTask.moc, time, xi, yi, zi);
+        mTask.new_mag_bias |= magCalUpdate(&mTask.moc, time, xi, yi, zi);
 
         magCalRemoveBias(&mTask.moc, xi, yi, zi, &x, &y, &z);
-        /*
-        mag_accuracy_update(&me->mag_accuracy,
-                &me->mag_accuracy_restore,
-                x, y, z);
-        */
     } else {
 
         BMI160_TO_ANDROID_COORDINATE(raw_x, raw_y, raw_z);
@@ -1367,6 +1385,7 @@ static void dispatchData(void)
     uint32_t min_delta = ULONG_MAX;
     uint8_t sample_cnt = 0;
 
+    mTask.new_mag_bias = false;
     mTask.cur_time = mTask.new_time;
 
     if (frame_sensor_time > mTask.cur_time) {
@@ -1433,6 +1452,10 @@ static void dispatchData(void)
             frame_sensor_time += min_delta;
         }
     }
+
+    if (mTask.new_mag_bias)
+        magBias();
+
     // flush data events.
     if (mTask.sensors[ACC].data_evt != NULL) {
         osEnqueueEvt(EVT_SENSOR_ACC_DATA_RDY, mTask.sensors[ACC].data_evt, dataEvtFree);
@@ -2147,10 +2170,6 @@ static bool startTask(uint32_t task_id)
             1.0f, 0.0f, 0.0f,      // c00, c01, c02
             0.0f, 1.0f, 0.0f,      // c10, c11, c12
             0.0f, 0.0f, 1.0f);     // c20, c21, c22
-
-    mTask.mag_bias_posted = false;
-    mTask.mag_accuracy = 2;
-    mTask.mag_accuracy_restore = 2;
 
     slabSize = sizeof(struct TripleAxisDataEvent) +
         MAX_NUM_COMMS_EVENT_SAMPLES * sizeof(struct TripleAxisDataPoint);
