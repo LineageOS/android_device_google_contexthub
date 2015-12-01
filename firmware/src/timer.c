@@ -52,12 +52,12 @@ static void timerCallFuncFreeF(void* event)
 
 static void timCallFunc(TaggedPtr callInfo, uint32_t id, void *callData)
 {
-    if (taggedPtrIsPtr(callInfo)) {
-        return ((TimTimerCbkF)taggedPtrToPtr(callInfo))(id, callData);
-    } else {
-        struct TimerEvent *evt = (struct TimerEvent *)slabAllocatorAlloc(mInternalEvents);
+    struct TimerEvent *evt;
 
-        if (!evt)
+    if (taggedPtrIsPtr(callInfo)) {
+        ((TimTimerCbkF)taggedPtrToPtr(callInfo))(id, callData);
+    } else {
+        if (!(evt = slabAllocatorAlloc(mInternalEvents)))
             return;
 
         evt->timerId = id;
@@ -66,7 +66,6 @@ static void timCallFunc(TaggedPtr callInfo, uint32_t id, void *callData)
             return;
 
         slabAllocatorFree(mInternalEvents, evt);
-        return;
     }
 }
 
