@@ -48,10 +48,10 @@ struct AppFuncs { /* do not rearrange */
 #define APP_HDR_MARKER_DELETED     0x0000
 
 /* app ids are split into vendor and app parts. vendor parts are assigned by google. App parts are free for each vendor to assign at will */
-#define APP_ID_FIRST_USABLE        0x0100000000000000UL //all app ids lower than this are reserved for google's internal use
-#define APP_ID_GET_VENDOR(appid)   ((appid) >> 32)
-#define APP_ID_MAKE(vendor, app)   (((uint64_t)(vendor)) << 32) | (app))
-#define APP_ID_VENDOR_GOOGLE       0x476f6f67UL
+#define APP_ID_FIRST_USABLE        0x0100000000000000ULL //all app ids lower than this are reserved for google's internal use
+#define APP_ID_GET_VENDOR(appid)   ((appid) >> 24)
+#define APP_ID_MAKE(vendor, app)   ((((uint64_t)(vendor)) << 24) | ((app) & 0x00FFFFFF))
+#define APP_ID_VENDOR_GOOGLE       0x476f6f676cULL // "Googl"
 
 struct AppHdr {
     char magic[13];

@@ -2193,4 +2193,4 @@ static void endTask(void)
     gpioRelease(mTask.Int2);
 }
 
-INTERNAL_APP_INIT(0x0000000000000002ULL, startTask, endTask, handleEvent);
+INTERNAL_APP_INIT(APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 2), startTask, endTask, handleEvent);
