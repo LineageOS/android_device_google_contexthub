@@ -459,4 +459,4 @@ static void endTask(void)
 
 }
 
-INTERNAL_APP_INIT(0x0000000000000005ULL, startTask, endTask, handleEvent);
+INTERNAL_APP_INIT(APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 5), startTask, endTask, handleEvent);

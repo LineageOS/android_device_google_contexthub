@@ -275,7 +275,7 @@ static void tiltDetectionEnd()
 }
 
 INTERNAL_APP_INIT(
-        0x0000000000000008ULL,
+        APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 8),
         tiltDetectionStart,
         tiltDetectionEnd,
         tiltDetectionHandleEvent);

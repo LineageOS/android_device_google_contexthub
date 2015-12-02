@@ -160,4 +160,4 @@ static void endTask(void)
     memset(&mTask, 0, sizeof(struct SensorTask));
 }
 
-INTERNAL_APP_INIT(0x0000000000000006ULL, startTask, endTask, handleEvent);
+INTERNAL_APP_INIT(APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 6), startTask, endTask, handleEvent);

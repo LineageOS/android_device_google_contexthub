@@ -587,7 +587,7 @@ static void windowOrientationEnd()
 }
 
 INTERNAL_APP_INIT(
-        0x0000000000000003ULL,
+        APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 3),
         window_orientation_start,
         windowOrientationEnd,
         windowOrientationHandleEvent);
