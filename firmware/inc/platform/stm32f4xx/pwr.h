@@ -104,10 +104,12 @@ extern "C" {
 
 /* base addrs */
 #define TIM2_BASE                     0x40000000UL
+#define TIM3_BASE                     0x40000400UL
+#define TIM4_BASE                     0x40000800UL
+#define TIM5_BASE                     0x40000C00UL
 #define RTC_BASE                      0x40002800UL
 #define SPI2_BASE                     0x40003800UL
 #define SPI3_BASE                     0x40003C00UL
-#define PWR_BASE                      0x40007000UL
 #define USART2_BASE                   0x40004400UL
 #define USART3_BASE                   0x40004800UL
 #define UART4_BASE                    0x40004C00UL
@@ -115,12 +117,17 @@ extern "C" {
 #define I2C1_BASE                     0x40005400UL
 #define I2C2_BASE                     0x40005800UL
 #define I2C3_BASE                     0x40005C00UL
+#define PWR_BASE                      0x40007000UL
+#define TIM1_BASE                     0x40010000UL
 #define USART1_BASE                   0x40011000UL
 #define USART6_BASE                   0x40011400UL
 #define SPI1_BASE                     0x40013000UL
 #define SPI4_BASE                     0x40013400UL
 #define SYSCFG_BASE                   0x40013800UL
 #define EXTI_BASE                     0x40013C00UL
+#define TIM9_BASE                     0x40014000UL
+#define TIM10_BASE                    0x40014400UL
+#define TIM11_BASE                    0x40014800UL
 #define SPI5_BASE                     0x40015000UL
 #define SPI6_BASE                     0x40015400UL
 #define GPIOA_BASE                    0x40020000UL
