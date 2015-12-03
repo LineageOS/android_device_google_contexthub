@@ -129,6 +129,28 @@ static size_t getInterrupt(void *rx, uint8_t rx_len, void *tx, uint64_t timestam
     return sizeof(*resp);
 }
 
+static size_t maskInterrupt(void *rx, uint8_t rx_len, void *tx, uint64_t timestamp)
+{
+    struct NanohubMaskInterruptRequest *req = rx;
+    struct NanohubMaskInterruptResponse *resp = tx;
+
+    hostIntfSetInterruptMask(req->interrupt);
+
+    resp->accepted = true;
+    return sizeof(*resp);
+}
+
+static size_t unmaskInterrupt(void *rx, uint8_t rx_len, void *tx, uint64_t timestamp)
+{
+    struct NanohubUnmaskInterruptRequest *req = rx;
+    struct NanohubUnmaskInterruptResponse *resp = tx;
+
+    hostInfClearInterruptMask(req->interrupt);
+
+    resp->accepted = true;
+    return sizeof(*resp);
+}
+
 struct EvtPacket
 {
     uint8_t sensType;
@@ -199,6 +221,14 @@ const static struct NanohubCommand mBuiltinCommands[] = {
                 getInterrupt,
                 struct NanohubGetInterruptRequest,
                 struct NanohubGetInterruptRequest),
+        NANOHUB_COMMAND(NANOHUB_REASON_MASK_INTERRUPT,
+                maskInterrupt,
+                struct NanohubMaskInterruptRequest,
+                struct NanohubMaskInterruptRequest),
+        NANOHUB_COMMAND(NANOHUB_REASON_UNMASK_INTERRUPT,
+                unmaskInterrupt,
+                struct NanohubUnmaskInterruptRequest,
+                struct NanohubUnmaskInterruptRequest),
         NANOHUB_COMMAND(NANOHUB_REASON_READ_EVENT,
                 readEvent,
                 struct NanohubReadEventRequest,

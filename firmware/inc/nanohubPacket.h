@@ -124,6 +124,26 @@ struct NanohubGetInterruptResponse {
     uint8_t interrupts[MAX_INTERRUPTS/(8*sizeof(uint8_t))];
 } __attribute__ ((packed));
 
+#define NANOHUB_REASON_MASK_INTERRUPT         0x00001081
+
+struct NanohubMaskInterruptRequest {
+    uint8_t interrupt;
+} __attribute__((packed));
+
+struct NanohubMaskInterruptResponse {
+    uint8_t accepted;
+} __attribute__ ((packed));
+
+#define NANOHUB_REASON_UNMASK_INTERRUPT       0x00001082
+
+struct NanohubUnmaskInterruptRequest {
+    uint8_t interrupt;
+} __attribute__((packed));
+
+struct NanohubUnmaskInterruptResponse {
+    uint8_t accepted;
+} __attribute__ ((packed));
+
 #define NANOHUB_REASON_READ_EVENT             0x00001090
 
 struct NanohubReadEventRequest {
