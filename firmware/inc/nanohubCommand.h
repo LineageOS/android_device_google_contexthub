@@ -3,7 +3,7 @@
 
 struct NanohubCommand {
     uint32_t reason;
-    size_t (*handler)(void *, uint8_t, void *);
+    size_t (*handler)(void *, uint8_t, void *, uint64_t);
     uint8_t minDataLen;
     uint8_t maxDataLen;
 };

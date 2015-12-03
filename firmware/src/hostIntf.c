@@ -86,24 +86,25 @@ static struct ActiveSensor *mActiveSensorTable;
 static uint8_t mNumSensors;
 static uint8_t mLastSensor;
 
-static const struct HostIntfComm *gComm;
-static uint8_t gRxBuf[NANOHUB_PACKET_SIZE_MAX];
-static size_t gRxSize;
-static bool gTxRetrans;
+static const struct HostIntfComm *mComm;
+static uint64_t mRxTimestamp;
+static uint8_t mRxBuf[NANOHUB_PACKET_SIZE_MAX];
+static size_t mRxSize;
+static bool mTxRetrans;
 static struct
 {
     uint8_t pad; // packet header is 10 bytes. + 2 to word align
     uint8_t prePreamble;
     uint8_t buf[NANOHUB_PACKET_SIZE_MAX];
     uint8_t postPreamble;
-} gTxBuf;
-static size_t gTxSize;
-static uint8_t *gTxBufPtr;
-static uint32_t gSeq;
-static const struct NanohubCommand *gRxCmd;
-ATOMIC_BITSET_DECL(gInterrupt, MAX_INTERRUPTS, static);
-ATOMIC_BITSET_DECL(gInterruptMask, MAX_INTERRUPTS, static);
-static uint32_t gHostIntfTid;
+} mTxBuf;
+static size_t mTxSize;
+static uint8_t *mTxBufPtr;
+static uint32_t mSeq;
+static const struct NanohubCommand *mRxCmd;
+ATOMIC_BITSET_DECL(mInterrupt, MAX_INTERRUPTS, static);
+ATOMIC_BITSET_DECL(mInterruptMask, MAX_INTERRUPTS, static);
+static uint32_t mHostIntfTid;
 
 static void hostIntfRxPacket();
 static void hostIntfTxPacket(uint32_t reason, uint8_t len,
@@ -169,14 +170,14 @@ static inline const struct NanohubCommand *hostIntfFindHandler(uint8_t *buf, siz
         return NULL;
     }
 
-    if (gSeq == packet->seq) {
-        gTxRetrans = true;
-        return gRxCmd;
+    if (mSeq == packet->seq) {
+        mTxRetrans = true;
+        return mRxCmd;
     } else {
-        gTxRetrans = false;
+        mTxRetrans = false;
     }
 
-    gSeq = packet->seq;
+    mSeq = packet->seq;
     packetReason = le32toh(packet->reason);
 
     if ((cmd = nanohubFindCommand(packetReason)) != NULL) {
@@ -197,53 +198,53 @@ static inline const struct NanohubCommand *hostIntfFindHandler(uint8_t *buf, siz
 
 static void hostIntfTxBuf(int size, uint8_t *buf, HostIntfCommCallbackF callback)
 {
-    gTxSize = size;
-    gTxBufPtr = buf;
-    gComm->txPacket(gTxBufPtr, gTxSize, callback);
+    mTxSize = size;
+    mTxBufPtr = buf;
+    mComm->txPacket(mTxBufPtr, mTxSize, callback);
 }
 
 static void hostIntfTxPacket(__le32 reason, uint8_t len,
         HostIntfCommCallbackF callback)
 {
-    struct NanohubPacket *txPacket = (struct NanohubPacket *)(gTxBuf.buf);
+    struct NanohubPacket *txPacket = (struct NanohubPacket *)(mTxBuf.buf);
     txPacket->reason = reason;
-    txPacket->seq = gSeq;
+    txPacket->seq = mSeq;
     txPacket->sync = NANOHUB_SYNC_BYTE;
     txPacket->len = len;
 
-    struct NanohubPacketFooter *txFooter = hostIntfGetFooter(gTxBuf.buf);
-    txFooter->crc = hostIntfComputeCrc(gTxBuf.buf);
+    struct NanohubPacketFooter *txFooter = hostIntfGetFooter(mTxBuf.buf);
+    txFooter->crc = hostIntfComputeCrc(mTxBuf.buf);
 
     // send starting with the prePremable byte
-    hostIntfTxBuf(1+NANOHUB_PACKET_SIZE(len), &gTxBuf.prePreamble, callback);
+    hostIntfTxBuf(1+NANOHUB_PACKET_SIZE(len), &mTxBuf.prePreamble, callback);
 }
 
 static inline void hostIntfTxPacketDone(int err, size_t tx,
         HostIntfCommCallbackF callback)
 {
-    if (!err && tx < gTxSize) {
-        gTxSize -= tx;
-        gTxBufPtr += tx;
+    if (!err && tx < mTxSize) {
+        mTxSize -= tx;
+        mTxBufPtr += tx;
 
-        gComm->txPacket(gTxBufPtr, gTxSize, callback);
+        mComm->txPacket(mTxBufPtr, mTxSize, callback);
     }
 }
 
 static bool hostIntfRequest(uint32_t tid)
 {
-    gHostIntfTid = tid;
-    atomicBitsetInit(gInterrupt, MAX_INTERRUPTS);
-    atomicBitsetInit(gInterruptMask, MAX_INTERRUPTS);
+    mHostIntfTid = tid;
+    atomicBitsetInit(mInterrupt, MAX_INTERRUPTS);
+    atomicBitsetInit(mInterruptMask, MAX_INTERRUPTS);
     hostIntfSetInterruptMask(NANOHUB_INT_NONWAKEUP);
-    gTxBuf.prePreamble = NANOHUB_PREAMBLE_BYTE;
-    gTxBuf.postPreamble = NANOHUB_PREAMBLE_BYTE;
+    mTxBuf.prePreamble = NANOHUB_PREAMBLE_BYTE;
+    mTxBuf.postPreamble = NANOHUB_PREAMBLE_BYTE;
 
-    gComm = platHostIntfInit();
-    if (gComm) {
-        int err = gComm->request();
+    mComm = platHostIntfInit();
+    if (mComm) {
+        int err = mComm->request();
         if (!err) {
             hostIntfRxPacket();
-            osEventSubscribe(gHostIntfTid, EVT_APP_START);
+            osEventSubscribe(mHostIntfTid, EVT_APP_START);
             return true;
         }
     }
@@ -253,12 +254,13 @@ static bool hostIntfRequest(uint32_t tid)
 
 static inline void hostIntfRxPacket()
 {
-    gComm->rxPacket(gRxBuf, sizeof(gRxBuf), hostIntfRxDone);
+    mComm->rxPacket(mRxBuf, sizeof(mRxBuf), hostIntfRxDone);
 }
 
 static void hostIntfRxDone(size_t rx, int err)
 {
-    gRxSize = rx;
+    mRxTimestamp = timGetTime();
+    mRxSize = rx;
 
     if (err != 0) {
         osLog(LOG_ERROR, "%s: failed to receive request: %d\n", __func__, err);
@@ -271,11 +273,11 @@ static void hostIntfRxDone(size_t rx, int err)
 
 static void hostIntfGenerateAck(void *cookie)
 {
-    gRxCmd = hostIntfFindHandler(gRxBuf, gRxSize);
+    mRxCmd = hostIntfFindHandler(mRxBuf, mRxSize);
 
-    if (gRxCmd) {
-        if (gTxRetrans)
-            hostIntfTxBuf(gTxSize, &gTxBuf.prePreamble, hostIntfTxPayloadDone);
+    if (mRxCmd) {
+        if (mTxRetrans)
+            hostIntfTxBuf(mTxSize, &mTxBuf.prePreamble, hostIntfTxPayloadDone);
         else
             hostIntfTxPacket(NANOHUB_REASON_ACK, 0, hostIntfTxAckDone);
     } else {
@@ -292,7 +294,7 @@ static void hostIntfTxAckDone(size_t tx, int err)
         hostIntfRxPacket();
         return;
     }
-    if (!gRxCmd) {
+    if (!mRxCmd) {
         osLog(LOG_DEBUG, "%s: NACKed invalid request\n", __func__);
         hostIntfRxPacket();
         return;
@@ -303,12 +305,12 @@ static void hostIntfTxAckDone(size_t tx, int err)
 
 static void hostIntfGenerateResponse(void *cookie)
 {
-    void *rxPayload = hostIntfGetPayload(gRxBuf);
-    uint8_t rx_len = hostIntfGetPayloadLen(gRxBuf);
-    void *txPayload = hostIntfGetPayload(gTxBuf.buf);
-    uint8_t respLen = gRxCmd->handler(rxPayload, rx_len, txPayload);
+    void *rxPayload = hostIntfGetPayload(mRxBuf);
+    uint8_t rx_len = hostIntfGetPayloadLen(mRxBuf);
+    void *txPayload = hostIntfGetPayload(mTxBuf.buf);
+    uint8_t respLen = mRxCmd->handler(rxPayload, rx_len, txPayload, mRxTimestamp);
 
-    hostIntfTxPacket(gRxCmd->reason, respLen, hostIntfTxPayloadDone);
+    hostIntfTxPacket(mRxCmd->reason, respLen, hostIntfTxPayloadDone);
 }
 
 static void hostIntfTxPayloadDone(size_t tx, int err)
@@ -323,7 +325,7 @@ static void hostIntfTxPayloadDone(size_t tx, int err)
 
 static void hostIntfRelease()
 {
-    gComm->release();
+    mComm->release();
 }
 
 static void resetBuffer(struct ActiveSensor *sensor)
@@ -363,7 +365,7 @@ bool hostIntfPacketDequeue(void *data)
 
 static void initCompleteCallback(uint32_t timerId, void *data)
 {
-    osEnqueuePrivateEvt(EVT_APP_START, NULL, NULL, gHostIntfTid);
+    osEnqueuePrivateEvt(EVT_APP_START, NULL, NULL, mHostIntfTid);
 }
 
 static bool queueDiscard(void *data, bool onDelete)
@@ -623,10 +625,10 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
 
     if (evtType == EVT_APP_START) {
         if (initSensors()) {
-            osEventUnsubscribe(gHostIntfTid, EVT_APP_START);
-            osEventSubscribe(gHostIntfTid, EVT_NO_SENSOR_CONFIG_EVENT);
+            osEventUnsubscribe(mHostIntfTid, EVT_APP_START);
+            osEventSubscribe(mHostIntfTid, EVT_NO_SENSOR_CONFIG_EVENT);
 #ifdef DEBUG_LOG_EVT
-            osEventSubscribe(gHostIntfTid, DEBUG_LOG_EVT);
+            osEventSubscribe(mHostIntfTid, DEBUG_LOG_EVT);
 #endif
         }
     }
@@ -646,7 +648,7 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
                 if (cmd->flush) {
                     sensorFlush(sensor->sensorHandle);
                 } else if (cmd->enabled) {
-                    if (sensorRequestRateChange(gHostIntfTid, sensor->sensorHandle, cmd->rate, cmd->latency)) {
+                    if (sensorRequestRateChange(mHostIntfTid, sensor->sensorHandle, cmd->rate, cmd->latency)) {
                         sensor->rate = cmd->rate;
                         if (sensor->latency != cmd->latency) {
                             sensor->latency = cmd->latency;
@@ -654,8 +656,8 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
                         }
                     }
                 } else if (!cmd->flags) {
-                    sensorRelease(gHostIntfTid, sensor->sensorHandle);
-                    osEventUnsubscribe(gHostIntfTid, sensorGetMyEventType(cmd->sensType));
+                    sensorRelease(mHostIntfTid, sensor->sensorHandle);
+                    osEventUnsubscribe(mHostIntfTid, sensorGetMyEventType(cmd->sensType));
                     sensor->sensorHandle = 0;
                     if (sensor->buffer.length) {
                         simpleQueueEnqueue(mOutputQ, &sensor->buffer, sensor->discard);
@@ -672,11 +674,11 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
                         sensor->oneshot = false;
                     }
 
-                    if (sensorRequest(gHostIntfTid, sensor->sensorHandle, cmd->rate, cmd->latency)) {
+                    if (sensorRequest(mHostIntfTid, sensor->sensorHandle, cmd->rate, cmd->latency)) {
                         sensor->rate = cmd->rate;
                         sensor->latency = cmd->latency;
                         sensor->lastInterrupt = timGetTime();
-                        osEventSubscribe(gHostIntfTid, sensorGetMyEventType(cmd->sensType));
+                        osEventSubscribe(mHostIntfTid, sensorGetMyEventType(cmd->sensType));
                         break;
                     } else {
                         sensor->sensorHandle = 0;
@@ -753,8 +755,8 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
             }
 
             if (sensor->oneshot) {
-                sensorRelease(gHostIntfTid, sensor->sensorHandle);
-                osEventUnsubscribe(gHostIntfTid, evtType);
+                sensorRelease(mHostIntfTid, sensor->sensorHandle);
+                osEventUnsubscribe(mHostIntfTid, evtType);
                 sensor->sensorHandle = 0;
                 sensor->oneshot = false;
             }
@@ -769,13 +771,13 @@ void hostIntfCopyClearInterrupts(struct AtomicBitset *dst, uint32_t numBits)
     apIntClear(false);
     apIntClear(true);
 
-    atomicBitsetXchg(gInterrupt, dst);
+    atomicBitsetXchg(mInterrupt, dst);
 }
 
 void hostIntfSetInterrupt(uint32_t bit)
 {
-    atomicBitsetSetBit(gInterrupt, bit);
-    if (!atomicBitsetGetBit(gInterruptMask, bit)) {
+    atomicBitsetSetBit(mInterrupt, bit);
+    if (!atomicBitsetGetBit(mInterruptMask, bit)) {
         platRequestDevInSleepMode(Stm32sleepWakeup, 12);
         apIntSet(true);
     } else {
@@ -785,17 +787,17 @@ void hostIntfSetInterrupt(uint32_t bit)
 
 void hostInfClearInterrupt(uint32_t bit)
 {
-    atomicBitsetClearBit(gInterrupt, bit);
+    atomicBitsetClearBit(mInterrupt, bit);
 }
 
 void hostIntfSetInterruptMask(uint32_t bit)
 {
-    atomicBitsetSetBit(gInterruptMask, bit);
+    atomicBitsetSetBit(mInterruptMask, bit);
 }
 
 void hostInfClearInterruptMask(uint32_t bit)
 {
-    atomicBitsetClearBit(gInterruptMask, bit);
+    atomicBitsetClearBit(mInterruptMask, bit);
 }
 
 INTERNAL_APP_INIT(0x0000000000000001, hostIntfRequest, hostIntfRelease, hostIntfHandleEvent);

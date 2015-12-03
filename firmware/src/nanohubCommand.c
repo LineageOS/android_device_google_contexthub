@@ -1,4 +1,5 @@
 #include <plat/inc/taggedPtr.h>
+#include <plat/inc/rtc.h>
 #include <inttypes.h>
 #include <string.h>
 #include <stdint.h>
@@ -22,41 +23,7 @@
         { .reason = _reason, .handler = _handler, \
           .minDataLen = sizeof(_minReqType), .maxDataLen = sizeof(_maxReqType) }
 
-static size_t getOsHwVersion(void *rx, uint8_t, void *tx);
-static size_t startFirmwareUpload(void *rx, uint8_t, void *tx);
-static size_t firmwareChunk(void *rx, uint8_t, void *tx);
-static size_t getInterrupt(void *rx, uint8_t, void *tx);
-static size_t readEvent(void *rx, uint8_t, void *tx);
-static size_t writeEvent(void *rx, uint8_t, void *tx);
-
-const struct NanohubCommand gBuiltinCommands[] = {
-        NANOHUB_COMMAND(NANOHUB_REASON_GET_OS_HW_VERSIONS,
-                getOsHwVersion,
-                struct NanohubOsHwVersionsRequest,
-                struct NanohubOsHwVersionsRequest),
-        NANOHUB_COMMAND(NANOHUB_REASON_START_FIRMWARE_UPLOAD,
-                startFirmwareUpload,
-                struct NanohubStartFirmwareUploadRequest,
-                struct NanohubStartFirmwareUploadRequest),
-        NANOHUB_COMMAND(NANOHUB_REASON_FIRMWARE_CHUNK,
-                firmwareChunk,
-                __le32,
-                struct NanohubFirmwareChunkRequest),
-        NANOHUB_COMMAND(NANOHUB_REASON_GET_INTERRUPT,
-                getInterrupt,
-                struct NanohubGetInterruptRequest,
-                struct NanohubGetInterruptRequest),
-        NANOHUB_COMMAND(NANOHUB_REASON_READ_EVENT,
-                readEvent,
-                struct NanohubReadEventRequest,
-                struct NanohubReadEventRequest),
-        NANOHUB_COMMAND(NANOHUB_REASON_WRITE_EVENT,
-                writeEvent,
-                __le32,
-                struct NanohubWriteEventRequest),
-};
-
-static size_t getOsHwVersion(void *rx, uint8_t rx_len, void *tx)
+static size_t getOsHwVersion(void *rx, uint8_t rx_len, void *tx, uint64_t timestamp)
 {
     struct NanohubOsHwVersionsResponse *resp = tx;
     resp->hwType = htole16(platHwType());
@@ -72,7 +39,7 @@ static uint32_t mFirmwareOffset;
 static uint8_t *mFirmwareStart;
 static bool mFirmwareErase;
 
-static size_t startFirmwareUpload(void *rx, uint8_t rx_len, void *tx)
+static size_t startFirmwareUpload(void *rx, uint8_t rx_len, void *tx, uint64_t timestamp)
 {
     extern char __shared_start[];
     extern char __shared_end[];
@@ -119,7 +86,7 @@ static void firmwareErase(void *cookie)
     }
 }
 
-static size_t firmwareChunk(void *rx, uint8_t rx_len, void *tx)
+static size_t firmwareChunk(void *rx, uint8_t rx_len, void *tx, uint64_t timestamp)
 {
     uint32_t offset;
     uint8_t len;
@@ -151,7 +118,7 @@ static size_t firmwareChunk(void *rx, uint8_t rx_len, void *tx)
     return sizeof(*resp);
 }
 
-static size_t getInterrupt(void *rx, uint8_t rx_len, void *tx)
+static size_t getInterrupt(void *rx, uint8_t rx_len, void *tx, uint64_t timestamp)
 {
     struct NanohubGetInterruptResponse *resp = tx;
     ATOMIC_BITSET_DECL(interrupts, MAX_INTERRUPTS,);
@@ -171,13 +138,12 @@ struct EvtPacket
     uint8_t data[NANOHUB_SENSOR_DATA_MAX];
 } __attribute__((packed));
 
-static size_t readEvent(void *rx, uint8_t rx_len, void *tx)
+static size_t readEvent(void *rx, uint8_t rx_len, void *tx, uint64_t timestamp)
 {
     struct NanohubReadEventRequest *req = rx;
     struct NanohubReadEventResponse *resp = tx;
     struct EvtPacket *packet = tx;
     int length, sensor;
-    uint64_t currTime = timGetTime();
 
     if (hostIntfPacketDequeue(packet)) {
         length = packet->length + sizeof(resp->evtType);
@@ -192,7 +158,7 @@ static size_t readEvent(void *rx, uint8_t rx_len, void *tx)
         } else {
             resp->evtType = htole32(EVT_NO_FIRST_SENSOR_EVENT + sensor);
             if (packet->timestamp) {
-                packet->timestamp += req->apBootTime - currTime;
+                packet->timestamp += req->apBootTime - timestamp;
             }
         }
     } else {
@@ -202,7 +168,7 @@ static size_t readEvent(void *rx, uint8_t rx_len, void *tx)
     return length;
 }
 
-static size_t writeEvent(void *rx, uint8_t rx_len, void *tx)
+static size_t writeEvent(void *rx, uint8_t rx_len, void *tx, uint64_t timestamp)
 {
     struct NanohubWriteEventRequest *req = rx;
     struct NanohubWriteEventResponse *resp = tx;
@@ -216,12 +182,39 @@ static size_t writeEvent(void *rx, uint8_t rx_len, void *tx)
     return sizeof(*resp);
 }
 
+const static struct NanohubCommand mBuiltinCommands[] = {
+        NANOHUB_COMMAND(NANOHUB_REASON_GET_OS_HW_VERSIONS,
+                getOsHwVersion,
+                struct NanohubOsHwVersionsRequest,
+                struct NanohubOsHwVersionsRequest),
+        NANOHUB_COMMAND(NANOHUB_REASON_START_FIRMWARE_UPLOAD,
+                startFirmwareUpload,
+                struct NanohubStartFirmwareUploadRequest,
+                struct NanohubStartFirmwareUploadRequest),
+        NANOHUB_COMMAND(NANOHUB_REASON_FIRMWARE_CHUNK,
+                firmwareChunk,
+                __le32,
+                struct NanohubFirmwareChunkRequest),
+        NANOHUB_COMMAND(NANOHUB_REASON_GET_INTERRUPT,
+                getInterrupt,
+                struct NanohubGetInterruptRequest,
+                struct NanohubGetInterruptRequest),
+        NANOHUB_COMMAND(NANOHUB_REASON_READ_EVENT,
+                readEvent,
+                struct NanohubReadEventRequest,
+                struct NanohubReadEventRequest),
+        NANOHUB_COMMAND(NANOHUB_REASON_WRITE_EVENT,
+                writeEvent,
+                __le32,
+                struct NanohubWriteEventRequest),
+};
+
 const struct NanohubCommand *nanohubFindCommand(uint32_t packetReason)
 {
     size_t i;
 
-    for (i = 0; i < ARRAY_SIZE(gBuiltinCommands); i++) {
-        const struct NanohubCommand *cmd = &gBuiltinCommands[i];
+    for (i = 0; i < ARRAY_SIZE(mBuiltinCommands); i++) {
+        const struct NanohubCommand *cmd = &mBuiltinCommands[i];
         if (cmd->reason == packetReason)
             return cmd;
     }
