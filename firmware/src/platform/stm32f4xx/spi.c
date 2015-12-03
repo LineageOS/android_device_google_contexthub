@@ -354,6 +354,7 @@ static int stmSpiRxTx(struct SpiDevice *dev, void *rxBuf, const void *txBuf,
      */
     if (!stmSpiIsMaster(pdev)) {
         regs->CR2 &= ~SPI_CR2_TXEIE;
+        NVIC_ClearPendingIRQ(pdev->cfg->irq);
 
         if (regs->SR & SPI_SR_RXNE)
             (void)regs->DR;

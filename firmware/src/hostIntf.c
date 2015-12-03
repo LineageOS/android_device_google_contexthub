@@ -268,7 +268,7 @@ static void hostIntfRxDone(size_t rx, int err)
         return;
     }
 
-    osDefer(hostIntfGenerateAck, NULL);
+    hostIntfGenerateAck(NULL);
 }
 
 static void hostIntfGenerateAck(void *cookie)
