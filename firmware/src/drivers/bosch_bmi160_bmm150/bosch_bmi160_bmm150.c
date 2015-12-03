@@ -953,6 +953,7 @@ static bool stepCntPower(bool on)
             }
             // unset step_cnt_en bit
             SPI_WRITE(BMI160_REG_STEP_CONF_1, 0x03);
+            mTask.last_step_cnt = 0;
         }
         mTask.sensors[STEPCNT].active = on;
         spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[STEPCNT]);
