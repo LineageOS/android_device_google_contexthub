@@ -259,7 +259,7 @@ static inline void hostIntfRxPacket()
 
 static void hostIntfRxDone(size_t rx, int err)
 {
-    mRxTimestamp = timGetTime();
+    mRxTimestamp = rtcGetTime();
     mRxSize = rx;
 
     if (err != 0) {
@@ -615,7 +615,7 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
 {
     struct ConfigCmd *cmd;
     int i;
-    uint64_t currentTime;
+    uint64_t currentTime, rtcTime;
     struct ActiveSensor *sensor;
     const struct SensorInfo *si;
     uint32_t tempSensorHandle;
@@ -693,7 +693,6 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
         sensor = mActiveSensorTable + mSensorList[(evtType & 0xFF) - 1];
 
         if (sensor->sensorHandle) {
-            currentTime = timGetTime();
             if (evtData == SENSOR_DATA_EVENT_FLUSH) {
                 if (sensor->buffer.length == 0) {
                     sensor->buffer.length = sizeof(sensor->buffer.referenceTime) + sizeof(struct SensorFirstSample);
@@ -718,15 +717,20 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
 
                 switch (sensor->numAxis) {
                 case NUM_AXIS_EMBEDDED:
+                    rtcTime = rtcGetTime();
+                    if (sensor->buffer.length > 0 && rtcTime - sensor->lastTime > UINT32_MAX) {
+                        simpleQueueEnqueue(mOutputQ, &sensor->buffer, sensor->discard);
+                        resetBuffer(sensor);
+                    }
                     if (sensor->buffer.length == 0) {
                         sensor->buffer.length = sizeof(struct SingleAxisDataEvent) + sizeof(struct SingleAxisDataPoint);
-                        sensor->lastTime = sensor->buffer.referenceTime = currentTime;
+                        sensor->lastTime = sensor->buffer.referenceTime = rtcTime;
                         sensor->buffer.firstSample.numSamples = 1;
                         sensor->buffer.single[0].idata = (uint32_t)evtData;
                     } else {
                         sensor->buffer.length += sizeof(struct SingleAxisDataPoint);
-                        sensor->buffer.single[sensor->buffer.firstSample.numSamples].deltaTime = currentTime - sensor->lastTime;
-                        sensor->lastTime = currentTime;
+                        sensor->buffer.single[sensor->buffer.firstSample.numSamples].deltaTime = rtcTime - sensor->lastTime;
+                        sensor->lastTime = rtcTime;
                         sensor->buffer.single[sensor->buffer.firstSample.numSamples].idata = (uint32_t)evtData;
                         sensor->buffer.firstSample.numSamples ++;
                     }
@@ -743,6 +747,7 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
                 }
             }
 
+            currentTime = timGetTime();
             if ((currentTime >= sensor->lastInterrupt + sensor->latency) ||
                 ((sensor->latency > sensorGetCurLatency(sensor->sensorHandle)) &&
                     (currentTime + sensorGetCurLatency(sensor->sensorHandle) > sensor->lastInterrupt + sensor->latency))) {

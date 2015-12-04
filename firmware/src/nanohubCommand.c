@@ -160,12 +160,53 @@ struct EvtPacket
     uint8_t data[NANOHUB_SENSOR_DATA_MAX];
 } __attribute__((packed));
 
+#define SYNC_DATAPOINTS 16
+
+struct TimeSync
+{
+    uint64_t delta[SYNC_DATAPOINTS];
+    uint64_t avgDelta;
+    uint8_t cnt;
+    uint8_t tail;
+} __attribute__((packed));
+
+static void addDelta(struct TimeSync *sync, uint64_t delta)
+{
+    sync->delta[sync->tail++] = delta;
+
+    if (sync->tail >= SYNC_DATAPOINTS)
+        sync->tail = 0;
+
+    if (sync->cnt < SYNC_DATAPOINTS)
+        sync->cnt ++;
+
+    sync->avgDelta = 0ULL;
+}
+
+static uint64_t getAvgDelta(struct TimeSync *sync)
+{
+    int i;
+
+    if (!sync->cnt)
+        return 0ULL;
+    else if (!sync->avgDelta) {
+        sync->avgDelta = 0;
+        for (i=0; i<sync->cnt; i++)
+            sync->avgDelta += sync->delta[i];
+        sync->avgDelta /= sync->cnt;
+    }
+    return sync->avgDelta;
+}
+
 static size_t readEvent(void *rx, uint8_t rx_len, void *tx, uint64_t timestamp)
 {
     struct NanohubReadEventRequest *req = rx;
     struct NanohubReadEventResponse *resp = tx;
     struct EvtPacket *packet = tx;
     int length, sensor;
+    static struct TimeSync timeSync = { };
+
+    addDelta(&timeSync, req->apBootTime - timestamp);
 
     if (hostIntfPacketDequeue(packet)) {
         length = packet->length + sizeof(resp->evtType);
@@ -179,9 +220,8 @@ static size_t readEvent(void *rx, uint8_t rx_len, void *tx, uint64_t timestamp)
 #endif
         } else {
             resp->evtType = htole32(EVT_NO_FIRST_SENSOR_EVENT + sensor);
-            if (packet->timestamp) {
-                packet->timestamp += req->apBootTime - timestamp;
-            }
+            if (packet->timestamp)
+                packet->timestamp += getAvgDelta(&timeSync);
         }
     } else {
         length = 0;
