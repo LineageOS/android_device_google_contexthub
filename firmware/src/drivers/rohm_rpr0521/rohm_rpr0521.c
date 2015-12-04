@@ -145,6 +145,8 @@ static const uint32_t supportedRates[] =
     SENSOR_HZ(1),
     SENSOR_HZ(4),
     SENSOR_HZ(5),
+    SENSOR_HZ(10),
+    SENSOR_HZ(25),
     0,
 };
 
@@ -239,7 +241,8 @@ static bool sensorFirmwareAls()
 
 static bool sensorRateAls(uint32_t rate, uint64_t latency)
 {
-    osLog(LOG_INFO, "ROHM: sensorRateAls: %ld/%lld\n", rate, latency);
+    osLog(LOG_INFO, "ROHM: sensorRateAls: rate=%ld Hz latency=%lld us\n",
+          rate / 1024, latency / 1000);
 
     if (data.alsTimerHandle)
         timTimerCancel(data.alsTimerHandle);
@@ -280,7 +283,8 @@ static bool sensorFirmwareProx()
 
 static bool sensorRateProx(uint32_t rate, uint64_t latency)
 {
-    osLog(LOG_INFO, "ROHM: sensorRateProx: %ld/%lld\n", rate, latency);
+    osLog(LOG_INFO, "ROHM: sensorRateProx: rate=%ld Hz latency=%lld us\n",
+          rate / 1024, latency / 1000);
 
     if (data.proxTimerHandle)
         timTimerCancel(data.proxTimerHandle);
