@@ -28,7 +28,7 @@ SRCS += src/drivers/bosch_bmi160_bmm150/bosch_bmi160_bmm150.c src/drivers/bosch_
 SRCS += src/drivers/orientation/orientation.c
 
 # Window orientation sensor driver
-#SRCS += src/drivers/window_orientation/window_orientation.c
+SRCS += src/drivers/window_orientation/window_orientation.c
 
 # Bosch BMP280 Barometer/Temperature
 SRCS += src/drivers/bosch_bmp280/bosch_bmp280.c
@@ -38,6 +38,9 @@ SRCS += src/drivers/hall/hall.c
 
 # Camera Vsync driver
 SRCS += src/drivers/vsync/vsync.c
+
+# Tilt detection
+SRCS += src/drivers/tilt_detection/tilt_detection.c
 
 DEPS += $(wildcard links/variant/inc/*.h)
 
