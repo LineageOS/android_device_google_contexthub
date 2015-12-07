@@ -349,6 +349,7 @@ bool hostIntfPacketDequeue(void *data)
                 memcpy(data, &mActiveSensorTable[mLastSensor].buffer, sizeof(struct DataBuffer));
                 resetBuffer(mActiveSensorTable + mLastSensor);
                 ret = true;
+                mLastSensor = (mLastSensor + 1) % mNumSensors;
                 break;
             }
         }
@@ -356,8 +357,10 @@ bool hostIntfPacketDequeue(void *data)
 
     if (ret) {
         buffer = data;
-        sensor = mActiveSensorTable + mSensorList[buffer->sensType - 1];
-        sensor->curSamples -= buffer->firstSample.numSamples;
+        if (buffer->sensType > SENS_TYPE_INVALID && buffer->sensType <= SENS_TYPE_LAST_USER && mSensorList[buffer->sensType - 1] < MAX_REGISTERED_SENSORS) {
+            sensor = mActiveSensorTable + mSensorList[buffer->sensType - 1];
+            sensor->curSamples -= buffer->firstSample.numSamples;
+        }
     }
 
     return ret;
