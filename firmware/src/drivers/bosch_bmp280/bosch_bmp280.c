@@ -117,7 +117,7 @@ static void setMode(bool on, void *cookie)
         mTask.txrxBuf[1] = (2 << 5) | (5 << 2) | 3;
     } else {
         // temp: 2x oversampling, baro: 16x oversampling, power: sleep
-        mTask.txrxBuf[2] = (2 << 5) | (5 << 2) | 0;
+        mTask.txrxBuf[1] = (2 << 5) | (5 << 2) | 0;
     }
     i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 2, &i2cCallback,
                 cookie);
