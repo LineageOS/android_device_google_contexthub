@@ -785,13 +785,12 @@ static bool gyrPower(bool on)
             mTask.state = SENSOR_POWERING_UP;
 
             // set GYR power mode to NORMAL
-            SPI_WRITE(BMI160_REG_CMD, 0x15, 1000);
+            SPI_WRITE(BMI160_REG_CMD, 0x15, 50000);
         } else {
             mTask.state = SENSOR_POWERING_DOWN;
 
-            // set GYR power mode to FAST_START (from SUSPEND to NORMAL takes too
-            // long)
-            SPI_WRITE(BMI160_REG_CMD, 0x17, 1000);
+            // set GYR power mode to SUSPEND
+            SPI_WRITE(BMI160_REG_CMD, 0x14, 1000);
         }
         mTask.sensors[GYR].active = on;
         spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[GYR]);
@@ -1756,8 +1755,6 @@ static void sensorInit(void)
         SPI_WRITE(BMI160_REG_CMD, 0xb6, 100000);
         // dummy reads after soft reset, wait 100us
         SPI_READ(BMI160_REG_MAGIC, 1, mTask.rxBuffer, 100);
-        // set gyro to fast-start mode, wait 80ms
-        SPI_WRITE(BMI160_REG_CMD, 0x17, 80000);
 
         mTask.init_state = INIT_BMI160;
         spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask);
