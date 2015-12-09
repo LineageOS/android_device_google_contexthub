@@ -705,6 +705,7 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
                     sensor->buffer.firstSample.numFlushes ++;
                 }
                 sensor->discard = false;
+                hostIntfSetInterrupt(sensor->interrupt);
             } else {
                 if (sensor->buffer.length > 0) {
                     if (sensor->buffer.firstSample.numFlushes > 0) {
@@ -754,12 +755,8 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
             if ((currentTime >= sensor->lastInterrupt + sensor->latency) ||
                 ((sensor->latency > sensorGetCurLatency(sensor->sensorHandle)) &&
                     (currentTime + sensorGetCurLatency(sensor->sensorHandle) > sensor->lastInterrupt + sensor->latency))) {
-#if 0 // TODO: when non-wakeup sensors are enabled/disabled over AP suspend
                 hostIntfSetInterrupt(sensor->interrupt);
-#else
-                hostIntfSetInterrupt(NANOHUB_INT_WAKEUP);
-#endif
-                sensor->lastInterrupt = currentTime;
+                sensor->lastInterrupt += sensor->latency;
             }
 
             if (sensor->oneshot) {
