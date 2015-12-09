@@ -36,6 +36,7 @@ enum BMP280TaskState
     STATE_RESET,
     STATE_VERIFY_ID,
     STATE_AWAITING_COMP_PARAMS,
+    STATE_CONFIG,
     STATE_IDLE,
     STATE_ENABLING_BARO,
     STATE_ENABLING_TEMP,
@@ -153,7 +154,6 @@ static bool sensorRateBaro(uint32_t rate, uint64_t latency)
     if (mTask.baroTimerHandle)
         timTimerCancel(mTask.baroTimerHandle);
     mTask.baroTimerHandle = timTimerSet(1024000000000ULL / rate, 0, 50, baroTimerCallback, NULL, false);
-    osEnqueuePrivateEvt(EVT_SENSOR_BARO_TIMER, NULL, NULL, mTask.id);
     sensorSignalInternalEvt(mTask.baroHandle, SENSOR_INTERNAL_EVT_RATE_CHG, rate, latency);
     return true;
 }
@@ -192,7 +192,6 @@ static bool sensorRateTemp(uint32_t rate, uint64_t latency)
     if (mTask.tempTimerHandle)
         timTimerCancel(mTask.tempTimerHandle);
     mTask.tempTimerHandle = timTimerSet(1024000000000ULL / rate, 0, 50, tempTimerCallback, NULL, false);
-    osEnqueuePrivateEvt(EVT_SENSOR_TEMP_TIMER, NULL, NULL, mTask.id);
     sensorSignalInternalEvt(mTask.tempHandle, SENSOR_INTERNAL_EVT_RATE_CHG, rate, latency);
     return true;
 }
@@ -331,10 +330,19 @@ static void handleI2cEvent(enum BMP280TaskState state)
 
         case STATE_AWAITING_COMP_PARAMS: {
             mTask.txrxBuf[0] = BOSCH_BMP280_REG_CTRL_MEAS;
+            // temp: 2x oversampling, baro: 16x oversampling, power: sleep
             mTask.txrxBuf[1] = (2 << 5) | (5 << 2);
             i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 2,
-                              &i2cCallback, (void*)STATE_IDLE);
+                              &i2cCallback, (void*)STATE_CONFIG);
             break;
+        }
+
+        case STATE_CONFIG: {
+            mTask.txrxBuf[0] = BOSCH_BMP280_REG_CONFIG;
+            // standby time: 62.5ms, IIR filter coefficient: 4
+            mTask.txrxBuf[1] = (1 << 5) | (2 << 2);
+            i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 2,
+                              &i2cCallback, (void*)STATE_IDLE);
         }
 
         case STATE_ENABLING_BARO: {
