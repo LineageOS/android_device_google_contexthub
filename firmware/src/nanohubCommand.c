@@ -161,18 +161,29 @@ struct EvtPacket
 } __attribute__((packed));
 
 #define SYNC_DATAPOINTS 16
+#define SYNC_RESET      10000000000ULL /* 10 seconds, ~100us drift */
 
 struct TimeSync
 {
+    uint64_t lastTime;
     uint64_t delta[SYNC_DATAPOINTS];
     uint64_t avgDelta;
     uint8_t cnt;
     uint8_t tail;
 } __attribute__((packed));
 
-static void addDelta(struct TimeSync *sync, uint64_t delta)
+static uint64_t getAvgDelta(struct TimeSync *sync);
+
+static void addDelta(struct TimeSync *sync, uint64_t apTime, uint64_t hubTime)
 {
-    sync->delta[sync->tail++] = delta;
+    if (apTime - sync->lastTime > SYNC_RESET) {
+        sync->tail = 0;
+        sync->cnt = 0;
+    }
+
+    sync->delta[sync->tail++] = apTime - hubTime;
+
+    sync->lastTime = apTime;
 
     if (sync->tail >= SYNC_DATAPOINTS)
         sync->tail = 0;
@@ -206,7 +217,7 @@ static size_t readEvent(void *rx, uint8_t rx_len, void *tx, uint64_t timestamp)
     int length, sensor;
     static struct TimeSync timeSync = { };
 
-    addDelta(&timeSync, req->apBootTime - timestamp);
+    addDelta(&timeSync, req->apBootTime, timestamp);
 
     if (hostIntfPacketDequeue(packet)) {
         length = packet->length + sizeof(resp->evtType);
