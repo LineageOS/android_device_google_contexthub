@@ -261,7 +261,8 @@ static void addSample(struct FusionSensor *mSensor, uint64_t time, float x, floa
     sample->z = z;
 
     if (mSensor->ev->samples[0].firstSample.numSamples == MAX_NUM_COMMS_EVENT_SAMPLES) {
-        osEnqueueEvt(sensorGetMyEventType(mSi[mSensor->idx].sensorType), mSensor->ev, dataEvtFree);
+        osEnqueueEvt(EVENT_TYPE_BIT_DISCARDABLE | sensorGetMyEventType(mSi[mSensor->idx].sensorType),
+                mSensor->ev, dataEvtFree);
         mSensor->ev = NULL;
     }
 }
@@ -436,7 +437,8 @@ static void drainSamples()
 
     for (i = ORIENT; i < NUM_OF_FUSION_SENSOR; i++) {
         if (mTask.sensors[i].ev != NULL) {
-            osEnqueueEvt(sensorGetMyEventType(mSi[i].sensorType), mTask.sensors[i].ev, dataEvtFree);
+            osEnqueueEvt(EVENT_TYPE_BIT_DISCARDABLE | sensorGetMyEventType(mSi[i].sensorType),
+                    mTask.sensors[i].ev, dataEvtFree);
             mTask.sensors[i].ev = NULL;
         }
     }

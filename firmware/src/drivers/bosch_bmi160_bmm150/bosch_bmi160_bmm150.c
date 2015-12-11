@@ -1391,7 +1391,8 @@ static void flushRawData(void)
     for (i = ACC; i <= MAG; i++) {
         if (mTask.sensors[i].data_evt) {
 
-            osEnqueueEvt(sensorGetMyEventType(mSensorInfo[i].sensorType), mTask.sensors[i].data_evt, dataEvtFree);
+            osEnqueueEvt(EVENT_TYPE_BIT_DISCARDABLE | sensorGetMyEventType(mSensorInfo[i].sensorType),
+                    mTask.sensors[i].data_evt, dataEvtFree);
             mTask.sensors[i].data_evt = NULL;
         }
     }
