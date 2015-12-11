@@ -30,7 +30,7 @@ struct Fusion {
     struct Mat33 Phi0[2];
     struct Vec3 Ba, Bm;
     uint32_t mInitState;
-    float mGyroRate;
+    float mPredictDt;
     struct Vec3 mData[3];
     size_t mCount[3];
     uint32_t flags;

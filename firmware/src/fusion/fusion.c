@@ -19,15 +19,15 @@
 #define MAG     2
 #define GYRO    4
 
-#define DEFAULT_GYRO_VAR         1e-7
-#define DEFAULT_GYRO_BIAS_VAR    1e-12
-#define DEFAULT_ACC_STDEV        1.5e-2f
-#define DEFAULT_MAG_STDEV        1.0e-2f
+#define DEFAULT_GYRO_VAR         1e-7f
+#define DEFAULT_GYRO_BIAS_VAR    1e-12f
+#define DEFAULT_ACC_STDEV        5e-2f
+#define DEFAULT_MAG_STDEV        5e-1f
 
-#define GEOMAG_GYRO_VAR          1e-4
-#define GEOMAG_GYRO_BIAS_VAR     1e-8
-#define GEOMAG_ACC_STDEV         0.05f
-#define GEOMAG_MAG_STDEV         0.1f
+#define GEOMAG_GYRO_VAR          2e-4f
+#define GEOMAG_GYRO_BIAS_VAR     1e-4f
+#define GEOMAG_ACC_STDEV         0.02f
+#define GEOMAG_MAG_STDEV         0.02f
 
 #define SYMMETRY_TOLERANCE       1e-10f
 #define FAKE_MAG_INTERVAL        1.0f  //sec
@@ -36,14 +36,16 @@
 #define FREE_FALL_THRESHOLD      (0.1f * NOMINAL_GRAVITY)
 #define FREE_FALL_THRESHOLD_SQ   (FREE_FALL_THRESHOLD * FREE_FALL_THRESHOLD)
 
-#define MAX_VALID_MAGNETIC_FIELD    100.0f
+#define MAX_VALID_MAGNETIC_FIELD    75.0f
 #define MAX_VALID_MAGNETIC_FIELD_SQ (MAX_VALID_MAGNETIC_FIELD * MAX_VALID_MAGNETIC_FIELD)
 
-#define MIN_VALID_MAGNETIC_FIELD    10.0f
+#define MIN_VALID_MAGNETIC_FIELD    30.0f
 #define MIN_VALID_MAGNETIC_FIELD_SQ (MIN_VALID_MAGNETIC_FIELD * MIN_VALID_MAGNETIC_FIELD)
 
 #define MIN_VALID_CROSS_PRODUCT_MAG     1.0e-3
 #define MIN_VALID_CROSS_PRODUCT_MAG_SQ  (MIN_VALID_CROSS_PRODUCT_MAG * MIN_VALID_CROSS_PRODUCT_MAG)
+
+#define DELTA_TIME_MARGIN 1.0e-9f
 
 void initFusion(struct Fusion *fusion, uint32_t flags) {
     fusion->flags = flags;
@@ -72,7 +74,7 @@ void initFusion(struct Fusion *fusion, uint32_t flags) {
 
         fusion->mInitState = 0;
 
-        fusion->mGyroRate = 0.0f;
+        fusion->mPredictDt = 0.0f;
         fusion->mCount[0] = fusion->mCount[1] = fusion->mCount[2] = 0;
 
         initVec3(&fusion->mData[0], 0.0f, 0.0f, 0.0f);
@@ -93,28 +95,23 @@ int fusionHasEstimate(const struct Fusion *fusion) {
                                   | ((fusion->flags & FUSION_USE_GYRO) ? GYRO : 0));
 }
 
-static void internalInit(struct Fusion *fusion, const Quat *q, float dT) {
-    fusion->x0 = *q;
-    initVec3(&fusion->x1, 0.0f, 0.0f, 0.0f);
+static void updateDt(struct Fusion *fusion, float dT) {
+    if (fabsf(fusion->mPredictDt - dT) > DELTA_TIME_MARGIN) {
+        float dT2 = dT * dT;
+        float dT3 = dT2 * dT;
 
-    float dT2 = dT * dT;
-    float dT3 = dT2 * dT;
+        float q00 = fusion->param.gyro_var * dT +
+                    0.33333f * fusion->param.gyro_bias_var * dT3;
+        float q11 = fusion->param.gyro_bias_var * dT;
+        float q10 = 0.5f * fusion->param.gyro_bias_var * dT2;
+        float q01 = q10;
 
-    float q00 = fusion->param.gyro_var * dT +
-                0.33333f * fusion->param.gyro_bias_var * dT3;
-    float q11 = fusion->param.gyro_bias_var * dT;
-    float q10 = 0.5f * fusion->param.gyro_bias_var * dT2;
-    float q01 = q10;
-
-    initDiagonalMatrix(&fusion->GQGt[0][0], q00);
-    initDiagonalMatrix(&fusion->GQGt[0][1], -q10);
-    initDiagonalMatrix(&fusion->GQGt[1][0], -q01);
-    initDiagonalMatrix(&fusion->GQGt[1][1], q11);
-
-    initZeroMatrix(&fusion->P[0][0]);
-    initZeroMatrix(&fusion->P[0][1]);
-    initZeroMatrix(&fusion->P[1][0]);
-    initZeroMatrix(&fusion->P[1][1]);
+        initDiagonalMatrix(&fusion->GQGt[0][0], q00);
+        initDiagonalMatrix(&fusion->GQGt[0][1], -q10);
+        initDiagonalMatrix(&fusion->GQGt[1][0], -q01);
+        initDiagonalMatrix(&fusion->GQGt[1][1], q11);
+        fusion->mPredictDt = dT;
+    }
 }
 
 static int fusion_init_complete(struct Fusion *fusion, int what, const struct Vec3 *d, float dT) {
@@ -126,7 +123,7 @@ static int fusion_init_complete(struct Fusion *fusion, int what, const struct Ve
         case ACC:
         {
             if (!(fusion->flags & FUSION_USE_GYRO)) {
-                fusion->mGyroRate = dT;
+                updateDt(fusion, dT);
             }
             struct Vec3 unityD = *d;
             vec3Normalize(&unityD);
@@ -154,7 +151,7 @@ static int fusion_init_complete(struct Fusion *fusion, int what, const struct Ve
 
         case GYRO:
         {
-            fusion->mGyroRate = dT;
+            updateDt(fusion, dT);
 
             struct Vec3 scaledD = *d;
             vec3ScalarMul(&scaledD, dT);
@@ -196,10 +193,16 @@ static int fusion_init_complete(struct Fusion *fusion, int what, const struct Ve
         struct Mat33 R;
         initMatrixColumns(&R, &east, &north, &up);
 
-        Quat q;
-        initQuat(&q, &R);
+        //Quat q;
+        //initQuat(&q, &R);
 
-        internalInit(fusion, &q, fusion->mGyroRate);
+        initQuat(&fusion->x0, &R);
+        initVec3(&fusion->x1, 0.0f, 0.0f, 0.0f);
+
+        initZeroMatrix(&fusion->P[0][0]);
+        initZeroMatrix(&fusion->P[0][1]);
+        initZeroMatrix(&fusion->P[1][0]);
+        initZeroMatrix(&fusion->P[1][1]);
     }
 
     return 0;
@@ -232,7 +235,9 @@ static void fusionCheckState(struct Fusion *fusion) {
 
 #define kEps 1.0E-4f
 
-static void fusionPredict(struct Fusion *fusion, const struct Vec3 *w, float dT) {
+static void fusionPredict(struct Fusion *fusion, const struct Vec3 *w) {
+    const float dT = fusion->mPredictDt;
+
     Quat q = fusion->x0;
     struct Vec3 b = fusion->x1;
 
@@ -363,7 +368,9 @@ void fusionHandleGyro(struct Fusion *fusion, const struct Vec3 *w, float dT) {
         return;
     }
 
-    fusionPredict(fusion, w, dT);
+    updateDt(fusion, dT);
+
+    fusionPredict(fusion, w);
 }
 
 static void scaleCovariance(struct Mat33 *out, const struct Mat33 *A, const struct Mat33 *P) {
@@ -475,6 +482,10 @@ static void fusionUpdate(
     fusionCheckState(fusion);
 }
 
+#define ACC_TRUSTWORTHY(abs_norm_err)  ((abs_norm_err) < 1.f)
+#define ACC_COS_CONV_FACTOR  0.01f
+#define ACC_COS_CONV_LIMIT   3.f
+
 int fusionHandleAcc(struct Fusion *fusion, const struct Vec3 *a, float dT) {
     if (!fusion_init_complete(fusion, ACC, a,  dT)) {
         return -EINVAL;
@@ -497,15 +508,18 @@ int fusionHandleAcc(struct Fusion *fusion, const struct Vec3 *a, float dT) {
         // avoid (fabsf(norm_we) < kEps) in fusionPredict()
         initVec3(&w_dummy, fusion->x1.x + kEps, fusion->x1.y + kEps,
                  fusion->x1.z + kEps);
-        fusionPredict(fusion, &w_dummy, dT);
+
+        updateDt(fusion, dT);
+        fusionPredict(fusion, &w_dummy);
     }
+
+    struct Mat33 R;
+    fusionGetRotationMatrix(fusion, &R);
 
     if (!(fusion->flags & FUSION_USE_MAG) &&
         (fusion->fake_mag_decimation += dT) > FAKE_MAG_INTERVAL) {
         // game rotation mode, provide fake mag update to prevent
         // P to diverge over time
-        struct Mat33 R;
-        fusionGetRotationMatrix(fusion, &R);
         struct Vec3 m;
         mat33Apply(&m, &R, &fusion->Bm);
 
@@ -517,18 +531,36 @@ int fusionHandleAcc(struct Fusion *fusion, const struct Vec3 *a, float dT) {
     struct Vec3 unityA = *a;
     vec3ScalarMul(&unityA, l_inv);
 
-    // Adaptive acc weighting (trust acc less as it deviates from nominal g
-    // more), acc_stdev *= e(sqrt(| |acc| - g_nominal|))
-    //
-    // The weighting equation comes from heuristics.
-    float d = sqrtf(fabsf(l - NOMINAL_GRAVITY));
-
-    float p = l_inv * fusion->param.acc_stdev * expf(d);
+    float d = fabsf(l - NOMINAL_GRAVITY);
+    float p;
+    if (fusion->flags & FUSION_USE_GYRO) {
+        float fc = 0;
+        // Enable faster convergence
+        if (ACC_TRUSTWORTHY(d)) {
+            struct Vec3 aa;
+            mat33Apply(&aa, &R, &fusion->Ba);
+            float cos_err = vec3Dot(&aa, &unityA);
+            cos_err = cos_err < (1.f - ACC_COS_CONV_FACTOR) ?
+                (1.f - ACC_COS_CONV_FACTOR) : cos_err;
+            fc = (1.f - cos_err) *
+                    (1.0f / ACC_COS_CONV_FACTOR * ACC_COS_CONV_LIMIT);
+        }
+        p = fusion->param.acc_stdev * expf(3 * d - fc);
+    } else {
+        // Adaptive acc weighting (trust acc less as it deviates from nominal g
+        // more), acc_stdev *= e(sqrt(| |acc| - g_nominal|))
+        //
+        // The weighting equation comes from heuristics.
+        p = fusion->param.acc_stdev * expf(sqrtf(d));
+    }
 
     fusionUpdate(fusion, &unityA, &fusion->Ba, p);
 
     return 0;
 }
+
+#define MAG_COS_CONV_FACTOR  0.02f
+#define MAG_COS_CONV_LIMIT    2.f
 
 int fusionHandleMag(struct Fusion *fusion, const struct Vec3 *m) {
     if (!fusion_init_complete(fusion, MAG, m, 0.0f /* dT */)) {
@@ -537,12 +569,8 @@ int fusionHandleMag(struct Fusion *fusion, const struct Vec3 *m) {
 
     float magFieldSq = vec3NormSquared(m);
 
-    if (magFieldSq > MAX_VALID_MAGNETIC_FIELD_SQ) {
-        // ALOGI("magField %.2f > %.2f", sqrtf(magFieldSq), MAX_VALID_MAGNETIC_FIELD);
-        return -EINVAL;
-    }
-    if (magFieldSq < MIN_VALID_MAGNETIC_FIELD_SQ) {
-        // ALOGI("magField %.2f < %.2f", sqrtf(magFieldSq), MIN_VALID_MAGNETIC_FIELD);
+    if (magFieldSq > MAX_VALID_MAGNETIC_FIELD_SQ
+            || magFieldSq < MIN_VALID_MAGNETIC_FIELD_SQ) {
         return -EINVAL;
     }
 
@@ -565,8 +593,21 @@ int fusionHandleMag(struct Fusion *fusion, const struct Vec3 *m) {
     float invNorm = 1.0f / vec3Norm(&north);
     vec3ScalarMul(&north, invNorm);
 
-    fusionUpdate(fusion, &north, &fusion->Bm,
-                  fusion->param.mag_stdev * invNorm);
+    float p = fusion->param.mag_stdev;
+
+    if (fusion->flags & FUSION_USE_GYRO) {
+        struct Vec3 mm;
+        mat33Apply(&mm, &R, &fusion->Bm);
+        float cos_err = vec3Dot(&mm, &north);
+        cos_err = cos_err < (1.f - MAG_COS_CONV_FACTOR) ?
+            (1.f - MAG_COS_CONV_FACTOR) : cos_err;
+
+        float fc;
+        fc = (1.f - cos_err) * (1.0f / MAG_COS_CONV_FACTOR * MAG_COS_CONV_LIMIT);
+        p *= expf(-fc);
+    }
+
+    fusionUpdate(fusion, &north, &fusion->Bm, p);
 
     return 0;
 }
