@@ -170,6 +170,10 @@
 #define SENSOR_OSR      3
 #define OSR_THRESHOULD  8
 
+#define RETRY_CNT_CALIBRATION 10
+#define RETRY_CNT_ID 5
+#define RETRY_CNT_MAG 30
+
 enum SensorIndex {
     ACC = 0,
     GYR,
@@ -274,6 +278,7 @@ struct BMI160Task {
     uint8_t txBuffer[1024+4+4];
     uint8_t pmuBuffer[2];
     uint8_t errBuffer[2];
+    uint8_t stateBuffer[2];
     struct SpiPacket packets[30];
     int xferCnt;
     struct Gpio *Int1;
@@ -294,7 +299,6 @@ struct BMI160Task {
     bool new_mag_bias;
 
     enum CalibrationState calibration_state;
-    uint8_t calibration_timeout_cnt;
 
     uint32_t total_step_cnt;
     uint32_t last_step_cnt;
@@ -357,7 +361,8 @@ static struct BMI160Task mTask;
 static uint16_t mWbufCnt = 0;
 static uint8_t mRegCnt = 0;
 
-static uint8_t mRetryLeft = 5;
+static uint8_t mRetryLeft;
+static uint8_t mag_first_ever_enable = true;
 
 static struct SlabAllocator *mDataSlab;
 
@@ -607,31 +612,31 @@ static void magConfig(void)
         // MAG_SET_REPXY and MAG_SET_REPZ case set:
         // regular preset, f_max,ODR ~ 102 Hz
         SPI_WRITE(BMI160_REG_MAG_IF_3, BMM150_REG_REPXY);
-        SPI_WRITE(BMI160_REG_MAG_IF_4, 9, 1000000);
+        SPI_WRITE(BMI160_REG_MAG_IF_4, 9);
         mTask.mag_state = MAG_SET_REPZ;
         break;
     case MAG_SET_REPZ:
         SPI_WRITE(BMI160_REG_MAG_IF_3, BMM150_REG_REPZ);
-        SPI_WRITE(BMI160_REG_MAG_IF_4, 15, 1000000);
+        SPI_WRITE(BMI160_REG_MAG_IF_4, 15);
         mTask.mag_state = MAG_SET_DIG_X;
         break;
     case MAG_SET_DIG_X:
         // MAG_SET_DIG_X, MAG_SET_DIG_Y and MAG_SET_DIG_Z cases:
         // save the raw offset for MAG data compensation.
         SPI_WRITE(BMI160_REG_MAG_IF_2, BMM150_REG_DIG_X1, 5000);
-        SPI_READ(BMI160_REG_DATA_0, 8, mTask.rxBuffer, 1000000);
+        SPI_READ(BMI160_REG_DATA_0, 8, mTask.rxBuffer);
         mTask.mag_state = MAG_SET_DIG_Y;
         break;
     case MAG_SET_DIG_Y:
         saveDigData(&mTask.moc, &mTask.rxBuffer[1], 0);
         SPI_WRITE(BMI160_REG_MAG_IF_2, BMM150_REG_DIG_X1 + 8, 5000);
-        SPI_READ(BMI160_REG_DATA_0, 8, mTask.rxBuffer, 1000000);
+        SPI_READ(BMI160_REG_DATA_0, 8, mTask.rxBuffer);
         mTask.mag_state = MAG_SET_DIG_Z;
         break;
     case MAG_SET_DIG_Z:
         saveDigData(&mTask.moc, &mTask.rxBuffer[1], 8);
         SPI_WRITE(BMI160_REG_MAG_IF_2, BMM150_REG_DIG_X1 + 16, 5000);
-        SPI_READ(BMI160_REG_DATA_0, 8, mTask.rxBuffer, 1000000);
+        SPI_READ(BMI160_REG_DATA_0, 8, mTask.rxBuffer);
         mTask.mag_state = MAG_SET_SAVE_DIG;
         break;
     case MAG_SET_SAVE_DIG:
@@ -658,6 +663,7 @@ static void magConfig(void)
         osLog(LOG_ERROR, "Invalid Mag Config status\n");
         break;
     }
+    SPI_READ(BMI160_REG_STATUS, 1, mTask.stateBuffer, 1000);
 }
 
 static void configInt1(bool on)
@@ -839,7 +845,14 @@ static bool magPower(bool on)
 
             // set MAG power mode to NORMAL
             SPI_WRITE(BMI160_REG_CMD, 0x19, 1000);
-            mTask.mag_state = MAG_SET_START;
+            if (mag_first_ever_enable) {
+                mag_first_ever_enable = false;
+                mTask.mag_state = MAG_SET_START;
+                mRetryLeft = RETRY_CNT_MAG;
+                SPI_READ(BMI160_REG_STATUS, 1, mTask.stateBuffer);
+            } else {
+                mTask.mag_state = MAG_SET_DONE;
+            }
         } else {
             mTask.state = SENSOR_POWERING_DOWN;
 
@@ -1407,7 +1420,6 @@ static void parseRawData(struct BMI160Sensor *mSensor, int i, float kScale, uint
     uint64_t rtc_time;
 
     if (!sensortime_to_rtc_time(sensorTime, &rtc_time)) {
-        osLog(LOG_ERROR, "bmi160: Failed time syncing\n");
         return;
     }
 
@@ -1732,7 +1744,7 @@ static void accCalibrationHandling(void)
 {
     switch (mTask.calibration_state) {
     case CALIBRATION_START:
-        mTask.calibration_timeout_cnt = 0;
+        mRetryLeft = RETRY_CNT_CALIBRATION;
 
         //if power is off, turn ACC on to NORMAL mode
         if (!mTask.sensors[ACC].powered)
@@ -1776,13 +1788,13 @@ static void accCalibrationHandling(void)
             // calibration hasn't finished yet, go back to wait for 50ms.
             SPI_READ(BMI160_REG_STATUS, 1, mTask.rxBuffer, 50000);
             mTask.calibration_state = CALIBRATION_WAIT_FOC_DONE;
-            mTask.calibration_timeout_cnt ++;
+            mRetryLeft--;
         }
         spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[ACC]);
 
         // if calbration hasn't finished after 10 polling on the STATUS reg,
         // declare timeout.
-        if (mTask.calibration_timeout_cnt == 10) {
+        if (mRetryLeft == 0) {
             mTask.calibration_state = CALIBRATION_TIMEOUT;
         }
         break;
@@ -2081,6 +2093,7 @@ static void handleSpiDoneEvt(const void* evtData)
 
     switch (mTask.state) {
     case SENSOR_BOOT:
+        mRetryLeft = RETRY_CNT_ID;
         mTask.state = SENSOR_VERIFY_ID;
         // dummy reads after boot, wait 100us
         SPI_READ(BMI160_REG_MAGIC, 1, mTask.rxBuffer, 100);
@@ -2124,7 +2137,18 @@ static void handleSpiDoneEvt(const void* evtData)
     case SENSOR_POWERING_UP:
         mSensor = (struct BMI160Sensor *)evtData;
         if (mSensor->idx == MAG && mTask.mag_state != MAG_SET_DONE) {
-            magConfig();
+            if (mTask.mag_state < MAG_SET_DATA && mTask.stateBuffer[1] & 0x04) {
+                SPI_READ(BMI160_REG_STATUS, 1, mTask.stateBuffer, 1000);
+                if (--mRetryLeft == 0) {
+                    osLog(LOG_ERROR, "bmi160: Enable MAG failed. Go back to IDLE\n");
+                    mTask.state = SENSOR_IDLE;
+                    processPendingEvt();
+                    break;
+                }
+            } else {
+                mRetryLeft = RETRY_CNT_MAG;
+                magConfig();
+            }
         } else {
             if (mSensor->idx <= MAG) {
                 if (++mTask.active_data_sensor_cnt == 1) {
