@@ -300,7 +300,7 @@ static void hostIntfTxAckDone(size_t tx, int err)
         return;
     }
 
-    osDefer(hostIntfGenerateResponse, NULL);
+    osDefer(hostIntfGenerateResponse, NULL, false);
 }
 
 static void hostIntfGenerateResponse(void *cookie)

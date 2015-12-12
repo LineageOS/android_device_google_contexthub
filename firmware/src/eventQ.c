@@ -61,7 +61,7 @@ void evtQueueFree(struct EvtQueue* q)
     heapFree(q);
 }
 
-bool evtQueueEnqueue(struct EvtQueue* q, uint32_t evtType, void *evtData, uintptr_t evtFreeData)
+bool evtQueueEnqueue(struct EvtQueue* q, uint32_t evtType, void *evtData, uintptr_t evtFreeData, bool atFront)
 {
     struct EvtRecord *rec;
     uint64_t intSta;
@@ -101,12 +101,24 @@ bool evtQueueEnqueue(struct EvtQueue* q, uint32_t evtType, void *evtData, uintpt
     rec->evtFreeData = evtFreeData;
 
     intSta = cpuIntsOff();
-    rec->prev = q->tail;
-    q->tail = rec;
-    if (q->head)
-        rec->prev->next = rec;
-    else
+
+    if (atFront) { /* this is almost always not the case */
+        rec->prev = NULL;
+        rec->next = q->head;
         q->head = rec;
+        if (q->tail)
+            rec->next->prev = rec;
+        else
+            q->tail = rec;
+    }
+    else { /* the common case */
+        rec->prev = q->tail;
+        q->tail = rec;
+        if (q->head)
+            rec->prev->next = rec;
+        else
+            q->head = rec;
+    }
 
     cpuIntsRestore(intSta);
     return true;

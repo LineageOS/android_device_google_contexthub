@@ -16,7 +16,7 @@ typedef void (*EvtQueueForciblyDiscardEvtCbkF)(uint32_t evtType, void *evtData, 
 
 struct EvtQueue* evtQueueAlloc(uint32_t size, EvtQueueForciblyDiscardEvtCbkF forceDiscardCbk);
 void evtQueueFree(struct EvtQueue* q);
-bool evtQueueEnqueue(struct EvtQueue* q, uint32_t evtType, void *evtData, uintptr_t evtFreeData);
+bool evtQueueEnqueue(struct EvtQueue* q, uint32_t evtType, void *evtData, uintptr_t evtFreeData, bool atFront /* do not set this unless you know the repercussions. read: never set this in new code */);
 bool evtQueueDequeue(struct EvtQueue* q, uint32_t *evtTypeP, void **evtDataP, uintptr_t *evtFreeDataP, bool sleepIfNone);
 
 
