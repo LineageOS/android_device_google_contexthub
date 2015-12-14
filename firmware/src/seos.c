@@ -387,7 +387,17 @@ bool osEventUnsubscribe(uint32_t tid, uint32_t evtType)
     return osEventSubscribeUnsubscribe(tid, evtType, false);
 }
 
-bool osDefer(OsDeferCbkF callback, void *cookie)
+bool osEnqueueEvt(uint32_t evtType, void *evtData, EventFreeF evtFreeF)
+{
+    return evtQueueEnqueue(mEvtsInternal, evtType, evtData, taggedPtrMakeFromPtr(evtFreeF), false);
+}
+
+bool osEnqueueEvtAsApp(uint32_t evtType, void *evtData, uint32_t fromAppTid)
+{
+    return evtQueueEnqueue(mEvtsInternal, evtType, evtData, taggedPtrMakeFromUint(fromAppTid), false);
+}
+
+bool osDefer(OsDeferCbkF callback, void *cookie, bool urgent)
 {
     union InternalThing *act = slabAllocatorAlloc(mMiscInternalThingsSlab);
     if (!act)
@@ -396,7 +406,7 @@ bool osDefer(OsDeferCbkF callback, void *cookie)
     act->deferred.callback = callback;
     act->deferred.cookie = cookie;
 
-    if (osEnqueueEvt(EVT_DEFERRED_CALLBACK, act, osDeferredActionFreeF))
+    if (evtQueueEnqueue(mEvtsInternal, EVT_DEFERRED_CALLBACK, act, taggedPtrMakeFromPtr(osDeferredActionFreeF), urgent))
         return true;
 
     slabAllocatorFree(mMiscInternalThingsSlab, act);
@@ -429,16 +439,6 @@ bool osEnqueuePrivateEvt(uint32_t evtType, void *evtData, EventFreeF evtFreeF, u
 bool osEnqueuePrivateEvtAsApp(uint32_t evtType, void *evtData, uint32_t fromAppTid, uint32_t toTid)
 {
     return osEnqueuePrivateEvtEx(evtType, evtData, taggedPtrMakeFromUint(fromAppTid), toTid);
-}
-
-bool osEnqueueEvt(uint32_t evtType, void *evtData, EventFreeF evtFreeF)
-{
-    return evtQueueEnqueue(mEvtsInternal, evtType, evtData, taggedPtrMakeFromPtr(evtFreeF));
-}
-
-bool osEnqueueEvtAsApp(uint32_t evtType, void *evtData, uint32_t fromAppTid)
-{
-    return evtQueueEnqueue(mEvtsInternal, evtType, evtData, taggedPtrMakeFromUint(fromAppTid));
 }
 
 void osLogv(enum LogLevel level, const char *str, va_list vl)

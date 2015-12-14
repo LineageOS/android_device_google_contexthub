@@ -98,7 +98,7 @@ static size_t firmwareChunk(void *rx, uint8_t rx_len, void *tx, uint64_t timesta
 
     if (mFirmwareErase == true) {
         resp->chunkReply = NANOHUB_FIRMWARE_CHUNK_REPLY_WAIT;
-        osDefer(firmwareErase, NULL);
+        osDefer(firmwareErase, NULL, false);
     } else if (offset != mFirmwareOffset) {
         resp->chunkReply = NANOHUB_FIRMWARE_CHUNK_REPLY_RESTART;
         mFirmwareOffset = 0;
