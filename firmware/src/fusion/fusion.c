@@ -102,7 +102,7 @@ static void internalInit(struct Fusion *fusion, const Quat *q, float dT) {
 
     float q00 = fusion->param.gyro_var * dT +
                 0.33333f * fusion->param.gyro_bias_var * dT3;
-    float q11 = fusion->param.gyro_var * dT;
+    float q11 = fusion->param.gyro_bias_var * dT;
     float q10 = 0.5f * fusion->param.gyro_bias_var * dT2;
     float q01 = q10;
 
@@ -134,7 +134,7 @@ static int fusion_init_complete(struct Fusion *fusion, int what, const struct Ve
             vec3Add(&fusion->mData[0], &unityD);
             ++fusion->mCount[0];
 
-            if (fusion->mCount[0] == 32) {
+            if (fusion->mCount[0] == 8) {
                 fusion->mInitState |= ACC;
             }
             break;
@@ -176,6 +176,8 @@ static int fusion_init_complete(struct Fusion *fusion, int what, const struct Ve
 
         if (fusion->flags & FUSION_USE_MAG) {
             vec3ScalarMul(&fusion->mData[1], 1.0f / fusion->mCount[1]);
+        } else {
+            fusion->fake_mag_decimation = 0.f;
         }
 
         struct Vec3 up = fusion->mData[0];
@@ -498,9 +500,8 @@ int fusionHandleAcc(struct Fusion *fusion, const struct Vec3 *a, float dT) {
         fusionPredict(fusion, &w_dummy, dT);
     }
 
-    static float fake_mag_decimation = 0.f;
     if (!(fusion->flags & FUSION_USE_MAG) &&
-        (fake_mag_decimation += dT) > FAKE_MAG_INTERVAL) {
+        (fusion->fake_mag_decimation += dT) > FAKE_MAG_INTERVAL) {
         // game rotation mode, provide fake mag update to prevent
         // P to diverge over time
         struct Mat33 R;
@@ -510,7 +511,7 @@ int fusionHandleAcc(struct Fusion *fusion, const struct Vec3 *a, float dT) {
 
         fusionUpdate(fusion, &m, &fusion->Bm,
                       fusion->param.mag_stdev);
-        fake_mag_decimation = 0.f;
+        fusion->fake_mag_decimation = 0.f;
     }
 
     struct Vec3 unityA = *a;
