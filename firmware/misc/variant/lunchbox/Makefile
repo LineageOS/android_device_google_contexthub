@@ -22,7 +22,7 @@ SRCS += src/drivers/rohm_rpr0521/rohm_rpr0521.c
 SRCS += src/fusion/fusion.c src/fusion/mat.c src/fusion/quat.c src/fusion/vec.c
 
 # BMI160 accel and gyro, BMM150 mag drivers
-SRCS += src/drivers/bosch_bmi160_bmm150/bosch_bmi160_bmm150.c src/drivers/bosch_bmi160_bmm150/mag_cal.c
+SRCS += src/drivers/bosch_bmi160_bmm150/bosch_bmi160_bmm150.c src/drivers/bosch_bmi160_bmm150/mag_cal.c src/drivers/bosch_bmi160_bmm150/time_sync.c
 
 # Orientation sensor driver
 SRCS += src/drivers/orientation/orientation.c
