@@ -64,11 +64,6 @@ static int8_t Tilt_Tolerance[4][2] = {
     /* ROTATION_270 */ { -25, 65 }
 };
 
-static uint32_t window_orientation_rates[] = {
-    SENSOR_HZ(15),
-    0,
-};
-
 struct WindowOrientationTask {
     uint32_t tid;
     uint32_t handle;
@@ -103,7 +98,7 @@ static struct WindowOrientationTask mTask;
 static const struct SensorInfo mSi =
 {
     "Window Orientation",
-    window_orientation_rates,
+    NULL,
     SENS_TYPE_WIN_ORIENTATION,
     NUM_AXIS_EMBEDDED,
     NANOHUB_INT_WAKEUP,
