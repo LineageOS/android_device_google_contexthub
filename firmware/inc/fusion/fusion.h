@@ -35,6 +35,7 @@ struct Fusion {
     size_t mCount[3];
     uint32_t flags;
 
+    float  fake_mag_decimation;
     struct FusionParam param;
 };
 
