@@ -7,6 +7,12 @@ extern "C" {
 
 //we have LSE in lunchbox
 #define RTC_CLK                     RTC_CLK_LSE
+// fCAL = fRTCCLK x [1 + (256 - CALM) / (2^20 + CALM - 256)]
+// 32764.505 * (1 + (256 - 144)/(1048576 + 144 - 256)) = 32768.005
+#define RTC_PREDIV_A                0UL
+#define RTC_PREDIV_S                32759UL
+#define RTC_CALM                    144UL
+#define RTC_CALP                    0UL
 
 //spi bus for comms
 #define PLATFORM_HOST_INTF_SPI_BUS  0

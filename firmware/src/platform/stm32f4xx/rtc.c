@@ -14,25 +14,27 @@
 
 struct StmRtc
 {
-    volatile uint32_t TR;
-    volatile uint32_t DR;
-    volatile uint32_t CR;
-    volatile uint32_t ISR;
-    volatile uint32_t PRER;
-    volatile uint32_t WUTR;
-    volatile uint32_t CALIBR;
-    volatile uint32_t ALRMAR;
-    volatile uint32_t ALRMBR;
-    volatile uint32_t WPR;
-    volatile uint32_t SSR;
-    volatile uint32_t TSTR;
-    volatile uint32_t TSSSR;
-    volatile uint32_t CALR;
-    volatile uint32_t TAFCR;
-    volatile uint32_t ALRMASSR;
-    volatile uint32_t ALRMBSSR;
-    uint8_t unused0[4];
-    volatile uint32_t BKPR[20];
+    volatile uint32_t TR;       /* 0x00 */
+    volatile uint32_t DR;       /* 0x04 */
+    volatile uint32_t CR;       /* 0x08 */
+    volatile uint32_t ISR;      /* 0x0C */
+    volatile uint32_t PRER;     /* 0x10 */
+    volatile uint32_t WUTR;     /* 0x14 */
+    volatile uint32_t CALIBR;   /* 0x18 */
+    volatile uint32_t ALRMAR;   /* 0x1C */
+    volatile uint32_t ALRMBR;   /* 0x20 */
+    volatile uint32_t WPR;      /* 0x24 */
+    volatile uint32_t SSR;      /* 0x28 */
+    volatile uint32_t SHIFTR;   /* 0x2C */
+    volatile uint32_t TSTR;     /* 0x30 */
+    volatile uint32_t TSDR;     /* 0x34 */
+    volatile uint32_t TSSSR;    /* 0x38 */
+    volatile uint32_t CALR;     /* 0x3C */
+    volatile uint32_t TAFCR;    /* 0x40 */
+    volatile uint32_t ALRMASSR; /* 0x44 */
+    volatile uint32_t ALRMBSSR; /* 0x48 */
+    uint8_t unused0[4];         /* 0x4C */
+    volatile uint32_t BKPR[20]; /* 0x50 - 0x9C */
 };
 
 #define RTC ((struct StmRtc*)RTC_BASE)
@@ -68,8 +70,18 @@ struct StmRtc
 
 /* Default prescalars of P[async] = 127 and P[sync] = 255 are appropriate
  * produce a 1 Hz clock when using a 32.768kHZ clock source */
+#ifndef RTC_PREDIV_A
 #define RTC_PREDIV_A                31UL
+#endif
+#ifndef RTC_PREDIV_S
 #define RTC_PREDIV_S                1023UL
+#endif
+#ifndef RTC_CALM
+#define RTC_CALM                    0
+#endif
+#ifndef RTC_CALP
+#define RTC_CALP                    0
+#endif
 
 /* Jitter = max wakeup timer resolution (61.035 us)
  * + 2 RTC cycles for synchronization (61.035 us) */
@@ -101,6 +113,7 @@ static void rtcSetDefaultDateTimeAndPrescalar(void)
     /* Set prescalar rtc register.  Two writes required. */
     RTC->PRER = RTC_PREDIV_S;
     RTC->PRER |= (RTC_PREDIV_A << 16);
+    RTC->CALR = (RTC_CALP << 15) | (RTC_CALM & 0x1FF);
 
     /* 24 hour format */
     RTC->CR &= ~RTC_CR_FMT;
@@ -117,6 +130,7 @@ static void rtcSetDefaultDateTimeAndPrescalar(void)
 
     /* Exit init mode for RTC */
     RTC->ISR &= ~RTC_ISR_INIT;
+
     /* Re-enable register write protection.  RTC counting doesn't start for
      * 4 RTC cycles after set - must poll RSF before read DR or TR */
     RTC->WPR = 0xFF;
@@ -214,8 +228,14 @@ int rtcSetWakeupTimer(uint64_t delay)
 
 uint64_t rtcGetTime(void)
 {
-    uint64_t time;
+    int32_t time_s;
     uint32_t dr, tr, ssr;
+    // cumulative adjustments from 32 day months (year 2000)
+    //   31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31
+    //    1,  3,  1,  2,  1,  2,  1,  1,  2,  1,  2,  1
+    //  0   1,  4,  5,  7,  8, 10, 11, 12, 14, 15, 17
+    static const uint8_t adjust[] = { 0, 1, 4, 5, 7, 8, 10, 11, 12, 14, 15, 17 };
+    uint8_t month;
 
     // need to loop incase an interrupt occurs in the middle or ssr
     // decrements (which can propagate changes to tr and dr)
@@ -225,16 +245,17 @@ uint64_t rtcGetTime(void)
         dr = RTC->DR;
     } while (ssr != RTC->SSR);
 
-    time =  ((((dr >> 4) & 0x3) * 10) + (dr & 0xF) - 1) * 86400ULL * NS_PER_S;
-    time += ((((tr >> 22) & 0x1) * 43200ULL) +
+    month = (((dr >> 12) & 0x1) * 10) + ((dr >> 8) & 0xf) - 1;
+    time_s = (((((dr >> 4) & 0x3) * 10) + (dr & 0xF) - 1) + (month << 5) - adjust[month]) * 86400ULL;
+    time_s += ((((tr >> 22) & 0x1) * 43200ULL) +
              (((tr >> 20) & 0x3) * 36000ULL) +
              (((tr >> 16) & 0xF) * 3600ULL) +
              (((tr >> 12) & 0x7) * 600ULL) +
              (((tr >> 8) & 0xF) * 60ULL) +
              (((tr >> 4) & 0x7) * 10ULL) +
-             (((tr) & 0xF))) * NS_PER_S;
+             (((tr) & 0xF)));
 
-    return time + ((RTC_PREDIV_S - ssr) * NS_PER_S / (RTC_PREDIV_S + 1));
+    return (time_s * NS_PER_S) + ((RTC_PREDIV_S - ssr) * NS_PER_S / (RTC_PREDIV_S + 1));
 }
 
 void EXTI22_RTC_WKUP_IRQHandler(void);
