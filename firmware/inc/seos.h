@@ -84,6 +84,16 @@ typedef void (*OsDeferCbkF)(void *);
 
 typedef void (*EventFreeF)(void* event);
 
+/* ==== ABOUT THE "urgent" FLAG ====
+ *
+ * Do not set "urgent" unless you understand all the repercussions! What repercussions you might ask?
+ * Setting this flag will place your defer request at the front of the queue. This is useful for enqueueing work
+ * from interrupt context that needs to be done "very very soon"(tm). Doing this will delay all other work requests
+ * that have heretofore been peacefully queueing in full faith and with complete belief in fairness of our "FIFO"-ness.
+ * Please be appreciative of this fact and do not abuse this! Example: if you are setting "urgent" flag outside of interrupt
+ * context, you're very very likely wrong. That is not to say that being in interrupt context is a free pass to set this!
+ */
+
 void osMain(void);
 bool osEventSubscribe(uint32_t tid, uint32_t evtType); /* async */
 bool osEventUnsubscribe(uint32_t tid, uint32_t evtType);  /* async */
@@ -95,7 +105,8 @@ bool osEnqueueEvt(uint32_t evtType, void *evtData, EventFreeF evtFreeF);
 bool osEnqueueEvtAsApp(uint32_t evtType, void *evtData, uint32_t fromApp);
 
 bool osDequeueExtEvt(uint32_t *evtType, void **evtData, TaggedPtr *evtFreeInfoP); // THIS FUNCTION VIOLATES MANY THINGS, IT WILL GO AWAY SOON, fo rnow it just gets weird "free info" data till it runs out of memory
-bool osDefer(OsDeferCbkF callback, void *cookie);
+bool osDefer(OsDeferCbkF callback, void *cookie, bool urgent);
+
 
 /* Logging */
 enum LogLevel {

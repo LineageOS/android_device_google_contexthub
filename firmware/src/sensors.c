@@ -399,7 +399,7 @@ bool sensorSignalInternalEvt(uint32_t handle, uint32_t intEvtNum, uint32_t value
     evt->value1 = value1;
     evt->value2 = value2;
 
-    if (osDefer(internalEventCallbacks[intEvtNum], evt))
+    if (osDefer(internalEventCallbacks[intEvtNum], evt, false))
         return true;
 
     slabAllocatorFree(mInternalEvents, evt);
