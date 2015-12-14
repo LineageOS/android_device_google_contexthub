@@ -1320,14 +1320,19 @@ static bool noMotionFlush()
     return osEnqueueEvt(EVT_SENSOR_NO_MOTION, SENSOR_DATA_EVENT_FLUSH, NULL);
 }
 
-static bool stepCntFlush()
+static void stepCntFlushGetData()
 {
-    mTask.sensors[STEPCNT].flush++;
     if (mTask.state == SENSOR_IDLE) {
         mTask.state = SENSOR_STEP_CNT;
         SPI_READ(BMI160_REG_STEP_CNT_0, 2, mTask.rxBuffer);
         spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[STEPCNT]);
     }
+}
+
+static bool stepCntFlush()
+{
+    mTask.sensors[STEPCNT].flush++;
+    stepCntFlushGetData();
     return true;
 }
 
@@ -2080,7 +2085,7 @@ static void processPendingEvt(void)
         }
     }
     if (mTask.sensors[STEPCNT].flush > 0) {
-        stepCntFlush();
+        stepCntFlushGetData();
         return;
     }
 }
