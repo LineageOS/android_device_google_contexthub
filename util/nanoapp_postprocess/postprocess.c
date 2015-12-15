@@ -50,6 +50,9 @@ struct AppHeader {
 	uint32_t __rel_start;
 	uint32_t __rel_end;
 
+	uint32_t version;
+	uint32_t rfu;
+
 	uint32_t start_task;
 	uint32_t end_task;
 	uint32_t handle_event;
