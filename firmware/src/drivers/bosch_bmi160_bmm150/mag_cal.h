@@ -42,7 +42,7 @@ void initMagCal(struct MagCal *moc,
 
 void destroy_mag_cal(struct MagCal *moc);
 
-bool magCalUpdate(struct MagCal *moc, uint64_t sample_time_usec,
+bool magCalUpdate(struct MagCal *moc, uint64_t sample_time_us,
                    float x, float y, float z);
 
 void magCalGetBias(struct MagCal *moc, float *x, float *y, float *z);

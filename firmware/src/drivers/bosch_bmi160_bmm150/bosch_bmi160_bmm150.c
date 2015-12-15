@@ -1458,7 +1458,8 @@ static void parseRawData(struct BMI160Sensor *mSensor, int i, float kScale, uint
                 (float)mag_z * kScale,
                 &xi, &yi, &zi);
 
-        mTask.new_mag_bias |= magCalUpdate(&mTask.moc, sensorTime, xi, yi, zi);
+        mTask.new_mag_bias |= magCalUpdate(&mTask.moc,
+                sensorTime * kSensorTimerIntervalUs, xi, yi, zi);
 
         magCalRemoveBias(&mTask.moc, xi, yi, zi, &x, &y, &z);
     } else {
