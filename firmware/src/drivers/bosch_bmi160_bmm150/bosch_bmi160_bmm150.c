@@ -1408,9 +1408,12 @@ static void flushRawData(void)
     int i;
     for (i = ACC; i <= MAG; i++) {
         if (mTask.sensors[i].data_evt) {
-
-            osEnqueueEvt(EVENT_TYPE_BIT_DISCARDABLE | sensorGetMyEventType(mSensorInfo[i].sensorType),
-                    mTask.sensors[i].data_evt, dataEvtFree);
+            if (!osEnqueueEvt(EVENT_TYPE_BIT_DISCARDABLE | sensorGetMyEventType(mSensorInfo[i].sensorType),
+                    mTask.sensors[i].data_evt, dataEvtFree)) {
+                // don't log error since queue is already full. silently drop
+                // this data event.
+                dataEvtFree(mTask.sensors[i].data_evt);
+            }
             mTask.sensors[i].data_evt = NULL;
         }
     }
