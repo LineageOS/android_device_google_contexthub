@@ -19,4 +19,4 @@ static void handle_event(uint32_t evtType, const void* evtData)
     //todo
 }
 
-APP_INIT(start_task, end_task, handle_event);
+APP_INIT(0, start_task, end_task, handle_event);

@@ -833,6 +833,7 @@ static void fusionEnd()
 
 INTERNAL_APP_INIT(
         APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 4),
+        0,
         fusionStart,
         fusionEnd,
         fusionHandleEvent);

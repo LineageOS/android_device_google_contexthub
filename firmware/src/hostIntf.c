@@ -808,4 +808,4 @@ void hostInfClearInterruptMask(uint32_t bit)
     atomicBitsetClearBit(mInterruptMask, bit);
 }
 
-INTERNAL_APP_INIT(0x0000000000000001, hostIntfRequest, hostIntfRelease, hostIntfHandleEvent);
+INTERNAL_APP_INIT(APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 0), 0, hostIntfRequest, hostIntfRelease, hostIntfHandleEvent);
