@@ -163,7 +163,7 @@ static void osStartTasks(void)
 
     /* first enum all internal apps, making sure to check for dupes */
     osLog(LOG_DEBUG, "Reading internal app list...\n");
-    for (app = &__internal_app_start; app != &__internal_app_end && nTasks < MAX_TASKS  && app->version == APP_HDR_VER_CUR; app++) {
+    for (app = &__internal_app_start; app != &__internal_app_end && nTasks < MAX_TASKS  && app->fmtVer == APP_HDR_VER_CUR; app++) {
 
         if (app->marker != APP_HDR_MARKER_INTERNAL) {
             osLog(LOG_WARN, "Weird marker on internal app: [%p]=0x%04X\n", app, app->marker);
@@ -176,10 +176,10 @@ static void osStartTasks(void)
         mTasks[nTasks++].appHdr = app;
     }
 
-    /* then enum all external apps, making sure to find the latest version and checking for conflicts with internal apps */
+    /* then enum all external apps, making sure to find the latest (by position in flash) and checking for conflicts with internal apps */
     osLog(LOG_DEBUG, "Reading external app list...\n");
     app = &__app_start;
-    while (((uintptr_t)&__code_end) - ((uintptr_t)app) >= sizeof(struct AppHdr) && !memcmp(magic, app->magic, sizeof(magic) - 1) && app->version == APP_HDR_VER_CUR) {
+    while (((uintptr_t)&__code_end) - ((uintptr_t)app) >= sizeof(struct AppHdr) && !memcmp(magic, app->magic, sizeof(magic) - 1) && app->fmtVer == APP_HDR_VER_CUR) {
 
         if (app->marker != APP_HDR_MARKER_VALID)  //this may need more logic to handle partially-uploaded things
             osLog(LOG_WARN, "Weird marker on external app: [%p]=0x%04X\n", app, app->marker);

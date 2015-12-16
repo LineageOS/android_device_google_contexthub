@@ -55,7 +55,7 @@ struct AppFuncs { /* do not rearrange */
 
 struct AppHdr {
     char magic[13];
-    uint8_t version;
+    uint8_t fmtVer;  //app header format version
     uint16_t marker;
 
     uint64_t appId;
@@ -71,6 +71,9 @@ struct AppHdr {
     uint32_t got_end;
     uint32_t rel_start;
     uint32_t rel_end;
+
+    uint32_t appVer; //version of actual app
+    uint32_t rfu;
 
     struct AppFuncs funcs;
 };
@@ -120,25 +123,26 @@ void osLogv(enum LogLevel level, const char *str, va_list vl);
 void osLog(enum LogLevel level, const char *str, ...)
     __attribute__((format(printf, 2, 3)));
 
-#define INTERNAL_APP_INIT(_id, _init, _end, _event)                                         \
+#define INTERNAL_APP_INIT(_id, _ver, _init, _end, _event)                                   \
 static const struct AppHdr __attribute__((used,section (".internal_app_init"))) mAppHdr = { \
     .magic = APP_HDR_MAGIC,                                                                 \
-    .version = APP_HDR_VER_CUR,                                                             \
+    .fmtVer = APP_HDR_VER_CUR,                                                              \
     .marker = APP_HDR_MARKER_INTERNAL,                                                      \
     .appId = (_id),                                                                         \
+    .appVer = (_ver),                                                                       \
     .funcs.init = (_init),                                                                  \
     .funcs.end = (_end),                                                                    \
     .funcs.handle = (_event)                                                                \
 }
 
-#define APP_INIT(_init, _end, _event)                                            \
+#define APP_INIT(_ver, _init, _end, _event)                                            \
 extern const struct AppFuncs _mAppFuncs;                                         \
 const struct AppFuncs __attribute__((used,section (".app_init"),visibility("default"))) _mAppFuncs = { \
     .init = (_init),                                                             \
     .end = (_end),                                                               \
     .handle = (_event)                                                           \
-}
-
+};                                                                                \
+const uint32_t __attribute__((used,section (".app_version"),visibility("default"))) _mAppVer = _ver
 
 
 #ifdef __cplusplus
