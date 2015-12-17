@@ -573,6 +573,7 @@ static void magBias(void)
 static void magIfConfig(void)
 {
 
+    // TODO: Why is this done here and not on initial configuration???
     //SPI_WRITE(BMI160_REG_MAG_CONF, 0x08);
 
     // Some magic number to magic reg. Don't know what they are.
@@ -580,7 +581,7 @@ static void magIfConfig(void)
     SPI_WRITE(BMI160_REG_CMD, 0x9a);
     SPI_WRITE(BMI160_REG_CMD, 0xc0);
     SPI_WRITE(BMI160_REG_MAGIC, 0x90);
-    SPI_WRITE(BMI160_REG_DATA_1, 0x30);
+    SPI_WRITE(BMI160_REG_DATA_1, 0x3D); // TODO: this should be read modify write of 0x30
     SPI_WRITE(BMI160_REG_MAGIC, 0x80);
 
     // Config the MAG I2C device address
@@ -593,12 +594,8 @@ static void magIfConfig(void)
     SPI_WRITE(BMI160_REG_IF_CONF, 0x20);
 
     // set mag power control bit.
-    // It seems only to work when excuted twice.
-    // XXX: need to further investigate.
-    SPI_WRITE(BMI160_REG_MAG_IF_3, BMM150_REG_CTRL_1);
     SPI_WRITE(BMI160_REG_MAG_IF_4, 0x01);
     SPI_WRITE(BMI160_REG_MAG_IF_3, BMM150_REG_CTRL_1);
-    SPI_WRITE(BMI160_REG_MAG_IF_4, 0x01);
 }
 
 static void magConfig(void)
@@ -611,13 +608,13 @@ static void magConfig(void)
     case MAG_SET_REPXY:
         // MAG_SET_REPXY and MAG_SET_REPZ case set:
         // regular preset, f_max,ODR ~ 102 Hz
-        SPI_WRITE(BMI160_REG_MAG_IF_3, BMM150_REG_REPXY);
         SPI_WRITE(BMI160_REG_MAG_IF_4, 9);
+        SPI_WRITE(BMI160_REG_MAG_IF_3, BMM150_REG_REPXY);
         mTask.mag_state = MAG_SET_REPZ;
         break;
     case MAG_SET_REPZ:
-        SPI_WRITE(BMI160_REG_MAG_IF_3, BMM150_REG_REPZ);
         SPI_WRITE(BMI160_REG_MAG_IF_4, 15);
+        SPI_WRITE(BMI160_REG_MAG_IF_3, BMM150_REG_REPZ);
         mTask.mag_state = MAG_SET_DIG_X;
         break;
     case MAG_SET_DIG_X:
@@ -645,8 +642,8 @@ static void magConfig(void)
         mTask.mag_state = MAG_SET_FORCE;
     case MAG_SET_FORCE:
         // set MAG mode to "forced". ready to pull data
-        SPI_WRITE(BMI160_REG_MAG_IF_3, BMM150_REG_CTRL_2);
         SPI_WRITE(BMI160_REG_MAG_IF_4, 0x02);
+        SPI_WRITE(BMI160_REG_MAG_IF_3, BMM150_REG_CTRL_2);
         mTask.mag_state = MAG_SET_ADDR;
         break;
     case MAG_SET_ADDR:
@@ -844,7 +841,7 @@ static bool magPower(bool on)
             mTask.state = SENSOR_POWERING_UP;
 
             // set MAG power mode to NORMAL
-            SPI_WRITE(BMI160_REG_CMD, 0x19, 1000);
+            SPI_WRITE(BMI160_REG_CMD, 0x19, 10000);
             if (mag_first_ever_enable) {
                 mag_first_ever_enable = false;
                 mTask.mag_state = MAG_SET_START;
@@ -1985,7 +1982,7 @@ static void sensorInit(void)
         SPI_WRITE(BMI160_REG_CMD, 0x9a);
         SPI_WRITE(BMI160_REG_CMD, 0xc0);
         SPI_WRITE(BMI160_REG_MAGIC, 0x90);
-        SPI_WRITE(BMI160_REG_DATA_1, 0x30);
+        SPI_WRITE(BMI160_REG_DATA_1, 0x3D); // TODO: This should be read modify write of 0x30
         SPI_WRITE(BMI160_REG_MAGIC, 0x80);
 
         // setup MAG I2C address.
@@ -2001,14 +1998,15 @@ static void sensorInit(void)
 
         // Turn on and turn off (toggle once) the power control bit on
         // BMM150
-        SPI_WRITE(BMI160_REG_MAG_IF_3, BMM150_REG_CTRL_1);
-        SPI_WRITE(BMI160_REG_MAG_IF_4, 0x01, 60000);
-        SPI_WRITE(BMI160_REG_MAG_IF_3, BMM150_REG_CTRL_1);
-        SPI_WRITE(BMI160_REG_MAG_IF_4, 0x00, 60000);
+        SPI_WRITE(BMI160_REG_MAG_IF_4, 0x01);
+        SPI_WRITE(BMI160_REG_MAG_IF_3, BMM150_REG_CTRL_1, 60000);
+        // TODO: verify mag is BMM150
+        SPI_WRITE(BMI160_REG_MAG_IF_4, 0x00);
+        SPI_WRITE(BMI160_REG_MAG_IF_3, BMM150_REG_CTRL_1, 60000);
         SPI_WRITE(BMI160_REG_MAG_IF_1, 0x00);
 
         // set the MAG power to SUSPEND mode
-        SPI_WRITE(BMI160_REG_CMD, 0x18, 10000);
+        SPI_WRITE(BMI160_REG_CMD, 0x18, 1000);
 
         mTask.init_state = INIT_ON_CHANGE_SENSORS;
         spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask);
