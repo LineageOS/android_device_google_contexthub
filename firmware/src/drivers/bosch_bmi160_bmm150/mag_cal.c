@@ -12,8 +12,8 @@
 #define MAX_FIT_MAG         80.0f
 #define MIN_FIT_MAG         10.0f
 
-#define MIN_BATCH_WINDOW    1.0e6   // 1 sec
-#define MAX_BATCH_WINDOW    15.0e6  // 15 sec
+#define MIN_BATCH_WINDOW    1000000UL   // 1 sec
+#define MAX_BATCH_WINDOW    15000000UL  // 15 sec
 #define MIN_BATCH_SIZE      25      // samples
 
 #define BMM150_REG_REPXY          0x51
