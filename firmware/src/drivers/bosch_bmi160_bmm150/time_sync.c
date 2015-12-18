@@ -3,6 +3,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <floatRt.h>
 #include "time_sync.h"
 
 #define NUM_TIME_SYNC_DATAPOINTS    16
@@ -91,12 +92,12 @@ static bool time_sync_add(time_sync_t *sync, uint64_t time1, uint64_t time2) {
     return true;
 }
 
-static bool time_sync_estimate_time1(
-        time_sync_t *sync, uint64_t time2, uint64_t *time1) {
+static bool time_sync_estimate_time1(time_sync_t *sync, uint64_t time2, uint64_t *time1)
+{
     size_t j;
-    if (sync->n < 2) {
+
+    if (sync->n < 2)
         return false;
-    }
 
     *time1 = 0;
 
@@ -128,8 +129,8 @@ static bool time_sync_estimate_time1(
         float invN = 1.0f / n;
         size_t ii = i;
         for (j = 0; j < n; ++j) {
-            mean_x += (float)(sync->time1[ii] - time1_base) * invN;
-            mean_y += (float)(sync->time2[ii] - time2_base) * invN;
+            mean_x += floatFromUint64(sync->time1[ii] - time1_base) * invN;
+            mean_y += floatFromUint64(sync->time2[ii] - time2_base) * invN;
 
             if (++ii == NUM_TIME_SYNC_DATAPOINTS) {
                 ii = 0;
@@ -139,8 +140,8 @@ static bool time_sync_estimate_time1(
         float sum_x2 = 0.0f, sum_y2 = 0.0f, sum_xy = 0.0f;
         ii = i;
         for (j = 0; j < n; ++j) {
-            float x = (float)(sync->time1[ii] - time1_base) - mean_x;
-            float y = (float)(sync->time2[ii] - time2_base) - mean_y;
+            float x = floatFromUint64(sync->time1[ii] - time1_base) - mean_x;
+            float y = floatFromUint64(sync->time2[ii] - time2_base) - mean_y;
 
             sum_x2 += x * x;
             sum_y2 += y * y;
@@ -177,11 +178,7 @@ static bool time_sync_estimate_time1(
         sync->estimate_valid = true;
     }
 
-    *time1 =
-        sync->time1_base
-            + (int64_t)((sync->alpha
-                        - sync->n2 * (float)((int64_t)(time2 - sync->time2_base)))
-                    / sync->n1);
+    *time1 = sync->time1_base + floatToInt64((sync->alpha - sync->n2 * floatFromInt64(time2 - sync->time2_base)) / sync->n1);
 
     return true;
 }

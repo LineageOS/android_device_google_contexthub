@@ -6,6 +6,7 @@
 #include <plat/inc/syscfg.h>
 #include <hostIntf.h>
 #include <nanohubPacket.h>
+#include <floatRt.h>
 
 #include <seos.h>
 #include <accelerometer.h>
@@ -189,7 +190,7 @@ static void fillSamples(struct TripleAxisDataEvent *ev, enum RawSensorType index
 
             curr_time = next_time;
         } else {
-            weight_next = (float)counter / sample_spacing_ns;
+            weight_next = (float)counter / floatFromUint64(sample_spacing_ns);
 
             mTask.samples[index][w].x = curr_sample->x + weight_next *
                 (next_sample->x - curr_sample->x);
@@ -384,7 +385,7 @@ static void drainSamples()
         case ACC:
             initVec3(&a, mTask.samples[ACC][i].x, mTask.samples[ACC][i].y, mTask.samples[ACC][i].z);
 
-            dT = (mTask.samples[ACC][i].time - mTask.last_acc_time) * 1.0E-9f;
+            dT = floatFromUint64(mTask.samples[ACC][i].time - mTask.last_acc_time) * 1.0E-9f;
             mTask.last_acc_time = mTask.samples[ACC][i].time;
 
             if (mTask.flags & FUSION_FLAG_ENABLED)
@@ -402,7 +403,7 @@ static void drainSamples()
         case GYR:
             initVec3(&w, mTask.samples[GYR][j].x, mTask.samples[GYR][j].y, mTask.samples[GYR][j].z);
 
-            dT = (mTask.samples[GYR][j].time - mTask.last_gyro_time) * 1.0E-9f;
+            dT = floatFromUint64(mTask.samples[GYR][j].time - mTask.last_gyro_time) * 1.0E-9f;
             mTask.last_gyro_time = mTask.samples[GYR][j].time;
 
             if (mTask.flags & FUSION_FLAG_ENABLED)

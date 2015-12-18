@@ -6,6 +6,7 @@
 #include <plat/inc/syscfg.h>
 #include <hostIntf.h>
 #include <nanohubPacket.h>
+#include <floatRt.h>
 
 #include <seos.h>
 #include <accelerometer.h>
@@ -345,7 +346,7 @@ static bool add_samples(struct TripleAxisDataEvent *ev)
             skip_sample = true;
         } else {
             // alpha is the weight on the new sample
-            alpha = (float)time_delta / (FILTER_TIME_CONSTANT + time_delta);
+            alpha = floatFromUint64(time_delta) / floatFromUint64(FILTER_TIME_CONSTANT + time_delta);
             x = alpha * (x - last_sample->x) + last_sample->x;
             y = alpha * (y - last_sample->y) + last_sample->y;
             z = alpha * (z - last_sample->z) + last_sample->z;
