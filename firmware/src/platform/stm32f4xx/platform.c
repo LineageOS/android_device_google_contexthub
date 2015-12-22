@@ -376,6 +376,8 @@ static bool sleepClockTmrPrepare(uint64_t delay, uint32_t acceptableJitter, uint
 static void sleepClockTmrWake(void *userData, uint64_t *savedData)
 {
     struct StmTim *tim = (struct StmTim*)TIM2_BASE;
+    uint32_t cnt;
+    uint16_t sr;
     uint64_t leftTicks;
 
     //re-enable Systic and its interrupt
@@ -384,8 +386,17 @@ static void sleepClockTmrWake(void *userData, uint64_t *savedData)
     //stop the timer counting;
     tim->CR1 &=~ 1;
 
-    leftTicks = tim->CNT; //if we wake NOT from timer, only count the ticks that actually ticked as "time passed"
-    if (tim->SR & 1) //if there was an overflow, account for it
+    //If we are within one time tick of overflow, it is possible for SR to
+    //not indicate a pending overflow, but CNT contain 0xFFFFFFFF or vice versa,
+    //depending on the read order of SR and CNT
+    //read both values until they are stable
+    do {
+        sr = tim->SR;
+        cnt = tim->CNT;
+    } while (sr != tim->SR || cnt != tim->CNT);
+
+    leftTicks = cnt; //if we wake NOT from timer, only count the ticks that actually ticked as "time passed"
+    if (sr & 1) //if there was an overflow, account for it
         leftTicks -= 0x100000000ull;
 
     mTimeAccumulated += (*savedData - leftTicks) * 1000; //this clock runs at 1MHz
