@@ -5,6 +5,9 @@ VARIANT ?= lunchbox
 
 APP = nanohub
 
+#bad words
+BADWORDS += strcpy strcat atoi
+
 #find makefiles
 MAKE_PLAT = misc/platform/$(PLATFORM)/Makefile
 MAKE_CPU = misc/cpu/$(CPU)/Makefile
@@ -89,9 +92,12 @@ links/v_$(VARIANT):
 	ln -s ../../$(LINK_PATH_INC) links/variant/inc
 	touch links/v_$(VARIANT)
 
-$(APP).elf: symlinks $(SRCS) $(DEPS)
-	$(GCC) -o $(APP).elf $(SRCS) $(OSFLAGS) $(FLAGS) -lm -lc -lgcc
+$(APP).unchecked.elf: symlinks $(SRCS) $(DEPS)
+	$(GCC) -o $(APP).unchecked.elf $(SRCS) $(OSFLAGS) $(FLAGS) -lm -lc -lgcc
+
+$(APP).elf: $(APP).unchecked.elf symcheck.sh
+	./symcheck.sh $(APP).unchecked.elf $(APP).elf $(BADWORDS)
 
 clean:
-	rm -rf $(DELIVERABLES) $(APP).elf links $(CLEANFILES)
+	rm -rf $(DELIVERABLES) $(APP).elf $(APP).unchecked.elf links $(CLEANFILES)
 
