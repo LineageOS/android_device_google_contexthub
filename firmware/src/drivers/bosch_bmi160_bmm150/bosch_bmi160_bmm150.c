@@ -482,63 +482,63 @@ static void timeSyncCallback(uint32_t timerId, void *data)
     osEnqueuePrivateEvt(EVT_TIME_SYNC, data, NULL, mTask.tid);
 }
 
-static bool accFirmwareUpload(void)
+static bool accFirmwareUpload(void *cookie)
 {
     sensorSignalInternalEvt(mTask.sensors[ACC].handle,
             SENSOR_INTERNAL_EVT_FW_STATE_CHG, 1, 0);
     return true;
 }
 
-static bool gyrFirmwareUpload(void)
+static bool gyrFirmwareUpload(void *cookie)
 {
     sensorSignalInternalEvt(mTask.sensors[GYR].handle,
             SENSOR_INTERNAL_EVT_FW_STATE_CHG, 1, 0);
     return true;
 }
 
-static bool magFirmwareUpload(void)
+static bool magFirmwareUpload(void *cookie)
 {
     sensorSignalInternalEvt(mTask.sensors[MAG].handle,
             SENSOR_INTERNAL_EVT_FW_STATE_CHG, 1, 0);
     return true;
 }
 
-static bool stepFirmwareUpload(void)
+static bool stepFirmwareUpload(void *cookie)
 {
     sensorSignalInternalEvt(mTask.sensors[STEP].handle,
             SENSOR_INTERNAL_EVT_FW_STATE_CHG, 1, 0);
     return true;
 }
 
-static bool doubleTapFirmwareUpload(void)
+static bool doubleTapFirmwareUpload(void *cookie)
 {
     sensorSignalInternalEvt(mTask.sensors[DTAP].handle,
             SENSOR_INTERNAL_EVT_FW_STATE_CHG, 1, 0);
     return true;
 }
 
-static bool noMotionFirmwareUpload(void)
+static bool noMotionFirmwareUpload(void *cookie)
 {
     sensorSignalInternalEvt(mTask.sensors[NOMO].handle,
             SENSOR_INTERNAL_EVT_FW_STATE_CHG, 1, 0);
     return true;
 }
 
-static bool anyMotionFirmwareUpload(void)
+static bool anyMotionFirmwareUpload(void *cookie)
 {
     sensorSignalInternalEvt(mTask.sensors[ANYMO].handle,
             SENSOR_INTERNAL_EVT_FW_STATE_CHG, 1, 0);
     return true;
 }
 
-static bool flatFirmwareUpload(void)
+static bool flatFirmwareUpload(void *cookie)
 {
     sensorSignalInternalEvt(mTask.sensors[FLAT].handle,
             SENSOR_INTERNAL_EVT_FW_STATE_CHG, 1, 0);
     return true;
 }
 
-static bool stepCntFirmwareUpload(void)
+static bool stepCntFirmwareUpload(void *cookie)
 {
     sensorSignalInternalEvt(mTask.sensors[STEPCNT].handle,
             SENSOR_INTERNAL_EVT_FW_STATE_CHG, 1, 0);
@@ -796,7 +796,7 @@ static void configFifo(bool on)
     SPI_WRITE(BMI160_REG_FIFO_CONFIG_1, val);
 }
 
-static bool accPower(bool on)
+static bool accPower(bool on, void *cookie)
 {
     osLog(LOG_INFO, "BMI160: accPower: on=%d, state=%d\n", on, mTask.state);
 
@@ -822,7 +822,7 @@ static bool accPower(bool on)
     return true;
 }
 
-static bool gyrPower(bool on)
+static bool gyrPower(bool on, void *cookie)
 {
     osLog(LOG_INFO, "BMI160: gyrPower: on=%d, state=%d\n", on, mTask.state);
 
@@ -848,7 +848,7 @@ static bool gyrPower(bool on)
     return true;
 }
 
-static bool magPower(bool on)
+static bool magPower(bool on, void *cookie)
 {
     osLog(LOG_INFO, "BMI160: magPower: on=%d, state=%d\n", on, mTask.state);
 
@@ -882,7 +882,7 @@ static bool magPower(bool on)
     return true;
 }
 
-static bool stepPower(bool on)
+static bool stepPower(bool on, void *cookie)
 {
     if (mTask.state == SENSOR_IDLE) {
         // if step counter is powered, no need to change actual config of step
@@ -909,7 +909,7 @@ static bool stepPower(bool on)
     return true;
 }
 
-static bool flatPower(bool on)
+static bool flatPower(bool on, void *cookie)
 {
     if (mTask.state == SENSOR_IDLE) {
         if (on) {
@@ -930,7 +930,7 @@ static bool flatPower(bool on)
     return true;
 }
 
-static bool doubleTapPower(bool on)
+static bool doubleTapPower(bool on, void *cookie)
 {
     if (mTask.state == SENSOR_IDLE) {
         if (on) {
@@ -951,7 +951,7 @@ static bool doubleTapPower(bool on)
     return true;
 }
 
-static bool anyMotionPower(bool on)
+static bool anyMotionPower(bool on, void *cookie)
 {
     if (mTask.state == SENSOR_IDLE) {
         if (on) {
@@ -972,7 +972,7 @@ static bool anyMotionPower(bool on)
     return true;
 }
 
-static bool noMotionPower(bool on)
+static bool noMotionPower(bool on, void *cookie)
 {
     if (mTask.state == SENSOR_IDLE) {
         if (on) {
@@ -993,7 +993,7 @@ static bool noMotionPower(bool on)
     return true;
 }
 
-static bool stepCntPower(bool on)
+static bool stepCntPower(bool on, void *cookie)
 {
     if (mTask.state == SENSOR_IDLE) {
         if (on) {
@@ -1059,7 +1059,7 @@ static uint8_t computeOdr(uint32_t rate)
     }
 }
 
-static bool accSetRate(uint32_t rate, uint64_t latency)
+static bool accSetRate(uint32_t rate, uint64_t latency, void *cookie)
 {
     int odr, osr = 0;
 
@@ -1114,7 +1114,7 @@ static bool accSetRate(uint32_t rate, uint64_t latency)
     return true;
 }
 
-static bool gyrSetRate(uint32_t rate, uint64_t latency)
+static bool gyrSetRate(uint32_t rate, uint64_t latency, void *cookie)
 {
     int odr, osr = 0;
 
@@ -1169,7 +1169,7 @@ static bool gyrSetRate(uint32_t rate, uint64_t latency)
     return true;
 }
 
-static bool magSetRate(uint32_t rate, uint64_t latency)
+static bool magSetRate(uint32_t rate, uint64_t latency, void *cookie)
 {
     int odr;
 
@@ -1202,7 +1202,7 @@ static bool magSetRate(uint32_t rate, uint64_t latency)
     return true;
 }
 
-static bool stepSetRate(uint32_t rate, uint64_t latency)
+static bool stepSetRate(uint32_t rate, uint64_t latency, void *cookie)
 {
     mTask.sensors[STEP].rate = rate;
     mTask.sensors[STEP].latency = latency;
@@ -1213,7 +1213,7 @@ static bool stepSetRate(uint32_t rate, uint64_t latency)
     return true;
 }
 
-static bool flatSetRate(uint32_t rate, uint64_t latency)
+static bool flatSetRate(uint32_t rate, uint64_t latency, void *cookie)
 {
     mTask.sensors[FLAT].rate = rate;
     mTask.sensors[FLAT].latency = latency;
@@ -1224,7 +1224,7 @@ static bool flatSetRate(uint32_t rate, uint64_t latency)
     return true;
 }
 
-static bool doubleTapSetRate(uint32_t rate, uint64_t latency)
+static bool doubleTapSetRate(uint32_t rate, uint64_t latency, void *cookie)
 {
     mTask.sensors[DTAP].rate = rate;
     mTask.sensors[DTAP].latency = latency;
@@ -1235,7 +1235,7 @@ static bool doubleTapSetRate(uint32_t rate, uint64_t latency)
     return true;
 }
 
-static bool anyMotionSetRate(uint32_t rate, uint64_t latency)
+static bool anyMotionSetRate(uint32_t rate, uint64_t latency, void *cookie)
 {
     mTask.sensors[ANYMO].rate = rate;
     mTask.sensors[ANYMO].latency = latency;
@@ -1247,7 +1247,7 @@ static bool anyMotionSetRate(uint32_t rate, uint64_t latency)
     return true;
 }
 
-static bool noMotionSetRate(uint32_t rate, uint64_t latency)
+static bool noMotionSetRate(uint32_t rate, uint64_t latency, void *cookie)
 {
     mTask.sensors[NOMO].rate = rate;
     mTask.sensors[NOMO].latency = latency;
@@ -1258,7 +1258,7 @@ static bool noMotionSetRate(uint32_t rate, uint64_t latency)
     return true;
 }
 
-static bool stepCntSetRate(uint32_t rate, uint64_t latency)
+static bool stepCntSetRate(uint32_t rate, uint64_t latency, void *cookie)
 {
     mTask.sensors[STEPCNT].rate = rate;
     mTask.sensors[STEPCNT].latency = latency;
@@ -1287,48 +1287,48 @@ static void sendFlushEvt(void)
 
 static void int1Evt(void);
 
-static bool accFlush()
+static bool accFlush(void *cookie)
 {
     mTask.sensors[ACC].flush++;
     int1Evt();
     return true;
 }
 
-static bool gyrFlush()
+static bool gyrFlush(void *cookie)
 {
     mTask.sensors[GYR].flush++;
     int1Evt();
     return true;
 }
 
-static bool magFlush()
+static bool magFlush(void *cookie)
 {
     mTask.sensors[MAG].flush++;
     int1Evt();
     return true;
 }
 
-static bool stepFlush()
+static bool stepFlush(void *cookie)
 {
     return osEnqueueEvt(EVT_SENSOR_STEP, SENSOR_DATA_EVENT_FLUSH, NULL);
 }
 
-static bool flatFlush()
+static bool flatFlush(void *cookie)
 {
     return osEnqueueEvt(EVT_SENSOR_FLAT, SENSOR_DATA_EVENT_FLUSH, NULL);
 }
 
-static bool doubleTapFlush()
+static bool doubleTapFlush(void *cookie)
 {
     return osEnqueueEvt(EVT_SENSOR_DOUBLE_TAP, SENSOR_DATA_EVENT_FLUSH, NULL);
 }
 
-static bool anyMotionFlush()
+static bool anyMotionFlush(void *cookie)
 {
     return osEnqueueEvt(EVT_SENSOR_ANY_MOTION, SENSOR_DATA_EVENT_FLUSH, NULL);
 }
 
-static bool noMotionFlush()
+static bool noMotionFlush(void *cookie)
 {
     return osEnqueueEvt(EVT_SENSOR_NO_MOTION, SENSOR_DATA_EVENT_FLUSH, NULL);
 }
@@ -1342,7 +1342,7 @@ static void stepCntFlushGetData()
     }
 }
 
-static bool stepCntFlush()
+static bool stepCntFlush(void *cookie)
 {
     mTask.sensors[STEPCNT].flush++;
     stepCntFlushGetData();
@@ -1846,7 +1846,7 @@ static void accCalibrationHandling(void)
     }
 }
 
-static bool accCalibration(void)
+static bool accCalibration(void *cookie)
 {
     if (mTask.state == SENSOR_IDLE) {
         if (mTask.sensors[ACC].powered) {
@@ -1869,7 +1869,7 @@ static void gyrCalibrationHandling(void)
     return;
 }
 
-static bool gyrCalibration(void)
+static bool gyrCalibration(void *cookie)
 {
     if (mTask.state == SENSOR_IDLE) {
         mTask.state = SENSOR_CALIBRATING;
@@ -1902,11 +1902,11 @@ static void configEvent(struct BMI160Sensor *mSensor, struct ConfigStat *ConfigD
     for (i=0; &mTask.sensors[i] != mSensor; i++) ;
 
     if (ConfigData->enable == 0 && mSensor->powered)
-        mSensorOps[i].sensorPower(false);
+        mSensorOps[i].sensorPower(false, (void *)i);
     else if (ConfigData->enable == 1 && !mSensor->powered)
-        mSensorOps[i].sensorPower(true);
+        mSensorOps[i].sensorPower(true, (void *)i);
     else
-        mSensorOps[i].sensorSetRate(ConfigData->rate, ConfigData->latency);
+        mSensorOps[i].sensorSetRate(ConfigData->rate, ConfigData->latency, (void *)i);
 }
 
 static void timeSyncEvt(void)
@@ -2391,7 +2391,7 @@ static bool startTask(uint32_t task_id)
 
     for (i = ACC; i < NUM_OF_SENSOR; i++) {
         initSensorStruct(&mTask.sensors[i], i);
-        mTask.sensors[i].handle = sensorRegister(&mSensorInfo[i], &mSensorOps[i]);
+        mTask.sensors[i].handle = sensorRegister(&mSensorInfo[i], &mSensorOps[i], NULL, false);
         mTask.pending_config[i] = false;
     }
 

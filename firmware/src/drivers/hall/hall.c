@@ -100,7 +100,7 @@ static const struct SensorInfo mSensorInfo =
     20
 };
 
-static bool hallPower(bool on)
+static bool hallPower(bool on, void *cookie)
 {
     if (on) {
         extiClearPendingGpio(mTask.pin);
@@ -125,17 +125,17 @@ static bool hallPower(bool on)
     return true;
 }
 
-static bool hallFirmwareUpload()
+static bool hallFirmwareUpload(void *cookie)
 {
     return sensorSignalInternalEvt(mTask.sensorHandle, SENSOR_INTERNAL_EVT_FW_STATE_CHG, 1, 0);
 }
 
-static bool hallSetRate(uint32_t rate, uint64_t latency)
+static bool hallSetRate(uint32_t rate, uint64_t latency, void *cookie)
 {
     return sensorSignalInternalEvt(mTask.sensorHandle, SENSOR_INTERNAL_EVT_RATE_CHG, rate, latency);
 }
 
-static bool hallFlush()
+static bool hallFlush(void *cookie)
 {
     return osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_HALL), SENSOR_DATA_EVENT_FLUSH, NULL);
 }
@@ -158,8 +158,7 @@ static bool startTask(uint32_t taskId)
     osLog(LOG_INFO, "HALL: task starting\n");
 
     mTask.id = taskId;
-    mTask.sensorHandle = sensorRegister(&mSensorInfo, &mSensorOps);
-    sensorRegisterInitComplete(mTask.sensorHandle);
+    mTask.sensorHandle = sensorRegister(&mSensorInfo, &mSensorOps, NULL, true);
     mTask.pin = gpioRequest(HALL_PIN);
     mTask.isr.func = hallIsr;
 

@@ -95,7 +95,7 @@ static const struct SensorInfo mSensorInfo =
     20,
 };
 
-static bool vsyncPower(bool on)
+static bool vsyncPower(bool on, void *cookie)
 {
     if (on) {
         extiClearPendingGpio(mTask.pin);
@@ -110,17 +110,17 @@ static bool vsyncPower(bool on)
     return true;
 }
 
-static bool vsyncFirmwareUpload()
+static bool vsyncFirmwareUpload(void *cookie)
 {
     return sensorSignalInternalEvt(mTask.sensorHandle, SENSOR_INTERNAL_EVT_FW_STATE_CHG, 1, 0);
 }
 
-static bool vsyncSetRate(uint32_t rate, uint64_t latency)
+static bool vsyncSetRate(uint32_t rate, uint64_t latency, void *cookie)
 {
     return sensorSignalInternalEvt(mTask.sensorHandle, SENSOR_INTERNAL_EVT_RATE_CHG, rate, latency);
 }
 
-static bool vsyncFlush()
+static bool vsyncFlush(void *cookie)
 {
     return osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_VSYNC), SENSOR_DATA_EVENT_FLUSH, NULL);
 }
@@ -143,8 +143,7 @@ static bool startTask(uint32_t taskId)
     osLog(LOG_INFO, "VSYNC: task starting\n");
 
     mTask.id = taskId;
-    mTask.sensorHandle = sensorRegister(&mSensorInfo, &mSensorOps);
-    sensorRegisterInitComplete(mTask.sensorHandle);
+    mTask.sensorHandle = sensorRegister(&mSensorInfo, &mSensorOps, NULL, true);
     mTask.pin = gpioRequest(VSYNC_PIN);
     mTask.isr.func = vsyncIsr;
 

@@ -498,7 +498,7 @@ static bool add_samples(struct TripleAxisDataEvent *ev)
 }
 
 
-static bool windowOrientationPower(bool on)
+static bool windowOrientationPower(bool on, void *cookie)
 {
     if (on == false && mTask.accelHandle != 0) {
         sensorRelease(mTask.tid, mTask.accelHandle);
@@ -511,7 +511,7 @@ static bool windowOrientationPower(bool on)
     return true;
 }
 
-static bool windowOrientationSetRate(uint32_t rate, uint64_t latency)
+static bool windowOrientationSetRate(uint32_t rate, uint64_t latency, void *cookie)
 {
     int i;
 
@@ -532,14 +532,14 @@ static bool windowOrientationSetRate(uint32_t rate, uint64_t latency)
     return true;
 }
 
-static bool windowOrientationFirmwareUpload()
+static bool windowOrientationFirmwareUpload(void *cookie)
 {
     sensorSignalInternalEvt(mTask.handle, SENSOR_INTERNAL_EVT_FW_STATE_CHG,
             1, 0);
     return true;
 }
 
-static bool windowOrientationFlush()
+static bool windowOrientationFlush(void *cookie)
 {
     return osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_WIN_ORIENTATION), SENSOR_DATA_EVENT_FLUSH, NULL);
 }
@@ -588,8 +588,7 @@ static bool window_orientation_start(uint32_t tid)
     mTask.prev_valid_rotation = -1;
     reset();
 
-    mTask.handle = sensorRegister(&mSi, &mSops);
-    sensorRegisterInitComplete(mTask.handle);
+    mTask.handle = sensorRegister(&mSi, &mSops, NULL, true);
 
     return true;
 }
