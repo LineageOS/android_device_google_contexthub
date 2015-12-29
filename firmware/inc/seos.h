@@ -98,6 +98,7 @@ typedef void (*EventFreeF)(void* event);
  */
 
 void osMain(void);
+
 bool osEventSubscribe(uint32_t tid, uint32_t evtType); /* async */
 bool osEventUnsubscribe(uint32_t tid, uint32_t evtType);  /* async */
 
@@ -107,9 +108,10 @@ bool osEnqueuePrivateEvtAsApp(uint32_t evtType, void *evtData, uint32_t fromApp,
 bool osEnqueueEvt(uint32_t evtType, void *evtData, EventFreeF evtFreeF);
 bool osEnqueueEvtAsApp(uint32_t evtType, void *evtData, uint32_t fromApp);
 
-bool osDequeueExtEvt(uint32_t *evtType, void **evtData, TaggedPtr *evtFreeInfoP); // THIS FUNCTION VIOLATES MANY THINGS, IT WILL GO AWAY SOON, fo rnow it just gets weird "free info" data till it runs out of memory
 bool osDefer(OsDeferCbkF callback, void *cookie, bool urgent);
 
+bool osAppInfoById(uint64_t appId, uint32_t *appIdx, uint32_t *appVer, uint32_t *appSize);
+bool osAppInfoByIndex(uint32_t appIdx, uint64_t *appId, uint32_t *appVer, uint32_t *appSize);
 
 /* Logging */
 enum LogLevel {

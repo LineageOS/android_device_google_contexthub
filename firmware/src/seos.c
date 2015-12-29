@@ -441,6 +441,34 @@ bool osEnqueuePrivateEvtAsApp(uint32_t evtType, void *evtData, uint32_t fromAppT
     return osEnqueuePrivateEvtEx(evtType, evtData, taggedPtrMakeFromUint(fromAppTid), toTid);
 }
 
+bool osAppInfoById(uint64_t appId, uint32_t *appIdx, uint32_t *appVer, uint32_t *appSize)
+{
+    uint32_t i;
+
+    for (i = 0; i < MAX_TASKS; i++) {
+        if (mTasks[i].appHdr && mTasks[i].appHdr->appId == appId) {
+            *appIdx = i;
+            *appVer = mTasks[i].appHdr->appVer;
+            *appSize = mTasks[i].appHdr->rel_end;
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool osAppInfoByIndex(uint32_t appIdx, uint64_t *appId, uint32_t *appVer, uint32_t *appSize)
+{
+    if (appIdx < MAX_TASKS && mTasks[appIdx].appHdr) {
+        *appId = mTasks[appIdx].appHdr->appId;
+        *appVer = mTasks[appIdx].appHdr->appVer;
+        *appSize = mTasks[appIdx].appHdr->rel_end;
+        return true;
+    }
+
+    return false;
+}
+
 void osLogv(enum LogLevel level, const char *str, va_list vl)
 {
     void *userData = platLogAllocUserData();
