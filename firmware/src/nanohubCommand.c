@@ -34,6 +34,37 @@ static size_t getOsHwVersion(void *rx, uint8_t rx_len, void *tx, uint64_t timest
     return sizeof(*resp);
 }
 
+static size_t getAppVersion(void *rx, uint8_t rx_len, void *tx, uint64_t timestamp)
+{
+    struct NanohubAppVersionsRequest *req = rx;
+    struct NanohubAppVersionsResponse *resp = tx;
+    uint32_t appIdx, appVer, appSize;
+
+    if (osAppInfoById(le64toh(req->appId), &appIdx, &appVer, &appSize)) {
+        resp->appVer = htole32(appVer);
+        return sizeof(*resp);
+    }
+
+    return 0;
+}
+
+static size_t queryAppInfo(void *rx, uint8_t rx_len, void *tx, uint64_t timestamp)
+{
+    struct NanohubAppInfoRequest *req = rx;
+    struct NanohubAppInfoResponse *resp = tx;
+    uint64_t appId;
+    uint32_t appVer, appSize;
+
+    if (osAppInfoByIndex(le32toh(req->appIdx), &appId, &appVer, &appSize)) {
+        resp->appId = htole64(appId);
+        resp->appVer = htole32(appVer);
+        resp->appSize = htole32(appSize);
+        return sizeof(*resp);
+    }
+
+    return 0;
+}
+
 static uint32_t mFirmwareSize;
 static uint32_t mFirmwareOffset;
 static uint8_t *mFirmwareStart;
@@ -260,6 +291,14 @@ const static struct NanohubCommand mBuiltinCommands[] = {
                 getOsHwVersion,
                 struct NanohubOsHwVersionsRequest,
                 struct NanohubOsHwVersionsRequest),
+        NANOHUB_COMMAND(NANOHUB_REASON_GET_APP_VERSIONS,
+                getAppVersion,
+                struct NanohubAppVersionsRequest,
+                struct NanohubAppVersionsRequest),
+        NANOHUB_COMMAND(NANOHUB_REASON_QUERY_APP_INFO,
+                queryAppInfo,
+                struct NanohubAppInfoRequest,
+                struct NanohubAppInfoRequest),
         NANOHUB_COMMAND(NANOHUB_REASON_START_FIRMWARE_UPLOAD,
                 startFirmwareUpload,
                 struct NanohubStartFirmwareUploadRequest,

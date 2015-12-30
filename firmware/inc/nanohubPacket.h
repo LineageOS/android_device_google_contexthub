@@ -82,7 +82,19 @@ struct NanohubAppVersionsRequest {
 } __attribute__((packed));
 
 struct NanohubAppVersionsResponse {
-    __le16 version;
+    __le32 appVer;
+} __attribute__((packed));
+
+#define NANOHUB_REASON_QUERY_APP_INFO         0x00001002
+
+struct NanohubAppInfoRequest {
+    __le32 appIdx;
+} __attribute__((packed));
+
+struct NanohubAppInfoResponse {
+    __le64 appId;
+    __le32 appVer;
+    __le32 appSize;
 } __attribute__((packed));
 
 #define NANOHUB_REASON_START_FIRMWARE_UPLOAD  0x00001040
