@@ -372,17 +372,6 @@ int32_t bmm150TempCompensateZ(struct MagCal *moc, int16_t mag_z, uint16_t rhall)
     return retval;
 }
 
-uint16_t U16_AT(uint8_t *ptr)
-{
-    return (uint32_t)ptr[0] | ((uint32_t)ptr[1] << 8);
-}
-
-int16_t S16_AT(uint8_t *ptr)
-{
-    return (int32_t)ptr[0] | ((int32_t)ptr[1] << 8);
-}
-
-
 void saveDigData(struct MagCal *moc, uint8_t *data, size_t offset)
 {
     // magnetometer temperature calibration data is read in 3 bursts of 8 byte
@@ -400,12 +389,12 @@ void saveDigData(struct MagCal *moc, uint8_t *data, size_t offset)
         moc->dig_xy2 = moc->raw_dig_data[BMM150_REG_DIG_XY2 - first_reg];
         moc->dig_xy1 = moc->raw_dig_data[BMM150_REG_DIG_XY1 - first_reg];
 
-        moc->dig_z1 = U16_AT(&moc->raw_dig_data[BMM150_REG_DIG_Z1_LSB - first_reg]);
-        moc->dig_z2 = S16_AT(&moc->raw_dig_data[BMM150_REG_DIG_Z2_LSB - first_reg]);
-        moc->dig_z3 = S16_AT(&moc->raw_dig_data[BMM150_REG_DIG_Z3_LSB - first_reg]);
-        moc->dig_z4 = S16_AT(&moc->raw_dig_data[BMM150_REG_DIG_Z4_LSB - first_reg]);
+        moc->dig_z1 = *(uint16_t *)(&moc->raw_dig_data[BMM150_REG_DIG_Z1_LSB - first_reg]);
+        moc->dig_z2 = *(int16_t *)(&moc->raw_dig_data[BMM150_REG_DIG_Z2_LSB - first_reg]);
+        moc->dig_z3 = *(int16_t *)(&moc->raw_dig_data[BMM150_REG_DIG_Z3_LSB - first_reg]);
+        moc->dig_z4 = *(int16_t *)(&moc->raw_dig_data[BMM150_REG_DIG_Z4_LSB - first_reg]);
 
-        moc->dig_xyz1 = U16_AT(&moc->raw_dig_data[BMM150_REG_DIG_XYZ1_LSB - first_reg]);
+        moc->dig_xyz1 = *(uint16_t *)(&moc->raw_dig_data[BMM150_REG_DIG_XYZ1_LSB - first_reg]);
     }
 }
 

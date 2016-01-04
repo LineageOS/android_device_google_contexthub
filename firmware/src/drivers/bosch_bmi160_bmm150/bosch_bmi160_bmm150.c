@@ -1437,10 +1437,10 @@ static void parseRawData(struct BMI160Sensor *mSensor, int i, float kScale, uint
     raw_z = (mTask.rxBuffer[i+4] | mTask.rxBuffer[i+5] << 8);
 
     if (mSensor->idx == MAG) {
-        int32_t mag_x = S16_AT(&mTask.rxBuffer[i]) >> 3;
-        int32_t mag_y = S16_AT(&mTask.rxBuffer[i+2]) >> 3;
-        int32_t mag_z = S16_AT(&mTask.rxBuffer[i+4]) >> 1;
-        uint32_t mag_rhall = U16_AT(&mTask.rxBuffer[i+6]) >>2;
+        int32_t mag_x = (*(int16_t *)&mTask.rxBuffer[i]) >> 3;
+        int32_t mag_y = (*(int16_t *)&mTask.rxBuffer[i+2]) >> 3;
+        int32_t mag_z = (*(int16_t *)&mTask.rxBuffer[i+4]) >> 1;
+        uint32_t mag_rhall = (*(uint16_t *)&mTask.rxBuffer[i+6]) >> 2;
 
         mag_x = bmm150TempCompensateX(&mTask.moc, mag_x, mag_rhall);
         mag_y = bmm150TempCompensateY(&mTask.moc, mag_y, mag_rhall);
