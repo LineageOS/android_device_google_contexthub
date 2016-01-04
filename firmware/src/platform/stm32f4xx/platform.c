@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+#include <cpu/inc/cpuMath.h>
 #include <plat/inc/gpio.h>
 #include <plat/inc/usart.h>
 #include <plat/inc/cmsis.h>
@@ -317,15 +318,17 @@ bool platReleaseDevInSleepMode(uint32_t sleepDevID)
 static uint64_t platSetTimerAlarm(uint64_t delay) //delay at most that many nsec
 {
     struct StmTim *tim = (struct StmTim*)TIM2_BASE;
+    uint32_t delayInUsecs;
 
     //turn off timer to prevent interrupts now
     tim->CR1 &=~ 1;
 
-    delay /= 1000;   //to microsecs
-    if (delay >> 32) //it is only a 32-bit counter
-        delay = 0xffffffff;
+    if (delay >= (1000ULL << 32)) //it is only a 32-bit counter - we cannot set delays bigger than that
+        delayInUsecs = 0xffffffff;
+    else
+        delayInUsecs = cpuMathUint44Div1000ToUint32(delay);
 
-    tim->CNT = delay;
+    tim->CNT = delayInUsecs;
     tim->SR &=~ 1; //clear int
     tim->CR1 |= 1;
 
@@ -430,6 +433,7 @@ static bool sleepClockJustWfiPrepare(uint64_t delay, uint32_t acceptableJitter, 
 
 struct PlatSleepAndClockInfo {
     uint64_t resolution;
+    uint64_t resolutionReciprocal; // speed up runtime by using 48 more code bytes? yes please!
     uint32_t maxCounter;
     uint32_t jitterPpm;
     uint32_t driftPpm;
@@ -442,6 +446,7 @@ struct PlatSleepAndClockInfo {
 
     { /* RTC + LPLV STOP MODE */
         .resolution = 1000000000ull/32768,
+        .resolutionReciprocal = U64_RECIPROCAL_CALCULATE(1000000000ull/32768),
         .maxCounter = 0xffffffff,
         .jitterPpm = 0,
         .driftPpm = 50,
@@ -452,6 +457,7 @@ struct PlatSleepAndClockInfo {
     },
     { /* RTC + LPFD STOP MODE */
         .resolution = 1000000000ull/32768,
+        .resolutionReciprocal = U64_RECIPROCAL_CALCULATE(1000000000ull/32768),
         .maxCounter = 0xffffffff,
         .jitterPpm = 0,
         .driftPpm = 50,
@@ -462,6 +468,7 @@ struct PlatSleepAndClockInfo {
     },
     { /* RTC + MRFPD STOP MODE */
         .resolution = 1000000000ull/32768,
+        .resolutionReciprocal = U64_RECIPROCAL_CALCULATE(1000000000ull/32768),
         .maxCounter = 0xffffffff,
         .jitterPpm = 0,
         .driftPpm = 50,
@@ -472,6 +479,7 @@ struct PlatSleepAndClockInfo {
     },
     { /* RTC + MR STOP MODE */
         .resolution = 1000000000ull/32768,
+        .resolutionReciprocal = U64_RECIPROCAL_CALCULATE(1000000000ull/32768),
         .maxCounter = 0xffffffff,
         .jitterPpm = 0,
         .driftPpm = 50,
@@ -482,6 +490,7 @@ struct PlatSleepAndClockInfo {
     },
     { /* TIM2 + SLEEP MODE */
         .resolution = 1000000000ull/1000000,
+        .resolutionReciprocal = U64_RECIPROCAL_CALCULATE(1000000000ull/1000000),
         .maxCounter = 0xffffffff,
         .jitterPpm = 0,
         .driftPpm = 30,
@@ -492,6 +501,7 @@ struct PlatSleepAndClockInfo {
     },
     { /* just WFI */
         .resolution = 16000000000ull/1000000,
+        .resolutionReciprocal = U64_RECIPROCAL_CALCULATE(16000000000ull/1000000),
         .maxCounter = 0xffffffff,
         .jitterPpm = 0,
         .driftPpm = 0,
@@ -538,7 +548,7 @@ void platSleep(void)
                 continue;
 
             //skip options that do not let us sleep enough, but save them for later if we simply must pick something
-            if (length / sleepClock->resolution > sleepClock->maxCounter && !leastBadOption)
+            if (cpuMathRecipAssistedUdiv64by64(length, sleepClock->resolution, sleepClock->resolutionReciprocal) > sleepClock->maxCounter && !leastBadOption)
                 potentialLeastBadOption = true;
         }
 
