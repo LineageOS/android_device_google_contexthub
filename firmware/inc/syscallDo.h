@@ -107,6 +107,11 @@ static inline bool eOsEnqueueEvt(uint32_t evtType, void *evtData, uint32_t tidOf
     return syscallDo3P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_MAIN, SYSCALL_OS_MAIN_EVENTQ, SYSCALL_OS_MAIN_EVTQ_ENQUEUE), evtType, evtData, tidOfWhoWillFreeThisEvent);
 }
 
+static inline bool eOsEnqueuePrivateEvt(uint32_t evtType, void *evtData, uint32_t tidOfWhoWillFreeThisEvent, uint32_t toTid)
+{
+    return syscallDo4P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_MAIN, SYSCALL_OS_MAIN_EVENTQ, SYSCALL_OS_MAIN_EVTQ_ENQUEUE_PRIVATE), evtType, evtData, tidOfWhoWillFreeThisEvent, toTid);
+}
+
 static inline void eOsLogvInternal(enum LogLevel level, const char *str, uintptr_t args_list)
 {
     (void)syscallDo3P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_MAIN, SYSCALL_OS_MAIN_LOGGING, SYSCALL_OS_MAIN_LOG_LOGV), level, str, args_list);
