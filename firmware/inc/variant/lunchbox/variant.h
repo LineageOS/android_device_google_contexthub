@@ -21,6 +21,8 @@
 extern "C" {
 #endif
 
+#define VARIANT_VER                 0x00000000
+
 //we have LSE in lunchbox
 #define RTC_CLK                     RTC_CLK_LSE
 // fCAL = fRTCCLK x [1 + (256 - CALM) / (2^20 + CALM - 256)]

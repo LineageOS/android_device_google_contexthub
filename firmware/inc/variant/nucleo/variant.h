@@ -21,6 +21,8 @@
 extern "C" {
 #endif
 
+#define VARIANT_VER                 0x00000000
+
 //we have LSE in nucleo
 #define RTC_CLK                     RTC_CLK_LSE
 

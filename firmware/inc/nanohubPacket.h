@@ -89,6 +89,7 @@ struct NanohubOsHwVersionsResponse {
     __le16 hwVer;
     __le16 blVer;
     __le16 osVer;
+    __le32 variantVer;
 } __attribute__((packed));
 
 #define NANOHUB_REASON_GET_APP_VERSIONS       0x00001001
