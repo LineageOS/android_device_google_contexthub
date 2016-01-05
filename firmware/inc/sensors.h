@@ -187,6 +187,23 @@ uint64_t sensorGetCurLatency(uint32_t sensorHandle);
 bool sensorGetInitComplete(uint32_t sensorHandle); // DO NOT poll on this value
 
 
+/*
+ * convenience funcs
+ */
+static inline uint64_t sensorTimerLookupCommon(const uint32_t *supportedRates, const uint64_t *timerVals, uint32_t wantedRate)
+{
+    uint32_t rate;
+
+    while ((rate = *supportedRates++) != 0) {
+        if (rate == wantedRate)
+            return *timerVals;
+        timerVals++;
+    }
+
+    return 0;
+}
+
+
 #ifdef __cplusplus
 }
 #endif
