@@ -82,10 +82,11 @@ union OsApiSlabItem { //main OS "things" slab must fit this
 #define SYSCALL_OS_MAIN_LAST              4 // always last. holes are allowed, but not immediately before this
 
 //level 3 indices in the OS.main.event_queue table
-#define SYSCALL_OS_MAIN_EVTQ_SUBCRIBE    0 // (uint32_t tid, uint32_t evtType) -> bool success
-#define SYSCALL_OS_MAIN_EVTQ_UNSUBCRIBE  1 // ((uint32_t tid, uint32_t evtType) -> bool success
-#define SYSCALL_OS_MAIN_EVTQ_ENQUEUE     2 // (uint32_t evtType, void *evtData, uint32_t tidForFreeEvt, bool external) -> bool success
-#define SYSCALL_OS_MAIN_EVTQ_LAST        3 // always last. holes are allowed, but not immediately before this
+#define SYSCALL_OS_MAIN_EVTQ_SUBCRIBE        0 // (uint32_t tid, uint32_t evtType) -> bool success
+#define SYSCALL_OS_MAIN_EVTQ_UNSUBCRIBE      1 // ((uint32_t tid, uint32_t evtType) -> bool success
+#define SYSCALL_OS_MAIN_EVTQ_ENQUEUE         2 // (uint32_t evtType, void *evtData, uint32_t tidForFreeEvt) -> bool success
+#define SYSCALL_OS_MAIN_EVTQ_ENQUEUE_PRIVATE 3 // (uint32_t evtType, void *evtData, uint32_t tidForFreeEvt, uint32_t toTid) -> bool success
+#define SYSCALL_OS_MAIN_EVTQ_LAST            4 // always last. holes are allowed, but not immediately before this
 
 //level 3 indices in the OS.main.logging table
 #define SYSCALL_OS_MAIN_LOG_LOGV         0 // (enum LogLevel level, const char *str, va_list *) -> void

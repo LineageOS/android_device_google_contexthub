@@ -53,6 +53,16 @@ static void osExpApiEvtqEnqueue(uintptr_t *retValP, va_list args)
     *retValP = osEnqueueEvtAsApp(evtType, evtData, tid);
 }
 
+static void osExpApiEvtqEnqueuePrivate(uintptr_t *retValP, va_list args)
+{
+    uint32_t evtType = va_arg(args, uint32_t);
+    void *evtData = va_arg(args, void*);
+    uint32_t freeTid = va_arg(args, uint32_t);
+    uint32_t toTid = va_arg(args, uint32_t);
+
+    *retValP = osEnqueuePrivateEvtAsApp(evtType, evtData, freeTid, toTid);
+}
+
 static void osExpApiLogLogv(uintptr_t *retValP, va_list args)
 {
     enum LogLevel level = va_arg(args, int /* enums promoted to ints in va_args in C */);
@@ -387,9 +397,10 @@ void osApiExport(struct SlabAllocator *mainSlubAllocator)
     static const struct SyscallTable osMainEvtqTable = {
         .numEntries = SYSCALL_OS_MAIN_EVTQ_LAST,
         .entry = {
-            [SYSCALL_OS_MAIN_EVTQ_SUBCRIBE]   = { .func = osExpApiEvtqSubscribe,   },
-            [SYSCALL_OS_MAIN_EVTQ_UNSUBCRIBE] = { .func = osExpApiEvtqUnsubscribe, },
-            [SYSCALL_OS_MAIN_EVTQ_ENQUEUE]    = { .func = osExpApiEvtqEnqueue,     },
+            [SYSCALL_OS_MAIN_EVTQ_SUBCRIBE]        = { .func = osExpApiEvtqSubscribe,   },
+            [SYSCALL_OS_MAIN_EVTQ_UNSUBCRIBE]      = { .func = osExpApiEvtqUnsubscribe, },
+            [SYSCALL_OS_MAIN_EVTQ_ENQUEUE]         = { .func = osExpApiEvtqEnqueue,     },
+            [SYSCALL_OS_MAIN_EVTQ_ENQUEUE_PRIVATE] = { .func = osExpApiEvtqEnqueuePrivate, },
         },
     };
 
