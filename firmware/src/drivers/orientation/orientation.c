@@ -549,9 +549,9 @@ static void fusionSetRateMag(void)
     }
 }
 
-static bool fusionSetRate(struct FusionSensor *mSensor, uint32_t rate, uint64_t latency)
+static bool fusionSetRate(uint32_t rate, uint64_t latency, void *cookie)
 {
-
+    struct FusionSensor *mSensor = &mTask.sensors[(int)cookie];
     int i;
     uint32_t max_rate = 0;
     uint32_t gyr_rate, mag_rate;
@@ -606,8 +606,11 @@ static bool fusionSetRate(struct FusionSensor *mSensor, uint32_t rate, uint64_t 
     return true;
 }
 
-static bool fusionPower(struct FusionSensor *mSensor, bool on)
+static bool fusionPower(bool on, void *cookie)
 {
+    struct FusionSensor *mSensor = &mTask.sensors[(int)cookie];
+    int idx;
+
     mSensor->active = on;
     if (on == false) {
         mTask.acc_cnt--;
@@ -636,7 +639,8 @@ static bool fusionPower(struct FusionSensor *mSensor, bool on)
             osEventUnsubscribe(mTask.tid, EVT_SENSOR_MAG_DATA_RDY);
         }
 
-        (void) fusionSetRate(mSensor, 0, ULONG_LONG_MAX);
+        idx = mSensor->idx;
+        (void) fusionSetRate(0, ULONG_LONG_MAX, (void *)idx);
     } else {
         mTask.acc_cnt++;
         if (mSensor->idx != GEOMAG)
@@ -652,139 +656,22 @@ static bool fusionPower(struct FusionSensor *mSensor, bool on)
     return true;
 }
 
-static bool orientPower(bool on)
+static bool fusionFirmwareUpload(void *cookie)
 {
-    return fusionPower(&mTask.sensors[ORIENT], on);
-}
+    struct FusionSensor *mSensor = &mTask.sensors[(int)cookie];
 
-static bool geoMagPower(bool on)
-{
-    return fusionPower(&mTask.sensors[GEOMAG], on);
-}
-
-static bool linearAccPower(bool on)
-{
-    return fusionPower(&mTask.sensors[LINEAR], on);
-}
-
-static bool gamePower(bool on)
-{
-    return fusionPower(&mTask.sensors[GAME], on);
-}
-
-static bool rotationPower(bool on)
-{
-    return fusionPower(&mTask.sensors[ROTAT], on);
-}
-
-static bool gravityPower(bool on)
-{
-    return fusionPower(&mTask.sensors[GRAVITY], on);
-}
-
-static bool orientSetRate(uint32_t rate, uint64_t latency)
-{
-    return fusionSetRate(&mTask.sensors[ORIENT], rate, latency);
-}
-
-static bool gravitySetRate(uint32_t rate, uint64_t latency)
-{
-    return fusionSetRate(&mTask.sensors[GRAVITY], rate, latency);
-}
-
-static bool linearAccSetRate(uint32_t rate, uint64_t latency)
-{
-    return fusionSetRate(&mTask.sensors[LINEAR], rate, latency);
-}
-
-static bool geoMagSetRate(uint32_t rate, uint64_t latency)
-{
-    return fusionSetRate(&mTask.sensors[GEOMAG], rate, latency);
-}
-
-static bool gameSetRate(uint32_t rate, uint64_t latency)
-{
-    return fusionSetRate(&mTask.sensors[GAME], rate, latency);
-}
-
-static bool rotationSetRate(uint32_t rate, uint64_t latency)
-{
-    return fusionSetRate(&mTask.sensors[ROTAT], rate, latency);
-}
-
-static bool fusionFirmwareUpload(struct FusionSensor *mSensor)
-{
     sensorSignalInternalEvt(mSensor->handle, SENSOR_INTERNAL_EVT_FW_STATE_CHG, 1, 0);
     return true;
 }
 
-static bool orientFirmwareUpload()
+static bool fusionFlush(void *cookie)
 {
-    return fusionFirmwareUpload(&mTask.sensors[ORIENT]);
-}
-
-static bool gravityFirmwareUpload()
-{
-    return fusionFirmwareUpload(&mTask.sensors[GRAVITY]);
-}
-
-static bool geoMagFirmwareUpload()
-{
-    return fusionFirmwareUpload(&mTask.sensors[GEOMAG]);
-}
-
-static bool linearAccFirmwareUpload()
-{
-    return fusionFirmwareUpload(&mTask.sensors[LINEAR]);
-}
-
-static bool gameFirmwareUpload()
-{
-    return fusionFirmwareUpload(&mTask.sensors[GAME]);
-}
-
-static bool rotationFirmwareUpload()
-{
-    return fusionFirmwareUpload(&mTask.sensors[ROTAT]);
-}
-
-static bool fusionFlush(struct FusionSensor *mSensor)
-{
+    struct FusionSensor *mSensor = &mTask.sensors[(int)cookie];
     uint32_t evtType = sensorGetMyEventType(mSi[mSensor->idx].sensorType);
+
     osEnqueueEvt(evtType, SENSOR_DATA_EVENT_FLUSH, NULL);
     return true;
 }
-
-static bool orientFlush()
-{
-    return fusionFlush(&mTask.sensors[ORIENT]);
-}
-
-static bool gravityFlush()
-{
-    return fusionFlush(&mTask.sensors[GRAVITY]);
-}
-
-static bool linearAccFlush()
-{
-    return fusionFlush(&mTask.sensors[LINEAR]);
-}
-
-static bool gameFlush()
-{
-    return fusionFlush(&mTask.sensors[GAME]);
-}
-
-static bool geoMagFlush()
-{
-    return fusionFlush(&mTask.sensors[GEOMAG]);
-}
-
-static bool rotationFlush()
-{
-    return fusionFlush(&mTask.sensors[ROTAT]);
-}
-
 
 static void fusionHandleEvent(uint32_t evtType, const void* evtData)
 {
@@ -812,14 +699,14 @@ static void fusionHandleEvent(uint32_t evtType, const void* evtData)
     }
 }
 
-static const struct SensorOps mSops[NUM_OF_FUSION_SENSOR] =
+static const struct SensorOps mSops =
 {
-    {orientPower, orientFirmwareUpload, orientSetRate, orientFlush, NULL, NULL},
-    {gravityPower, gravityFirmwareUpload, gravitySetRate, gravityFlush, NULL, NULL},
-    {geoMagPower, geoMagFirmwareUpload, geoMagSetRate, geoMagFlush, NULL, NULL},
-    {linearAccPower, linearAccFirmwareUpload, linearAccSetRate, linearAccFlush, NULL, NULL},
-    {gamePower, gameFirmwareUpload, gameSetRate, gameFlush, NULL, NULL},
-    {rotationPower, rotationFirmwareUpload, rotationSetRate, rotationFlush, NULL, NULL},
+    fusionPower,
+    fusionFirmwareUpload,
+    fusionSetRate,
+    fusionFlush,
+    NULL,
+    NULL,
 };
 
 static bool fusionStart(uint32_t tid)
@@ -838,8 +725,7 @@ static bool fusionStart(uint32_t tid)
     }
 
     for (i = ORIENT; i < NUM_OF_FUSION_SENSOR; i++) {
-        mTask.sensors[i].handle = sensorRegister(&mSi[i], &mSops[i]);
-        sensorRegisterInitComplete(mTask.sensors[i].handle);
+        mTask.sensors[i].handle = sensorRegister(&mSi[i], &mSops, (void *)i, true);
         mTask.sensors[i].idx = i;
         mTask.sensors[i].use_gyr_data = true;
         mTask.sensors[i].use_mag_data = true;

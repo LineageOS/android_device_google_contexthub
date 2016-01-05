@@ -141,7 +141,7 @@ static void setMode(bool on, void *cookie)
 }
 
 // TODO: only turn on the timer when enabled
-static bool sensorPowerBaro(bool on)
+static bool sensorPowerBaro(bool on, void *cookie)
 {
     if (!on && mTask.baroTimerHandle) {
         timTimerCancel(mTask.baroTimerHandle);
@@ -159,13 +159,13 @@ static bool sensorPowerBaro(bool on)
     return true;
 }
 
-static bool sensorFirmwareBaro()
+static bool sensorFirmwareBaro(void *cookie)
 {
     sensorSignalInternalEvt(mTask.baroHandle, SENSOR_INTERNAL_EVT_FW_STATE_CHG, 1, 0);
     return true;
 }
 
-static bool sensorRateBaro(uint32_t rate, uint64_t latency)
+static bool sensorRateBaro(uint32_t rate, uint64_t latency, void *cookie)
 {
     if (mTask.baroTimerHandle)
         timTimerCancel(mTask.baroTimerHandle);
@@ -174,12 +174,12 @@ static bool sensorRateBaro(uint32_t rate, uint64_t latency)
     return true;
 }
 
-static bool sensorFlushBaro()
+static bool sensorFlushBaro(void *cookie)
 {
     return osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_BARO), SENSOR_DATA_EVENT_FLUSH, NULL);
 }
 
-static bool sensorPowerTemp(bool on)
+static bool sensorPowerTemp(bool on, void *cookie)
 {
     if (!on && mTask.tempTimerHandle) {
         timTimerCancel(mTask.tempTimerHandle);
@@ -197,13 +197,13 @@ static bool sensorPowerTemp(bool on)
     return true;
 }
 
-static bool sensorFirmwareTemp()
+static bool sensorFirmwareTemp(void *cookie)
 {
     sensorSignalInternalEvt(mTask.tempHandle, SENSOR_INTERNAL_EVT_FW_STATE_CHG, 1, 0);
     return true;
 }
 
-static bool sensorRateTemp(uint32_t rate, uint64_t latency)
+static bool sensorRateTemp(uint32_t rate, uint64_t latency, void *cookie)
 {
     if (mTask.tempTimerHandle)
         timTimerCancel(mTask.tempTimerHandle);
@@ -212,7 +212,7 @@ static bool sensorRateTemp(uint32_t rate, uint64_t latency)
     return true;
 }
 
-static bool sensorFlushTemp()
+static bool sensorFlushTemp(void *cookie)
 {
     return osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_TEMP), SENSOR_DATA_EVENT_FLUSH, NULL);
 }
@@ -470,8 +470,8 @@ static bool startTask(uint32_t taskId)
     mTask.id = taskId;
 
     /* Register sensors */
-    mTask.baroHandle = sensorRegister(&sensorInfoBaro, &sensorOpsBaro);
-    mTask.tempHandle = sensorRegister(&sensorInfoTemp, &sensorOpsTemp);
+    mTask.baroHandle = sensorRegister(&sensorInfoBaro, &sensorOpsBaro, NULL, false);
+    mTask.tempHandle = sensorRegister(&sensorInfoTemp, &sensorOpsTemp, NULL, false);
 
     osEventSubscribe(taskId, EVT_APP_START);
 

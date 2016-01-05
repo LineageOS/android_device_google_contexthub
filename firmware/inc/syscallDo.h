@@ -134,9 +134,9 @@ static inline const struct SensorInfo* eOsSensorSignalInternalEvt(uint32_t handl
     return (const struct SensorInfo*)syscallDo5P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_MAIN, SYSCALL_OS_MAIN_SENSOR, SYSCALL_OS_MAIN_SENSOR_SIGNAL), handle, intEvtNum, value1, value2_lo, value2_hi);
 }
 
-static inline const uint32_t eOsSensorRegister(const struct SensorInfo *si, uint32_t tid)
+static inline const uint32_t eOsSensorRegister(const struct SensorInfo *si, uint32_t tid, void *cookie, bool initComplete)
 {
-    return syscallDo2P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_MAIN, SYSCALL_OS_MAIN_SENSOR, SYSCALL_OS_MAIN_SENSOR_REG), si, tid);
+    return syscallDo4P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_MAIN, SYSCALL_OS_MAIN_SENSOR, SYSCALL_OS_MAIN_SENSOR_REG), si, tid, cookie, (int)initComplete);
 }
 
 static inline const bool eOsSensorUnregister(uint32_t handle)

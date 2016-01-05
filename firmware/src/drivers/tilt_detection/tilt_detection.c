@@ -184,7 +184,7 @@ static const struct SensorInfo mSi =
     20
 };
 
-static bool tiltDetectionPower(bool on)
+static bool tiltDetectionPower(bool on, void *cookie)
 {
     if (on) {
         configAnyMotion(true);
@@ -201,21 +201,21 @@ static bool tiltDetectionPower(bool on)
     return true;
 }
 
-static bool tiltDetectionSetRate(uint32_t rate, uint64_t latency)
+static bool tiltDetectionSetRate(uint32_t rate, uint64_t latency, void *cookie)
 {
     sensorSignalInternalEvt(mTask.handle, SENSOR_INTERNAL_EVT_RATE_CHG, rate,
                             latency);
     return true;
 }
 
-static bool tiltDetectionFirmwareUpload()
+static bool tiltDetectionFirmwareUpload(void *cookie)
 {
     sensorSignalInternalEvt(mTask.handle, SENSOR_INTERNAL_EVT_FW_STATE_CHG,
             1, 0);
     return true;
 }
 
-static bool tiltDetectionFlush()
+static bool tiltDetectionFlush(void *cookie)
 {
     return osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_TILT),
                         SENSOR_DATA_EVENT_FLUSH, NULL);
@@ -279,8 +279,7 @@ static const struct SensorOps mSops =
 static bool tiltDetectionStart(uint32_t taskId)
 {
     mTask.taskId = taskId;
-    mTask.handle = sensorRegister(&mSi, &mSops);
-    sensorRegisterInitComplete(mTask.handle);
+    mTask.handle = sensorRegister(&mSi, &mSops, NULL, true);
     algoInit();
     osEventSubscribe(taskId, EVT_APP_START);
     return true;
