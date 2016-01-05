@@ -244,14 +244,14 @@ static void addDelta(struct TimeSync *sync, uint64_t apTime, uint64_t hubTime)
 static uint64_t getAvgDelta(struct TimeSync *sync)
 {
     int i;
+    int32_t avg;
 
     if (!sync->cnt)
         return 0ULL;
     else if (!sync->avgDelta) {
-        sync->avgDelta = 0;
-        for (i=0; i<sync->cnt; i++)
-            sync->avgDelta += sync->delta[i];
-        sync->avgDelta /= sync->cnt;
+        for (i=1, avg=0; i<sync->cnt; i++)
+            avg += (int32_t)(sync->delta[i] - sync->delta[0]);
+        sync->avgDelta = (avg / sync->cnt) + sync->delta[0];
     }
     return sync->avgDelta;
 }
