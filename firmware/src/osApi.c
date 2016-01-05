@@ -78,8 +78,10 @@ static void osExpApiSensorReg(uintptr_t *retValP, va_list args)
 {
     const struct SensorInfo *si = va_arg(args, const struct SensorInfo*);
     uint32_t tid = va_arg(args, uint32_t);
+    void *cookie = va_arg(args, void *);
+    bool initComplete = va_arg(args, int);
 
-    *retValP = (uintptr_t)sensorRegisterAsApp(si, tid);
+    *retValP = (uintptr_t)sensorRegisterAsApp(si, tid, cookie, initComplete);
 }
 
 static void osExpApiSensorUnreg(uintptr_t *retValP, va_list args)
@@ -401,16 +403,16 @@ void osApiExport(struct SlabAllocator *mainSlubAllocator)
     static const struct SyscallTable osMainSensorsTable = {
         .numEntries = SYSCALL_OS_MAIN_SENSOR_LAST,
         .entry = {
-            [SYSCALL_OS_MAIN_SENSOR_SIGNAL]   = { .func = osExpApiSensorSignal,  },
-            [SYSCALL_OS_MAIN_SENSOR_REG]      = { .func = osExpApiSensorReg,     },
-            [SYSCALL_OS_MAIN_SENSOR_UNREG]    = { .func = osExpApiSensorUnreg,   },
+            [SYSCALL_OS_MAIN_SENSOR_SIGNAL]        = { .func = osExpApiSensorSignal,  },
+            [SYSCALL_OS_MAIN_SENSOR_REG]           = { .func = osExpApiSensorReg,     },
+            [SYSCALL_OS_MAIN_SENSOR_UNREG]         = { .func = osExpApiSensorUnreg,   },
             [SYSCALL_OS_MAIN_SENSOR_REG_INIT_COMP] = { .func = osExpApiSensorRegInitComp },
-            [SYSCALL_OS_MAIN_SENSOR_FIND]     = { .func = osExpApiSensorFind,    },
-            [SYSCALL_OS_MAIN_SENSOR_REQUEST]  = { .func = osExpApiSensorReq,     },
-            [SYSCALL_OS_MAIN_SENSOR_RATE_CHG] = { .func = osExpApiSensorRateChg, },
-            [SYSCALL_OS_MAIN_SENSOR_RELEASE]  = { .func = osExpApiSensorRel,     },
-            [SYSCALL_OS_MAIN_SENSOR_TRIGGER]  = { .func = osExpApiSensorTrigger, },
-            [SYSCALL_OS_MAIN_SENSOR_GET_RATE] = { .func = osExpApiSensorGetRate, },
+            [SYSCALL_OS_MAIN_SENSOR_FIND]          = { .func = osExpApiSensorFind,    },
+            [SYSCALL_OS_MAIN_SENSOR_REQUEST]       = { .func = osExpApiSensorReq,     },
+            [SYSCALL_OS_MAIN_SENSOR_RATE_CHG]      = { .func = osExpApiSensorRateChg, },
+            [SYSCALL_OS_MAIN_SENSOR_RELEASE]       = { .func = osExpApiSensorRel,     },
+            [SYSCALL_OS_MAIN_SENSOR_TRIGGER]       = { .func = osExpApiSensorTrigger, },
+            [SYSCALL_OS_MAIN_SENSOR_GET_RATE]      = { .func = osExpApiSensorGetRate, },
 
         },
     };

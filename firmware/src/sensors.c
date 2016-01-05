@@ -39,8 +39,9 @@ struct Sensor {
     uint64_t currentLatency; /* here 0 means no batching */
     uint32_t currentRate;    /* here 0 means off */
     TaggedPtr callInfo;      /* pointer to ops struct or app tid */
+    void *callData;
     bool initComplete;       /* sensor finished initializing */
-} __attribute__((packed));
+};
 
 struct SensorsInternalEvent {
     union {
@@ -49,7 +50,8 @@ struct SensorsInternalEvent {
             uint32_t value1;
             uint64_t value2;
         };
-        struct SensorSetRateEvent externalEvt;
+        struct SensorPowerEvent externalPowerEvt;
+        struct SensorSetRateEvent externalSetRateEvt;
     };
 };
 
@@ -99,7 +101,7 @@ static struct Sensor* sensorFindByHandle(uint32_t handle)
     return NULL;
 }
 
-static uint32_t sensorRegisterEx(const struct SensorInfo *si, TaggedPtr callInfo)
+static uint32_t sensorRegisterEx(const struct SensorInfo *si, TaggedPtr callInfo, void *callData, bool initComplete)
 {
     int32_t idx = atomicBitsetFindClearAndSet(mSensorsUsed);
     struct Sensor *s;
@@ -120,20 +122,22 @@ static uint32_t sensorRegisterEx(const struct SensorInfo *si, TaggedPtr callInfo
     s->currentRate = SENSOR_RATE_OFF;
     s->currentLatency = SENSOR_LATENCY_INVALID;
     s->callInfo = callInfo;
+    s->callData = callData;
+    s->initComplete = initComplete;
     mem_reorder_barrier();
     s->handle = handle;
 
     return handle;
 }
 
-uint32_t sensorRegister(const struct SensorInfo *si, const struct SensorOps *ops)
+uint32_t sensorRegister(const struct SensorInfo *si, const struct SensorOps *ops, void *callData, bool initComplete)
 {
-    return sensorRegisterEx(si, taggedPtrMakeFromPtr(ops));
+    return sensorRegisterEx(si, taggedPtrMakeFromPtr(ops), callData, initComplete);
 }
 
-uint32_t sensorRegisterAsApp(const struct SensorInfo *si, uint32_t tid)
+uint32_t sensorRegisterAsApp(const struct SensorInfo *si, uint32_t tid, void *callData, bool initComplete)
 {
-    return sensorRegisterEx(si, taggedPtrMakeFromUint(tid));
+    return sensorRegisterEx(si, taggedPtrMakeFromUint(tid), callData, initComplete);
 }
 
 bool sensorRegisterInitComplete(uint32_t handle)
@@ -166,20 +170,37 @@ bool sensorUnregister(uint32_t handle)
     return true;
 }
 
+static void sensorCallFuncPowerEvtFreeF(void* event)
+{
+    slabAllocatorFree(mInternalEvents, event);
+}
+
 static bool sensorCallFuncPower(struct Sensor* s, bool on)
 {
     if (taggedPtrIsPtr(s->callInfo))
-        return ((const struct SensorOps*)taggedPtrToPtr(s->callInfo))->sensorPower(on);
-    else
-        return osEnqueuePrivateEvt(EVT_APP_SENSOR_POWER, (void*)(uintptr_t)on, NULL, taggedPtrToUint(s->callInfo));
+        return ((const struct SensorOps*)taggedPtrToPtr(s->callInfo))->sensorPower(on, s->callData);
+    else {
+        struct SensorsInternalEvent *evt = (struct SensorsInternalEvent*)slabAllocatorAlloc(mInternalEvents);
+
+        if (!evt)
+            return false;
+
+        evt->externalPowerEvt.on = on;
+        evt->externalPowerEvt.callData = s->callData;
+        if (osEnqueuePrivateEvt(EVT_APP_SENSOR_POWER, &evt->externalPowerEvt, sensorCallFuncPowerEvtFreeF, taggedPtrToUint(s->callInfo)))
+            return true;
+
+        slabAllocatorFree(mInternalEvents, evt);
+        return false;
+    }
 }
 
 static bool sensorCallFuncFwUpld(struct Sensor* s)
 {
     if (taggedPtrIsPtr(s->callInfo))
-        return ((const struct SensorOps*)taggedPtrToPtr(s->callInfo))->sensorFirmwareUpload();
+        return ((const struct SensorOps*)taggedPtrToPtr(s->callInfo))->sensorFirmwareUpload(s->callData);
     else
-        return osEnqueuePrivateEvt(EVT_APP_SENSOR_FW_UPLD, NULL, NULL, taggedPtrToUint(s->callInfo));
+        return osEnqueuePrivateEvt(EVT_APP_SENSOR_FW_UPLD, s->callData, NULL, taggedPtrToUint(s->callInfo));
 }
 
 static void sensorCallFuncSetRateEvtFreeF(void* event)
@@ -190,16 +211,17 @@ static void sensorCallFuncSetRateEvtFreeF(void* event)
 static bool sensorCallFuncSetRate(struct Sensor* s, uint32_t rate, uint64_t latency)
 {
     if (taggedPtrIsPtr(s->callInfo))
-        return ((const struct SensorOps*)taggedPtrToPtr(s->callInfo))->sensorSetRate(rate, latency);
+        return ((const struct SensorOps*)taggedPtrToPtr(s->callInfo))->sensorSetRate(rate, latency, s->callData);
     else {
         struct SensorsInternalEvent *evt = (struct SensorsInternalEvent*)slabAllocatorAlloc(mInternalEvents);
 
         if (!evt)
             return false;
 
-        evt->externalEvt.latency = latency;
-        evt->externalEvt.rate = rate;
-        if (osEnqueuePrivateEvt(EVT_APP_SENSOR_SET_RATE, &evt->externalEvt, sensorCallFuncSetRateEvtFreeF, taggedPtrToUint(s->callInfo)))
+        evt->externalSetRateEvt.latency = latency;
+        evt->externalSetRateEvt.rate = rate;
+        evt->externalSetRateEvt.callData = s->callData;
+        if (osEnqueuePrivateEvt(EVT_APP_SENSOR_SET_RATE, &evt->externalSetRateEvt, sensorCallFuncSetRateEvtFreeF, taggedPtrToUint(s->callInfo)))
             return true;
 
         slabAllocatorFree(mInternalEvents, evt);
@@ -210,25 +232,25 @@ static bool sensorCallFuncSetRate(struct Sensor* s, uint32_t rate, uint64_t late
 static bool sensorCallFuncCalibrate(struct Sensor* s)
 {
     if (taggedPtrIsPtr(s->callInfo) && ((const struct SensorOps*)taggedPtrToPtr(s->callInfo))->sensorCalibrate)
-        return ((const struct SensorOps*)taggedPtrToPtr(s->callInfo))->sensorCalibrate();
+        return ((const struct SensorOps*)taggedPtrToPtr(s->callInfo))->sensorCalibrate(s->callData);
     else
-        return osEnqueuePrivateEvt(EVT_APP_SENSOR_CALIBRATE, NULL, NULL, taggedPtrToUint(s->callInfo));
+        return osEnqueuePrivateEvt(EVT_APP_SENSOR_CALIBRATE, s->callData, NULL, taggedPtrToUint(s->callInfo));
 }
 
 static bool sensorCallFuncFlush(struct Sensor* s)
 {
     if (taggedPtrIsPtr(s->callInfo))
-        return ((const struct SensorOps*)taggedPtrToPtr(s->callInfo))->sensorFlush();
+        return ((const struct SensorOps*)taggedPtrToPtr(s->callInfo))->sensorFlush(s->callData);
     else
-        return osEnqueuePrivateEvt(EVT_APP_SENSOR_FLUSH, NULL, NULL, taggedPtrToUint(s->callInfo));
+        return osEnqueuePrivateEvt(EVT_APP_SENSOR_FLUSH, s->callData, NULL, taggedPtrToUint(s->callInfo));
 }
 
 static bool sensorCallFuncTrigger(struct Sensor* s)
 {
     if (taggedPtrIsPtr(s->callInfo))
-        return ((const struct SensorOps*)taggedPtrToPtr(s->callInfo))->sensorTriggerOndemand();
+        return ((const struct SensorOps*)taggedPtrToPtr(s->callInfo))->sensorTriggerOndemand(s->callData);
     else
-        return osEnqueuePrivateEvt(EVT_APP_SENSOR_TRIGGER, NULL, NULL, taggedPtrToUint(s->callInfo));
+        return osEnqueuePrivateEvt(EVT_APP_SENSOR_TRIGGER, s->callData, NULL, taggedPtrToUint(s->callInfo));
 }
 
 static void sensorReconfig(struct Sensor* s, uint32_t newHwRate, uint64_t newHwLatency)

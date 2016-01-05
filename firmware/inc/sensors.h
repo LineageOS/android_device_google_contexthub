@@ -98,21 +98,27 @@ struct TripleAxisDataEvent {
 
 #define SENSOR_DATA_EVENT_FLUSH (void *)0xFFFFFFFF // flush for all data
 
+struct SensorPowerEvent {
+    bool on;
+    void *callData;
+};
+
 struct SensorSetRateEvent {
     uint64_t latency;
     uint32_t rate;
+    void *callData;
 };
 
 
 
 struct SensorOps {
-    bool (*sensorPower)(bool on);          /* -> SENSOR_INTERNAL_EVT_POWER_STATE_CHG (success)         */
-    bool (*sensorFirmwareUpload)(void);    /* -> SENSOR_INTERNAL_EVT_FW_STATE_CHG (rate or 0 if fail)  */
-    bool (*sensorSetRate)(uint32_t rate, uint64_t latency);
+    bool (*sensorPower)(bool on, void *);          /* -> SENSOR_INTERNAL_EVT_POWER_STATE_CHG (success)         */
+    bool (*sensorFirmwareUpload)(void *);    /* -> SENSOR_INTERNAL_EVT_FW_STATE_CHG (rate or 0 if fail)  */
+    bool (*sensorSetRate)(uint32_t rate, uint64_t latency, void *);
                                            /* -> SENSOR_INTERNAL_EVT_RATE_CHG (rate)                   */
-    bool (*sensorFlush)(void);
-    bool (*sensorTriggerOndemand)(void);
-    bool (*sensorCalibrate)(void);
+    bool (*sensorFlush)(void *);
+    bool (*sensorTriggerOndemand)(void *);
+    bool (*sensorCalibrate)(void *);
 };
 
 struct SensorInfo {
@@ -156,8 +162,8 @@ bool sensorsInit(void);
 #define SENSOR_INTERNAL_EVT_FW_STATE_CHG     1
 #define SENSOR_INTERNAL_EVT_RATE_CHG         2
 
-uint32_t sensorRegister(const struct SensorInfo *si, const struct SensorOps *ops); /* returns handle, copy is not made */
-uint32_t sensorRegisterAsApp(const struct SensorInfo *si, uint32_t tid); /* returns handle, copy is not made */
+uint32_t sensorRegister(const struct SensorInfo *si, const struct SensorOps *ops, void *callData, bool initComplete); /* returns handle, copy is not made */
+uint32_t sensorRegisterAsApp(const struct SensorInfo *si, uint32_t tid, void *callData, bool initComplete); /* returns handle, copy is not made */
 bool sensorRegisterInitComplete(uint32_t handle);
 bool sensorUnregister(uint32_t handle); /* your job to be sure it is off already */
 bool sensorSignalInternalEvt(uint32_t handle, uint32_t intEvtNum, uint32_t value1, uint64_t value2);

@@ -233,7 +233,7 @@ static void setMode(bool alsOn, bool proxOn, void *cookie)
                 &i2cCallback, cookie);
 }
 
-static bool sensorPowerAls(bool on)
+static bool sensorPowerAls(bool on, void *cookie)
 {
     osLog(LOG_INFO, "ROHM: sensorPowerAls: %d\n", on);
 
@@ -249,13 +249,13 @@ static bool sensorPowerAls(bool on)
     return true;
 }
 
-static bool sensorFirmwareAls()
+static bool sensorFirmwareAls(void *cookie)
 {
     sensorSignalInternalEvt(data.alsHandle, SENSOR_INTERNAL_EVT_FW_STATE_CHG, 1, 0);
     return true;
 }
 
-static bool sensorRateAls(uint32_t rate, uint64_t latency)
+static bool sensorRateAls(uint32_t rate, uint64_t latency, void *cookie)
 {
     osLog(LOG_INFO, "ROHM: sensorRateAls: rate=%ld Hz latency=%lld us\n",
           rate / 1024, latency / 1000);
@@ -270,12 +270,12 @@ static bool sensorRateAls(uint32_t rate, uint64_t latency)
     return true;
 }
 
-static bool sensorFlushAls()
+static bool sensorFlushAls(void *cookie)
 {
     return osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_ALS), SENSOR_DATA_EVENT_FLUSH, NULL);
 }
 
-static bool sensorPowerProx(bool on)
+static bool sensorPowerProx(bool on, void *cookie)
 {
     osLog(LOG_INFO, "ROHM: sensorPowerProx: %d\n", on);
 
@@ -291,13 +291,13 @@ static bool sensorPowerProx(bool on)
     return true;
 }
 
-static bool sensorFirmwareProx()
+static bool sensorFirmwareProx(void *cookie)
 {
     sensorSignalInternalEvt(data.proxHandle, SENSOR_INTERNAL_EVT_FW_STATE_CHG, 1, 0);
     return true;
 }
 
-static bool sensorRateProx(uint32_t rate, uint64_t latency)
+static bool sensorRateProx(uint32_t rate, uint64_t latency, void *cookie)
 {
     osLog(LOG_INFO, "ROHM: sensorRateProx: rate=%ld Hz latency=%lld us\n",
           rate / 1024, latency / 1000);
@@ -312,7 +312,7 @@ static bool sensorRateProx(uint32_t rate, uint64_t latency)
     return true;
 }
 
-static bool sensorFlushProx()
+static bool sensorFlushProx(void *cookie)
 {
     return osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_PROX), SENSOR_DATA_EVENT_FLUSH, NULL);
 }
@@ -496,8 +496,8 @@ static bool init_app(uint32_t myTid)
     data.proxReading = false;
 
     /* Register sensors */
-    data.alsHandle = sensorRegister(&sensorInfoAls, &sensorOpsAls);
-    data.proxHandle = sensorRegister(&sensorInfoProx, &sensorOpsProx);
+    data.alsHandle = sensorRegister(&sensorInfoAls, &sensorOpsAls, NULL, false);
+    data.proxHandle = sensorRegister(&sensorInfoProx, &sensorOpsProx, NULL, false);
 
     osEventSubscribe(myTid, EVT_APP_START);
 
