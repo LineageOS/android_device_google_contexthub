@@ -46,6 +46,7 @@ static size_t getOsHwVersion(void *rx, uint8_t rx_len, void *tx, uint64_t timest
     resp->hwVer = htole16(platHwVer());
     resp->blVer = htole16(platBlVer());
     resp->osVer = htole16(OS_VER);
+    resp->variantVer = htole32(VARIANT_VER);
 
     return sizeof(*resp);
 }
