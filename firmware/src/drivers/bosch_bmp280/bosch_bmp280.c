@@ -97,6 +97,15 @@ static const uint32_t tempSupportedRates[] =
     0,
 };
 
+static const uint64_t rateTimerValsTemp[] = //should match "supported rates in length" and be the timer length for that rate in nanosecs
+{
+    10 * 1000000000ULL,
+     1 * 1000000000ULL,
+    1000000000ULL / 5,
+    1000000000ULL / 10,
+    1000000000ULL / 25,
+};
+
 static const uint32_t baroSupportedRates[] =
 {
     SENSOR_HZ(0.1),
@@ -104,6 +113,14 @@ static const uint32_t baroSupportedRates[] =
     SENSOR_HZ(5),
     SENSOR_HZ(10),
     0
+};
+
+static const uint64_t rateTimerValsBaro[] = //should match "supported rates in length" and be the timer length for that rate in nanosecs
+{
+    10 * 1000000000ULL,
+     1 * 1000000000ULL,
+    1000000000ULL / 5,
+    1000000000ULL / 10,
 };
 
 /* sensor callbacks from nanohub */
@@ -169,7 +186,7 @@ static bool sensorRateBaro(uint32_t rate, uint64_t latency, void *cookie)
 {
     if (mTask.baroTimerHandle)
         timTimerCancel(mTask.baroTimerHandle);
-    mTask.baroTimerHandle = timTimerSet(1024000000000ULL / rate, 0, 50, baroTimerCallback, NULL, false);
+    mTask.baroTimerHandle = timTimerSet(sensorTimerLookupCommon(baroSupportedRates, rateTimerValsBaro, rate), 0, 50, baroTimerCallback, NULL, false);
     sensorSignalInternalEvt(mTask.baroHandle, SENSOR_INTERNAL_EVT_RATE_CHG, rate, latency);
     return true;
 }
@@ -207,7 +224,7 @@ static bool sensorRateTemp(uint32_t rate, uint64_t latency, void *cookie)
 {
     if (mTask.tempTimerHandle)
         timTimerCancel(mTask.tempTimerHandle);
-    mTask.tempTimerHandle = timTimerSet(1024000000000ULL / rate, 0, 50, tempTimerCallback, NULL, false);
+    mTask.tempTimerHandle = timTimerSet(sensorTimerLookupCommon(tempSupportedRates, rateTimerValsTemp, rate), 0, 50, tempTimerCallback, NULL, false);
     sensorSignalInternalEvt(mTask.tempHandle, SENSOR_INTERNAL_EVT_RATE_CHG, rate, latency);
     return true;
 }
