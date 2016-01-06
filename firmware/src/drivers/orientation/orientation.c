@@ -595,7 +595,29 @@ static bool fusionSetRate(uint32_t rate, uint64_t latency, void *cookie)
         total_sample += mTask.raw_sensor_rate[MAG];
     }
 
-    mTask.raw_sensor_latency = (total_sample == 0 ? 0 : MAX_NUM_RAW_DATA_SAMPLES * 1024ull / total_sample);
+    //Note:
+    // Previous code here:
+    //   mTask.raw_sensor_latency = total_sample ? (MAX_NUM_RAW_DATA_SAMPLES * 1024ull / total_sample) : 0;
+    //
+    // At this point total_sample = sum of 0, 1, 2, or 3 values from FusionRates[].
+    // But also note that for all N, FusionRates[N] = SENSOR_HZ(2^ N * 12.5f),
+    // Thus means that total_samples here is sure to be an integer multiple of
+    // SENSOR_HZ(12.5f). We'll use this here to avoid a uint64 division. Also of
+    // note is that when they use 1024ull here, they really mean SENSOR_HZ(1) just
+    // to remove the SENSOR_HZ() bias. So we'll decompose this into a few pieces.
+    // For now we'll ingore the zero-check on total_sample. Just pretend it is there.
+    // First we'll divide both top and bottom by SENSOR_HZ(1), and thus get
+    // mTask.raw_sensor_latency = MAX_NUM_RAW_DATA_SAMPLES / (total_sample / SENSOR_HZ(1))
+    // this has not lost us any precision, as we know total_sample is divisible
+    // by SENSOR_HZ(12.5f), and thus certainly by SENSOR_HZ(1). But wait, there is
+    // more. We can actually divide both top and bottom by SENSOR_HZ(12.5) to reduce
+    // the size of that constant. We thus get:
+    // mTask.raw_sensor_latency = (MAX_NUM_RAW_DATA_SAMPLES / 12.5) / (total_sample / SENSOR_HZ(12.5))
+    // Why all this? Well, MAX_NUM_RAW_DATA_SAMPLES is used just here, so it just gets
+    // redefined from 50000000000ull to 4000000000ull. And that, my friends is a
+    // 32-bit number. woohoo!
+
+    mTask.raw_sensor_latency = total_sample ? ((uint32_t)(MAX_NUM_RAW_DATA_SAMPLES / 12.5f) / (total_sample / SENSOR_HZ(12.5))) : 0;
     for (i = ORIENT; i < NUM_OF_FUSION_SENSOR; i++) {
         if (mTask.sensors[i].active) {
             mTask.raw_sensor_latency = mTask.sensors[i].latency < mTask.raw_sensor_latency ?
