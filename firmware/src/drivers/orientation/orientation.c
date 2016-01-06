@@ -108,8 +108,6 @@ struct FusionTask {
     uint64_t last_time[NUM_OF_RAW_SENSOR];
     struct TripleAxisDataPoint last_sample[NUM_OF_RAW_SENSOR];
 
-    uint64_t last_gyro_time;
-    uint64_t last_acc_time;
     uint32_t flags;
 
     uint32_t raw_sensor_rate[NUM_OF_RAW_SENSOR];
@@ -406,12 +404,10 @@ static void drainSamples()
             which = MAG;
         }
 
+        dT = floatFromUint64(mTask.ResamplePeriodNs[which]) * 1e-9f;
         switch (which) {
         case ACC:
             initVec3(&a, mTask.samples[ACC][i].x, mTask.samples[ACC][i].y, mTask.samples[ACC][i].z);
-
-            dT = floatFromUint64(mTask.samples[ACC][i].time - mTask.last_acc_time) * 1.0E-9f;
-            mTask.last_acc_time = mTask.samples[ACC][i].time;
 
             if (mTask.flags & FUSION_FLAG_ENABLED)
                 fusionHandleAcc(&mTask.fusion, &a, dT);
@@ -427,9 +423,6 @@ static void drainSamples()
             break;
         case GYR:
             initVec3(&w, mTask.samples[GYR][j].x, mTask.samples[GYR][j].y, mTask.samples[GYR][j].z);
-
-            dT = floatFromUint64(mTask.samples[GYR][j].time - mTask.last_gyro_time) * 1.0E-9f;
-            mTask.last_gyro_time = mTask.samples[GYR][j].time;
 
             if (mTask.flags & FUSION_FLAG_ENABLED)
                 fusionHandleGyro(&mTask.fusion, &w, dT);
@@ -746,8 +739,6 @@ static bool fusionStart(uint32_t tid)
     size_t i, slabSize;
 
     mTask.tid = tid;
-    mTask.last_gyro_time = 0ull;
-    mTask.last_acc_time = 0ull;
     mTask.flags = 0;
 
     for (i = 0; i < NUM_OF_RAW_SENSOR; i++) {
