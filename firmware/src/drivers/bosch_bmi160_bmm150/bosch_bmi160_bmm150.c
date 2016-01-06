@@ -31,6 +31,7 @@
 #include <hostIntf.h>
 #include <nanohubPacket.h>
 #include <variant/inc/variant.h>
+#include <cpu/inc/cpuMath.h>
 
 #include <seos.h>
 #include <accelerometer.h>
@@ -747,7 +748,8 @@ static uint8_t calcWaterMark(void)
     // batch a bit faster.
     for (i = ACC; i <= MAG; i++) {
         if (mTask.sensors[i].configed && mTask.sensors[i].latency != SENSOR_LATENCY_NODATA) {
-            temp_cnt = (uint32_t)(min_latency * (mTask.sensors[i].rate / 1024) / 1000000000ull);
+
+            temp_cnt = (uint32_t)U64_DIV_BY_U64_CONSTANT(min_latency * (mTask.sensors[i].rate / 1024), 1000000000ull);
             header_cnt = temp_cnt < header_cnt ? temp_cnt : header_cnt;
             total_cnt += temp_cnt * (i == MAG ? 8 : 6);
         }
