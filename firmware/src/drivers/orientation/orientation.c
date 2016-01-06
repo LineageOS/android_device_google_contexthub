@@ -129,6 +129,15 @@ static uint32_t FusionRates[] = {
     0,
 };
 
+static const uint64_t rateTimerVals[] = //should match "supported rates in length" and be the timer length for that rate in nanosecs
+{
+    1000000000ULL / 12.5f,
+    1000000000ULL / 25,
+    1000000000ULL / 50,
+    1000000000ULL / 100,
+    1000000000ULL / 200,
+};
+
 static struct FusionTask mTask;
 static const struct SensorInfo mSi[NUM_OF_FUSION_SENSOR] =
 {
@@ -567,13 +576,13 @@ static bool fusionSetRate(uint32_t rate, uint64_t latency, void *cookie)
     }
 
     if (mTask.acc_cnt > 0) {
-        mTask.ResamplePeriodNs[ACC] = (1000000000ull * 1024ull / max_rate);
+        mTask.ResamplePeriodNs[ACC] = sensorTimerLookupCommon(FusionRates, rateTimerVals, max_rate);
         mTask.raw_sensor_rate[ACC] = max_rate;
         total_sample += mTask.raw_sensor_rate[ACC];
     }
 
     if (mTask.gyr_cnt > 0) {
-        mTask.ResamplePeriodNs[GYR] = (1000000000ull * 1024ull / max_rate);
+        mTask.ResamplePeriodNs[GYR] = sensorTimerLookupCommon(FusionRates, rateTimerVals, max_rate);
         gyr_rate = max_rate > DEFAULT_GYRO_RATE_HZ ? max_rate : DEFAULT_GYRO_RATE_HZ;
         mTask.raw_sensor_rate[GYR] = gyr_rate;
         total_sample += mTask.raw_sensor_rate[GYR];
@@ -581,7 +590,7 @@ static bool fusionSetRate(uint32_t rate, uint64_t latency, void *cookie)
 
     if (mTask.mag_cnt > 0) {
         mag_rate = max_rate < DEFAULT_MAG_RATE_HZ ? max_rate : DEFAULT_MAG_RATE_HZ;
-        mTask.ResamplePeriodNs[MAG] = (1000000000ull * 1024ull / mag_rate);
+        mTask.ResamplePeriodNs[MAG] = sensorTimerLookupCommon(FusionRates, rateTimerVals, mag_rate);
         mTask.raw_sensor_rate[MAG] = mag_rate;
         total_sample += mTask.raw_sensor_rate[MAG];
     }
