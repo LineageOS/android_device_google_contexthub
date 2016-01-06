@@ -17,13 +17,13 @@
 #include <stdio.h>
 #include <printf.h>
 
-static uint32_t StrPrvPrintfEx_number(printf_write_c putc_, void* userData, uint64_t number, uint32_t base, bool zeroExtend, bool isSigned, uint32_t padToLength, bool caps, bool* bail)
+static uint32_t StrPrvPrintfEx_number(printf_write_c putc_, void* userData, uint64_t number, bool base10, bool zeroExtend, bool isSigned, uint32_t padToLength, bool caps, bool* bail)
 {
     char buf[64];
     uint32_t idx = sizeof(buf) - 1;
     uint32_t chr, i;
     bool neg = false;
-    uint32_t numPrinted = 0;
+    uint32_t numPrinted = 0, base = base10 ? 10 : 16;
 
     *bail = false;
 
@@ -226,7 +226,7 @@ more_fmt:
                 case 'u':
 
                     val64 = GET_UVAL64();
-                    numPrinted += StrPrvPrintfEx_number(putc_f, userData,val64,10,zeroExtend,0,padToLength,0,&bail);
+                    numPrinted += StrPrvPrintfEx_number(putc_f, userData, val64, true, zeroExtend,0,padToLength,0,&bail);
                     if (bail)
                         goto out;
                     break;
@@ -235,7 +235,7 @@ more_fmt:
                 case 'i':
 
                     val64 = GET_SVAL64();
-                    numPrinted += StrPrvPrintfEx_number(putc_f, userData, val64, 10, zeroExtend, true, padToLength, false, &bail);
+                    numPrinted += StrPrvPrintfEx_number(putc_f, userData, val64, true, zeroExtend, true, padToLength, false, &bail);
                     if (bail)
                         goto out;
                     break;
@@ -246,15 +246,7 @@ more_fmt:
                 case 'x':
 
                     val64 = GET_UVAL64();
-                    numPrinted += StrPrvPrintfEx_number(putc_f, userData, val64, 16, zeroExtend, false, padToLength, caps, &bail);
-                    if (bail)
-                        goto out;
-                    break;
-
-                case 'b':
-
-                    val64 = GET_UVAL64();
-                    numPrinted += StrPrvPrintfEx_number(putc_f, userData, val64, 2, zeroExtend, false, padToLength, false ,&bail);
+                    numPrinted += StrPrvPrintfEx_number(putc_f, userData, val64, false, zeroExtend, false, padToLength, caps, &bail);
                     if (bail)
                         goto out;
                     break;
@@ -264,7 +256,7 @@ more_fmt:
                     putc_(userData,'x');
                     numPrinted += 2;
                     val64 = (uintptr_t)va_arg(vl, const void*);
-                    numPrinted += StrPrvPrintfEx_number(putc_f, userData, val64, 16, zeroExtend, false, padToLength, caps, &bail);
+                    numPrinted += StrPrvPrintfEx_number(putc_f, userData, val64, false, zeroExtend, false, padToLength, caps, &bail);
                     if (bail)
                         goto out;
                     break;
