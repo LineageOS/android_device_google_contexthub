@@ -427,6 +427,11 @@ AppSecErr appSecRxDataOver(struct AppSecState *state)
         }
     }
 
+    //for unsigned/unencrypted case we have no way to judge length, so we assume it is over when we're told it is
+    //this is potentially dangerous, but then again so is allowing unsigned uploads in general.
+    if (!state->haveSig && !state->haveEncr && state->curState == STATE_RXING_DATA)
+        state->curState = STATE_DONE;
+
     //Check the state and return our verdict
     if(state->curState == STATE_DONE)
         return APP_SEC_NO_ERROR;
