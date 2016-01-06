@@ -15,6 +15,7 @@
  */
 
 #include <cpu/inc/barrier.h>
+#include <cpu/inc/cpuMath.h>
 #include <plat/inc/rtc.h>
 #include <plat/inc/pwr.h>
 #include <inc/timer.h>
@@ -166,7 +167,7 @@ void rtcInit(void)
 int rtcSetWakeupTimer(uint64_t delay)
 {
     uint64_t intState;
-
+    uint64_t periodNsRecip;
     uint32_t wakeupClock;
     uint32_t periodNs;
 
@@ -177,29 +178,43 @@ int rtcSetWakeupTimer(uint64_t delay)
 
     /* Get appropriate clock period for delay size.  Wakeup clock = RTC/x. */
     if (delay < (RTC_DIV2_PERIOD_NS * RTC_WKUP_DOWNCOUNT_MAX)) {
+
         wakeupClock = RTC_CR_WUCKSEL_2DIV;
         periodNs = RTC_DIV2_PERIOD_NS;
-    } else if (delay < ((unsigned long long)RTC_DIV4_PERIOD_NS *
-                RTC_WKUP_DOWNCOUNT_MAX)) {
+        periodNsRecip = U64_RECIPROCAL_CALCULATE(RTC_DIV2_PERIOD_NS);
+    }
+    else if (delay < ((unsigned long long)RTC_DIV4_PERIOD_NS * RTC_WKUP_DOWNCOUNT_MAX)) {
+
         wakeupClock = RTC_CR_WUCKSEL_4DIV;
         periodNs = RTC_DIV4_PERIOD_NS;
-    } else if (delay < ((unsigned long long)RTC_DIV8_PERIOD_NS *
-                RTC_WKUP_DOWNCOUNT_MAX)) {
+        periodNsRecip = U64_RECIPROCAL_CALCULATE(RTC_DIV4_PERIOD_NS);
+    }
+    else if (delay < ((unsigned long long)RTC_DIV8_PERIOD_NS * RTC_WKUP_DOWNCOUNT_MAX)) {
+
         wakeupClock = RTC_CR_WUCKSEL_8DIV;
         periodNs = RTC_DIV8_PERIOD_NS;
-    } else if (delay < ((unsigned long long)RTC_DIV16_PERIOD_NS *
-                RTC_WKUP_DOWNCOUNT_MAX)) {
+        periodNsRecip = U64_RECIPROCAL_CALCULATE(RTC_DIV8_PERIOD_NS);
+    }
+    else if (delay < ((unsigned long long)RTC_DIV16_PERIOD_NS * RTC_WKUP_DOWNCOUNT_MAX)) {
+
         wakeupClock = RTC_CR_WUCKSEL_16DIV;
         periodNs = RTC_DIV16_PERIOD_NS;
-    } else if (delay < ((unsigned long long)NS_PER_S *
-                RTC_WKUP_DOWNCOUNT_MAX)) {
+        periodNsRecip = U64_RECIPROCAL_CALCULATE(RTC_DIV16_PERIOD_NS);
+    }
+    else if (delay < ((unsigned long long)NS_PER_S * RTC_WKUP_DOWNCOUNT_MAX)) {
+
         wakeupClock = RTC_CR_WUCKSEL_CK_SPRE;
         periodNs = NS_PER_S;
-    } else if (delay < ((unsigned long long)NS_PER_S * 2 *
-                RTC_WKUP_DOWNCOUNT_MAX)) {
+        periodNsRecip = U64_RECIPROCAL_CALCULATE(NS_PER_S);
+    }
+    else if (delay < ((unsigned long long)NS_PER_S * 2 * RTC_WKUP_DOWNCOUNT_MAX)) {
+
         wakeupClock = RTC_CR_WUCKSEL_CK_SPRE_2;
         periodNs = NS_PER_S;
-    } else {
+        periodNsRecip = U64_RECIPROCAL_CALCULATE(NS_PER_S);
+    }
+    else {
+
         osLog(LOG_ERROR, "RTC delay impossible");
         return RTC_ERR_INTERNAL;
     }
@@ -222,7 +237,7 @@ int rtcSetWakeupTimer(uint64_t delay)
     RTC->CR |= wakeupClock;
     /* Downcounter value for wakeup clock.  Wakeup flag is set every
      * RTC->WUTR[15:0] + 1 cycles of the WUT clock. */
-    RTC->WUTR = delay / periodNs - 1;
+    RTC->WUTR = cpuMathRecipAssistedUdiv64by32(delay, periodNs, periodNsRecip) - 1;
 
     /* Enable wakeup interrupts */
     RTC->CR |= RTC_CR_WUTIE;
