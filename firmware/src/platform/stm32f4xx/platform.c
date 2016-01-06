@@ -332,7 +332,7 @@ static uint64_t platSetTimerAlarm(uint64_t delay) //delay at most that many nsec
     tim->SR &=~ 1; //clear int
     tim->CR1 |= 1;
 
-    return delay;
+    return delayInUsecs;
 }
 
 bool platSleepClockRequest(uint64_t wakeupTime, uint32_t maxJitterPpm, uint32_t maxDriftPpm, uint32_t maxErrTotalPpm)
