@@ -46,6 +46,12 @@ Finding an example that does not obey these guidelines is not a cause for also d
     code, it wil lwarn you if you accidentally try to derefernce it, or on purpiose try to access
     internal private state. Also this allows platform-independence to continue.
 23. commit messages shall begin with module they touch and a colon, eg "spi: fix spi-dma on stm64"
+24. Do not divide 64-bit values. If you simply must, only do so by a constant, and use cpuMath.h.
+    This will be enforced at compile time and will fail your build. This is intentional as the power
+    and speed costs are substantial.
+25. Do not cast floats to 64-bit values or back, this is slow. Use floatRt.h. This will be enforced
+    at compile time and will fail your build. This is intentional as the power and speed costs are
+    substantial.
 
 
 99. These guidelines will be kept updated as things come up/are decided
