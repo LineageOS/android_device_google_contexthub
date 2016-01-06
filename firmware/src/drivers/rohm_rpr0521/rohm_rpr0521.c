@@ -166,6 +166,16 @@ static const uint32_t supportedRates[] =
     0,
 };
 
+static const uint64_t rateTimerVals[] = //should match "supported rates in length" and be the timer length for that rate in nanosecs
+{
+    10 * 1000000000ULL,
+     1 * 1000000000ULL,
+    1000000000ULL / 4,
+    1000000000ULL / 5,
+    1000000000ULL / 10,
+    1000000000ULL / 25,
+};
+
 /*
  * Helper functions
  */
@@ -257,12 +267,12 @@ static bool sensorFirmwareAls(void *cookie)
 
 static bool sensorRateAls(uint32_t rate, uint64_t latency, void *cookie)
 {
-    osLog(LOG_INFO, "ROHM: sensorRateAls: rate=%ld Hz latency=%lld us\n",
-          rate / 1024, latency / 1000);
+    osLog(LOG_INFO, "ROHM: sensorRateAls: rate=%ld Hz latency=%lld ns\n",
+          rate / 1024, latency);
 
     if (data.alsTimerHandle)
         timTimerCancel(data.alsTimerHandle);
-    data.alsTimerHandle = timTimerSet(1024000000000ULL / rate, 0, 50, alsTimerCallback, NULL, false);
+    data.alsTimerHandle = timTimerSet(sensorTimerLookupCommon(supportedRates, rateTimerVals, rate), 0, 50, alsTimerCallback, NULL, false);
     data.lastAlsSample.fdata = -FLT_MAX;
     osEnqueuePrivateEvt(EVT_SENSOR_ALS_TIMER, NULL, NULL, data.tid);
     sensorSignalInternalEvt(data.alsHandle, SENSOR_INTERNAL_EVT_RATE_CHG, rate, latency);
@@ -299,12 +309,12 @@ static bool sensorFirmwareProx(void *cookie)
 
 static bool sensorRateProx(uint32_t rate, uint64_t latency, void *cookie)
 {
-    osLog(LOG_INFO, "ROHM: sensorRateProx: rate=%ld Hz latency=%lld us\n",
-          rate / 1024, latency / 1000);
+    osLog(LOG_INFO, "ROHM: sensorRateProx: rate=%ld Hz latency=%lld ns\n",
+          rate / 1024, latency);
 
     if (data.proxTimerHandle)
         timTimerCancel(data.proxTimerHandle);
-    data.proxTimerHandle = timTimerSet(1024000000000ULL / rate, 0, 50, proxTimerCallback, NULL, false);
+    data.proxTimerHandle = timTimerSet(sensorTimerLookupCommon(supportedRates, rateTimerVals, rate), 0, 50, proxTimerCallback, NULL, false);
     data.proxState = PROX_STATE_INIT;
     osEnqueuePrivateEvt(EVT_SENSOR_PROX_TIMER, NULL, NULL, data.tid);
     sensorSignalInternalEvt(data.proxHandle, SENSOR_INTERNAL_EVT_RATE_CHG, rate, latency);
