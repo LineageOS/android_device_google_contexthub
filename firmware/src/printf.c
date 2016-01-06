@@ -17,13 +17,36 @@
 #include <stdio.h>
 #include <printf.h>
 
+
+//return num % 10, set num = num / 10, do so efficiently
+static uint32_t divmod10(uint64_t *numP)
+{
+    uint64_t num = *numP;
+    uint32_t numHi = num >> 32, numLo = num;
+    uint32_t t1, t2, t3, t4, t5, t6;
+
+    t1 = numHi / 10;
+    t2 = numHi % 10;
+    t2 <<= 16;
+    t2 += numLo >> 16;
+    t3 = t2 / 10;
+    t4 = t2 % 10;
+    t4 <<= 16;
+    t4 += numLo & 0xFFFF;
+    t5 = t4 / 10;
+    t6 = t4 % 10;
+
+    *numP = (((uint64_t)t1) << 32) + (((uint64_t)t3) << 16) + t5;
+    return t6;
+}
+
 static uint32_t StrPrvPrintfEx_number(printf_write_c putc_, void* userData, uint64_t number, bool base10, bool zeroExtend, bool isSigned, uint32_t padToLength, bool caps, bool* bail)
 {
     char buf[64];
     uint32_t idx = sizeof(buf) - 1;
     uint32_t chr, i;
     bool neg = false;
-    uint32_t numPrinted = 0, base = base10 ? 10 : 16;
+    uint32_t numPrinted = 0;
 
     *bail = false;
 
@@ -42,20 +65,15 @@ static uint32_t StrPrvPrintfEx_number(printf_write_c putc_, void* userData, uint
     }
 
     do{
-        if (base == 16) {
+        if (base10)
+            chr = divmod10(&number) + '0';
+        else {
             chr = number & 0x0F;
             number >>= 4;
-        }
-        else if (base == 2) {
-            chr = number & 1;
-            number >>= 1;
-        }
-        else {
-            chr = number % base;
-            number = number / base;
+            chr = (chr >= 10) ? (chr + (caps ? 'A' : 'a') - 10) : (chr + '0');
         }
 
-        buf[idx--] = (chr >= 10) ? (chr + (caps ? 'A' : 'a') - 10) : (chr + '0');
+        buf[idx--] = chr;
 
         numPrinted++;
 
