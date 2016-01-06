@@ -288,48 +288,33 @@ static int32_t compensateTemp( int32_t adc_T, int32_t *t_fine)
     return (sum * 5 + 128) >> 8;
 }
 
-// Returns pressure in Pa in Q24.8 format.
-static uint32_t compensateBaro( int32_t t_fine, int32_t adc_P)
+static float compensateBaro(int32_t t_fine, int32_t adc_P)
 {
-    int64_t var1 = ((int64_t)t_fine) - 128000;
-    int64_t var2 = var1 * var1 * (int64_t)mTask.comp.dig_P6;
-    var2 += (var1 * (int64_t)mTask.comp.dig_P5) << 17;
-    var2 += ((int64_t)mTask.comp.dig_P4) << 35;
+    float f = t_fine - 128000, fSqr = f * f;
+    float a = 1048576 - adc_P;
+    float v1, v2, p, pSqr;
 
-    var1 = ((var1 * var1 * (int64_t)mTask.comp.dig_P3) >> 8)
-            + ((var1 * (int64_t)mTask.comp.dig_P2) << 12);
+    v2 = fSqr * mTask.comp.dig_P6 + f * mTask.comp.dig_P5 * (float)(1ULL << 17) + mTask.comp.dig_P4 * (float)(1ULL << 35);
+    v1 = fSqr * mTask.comp.dig_P1 * mTask.comp.dig_P3 * (1.0f/(1ULL << 41)) + f * mTask.comp.dig_P1 * mTask.comp.dig_P2 * (1.0f/(1ULL << 21)) + mTask.comp.dig_P1 * (float)(1ULL << 14);
 
-    var1 = ((1ll << 47) + var1) * ((int64_t)mTask.comp.dig_P1) >> 33;
+    p = (a * (float)(1ULL << 31) - v2) * 3125 / v1;
+    pSqr = p * p;
 
-    if (var1 == 0) {
-        return 0;
-    }
-
-    int64_t p = 1048576 - adc_P;
-    p = (((p << 31) - var2) * 3125) / var1;
-    var1 = (((int64_t)mTask.comp.dig_P9) * (p >> 13) * (p >> 13)) >> 25;
-    var2 = (((int64_t)mTask.comp.dig_P8) * p) >> 19;
-
-    p = ((p + var1 + var2) >> 8) + (((int64_t)mTask.comp.dig_P7) << 4);
-
-    return (uint32_t)p;
+    return pSqr * mTask.comp.dig_P9 * (1.0f/(1ULL << 59)) + p * (mTask.comp.dig_P8 * (1.0f/(1ULL << 19)) + 1) * (1.0f/(1ULL << 8)) + 16.0f * mTask.comp.dig_P7;
 }
 
 static void getTempAndBaro(const uint8_t *tmp, float *pressure_Pa,
                            float *temp_centigrade)
 {
-    int32_t pres_adc =
-        ((int32_t)tmp[0] << 12) | ((int32_t)tmp[1] << 4) | (tmp[2] >> 4);
-
-    int32_t temp_adc =
-        ((int32_t)tmp[3] << 12) | ((int32_t)tmp[4] << 4) | (tmp[5] >> 4);
+    int32_t pres_adc = ((int32_t)tmp[0] << 12) | ((int32_t)tmp[1] << 4) | (tmp[2] >> 4);
+    int32_t temp_adc = ((int32_t)tmp[3] << 12) | ((int32_t)tmp[4] << 4) | (tmp[5] >> 4);
 
     int32_t T_fine;
     int32_t temp = compensateTemp(temp_adc, &T_fine);
-    uint32_t pres = compensateBaro(T_fine, pres_adc);
+    float pres = compensateBaro(T_fine, pres_adc);
 
     *temp_centigrade = (float)temp * 0.01f;
-    *pressure_Pa = (float)pres / 256.0f;
+    *pressure_Pa = pres * (1.0f / 256.0f);
 }
 
 static void handleI2cEvent(enum BMP280TaskState state)
