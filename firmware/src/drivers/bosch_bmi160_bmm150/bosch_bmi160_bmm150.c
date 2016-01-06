@@ -203,6 +203,7 @@ enum FifoState {
 enum InitState {
     RESET_BMI160,
     INIT_BMI160,
+    INIT_BMM150_MAGIC,
     INIT_BMM150,
     INIT_ON_CHANGE_SENSORS,
     INIT_DONE,
@@ -236,6 +237,7 @@ enum SensorState {
 
 enum MagConfigState {
     MAG_SET_START,
+    MAG_SET_IF,
     MAG_SET_REPXY,
     MAG_SET_REPZ,
     MAG_SET_DIG_X,
@@ -570,9 +572,8 @@ static void magBias(void)
     evt->samples[idx].z = mTask.moc.z_bias;
 }
 
-static void magIfConfig(void)
+static void magConfigMagic(void)
 {
-
     // TODO: Why is this done here and not on initial configuration???
     //SPI_WRITE(BMI160_REG_MAG_CONF, 0x08);
 
@@ -581,7 +582,12 @@ static void magIfConfig(void)
     SPI_WRITE(BMI160_REG_CMD, 0x9a);
     SPI_WRITE(BMI160_REG_CMD, 0xc0);
     SPI_WRITE(BMI160_REG_MAGIC, 0x90);
-    SPI_WRITE(BMI160_REG_DATA_1, 0x3D); // TODO: this should be read modify write of 0x30
+    SPI_READ(BMI160_REG_DATA_1, 1, mTask.rxBuffer);
+}
+
+static void magIfConfig(void)
+{
+    SPI_WRITE(BMI160_REG_DATA_1, mTask.rxBuffer[1] | 0x30);
     SPI_WRITE(BMI160_REG_MAGIC, 0x80);
 
     // Config the MAG I2C device address
@@ -602,6 +608,10 @@ static void magConfig(void)
 {
     switch (mTask.mag_state) {
     case MAG_SET_START:
+        magConfigMagic();
+        mTask.mag_state = MAG_SET_IF;
+        break;
+    case MAG_SET_IF:
         magIfConfig();
         mTask.mag_state = MAG_SET_REPXY;
         break;
@@ -1969,11 +1979,11 @@ static void sensorInit(void)
         // Reset fifo
         SPI_WRITE(BMI160_REG_CMD, 0xB0, 10000);
 
-        mTask.init_state = INIT_BMM150;
+        mTask.init_state = INIT_BMM150_MAGIC;
         spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask);
         break;
 
-    case INIT_BMM150:
+    case INIT_BMM150_MAGIC:
         // set the MAG power to NORMAL mode
         SPI_WRITE(BMI160_REG_CMD, 0x19, 10000);
 
@@ -1982,7 +1992,15 @@ static void sensorInit(void)
         SPI_WRITE(BMI160_REG_CMD, 0x9a);
         SPI_WRITE(BMI160_REG_CMD, 0xc0);
         SPI_WRITE(BMI160_REG_MAGIC, 0x90);
-        SPI_WRITE(BMI160_REG_DATA_1, 0x3D); // TODO: This should be read modify write of 0x30
+        SPI_READ(BMI160_REG_DATA_1, 1, mTask.rxBuffer);
+
+        mTask.init_state = INIT_BMM150;
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask);
+        break;
+
+    case INIT_BMM150:
+
+        SPI_WRITE(BMI160_REG_DATA_1, mTask.rxBuffer[1] | 0x30);
         SPI_WRITE(BMI160_REG_MAGIC, 0x80);
 
         // setup MAG I2C address.
