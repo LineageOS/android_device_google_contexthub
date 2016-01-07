@@ -14,6 +14,12 @@ uint32_t cpuMathUint44Div1000ToUint32_slow_path(uint64_t val)
     return ret >> 12;
 }
 
+uint64_t cpuMathU64DivByU16(uint64_t val, uint32_t divBy_ /* 16 bits max*/)
+{
+    //this is OK here, but not elsewhere
+    return U64_DIV_BY_CONST_U16(val, divBy_);
+}
+
 static uint64_t __attribute__((naked)) cpuMathUint64TimesUint64Lsr64(uint64_t a, uint64_t b)
 {
     asm volatile(
