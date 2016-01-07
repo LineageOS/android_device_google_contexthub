@@ -31,8 +31,8 @@ BADWORDS += "__floatundisf=When casting a uint64_t to float, use floatFromUint64
 BADWORDS += "__floatdisf=When casting a int64_t to float, use floatFromInt64"
 BADWORDS += "__fixunssfdi=When casting a float to a uint64_t, use floatToUint64"
 BADWORDS += "__fixsfdi=When casting a float to a int64_t, use floatToInt64"
-#BADWORDS += "__aeabi_uldivmod=Do not ever divide uint64_t by anything"
-#BADWORDS += "__aeabi_ldivmod=Do not ever divide int64_t by anything"
+BADWORDS += "__aeabi_uldivmod=Do not ever divide uint64_t by anything, see cpuMath.h"
+BADWORDS += "__aeabi_ldivmod=Do not ever divide int64_t by anything, see cpuMath.h"
 
 
 
