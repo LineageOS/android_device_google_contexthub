@@ -22,6 +22,17 @@ uint64_t cpuMathRecipAssistedUdiv64by64(uint64_t num, uint64_t denom, uint64_t d
 uint64_t cpuMathRecipAssistedUdiv64by32(uint64_t num, uint32_t denom, uint64_t denomRecip);
 
 #define U64_DIV_BY_U64_CONSTANT(val, constantVal)  cpuMathRecipAssistedUdiv64by64((val), (constantVal), U64_RECIPROCAL_CALCULATE(constantVal))
+#define I64_DIV_BY_I64_CONSTANT(val, constantVal)                                                  \
+    ({                                                                                             \
+        char neg = ((uint32_t)((val) >> 32) ^ (uint32_t)(((uint64_t)(constantVal)) >> 32)) >> 31;  \
+        uint64_t valP = (val < 0) ? -val : val;                                                    \
+        const uint64_t conP = (constantVal < 0) ? -constantVal : constantVal;                      \
+        uint64_t ret = cpuMathRecipAssistedUdiv64by64(valP, conP, U64_RECIPROCAL_CALCULATE(conP)); \
+        if (neg)                                                                                   \
+            ret =-ret;                                                                             \
+        ret;                                                                                       \
+    })
+
 
 #endif
 
