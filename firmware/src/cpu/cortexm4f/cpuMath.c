@@ -17,7 +17,7 @@ uint32_t cpuMathUint44Div1000ToUint32_slow_path(uint64_t val)
 static uint64_t __attribute__((naked)) cpuMathUint64TimesUint64Lsr64(uint64_t a, uint64_t b)
 {
     asm volatile(
-        "push  {r4-r7, lr}      \n"
+        "push  {r4 - r7}        \n"
         "umull r12, r4, r0, r2  \n"
         "umull r5, r6, r0, r3   \n"
         "umull r7, r12, r1, r2  \n"
@@ -29,7 +29,8 @@ static uint64_t __attribute__((naked)) cpuMathUint64TimesUint64Lsr64(uint64_t a,
         "movs  r2, #0           \n"
         "umlal r0, r2, r1, r3   \n"
         "movs  r1, r2           \n"
-        "pop   {r4-r7, pc}      \n"
+        "pop   {r4 - r7}        \n"
+        "bx    lr               \n"
     );
 
     //we never get here, it is only here to please GCC
