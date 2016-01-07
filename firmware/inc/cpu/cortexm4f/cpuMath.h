@@ -13,6 +13,29 @@ static inline uint32_t cpuMathUint44Div1000ToUint32(uint64_t val)
         return (uint32_t)val / 1000;
 }
 
+uint64_t cpuMathU64DivByU16(uint64_t val, uint32_t divBy /* 16 bits max*/);
+
+//DO NOT USE ON NON_COMPILE-TIME-CONSTANT VALUES OF u16, use cpuMathU64DivByU16()
+
+#define U64_DIV_BY_CONST_U16(u64, u16)                        \
+    ({                                                        \
+        const uint16_t divBy = u16;                           \
+        const uint64_t _num = u64;                            \
+        const uint32_t numHi = _num >> 32, numLo = _num;      \
+        uint32_t t1, t2, t3, t4, t5;                          \
+                                                              \
+        t1 = numHi / divBy;                                   \
+        t2 = numHi % divBy;                                   \
+        t2 <<= 16;                                            \
+        t2 += numLo >> 16;                                    \
+        t3 = t2 / divBy;                                      \
+        t4 = t2 % divBy;                                      \
+        t4 <<= 16;                                            \
+        t4 += numLo & 0xFFFF;                                 \
+        t5 = t4 / divBy;                                      \
+                                                              \
+        (((uint64_t)t1) << 32) + (((uint64_t)t3) << 16) + t5; \
+    })
 
 //correctly handles 0, 1, powers of 2, and all else to calculate "(1 << 64) / val"
 //do not even think of using this on non-compile-time-constant values!
