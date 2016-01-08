@@ -123,10 +123,8 @@ struct WifiScanResult {
     char ssid[WIFI_MAX_SSID_LEN];           // null-terminated
     uint8_t bssid[WIFI_BSSID_LEN];
     int8_t rssi;                            // RSSI in dBm
-    struct {
-        uint8_t band  : 1;                  // 0 = 2.4 GHz, 1 = 5 GHz
-        uint8_t index : 7;
-    } channel;
+    uint8_t band;                           // 0 = 2.4 GHz, 1 = 5 GHz
+    uint8_t channelIndex;
 };
 
 struct WifiScanEvent {
