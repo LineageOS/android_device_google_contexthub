@@ -1920,7 +1920,8 @@ static void configEvent(struct BMI160Sensor *mSensor, struct ConfigStat *ConfigD
 
 static void timeSyncEvt(void)
 {
-    if (mTask.active_data_sensor_cnt == 0) {
+    if (!(mTask.fifo_enabled[0] || mTask.fifo_enabled[1] || mTask.fifo_enabled[2])) {
+        // if fifo is not enabled, no time sync is needed.
         return;
     } else if (mTask.state != SENSOR_IDLE) {
         mTask.pending_time_sync = true;
@@ -2152,7 +2153,7 @@ static void handleSpiDoneEvt(const void* evtData)
     case SENSOR_POWERING_UP:
         mSensor = (struct BMI160Sensor *)evtData;
         if (mSensor->idx <= MAG) {
-            if (++mTask.active_data_sensor_cnt == 1) {
+            if (!(mTask.fifo_enabled[0] || mTask.fifo_enabled[1] || mTask.fifo_enabled[2])) {
                 // if this is the first data sensor to enable, we need to
                 // sync the sensor time and rtc time
                 invalidate_sensortime_to_rtc_time();
@@ -2279,7 +2280,7 @@ static void handleSpiDoneEvt(const void* evtData)
         SensorTime = parseSensortime(mTask.sensor_time[1] | (mTask.sensor_time[2] << 8) | (mTask.sensor_time[3] << 16));
         map_sensortime_to_rtc_time(SensorTime, rtcGetTime());
 
-        if (mTask.active_data_sensor_cnt > 0)
+        if (mTask.fifo_enabled[0] || mTask.fifo_enabled[1] || mTask.fifo_enabled[2])
             timTimerSet(kTimeSyncPeriodNs, 100, 100, timeSyncCallback, NULL, true);
 
         mTask.state = SENSOR_IDLE;
