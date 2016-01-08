@@ -286,7 +286,7 @@ uint64_t rtcGetTime(void)
              (((tr >> 4) & 0x7) * 10ULL) +
              (((tr) & 0xF)));
 
-    return (time_s * NS_PER_S) + ((RTC_PREDIV_S - ssr) * NS_PER_S / (RTC_PREDIV_S + 1));
+    return (time_s * NS_PER_S) + U64_DIV_BY_CONST_U16(((RTC_PREDIV_S - ssr) * NS_PER_S), (RTC_PREDIV_S + 1));
 }
 
 void EXTI22_RTC_WKUP_IRQHandler(void);
