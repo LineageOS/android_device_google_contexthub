@@ -14,5 +14,21 @@
  * limitations under the License.
  */
 
-#include <cpu/inc/nanohub_math.h>
-#include <math.h>
+#ifndef _CPU_NANOHUB_MATH_H_
+#define _CPU_NANOHUB_MATH_H_
+
+
+#define asinf  arm_asinf
+#define sinf   arm_sin_f32
+#define cosf   arm_cos_f32
+#define expf   __ieee754_expf
+
+float sqrtf(float);
+float atan2f(float, float);
+
+static inline float arm_asinf(float x)
+{
+    return atan2f(x, sqrtf(1.0f - x * x));
+}
+
+#endif
