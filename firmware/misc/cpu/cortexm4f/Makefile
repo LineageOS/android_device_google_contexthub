@@ -23,6 +23,11 @@ APPFLAGS += -Wl,-T misc/cpu/$(CPU)/app.lkr -mno-pic-data-is-text-relative
 #cpu runtime
 SRCS += src/cpu/$(CPU)/atomicBitset.c src/cpu/$(CPU)/cpu.c src/cpu/$(CPU)/pendsv.c src/cpu/$(CPU)/atomic.c src/cpu/$(CPU)/syscall.c src/cpu/$(CPU)/appSupport.c src/cpu/$(CPU)/cpuMath.c
 
+#floating point runtime
+SRCS += external/arm/arm_cos_f32.c external/arm/arm_sin_f32.c external/arm/arm_common_tables.c
+FLAGS += -DARM_MATH_CM4 -D__FPU_PRESENT
+
+
 #extra deps
 DEPS += $(wildcard inc/cpu/$(CPU)/*.h)
 
@@ -33,6 +38,8 @@ BADWORDS += "__fixunssfdi=When casting a float to a uint64_t, use floatToUint64"
 BADWORDS += "__fixsfdi=When casting a float to a int64_t, use floatToInt64"
 BADWORDS += "__aeabi_uldivmod=Do not ever divide uint64_t by anything, see cpuMath.h"
 BADWORDS += "__aeabi_ldivmod=Do not ever divide int64_t by anything, see cpuMath.h"
+BADWORDS += "sinf=include nanhub_math.h before using sinf()"
+BADWORDS += "cosf=include nanhub_math.h before using cosf()"
 
 
 
