@@ -23,6 +23,7 @@ APP = nanohub
 
 #bad words
 BADWORDS += strcpy strcat atoi
+BADWORDS += "rsaPrivOp=RSA private ops should never be compiled into firmware. You *ARE* doing something wrong! Stop!"
 
 #find makefiles
 MAKE_PLAT = misc/platform/$(PLATFORM)/Makefile
