@@ -14,6 +14,10 @@
  * limitations under the License.
  */
 
+
+#define sinf   arm_sin_f32
+#define cosf   arm_cos_f32
+
 #define sqrt    __ieee754_sqrt
 #define acos    __ieee754_acos
 #define acosh   __ieee754_acosh
