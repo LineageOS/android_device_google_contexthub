@@ -20,7 +20,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define CRC_RESIDUE 0xC704DD7B
+#define CRC_RESIDUE 0xC704DD7BUL
+#define CRC_INIT    0xFFFFFFFFUL
 
 /**
  * Implements CRC with the following parameters:
@@ -35,6 +36,6 @@
  * The CRC implementation will pad the buffer with zeroes to the nearest
  * multiple of 4 bytes (if necessary).
  */
-uint32_t crc32(const void *buf, size_t size);
+uint32_t crc32(const void *buf, size_t size, uint32_t crc);
 
 #endif /* __CRC_H */

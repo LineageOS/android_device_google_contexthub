@@ -29,20 +29,44 @@ struct StmCrcRegs {
 
 #define STM_CRC_CR_RESET        1
 
-static struct StmCrcRegs *gCrcRegs = (struct StmCrcRegs *)CRC_BASE;
+static uint32_t mRevCrcTab[] =
+{
+        0x00000000, 0xB2B4BCB6, 0x61A864DB, 0xD31CD86D,
+        0xC350C9B6, 0x71E47500, 0xA2F8AD6D, 0x104C11DB,
+        0x82608EDB, 0x30D4326D, 0xE3C8EA00 ,0x517C56B6,
+        0x4130476D, 0xF384FBDB, 0x209823B6, 0x922C9F00
+};
 
-uint32_t crc32(const void *buf, size_t size)
+static uint32_t revCrc32Word(uint32_t crc, uint32_t data, uint32_t cnt)
+{
+    uint32_t i;
+
+    for (i = 0; i < cnt; i++)
+            crc = (crc >> 4) ^ mRevCrcTab[crc & 0x0F];
+
+    return crc ^ data;
+}
+
+static struct StmCrcRegs *mCrcRegs = (struct StmCrcRegs *)CRC_BASE;
+
+uint32_t crc32(const void *buf, size_t size, uint32_t crc)
 {
     const uint32_t *words = (const uint32_t *)buf;
     size_t numWords = size / 4;
     unsigned int leftoverBytes = size % 4;
+    size_t i;
 
     pwrUnitClock(PERIPH_BUS_AHB1, PERIPH_AHB1_CRC, true);
 
-    gCrcRegs->CR = STM_CRC_CR_RESET;
-    size_t i;
+    if (mCrcRegs->DR == crc)
+        ;
+    else if (crc == CRC_INIT)
+        mCrcRegs->CR = STM_CRC_CR_RESET;
+    else
+        mCrcRegs->DR = revCrc32Word(crc, mCrcRegs->DR, 8);
+
     for (i = 0; i < numWords; i++)
-        gCrcRegs->DR = words[i];
+        mCrcRegs->DR = words[i];
 
     if (leftoverBytes) {
         uint32_t word = 0;
@@ -50,10 +74,10 @@ uint32_t crc32(const void *buf, size_t size)
         /* n.b.: no shifting is needed, since the CRC block looks at the
          * lowest byte first (i.e., we need the padding in the upper bytes)
          */
-        gCrcRegs->DR = word;
+        mCrcRegs->DR = word;
     }
 
-    uint32_t crc = gCrcRegs->DR;
+    crc = mCrcRegs->DR;
     pwrUnitClock(PERIPH_BUS_AHB1, PERIPH_AHB1_CRC, false);
     return crc;
 }
