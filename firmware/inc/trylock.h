@@ -20,6 +20,10 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#ifdef PLATFORM_HAS_OWN_TRYLOCK
+#include <plat/inc/trylock.h>
+#else
+
 struct TryLock {
     volatile uint8_t lock;
 };
@@ -33,6 +37,7 @@ bool trylockTryTake(struct TryLock *lock); //true if we took it
 
 /* DON'T YOU EVER DARE TO TRY AND IMPLEMENT A BLOCKING "TAKE" ON THIS TYPE OF LOCK!   -dmitrygr@ */
 
+#endif //PLATFORM_HAS_OWN_TRYLOCK
 
 #endif
 
