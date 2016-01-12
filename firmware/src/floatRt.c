@@ -126,37 +126,12 @@ int64_t floatToInt64(float f)
 float floatFromUint64(uint64_t v)
 {
     uint32_t hi = v >> 32, lo = v;
-    int32_t exp;
 
     if (!hi) //this is very fast for cases where we fit into a uint32_t
         return(float)lo;
     else {
-        exp = 63 - __builtin_clz(hi);
-        if (exp > MANTISSA_BITS) {
-
-            //when we shift bits out, we must round, so we shift by one less, then add rounding bit, then shift out
-            lo = v >> (exp - MANTISSA_BITS - 1);
-            lo++;
-            lo >>= 1;
-
-            //we could have overflowed into more bits - handle it. Here we cannot overflow again since low bits are sure to be all zeroes
-            if (lo >> (MANTISSA_BITS + 1)) {
-                lo >>= 1;
-                exp++;
-            }
-        }
-        else
-            lo = v << (MANTISSA_BITS - exp);
-
-        //remove the implied one
-        lo &=~ (1 << MANTISSA_BITS);
-
-        //write in the exponent
-        exp += EXP_ADJUST;
-        lo |= exp << MANTISSA_BITS;
+	return ((float)hi) * 4294967296.0f + (float)lo;
     }
-
-    return *(float*)&lo;
 }
 
 float floatFromInt64(int64_t v)
