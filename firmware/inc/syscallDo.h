@@ -210,6 +210,36 @@ static inline bool eOsTimTimerCancel(uint32_t timerId)
     return syscallDo1P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_MAIN, SYSCALL_OS_MAIN_TIME, SYSCALL_OS_MAIN_TIME_CANCEL_TIMER), timerId);
 }
 
+static inline void* eOsHeapAlloc(uint32_t sz)
+{
+    return (void*)syscallDo1P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_MAIN, SYSCALL_OS_MAIN_HEAP, SYSCALL_OS_MAIN_HEAP_ALLOC), sz);
+}
+
+static inline void eOsHeapFree(void* ptr)
+{
+    (void)syscallDo1P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_MAIN, SYSCALL_OS_MAIN_HEAP, SYSCALL_OS_MAIN_HEAP_FREE), ptr);
+}
+
+static inline struct SlabAllocator* eOsSlabAllocatorNew(uint32_t itemSz, uint32_t itemAlign, uint32_t numItems)
+{
+    return (struct SlabAllocator*)syscallDo3P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_MAIN, SYSCALL_OS_MAIN_SLAB, SYSCALL_OS_MAIN_SLAB_NEW), itemSz, itemAlign, numItems);
+}
+
+static inline void eOsSlabAllocatorDestroy(struct SlabAllocator* allocator)
+{
+    (void)syscallDo1P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_MAIN, SYSCALL_OS_MAIN_SLAB, SYSCALL_OS_MAIN_SLAB_DESTROY), allocator);
+}
+
+static inline void* eOsSlabAllocatorAlloc(struct SlabAllocator* allocator)
+{
+    return (void *)syscallDo1P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_MAIN, SYSCALL_OS_MAIN_SLAB, SYSCALL_OS_MAIN_SLAB_ALLOC), allocator);
+}
+
+static inline void eOsSlabAllocatorFree(struct SlabAllocator* allocator, void* ptrP)
+{
+    (void)syscallDo2P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_MAIN, SYSCALL_OS_MAIN_SLAB, SYSCALL_OS_MAIN_SLAB_FREE), allocator, ptrP);
+}
+
 static inline struct Gpio* eOsGpioRequest(uint32_t gpioNum)
 {
     return (struct Gpio*)syscallDo1P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_DRIVERS, SYSCALL_OS_DRV_GPIO, SYSCALL_OS_DRV_GPIO_REQ), gpioNum);
