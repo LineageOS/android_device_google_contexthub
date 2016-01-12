@@ -52,7 +52,7 @@ void atomicBitsetClearBit(struct AtomicBitset *set, uint32_t num)
     do {
         asm volatile(
             "    ldrex %0, [%2]       \n"
-            "    bic   %0, %3         \n"
+            "    bics  %0, %3         \n"
             "    strex %1, %0, [%2]   \n"
             :"=r"(tmp), "=r"(status), "=r"(wordPtr), "=r"(mask)
             :"2"(wordPtr), "3"(mask)
@@ -72,7 +72,7 @@ void atomicBitsetSetBit(struct AtomicBitset *set, uint32_t num)
     do {
         asm volatile(
             "    ldrex %0, [%2]       \n"
-            "    orr   %0, %3         \n"
+            "    orrs  %0, %3         \n"
             "    strex %1, %0, [%2]   \n"
             :"=r"(tmp), "=r"(status), "=r"(wordPtr), "=r"(mask)
             :"2"(wordPtr), "3"(mask)
@@ -96,14 +96,13 @@ int32_t atomicBitsetFindClearAndSet(struct AtomicBitset *set)
             "    clz   %1, %3         \n"
             "    rsb   %1, #31        \n"
             "    lsl   %3, %2, %1     \n"
-            "    orr   %0, %3         \n"
+            "    orrs  %0, %3         \n"
             "    strex %3, %0, [%4]   \n"
-            "    cmp   %3, #0         \n"
-            "    beq   1f             \n"
-            "    mov   %1, #32        \n"
+            "    cbz   %3, 1f         \n"
+            "    movs  %1, #32        \n"
             "    b     1b             \n"
             "1:                       \n"
-            :"=r"(scratch1), "=r"(bit), "=r"(scratch2), "=r"(scratch3), "=r"(wordPtr)
+            :"=r"(scratch1), "=r"(bit), "=r"(scratch2), "=l"(scratch3), "=r"(wordPtr)
             :"1"(32), "2"(1), "4"(wordPtr)
             :"cc", "memory"
         );
