@@ -22,6 +22,7 @@
 #include <util.h>
 #include <seos.h>
 #include <slab.h>
+#include <heap.h>
 #include <i2c.h>
 #include <timer.h>
 
@@ -189,6 +190,51 @@ static void osExpApiTimCancelTimer(uintptr_t *retValP, va_list args)
     uint32_t timerId = va_arg(args, uint32_t);
 
     *retValP = timTimerCancel(timerId);
+}
+
+static void osExpApiHeapAlloc(uintptr_t *retValP, va_list args)
+{
+    uint32_t sz = va_arg(args, uint32_t);
+
+    *retValP = (uintptr_t)heapAlloc(sz);
+}
+
+static void osExpApiHeapFree(uintptr_t *retValP, va_list args)
+{
+    void *mem = va_arg(args, void *);
+
+    heapFree(mem);
+}
+
+static void osExpApiSlabNew(uintptr_t *retValP, va_list args)
+{
+    uint32_t itemSz = va_arg(args, uint32_t);
+    uint32_t itemAlign = va_arg(args, uint32_t);
+    uint32_t numItems = va_arg(args, uint32_t);
+
+    *retValP = (uintptr_t)slabAllocatorNew(itemSz, itemAlign, numItems);
+}
+
+static void osExpApiSlabDestroy(uintptr_t *retValP, va_list args)
+{
+    struct SlabAllocator *allocator = va_arg(args, struct SlabAllocator *);
+
+    slabAllocatorDestroy(allocator);
+}
+
+static void osExpApiSlabAlloc(uintptr_t *retValP, va_list args)
+{
+    struct SlabAllocator *allocator = va_arg(args, struct SlabAllocator *);
+
+    *retValP = (uintptr_t)slabAllocatorAlloc(allocator);
+}
+
+static void osExpApiSlabFree(uintptr_t *retValP, va_list args)
+{
+    struct SlabAllocator *allocator = va_arg(args, struct SlabAllocator *);
+    void *mem = va_arg(args, void *);
+
+    slabAllocatorFree(allocator, mem);
 }
 
 static union OsApiSlabItem* osExpApiI2cCbkInfoAlloc(uint32_t tid, void *cookie)
@@ -437,6 +483,24 @@ void osApiExport(struct SlabAllocator *mainSlubAllocator)
         },
     };
 
+    static const struct SyscallTable osMainHeapTable = {
+        .numEntries = SYSCALL_OS_MAIN_HEAP_LAST,
+        .entry = {
+            [SYSCALL_OS_MAIN_HEAP_ALLOC] = { .func = osExpApiHeapAlloc },
+            [SYSCALL_OS_MAIN_HEAP_FREE]  = { .func = osExpApiHeapFree },
+        },
+    };
+
+    static const struct SyscallTable osMainSlabTable = {
+        .numEntries = SYSCALL_OS_MAIN_SLAB_LAST,
+        .entry = {
+            [SYSCALL_OS_MAIN_SLAB_NEW]     = { .func = osExpApiSlabNew },
+            [SYSCALL_OS_MAIN_SLAB_DESTROY] = { .func = osExpApiSlabDestroy },
+            [SYSCALL_OS_MAIN_SLAB_ALLOC]   = { .func = osExpApiSlabAlloc },
+            [SYSCALL_OS_MAIN_SLAB_FREE]    = { .func = osExpApiSlabFree },
+        },
+    };
+
     static const struct SyscallTable osMainTable = {
         .numEntries = SYSCALL_OS_MAIN_LAST,
         .entry = {
@@ -444,6 +508,8 @@ void osApiExport(struct SlabAllocator *mainSlubAllocator)
             [SYSCALL_OS_MAIN_LOGGING] = { .subtable = (struct SyscallTable*)&osMainLogTable,     },
             [SYSCALL_OS_MAIN_SENSOR]  = { .subtable = (struct SyscallTable*)&osMainSensorsTable, },
             [SYSCALL_OS_MAIN_TIME]    = { .subtable = (struct SyscallTable*)&osMainTimerTable,   },
+            [SYSCALL_OS_MAIN_HEAP]    = { .subtable = (struct SyscallTable*)&osMainHeapTable,    },
+            [SYSCALL_OS_MAIN_SLAB]    = { .subtable = (struct SyscallTable*)&osMainSlabTable,    },
         },
     };
 

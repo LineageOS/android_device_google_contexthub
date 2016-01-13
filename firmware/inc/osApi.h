@@ -79,7 +79,9 @@ union OsApiSlabItem { //main OS "things" slab must fit this
 #define SYSCALL_OS_MAIN_LOGGING           1
 #define SYSCALL_OS_MAIN_SENSOR            2
 #define SYSCALL_OS_MAIN_TIME              3
-#define SYSCALL_OS_MAIN_LAST              4 // always last. holes are allowed, but not immediately before this
+#define SYSCALL_OS_MAIN_HEAP              4
+#define SYSCALL_OS_MAIN_SLAB              5
+#define SYSCALL_OS_MAIN_LAST              6 // always last. holes are allowed, but not immediately before this
 
 //level 3 indices in the OS.main.event_queue table
 #define SYSCALL_OS_MAIN_EVTQ_SUBCRIBE        0 // (uint32_t tid, uint32_t evtType) -> bool success
@@ -111,6 +113,17 @@ union OsApiSlabItem { //main OS "things" slab must fit this
 #define SYSCALL_OS_MAIN_TIME_CANCEL_TIMER 2 // (uint32_t timer_id) -> bool success
 #define SYSCALL_OS_MAIN_TIME_LAST         3 // always last. holes are allowed, but not immediately before this
 
+//level 3 indices in the OS.main.heap table
+#define SYSCALL_OS_MAIN_HEAP_ALLOC        0 // (uint32_t sz) -> void *mem
+#define SYSCALL_OS_MAIN_HEAP_FREE         1 // (void *mem) -> void
+#define SYSCALL_OS_MAIN_HEAP_LAST         2 // always last. holes are allowed, but not immediately before this
+
+//level 3 indices in the OS.main.slab table
+#define SYSCALL_OS_MAIN_SLAB_NEW          0 // (uint32_t itemSz, uint32_t itemAlign, uint32_t numItems) -> struct SlabAllocator *slab
+#define SYSCALL_OS_MAIN_SLAB_DESTROY      1 // (struct SlabAllocator *slab) -> void
+#define SYSCALL_OS_MAIN_SLAB_ALLOC        2 // (struct SlabAllocator *slab) -> void *mem
+#define SYSCALL_OS_MAIN_SLAB_FREE         3 // (struct SlabAllocator *slab, void *mem) -> void
+#define SYSCALL_OS_MAIN_SLAB_LAST         4 // always last. holes are allowed, but not immediately before this
 
 
 //called by os entry point to export the api
