@@ -118,7 +118,9 @@ struct StmSpiDev {
 static inline struct Gpio *stmSpiGpioInit(uint32_t gpioNum, enum StmGpioSpeed speed, enum StmGpioAltFunc func)
 {
     struct Gpio *gpio = gpioRequest(gpioNum);
-    gpioConfigAlt(gpio, speed, GPIO_PULL_NONE, GPIO_OUT_PUSH_PULL, func);
+
+    if (gpio)
+        gpioConfigAlt(gpio, speed, GPIO_PULL_NONE, GPIO_OUT_PUSH_PULL, func);
 
     return gpio;
 }
@@ -238,6 +240,8 @@ static int stmSpiMasterStartSync(struct SpiDevice *dev, spi_cs_t cs,
 
     if (!pdev->nss)
         pdev->nss = gpioRequest(cs);
+    if (!pdev->nss)
+        return -ENODEV;
     gpioConfigOutput(pdev->nss, pdev->board->gpioSpeed, pdev->board->gpioPull, GPIO_OUT_PUSH_PULL, 1);
 
     return 0;
@@ -253,6 +257,9 @@ static int stmSpiSlaveStartSync(struct SpiDevice *dev,
 
     if (!pdev->nss)
         pdev->nss = stmSpiGpioInit(pdev->board->gpioNss, pdev->board->gpioSpeed, pdev->board->gpioFunc);
+    if (!pdev->nss)
+        return -ENODEV;
+
     return stmSpiEnable(pdev, mode, false);
 }
 
@@ -274,7 +281,7 @@ static void stmSpiDone(struct StmSpiDev *pdev, int err)
         ;
 
     if (stmSpiIsMaster(pdev)) {
-        if (state->nssChange)
+        if (state->nssChange && pdev->nss)
             gpioSet(pdev->nss, 1);
         spiMasterRxTxDone(pdev->base, err);
     } else {
@@ -325,7 +332,7 @@ static int stmSpiRxTx(struct SpiDevice *dev, void *rxBuf, const void *txBuf,
     if (atomicXchgByte(&state->xferEnable, true) == true)
         return -EBUSY;
 
-    if (stmSpiIsMaster(pdev))
+    if (stmSpiIsMaster(pdev) && pdev->nss)
         gpioSet(pdev->nss, 0);
 
     state->rxDone = false;
@@ -414,7 +421,6 @@ static inline void stmSpiDisable(struct SpiDevice *dev, bool master)
         ;
 
     if (master) {
-        gpioSet(pdev->nss, 1);
         stmSpiSckPullMode(pdev, pdev->board->gpioSpeed, pdev->board->gpioPull);
     }
 
@@ -427,11 +433,13 @@ static int stmSpiMasterStopSync(struct SpiDevice *dev)
 {
     struct StmSpiDev *pdev = dev->pdata;
 
-    if (pdev->nss)
+    if (pdev->nss) {
+        gpioSet(pdev->nss, 1);
         gpioRelease(pdev->nss);
-    pdev->nss = NULL;
+    }
 
     stmSpiDisable(dev, true);
+    pdev->nss = NULL;
     return 0;
 }
 
@@ -441,9 +449,9 @@ static int stmSpiSlaveStopSync(struct SpiDevice *dev)
 
     if (pdev->nss)
         gpioRelease(pdev->nss);
-    pdev->nss = NULL;
 
     stmSpiDisable(dev, false);
+    pdev->nss = NULL;
     return 0;
 }
 
@@ -452,11 +460,12 @@ static bool stmSpiExtiIsr(struct ChainedIsr *isr)
     struct StmSpiState *state = container_of(isr, struct StmSpiState, isrNss);
     struct StmSpiDev *pdev = container_of(state, struct StmSpiDev, state);
 
-    if (!extiIsPendingGpio(pdev->nss))
+    if (pdev->nss && !extiIsPendingGpio(pdev->nss))
         return false;
 
     spiSlaveCsInactive(pdev->base);
-    extiClearPendingGpio(pdev->nss);
+    if (pdev->nss)
+        extiClearPendingGpio(pdev->nss);
     return true;
 }
 
@@ -468,19 +477,22 @@ static void stmSpiSlaveSetCsInterrupt(struct SpiDevice *dev, bool enabled)
     if (enabled) {
         isr->func = stmSpiExtiIsr;
 
-        syscfgSetExtiPort(pdev->nss);
-        extiEnableIntGpio(pdev->nss, EXTI_TRIGGER_RISING);
+        if (pdev->nss) {
+            syscfgSetExtiPort(pdev->nss);
+            extiEnableIntGpio(pdev->nss, EXTI_TRIGGER_RISING);
+        }
         extiChainIsr(pdev->board->irqNss, isr);
     } else {
         extiUnchainIsr(pdev->board->irqNss, isr);
-        extiDisableIntGpio(pdev->nss);
+        if (pdev->nss)
+            extiDisableIntGpio(pdev->nss);
     }
 }
 
 static bool stmSpiSlaveCsIsActive(struct SpiDevice *dev)
 {
     struct StmSpiDev *pdev = dev->pdata;
-    return gpioGet(pdev->nss) == 0;
+    return pdev->nss && !gpioGet(pdev->nss);
 }
 
 static inline void stmSpiTxe(struct StmSpiDev *pdev)
