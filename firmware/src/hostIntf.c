@@ -104,6 +104,7 @@ static uint8_t mNumSensors;
 static uint8_t mLastSensor;
 
 static const struct HostIntfComm *mComm;
+static bool mBusy;
 static uint64_t mRxTimestamp;
 static uint8_t mRxBuf[NANOHUB_PACKET_SIZE_MAX];
 static size_t mRxSize;
@@ -124,7 +125,7 @@ ATOMIC_BITSET_DECL(mInterruptMask, MAX_INTERRUPTS, static);
 static uint32_t mHostIntfTid;
 
 static void hostIntfRxPacket();
-static void hostIntfTxPacket(uint32_t reason, uint8_t len,
+static void hostIntfTxPacket(uint32_t reason, uint8_t len, uint32_t seq,
         HostIntfCommCallbackF callback);
 
 static void hostIntfRxDone(size_t rx, int err);
@@ -156,11 +157,11 @@ static inline struct NanohubPacketFooter *hostIntfGetFooter(uint8_t *buf)
 static inline __le32 hostIntfComputeCrc(uint8_t *buf)
 {
     struct NanohubPacket *packet = (struct NanohubPacket *)buf;
-    uint32_t crc = crc32(packet, packet->len + sizeof(*packet));
+    uint32_t crc = crc32(packet, packet->len + sizeof(*packet), CRC_INIT);
     return htole32(crc);
 }
 
-static inline const struct NanohubCommand *hostIntfFindHandler(uint8_t *buf, size_t size)
+static inline const struct NanohubCommand *hostIntfFindHandler(uint8_t *buf, size_t size, uint32_t *seq)
 {
     struct NanohubPacket *packet = (struct NanohubPacket *)buf;
     struct NanohubPacketFooter *footer;
@@ -194,7 +195,11 @@ static inline const struct NanohubCommand *hostIntfFindHandler(uint8_t *buf, siz
         mTxRetrans = false;
     }
 
-    mSeq = packet->seq;
+    *seq = packet->seq;
+
+    if (mBusy)
+        return NULL;
+
     packetReason = le32toh(packet->reason);
 
     if ((cmd = nanohubFindCommand(packetReason)) != NULL) {
@@ -220,12 +225,12 @@ static void hostIntfTxBuf(int size, uint8_t *buf, HostIntfCommCallbackF callback
     mComm->txPacket(mTxBufPtr, mTxSize, callback);
 }
 
-static void hostIntfTxPacket(__le32 reason, uint8_t len,
+static void hostIntfTxPacket(__le32 reason, uint8_t len, uint32_t seq,
         HostIntfCommCallbackF callback)
 {
     struct NanohubPacket *txPacket = (struct NanohubPacket *)(mTxBuf.buf);
     txPacket->reason = reason;
-    txPacket->seq = mSeq;
+    txPacket->seq = seq;
     txPacket->sync = NANOHUB_SYNC_BYTE;
     txPacket->len = len;
 
@@ -290,15 +295,22 @@ static void hostIntfRxDone(size_t rx, int err)
 
 static void hostIntfGenerateAck(void *cookie)
 {
-    mRxCmd = hostIntfFindHandler(mRxBuf, mRxSize);
+    uint32_t seq = 0;
+
+    mRxCmd = hostIntfFindHandler(mRxBuf, mRxSize, &seq);
 
     if (mRxCmd) {
-        if (mTxRetrans)
+        if (mTxRetrans) {
             hostIntfTxBuf(mTxSize, &mTxBuf.prePreamble, hostIntfTxPayloadDone);
-        else
-            hostIntfTxPacket(NANOHUB_REASON_ACK, 0, hostIntfTxAckDone);
+        } else {
+            mSeq = seq;
+            hostIntfTxPacket(NANOHUB_REASON_ACK, 0, seq, hostIntfTxAckDone);
+        }
     } else {
-        hostIntfTxPacket(NANOHUB_REASON_NAK, 0, hostIntfTxAckDone);
+        if (mBusy)
+            hostIntfTxPacket(NANOHUB_REASON_NAK_BUSY, 0, seq, hostIntfTxAckDone);
+        else
+            hostIntfTxPacket(NANOHUB_REASON_NAK, 0, seq, hostIntfTxAckDone);
     }
 }
 
@@ -312,7 +324,8 @@ static void hostIntfTxAckDone(size_t tx, int err)
         return;
     }
     if (!mRxCmd) {
-        osLog(LOG_DEBUG, "%s: NACKed invalid request\n", __func__);
+        if (!mBusy)
+            osLog(LOG_DEBUG, "%s: NACKed invalid request\n", __func__);
         hostIntfRxPacket();
         return;
     }
@@ -327,7 +340,7 @@ static void hostIntfGenerateResponse(void *cookie)
     void *txPayload = hostIntfGetPayload(mTxBuf.buf);
     uint8_t respLen = mRxCmd->handler(rxPayload, rx_len, txPayload, mRxTimestamp);
 
-    hostIntfTxPacket(mRxCmd->reason, respLen, hostIntfTxPayloadDone);
+    hostIntfTxPacket(mRxCmd->reason, respLen, mSeq, hostIntfTxPayloadDone);
 }
 
 static void hostIntfTxPayloadDone(size_t tx, int err)
@@ -350,6 +363,11 @@ static void resetBuffer(struct ActiveSensor *sensor)
     sensor->discard = true;
     sensor->buffer.length = 0;
     memset(&sensor->buffer.firstSample, 0x00, sizeof(struct SensorFirstSample));
+}
+
+void hostIntfSetBusy(bool busy)
+{
+    mBusy = busy;
 }
 
 bool hostIntfPacketDequeue(void *data)

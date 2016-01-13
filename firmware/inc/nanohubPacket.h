@@ -74,6 +74,7 @@ static inline struct NanohubPacketFooter *nanohubGetPacketFooter(struct NanohubP
 
 #define NANOHUB_REASON_ACK                    0x00000000
 #define NANOHUB_REASON_NAK                    0x00000001
+#define NANOHUB_REASON_NAK_BUSY               0x00000002
 
 /**
  * INFORMATIONAL
@@ -118,6 +119,8 @@ struct NanohubAppInfoResponse {
 
 struct NanohubStartFirmwareUploadRequest {
     __le32 size;
+    __le32 crc;
+    uint8_t type;
 } __attribute__((packed));
 
 struct NanohubStartFirmwareUploadResponse {
