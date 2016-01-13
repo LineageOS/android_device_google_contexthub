@@ -19,6 +19,8 @@
 #include <gpio.h>
 #include <cpu.h>
 
+#define GPIO_HANDLE_OFFSET    1  /* to make sure that 0 stays an invalid number */
+
 struct StmGpio {
     volatile uint32_t MODER;
     volatile uint32_t OTYPER;
@@ -55,9 +57,12 @@ static const uint32_t mGpioBases[] = {
     GPIOI_BASE,
 };
 
+static void gpioSetWithNum(uint32_t gpioNum, bool value);
+
+
 struct Gpio* gpioRequest(uint32_t number)
 {
-    return (struct Gpio*)(uintptr_t)number;
+    return (struct Gpio*)(((uintptr_t)number) + GPIO_HANDLE_OFFSET);
 }
 
 void gpioRelease(struct Gpio* __restrict gpio)
@@ -90,9 +95,8 @@ static enum StmGpioSpeed gpioSpeedFromRequestedSpeed(int32_t requestedSpeed)
         return mStandardSpeeds[-requestedSpeed - 1];
 }
 
-static void gpioConfig(const struct Gpio* __restrict gpioHandle, int32_t gpioSpeed, enum GpioPullMode pull, enum GpioOpenDrainMode output)
+static void gpioConfigWithNum(uint32_t gpioNum, int32_t gpioSpeed, enum GpioPullMode pull, enum GpioOpenDrainMode output)
 {
-    uint32_t gpioNum = (uint32_t)gpioHandle;
     struct StmGpio *block = (struct StmGpio*)mGpioBases[gpioNum >> GPIO_PORT_SHIFT];
     const uint32_t shift_1b = gpioNum & GPIO_PIN_MASK;
     const uint32_t shift_2b = (gpioNum & GPIO_PIN_MASK) * 2;
@@ -114,38 +118,47 @@ static void gpioConfig(const struct Gpio* __restrict gpioHandle, int32_t gpioSpe
         block->OTYPER |= mask_1b;
 }
 
-void gpioConfigInput(const struct Gpio* __restrict gpioHandle, int32_t gpioSpeed, enum GpioPullMode pull)
+static void gpioConfigInputWithNum(uint32_t gpioNum, int32_t gpioSpeed, enum GpioPullMode pull)
 {
-    uint32_t gpioNum = (uint32_t)gpioHandle;
     struct StmGpio *block = (struct StmGpio*)mGpioBases[gpioNum >> GPIO_PORT_SHIFT];
     const uint32_t shift_2b = (gpioNum & GPIO_PIN_MASK) * 2;
     const uint32_t mask_2b = (3UL << shift_2b);
 
-    gpioConfig(gpioHandle, gpioSpeed, pull, GPIO_OUT_PUSH_PULL);
+    gpioConfigWithNum(gpioNum, gpioSpeed, pull, GPIO_OUT_PUSH_PULL);
 
     /* direction */
     block->MODER = (block->MODER & ~mask_2b) | (((uint32_t)GPIO_MODE_IN) << shift_2b);
 }
 
-void gpioConfigOutput(const struct Gpio* __restrict gpioHandle, int32_t gpioSpeed, enum GpioPullMode pull, enum GpioOpenDrainMode output, bool value)
+void gpioConfigInput(const struct Gpio* __restrict gpioHandle, int32_t gpioSpeed, enum GpioPullMode pull)
 {
-    uint32_t gpioNum = (uint32_t)gpioHandle;
+    if (gpioHandle)
+        gpioConfigInputWithNum((uint32_t)gpioHandle - GPIO_HANDLE_OFFSET, gpioSpeed, pull);
+}
+
+static void gpioConfigOutputWithNum(uint32_t gpioNum, int32_t gpioSpeed, enum GpioPullMode pull, enum GpioOpenDrainMode output, bool value)
+{
     struct StmGpio *block = (struct StmGpio*)mGpioBases[gpioNum >> GPIO_PORT_SHIFT];
     const uint32_t shift_2b = (gpioNum & GPIO_PIN_MASK) * 2;
     const uint32_t mask_2b = (3UL << shift_2b);
 
-    gpioConfig(gpioHandle, gpioSpeed, pull, output);
+    gpioConfigWithNum(gpioNum, gpioSpeed, pull, output);
 
     /* set the initial output value */
-    gpioSet(gpioHandle, value);
+    gpioSetWithNum(gpioNum, value);
 
     /* direction */
     block->MODER = (block->MODER & ~mask_2b) | (((uint32_t)GPIO_MODE_OUT) << shift_2b);
 }
 
-void gpioConfigAlt(const struct Gpio* __restrict gpioHandle, int32_t gpioSpeed, enum GpioPullMode pull, enum GpioOpenDrainMode output, uint32_t altFunc)
+void gpioConfigOutput(const struct Gpio* __restrict gpioHandle, int32_t gpioSpeed, enum GpioPullMode pull, enum GpioOpenDrainMode output, bool value)
 {
-    uint32_t gpioNum = (uint32_t)gpioHandle;
+    if (gpioHandle)
+        gpioConfigOutputWithNum((uint32_t)gpioHandle - GPIO_HANDLE_OFFSET, gpioSpeed, pull, output, value);
+}
+
+static void gpioConfigAltWithNum(uint32_t gpioNum, int32_t gpioSpeed, enum GpioPullMode pull, enum GpioOpenDrainMode output, uint32_t altFunc)
+{
     struct StmGpio *block = (struct StmGpio*)mGpioBases[gpioNum >> GPIO_PORT_SHIFT];
     const uint32_t pinNo = gpioNum & GPIO_PIN_MASK;
     const uint32_t regNo = pinNo >> (GPIO_PORT_SHIFT - 1);
@@ -155,7 +168,7 @@ void gpioConfigAlt(const struct Gpio* __restrict gpioHandle, int32_t gpioSpeed, 
     const uint32_t mask_2b = (3UL << shift_2b);
     const uint32_t mask_4b = (15UL << shift_4b);
 
-    gpioConfig(gpioHandle, gpioSpeed, pull, output);
+    gpioConfigWithNum(gpioNum, gpioSpeed, pull, output);
 
     /* assign function */
     block->AFR[regNo] = (block->AFR[regNo] & ~mask_4b) | (((uint32_t)altFunc) << shift_4b);
@@ -164,9 +177,14 @@ void gpioConfigAlt(const struct Gpio* __restrict gpioHandle, int32_t gpioSpeed, 
     block->MODER = (block->MODER & ~mask_2b) | (((uint32_t)GPIO_MODE_ALTERNATE) << shift_2b);
 }
 
-void gpioSet(const struct Gpio* __restrict gpioHandle, bool value)
+void gpioConfigAlt(const struct Gpio* __restrict gpioHandle, int32_t gpioSpeed, enum GpioPullMode pull, enum GpioOpenDrainMode output, uint32_t altFunc)
 {
-    uint32_t gpioNum = (uint32_t)gpioHandle;
+    if (gpioHandle)
+        gpioConfigAltWithNum((uint32_t)gpioHandle - GPIO_HANDLE_OFFSET, gpioSpeed, pull, output, altFunc);
+}
+
+static void gpioSetWithNum(uint32_t gpioNum, bool value)
+{
     struct StmGpio *block = (struct StmGpio*)mGpioBases[gpioNum >> GPIO_PORT_SHIFT];
     const uint32_t shift_1b = gpioNum & GPIO_PIN_MASK;
     const uint32_t mask_set_1b = (1UL << (0  + shift_1b));
@@ -175,9 +193,14 @@ void gpioSet(const struct Gpio* __restrict gpioHandle, bool value)
     block->BSRR = value ? mask_set_1b : mask_clr_1b;
 }
 
-bool gpioGet(const struct Gpio* __restrict gpioHandle)
+void gpioSet(const struct Gpio* __restrict gpioHandle, bool value)
 {
-    uint32_t gpioNum = (uint32_t)gpioHandle;
+    if (gpioHandle)
+        gpioSetWithNum((uint32_t)gpioHandle - GPIO_HANDLE_OFFSET, value);
+}
+
+static bool gpioGetWithNum(uint32_t gpioNum)
+{
     struct StmGpio *block = (struct StmGpio*)mGpioBases[gpioNum >> GPIO_PORT_SHIFT];
     const uint32_t shift_1b = gpioNum & GPIO_PIN_MASK;
     const uint32_t mask_1b = (1UL << shift_1b);
@@ -185,6 +208,10 @@ bool gpioGet(const struct Gpio* __restrict gpioHandle)
     return !!(block->IDR & mask_1b);
 }
 
+bool gpioGet(const struct Gpio* __restrict gpioHandle)
+{
+    return gpioHandle ? gpioGetWithNum((uint32_t)gpioHandle - GPIO_HANDLE_OFFSET) : 0;
+}
 
 
 #ifdef DEBUG_UART_PIN
@@ -200,10 +227,12 @@ void gpioBitbangedUartOut(uint32_t chr)
     uint32_t i;
 
     if (!setup) {
-        struct Gpio *gpio;
+        struct Gpio *gpio = gpioRequest(DEBUG_UART_PIN);
+
+        if (!gpio)
+            return;
 
         setup = true;
-        gpio = gpioRequest(DEBUG_UART_PIN);
         gpioConfigOutput(gpio, GPIO_SPEED_HIGH, GPIO_PULL_NONE, GPIO_OUT_PUSH_PULL, true);
     }
 
