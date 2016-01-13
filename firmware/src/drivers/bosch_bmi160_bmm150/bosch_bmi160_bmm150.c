@@ -1718,7 +1718,8 @@ static void int2Evt(void)
         // Read the interrupt reg value to determine what interrupts
         SPI_READ(BMI160_REG_INT_STATUS_0, 4, mTask.rxBuffer);
         spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask);
-    } else {
+    } else if (mTask.state != SENSOR_INT_2_HANDLING) {
+        // If we are not handling Int 2 right now, we need to put it to pending.
         mTask.pending_int[1] = true;
     }
 }
@@ -1746,7 +1747,8 @@ static void int1Evt(void)
         mTask.state = SENSOR_INT_1_HANDLING;
         mTask.fifo_state = FIFO_READ_DATA;
         int1Handling();
-    } else {
+    } else if (mTask.state != SENSOR_INT_1_HANDLING) {
+        // If we are not handling Int 1 right now, we need to put it to pending.
         mTask.pending_int[0] = true;
     }
 }
