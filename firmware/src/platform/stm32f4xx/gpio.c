@@ -19,8 +19,6 @@
 #include <gpio.h>
 #include <cpu.h>
 
-#define GPIO_HANDLE_OFFSET    1  /* to make sure that 0 stays an invalid number */
-
 struct StmGpio {
     volatile uint32_t MODER;
     volatile uint32_t OTYPER;

@@ -23,6 +23,9 @@ extern "C" {
 
 #include <stdint.h>
 
+#define GPIO_HANDLE_OFFSET    1  /* to make sure that 0 stays an invalid number */
+
+
 #define GPIO_PORTA 0
 #define GPIO_PORTB 1
 #define GPIO_PORTC 2
