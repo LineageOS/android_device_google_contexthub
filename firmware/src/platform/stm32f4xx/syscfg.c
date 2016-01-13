@@ -29,16 +29,18 @@ struct StmSyscfg
 
 void syscfgSetExtiPort(const struct Gpio *__restrict gpioHandle)
 {
-    uint32_t gpioNum = (uint32_t)gpioHandle;
-    struct StmSyscfg *block = (struct StmSyscfg *)SYSCFG_BASE;
-    const uint32_t bankNo = gpioNum >> GPIO_PORT_SHIFT;
-    const uint32_t pinNo = gpioNum & GPIO_PIN_MASK;
-    const uint32_t regNo = pinNo >> SYSCFG_REG_SHIFT;
-    const uint32_t nibbleNo = pinNo & ((1UL << SYSCFG_REG_SHIFT) - 1UL);
-    const uint32_t shift_4b = nibbleNo << 2UL;
-    const uint32_t mask_4b = 0x0FUL << shift_4b;
+    if (gpioHandle) {
+        uint32_t gpioNum = (uint32_t)gpioHandle - GPIO_HANDLE_OFFSET;
+        struct StmSyscfg *block = (struct StmSyscfg *)SYSCFG_BASE;
+        const uint32_t bankNo = gpioNum >> GPIO_PORT_SHIFT;
+        const uint32_t pinNo = gpioNum & GPIO_PIN_MASK;
+        const uint32_t regNo = pinNo >> SYSCFG_REG_SHIFT;
+        const uint32_t nibbleNo = pinNo & ((1UL << SYSCFG_REG_SHIFT) - 1UL);
+        const uint32_t shift_4b = nibbleNo << 2UL;
+        const uint32_t mask_4b = 0x0FUL << shift_4b;
 
-    pwrUnitClock(PERIPH_BUS_APB2, PERIPH_APB2_SYSCFG, true);
+        pwrUnitClock(PERIPH_BUS_APB2, PERIPH_APB2_SYSCFG, true);
 
-    block->EXTICR[regNo] = (block->EXTICR[regNo] & ~mask_4b) | (bankNo << shift_4b);
+        block->EXTICR[regNo] = (block->EXTICR[regNo] & ~mask_4b) | (bankNo << shift_4b);
+    }
 }

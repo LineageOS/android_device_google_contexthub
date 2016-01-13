@@ -69,23 +69,32 @@ int extiUnchainIsr(IRQn_Type n, struct ChainedIsr *isr);
 
 static inline void extiEnableIntGpio(const struct Gpio *__restrict gpioHandle, enum ExtiTrigger trigger)
 {
-    uint32_t gpioNum = (uint32_t)gpioHandle;
-    extiEnableIntLine(gpioNum & GPIO_PIN_MASK, trigger);
+    if (gpioHandle) {
+        uint32_t gpioNum = (uint32_t)gpioHandle - GPIO_HANDLE_OFFSET;
+        extiEnableIntLine(gpioNum & GPIO_PIN_MASK, trigger);
+    }
 }
 static inline void extiDisableIntGpio(const struct Gpio *__restrict gpioHandle)
 {
-    uint32_t gpioNum = (uint32_t)gpioHandle;
-    extiDisableIntLine(gpioNum & GPIO_PIN_MASK);
+    if (gpioHandle) {
+        uint32_t gpioNum = (uint32_t)gpioHandle - GPIO_HANDLE_OFFSET;
+        extiDisableIntLine(gpioNum & GPIO_PIN_MASK);
+    }
 }
 static inline bool extiIsPendingGpio(const struct Gpio *__restrict gpioHandle)
 {
-    uint32_t gpioNum = (uint32_t)gpioHandle;
-    return extiIsPendingLine(gpioNum & GPIO_PIN_MASK);
+    if (gpioHandle) {
+        uint32_t gpioNum = (uint32_t)gpioHandle - GPIO_HANDLE_OFFSET;
+        return extiIsPendingLine(gpioNum & GPIO_PIN_MASK);
+    }
+    return false;
 }
 static inline void extiClearPendingGpio(const struct Gpio *__restrict gpioHandle)
 {
-    uint32_t gpioNum = (uint32_t)gpioHandle;
-    extiClearPendingLine(gpioNum & GPIO_PIN_MASK);
+    if (gpioHandle) {
+        uint32_t gpioNum = (uint32_t)gpioHandle - GPIO_HANDLE_OFFSET;
+        extiClearPendingLine(gpioNum & GPIO_PIN_MASK);
+    }
 }
 
 #ifdef __cplusplus
