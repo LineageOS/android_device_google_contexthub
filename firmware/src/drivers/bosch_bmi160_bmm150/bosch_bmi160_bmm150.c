@@ -381,7 +381,6 @@ static uint16_t mWbufCnt = 0;
 static uint8_t mRegCnt = 0;
 
 static uint8_t mRetryLeft;
-static uint8_t mag_first_ever_enable = true;
 
 static struct SlabAllocator *mDataSlab;
 
@@ -591,10 +590,11 @@ static void magBias(void)
 
 static void magConfigMagic(void)
 {
-    // TODO: Why is this done here and not on initial configuration???
-    //SPI_WRITE(BMI160_REG_MAG_CONF, 0x08);
+    // set the MAG power to NORMAL mode
+    SPI_WRITE(BMI160_REG_CMD, 0x19, 10000);
 
-    // Some magic number to magic reg. Don't know what they are.
+    // Magic register sequence to shift register page table to access hidden
+    // register
     SPI_WRITE(BMI160_REG_CMD, 0x37);
     SPI_WRITE(BMI160_REG_CMD, 0x9a);
     SPI_WRITE(BMI160_REG_CMD, 0xc0);
@@ -604,6 +604,8 @@ static void magConfigMagic(void)
 
 static void magIfConfig(void)
 {
+    // Set the on-chip I2C pull-up register settings and shift the register
+    // table back down (magic)
     SPI_WRITE(BMI160_REG_DATA_1, mTask.rxBuffer[1] | 0x30);
     SPI_WRITE(BMI160_REG_MAGIC, 0x80);
 
@@ -632,6 +634,7 @@ static void magConfig(void)
         magIfConfig();
         mTask.mag_state = MAG_SET_REPXY;
         break;
+    // TODO: Check for BMM150 ID
     case MAG_SET_REPXY:
         // MAG_SET_REPXY and MAG_SET_REPZ case set:
         // regular preset, f_max,ODR ~ 102 Hz
@@ -681,10 +684,12 @@ static void magConfig(void)
     case MAG_SET_DATA:
         // clear mag_manual_en.
         SPI_WRITE(BMI160_REG_MAG_IF_1, 0x03, 1000);
+        // set the MAG power to SUSPEND mode
+        SPI_WRITE(BMI160_REG_CMD, 0x18, 10000);
         mTask.mag_state = MAG_SET_DONE;
+        mTask.init_state = INIT_ON_CHANGE_SENSORS;
         break;
     default:
-        osLog(LOG_ERROR, "Invalid Mag Config status\n");
         break;
     }
     SPI_READ(BMI160_REG_STATUS, 1, mTask.stateBuffer, 1000);
@@ -870,14 +875,6 @@ static bool magPower(bool on, void *cookie)
 
             // set MAG power mode to NORMAL
             SPI_WRITE(BMI160_REG_CMD, 0x19, 10000);
-            if (mag_first_ever_enable) {
-                mag_first_ever_enable = false;
-                mTask.mag_state = MAG_SET_START;
-                mRetryLeft = RETRY_CNT_MAG;
-                SPI_READ(BMI160_REG_STATUS, 1, mTask.stateBuffer);
-            } else {
-                mTask.mag_state = MAG_SET_DONE;
-            }
         } else {
             mTask.state = SENSOR_POWERING_DOWN;
 
@@ -1934,6 +1931,42 @@ static void timeSyncEvt(void)
     }
 }
 
+static void processPendingEvt(void)
+{
+    enum SensorIndex i;
+    if (mTask.pending_int[0]) {
+        osLog(LOG_INFO, "INT1 PENDING!!\n");
+        mTask.pending_int[0] = false;
+        int1Evt();
+        return;
+    }
+    if (mTask.pending_int[1]) {
+        osLog(LOG_INFO, "INT2 PENDING!!\n");
+        mTask.pending_int[1] = false;
+        int2Evt();
+        return;
+    }
+    if (mTask.pending_time_sync) {
+        osLog(LOG_INFO, "Pending Time Sync Evt\n");
+        mTask.pending_time_sync = false;
+        timeSyncEvt();
+        return;
+    }
+
+    for (i = ACC; i < NUM_OF_SENSOR; i++) {
+        if (mTask.pending_config[i]) {
+            osLog(LOG_INFO, "Process pending config event for %s\n", mSensorInfo[i].sensorName);
+            mTask.pending_config[i] = false;
+            configEvent(&mTask.sensors[i], &mTask.sensors[i].pConfig);
+            return;
+        }
+    }
+    if (mTask.sensors[STEPCNT].flush > 0) {
+        stepCntFlushGetData();
+        return;
+    }
+}
+
 static void sensorInit(void)
 {
 
@@ -1997,54 +2030,29 @@ static void sensorInit(void)
         // Reset fifo
         SPI_WRITE(BMI160_REG_CMD, 0xB0, 10000);
 
-        mTask.init_state = INIT_BMM150_MAGIC;
-        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask);
-        break;
-
-    case INIT_BMM150_MAGIC:
-        // set the MAG power to NORMAL mode
-        SPI_WRITE(BMI160_REG_CMD, 0x19, 10000);
-
-        // Mag setup magic squence... Don't know what they are doing.
-        SPI_WRITE(BMI160_REG_CMD, 0x37);
-        SPI_WRITE(BMI160_REG_CMD, 0x9a);
-        SPI_WRITE(BMI160_REG_CMD, 0xc0);
-        SPI_WRITE(BMI160_REG_MAGIC, 0x90);
-        SPI_READ(BMI160_REG_DATA_1, 1, mTask.rxBuffer);
-
         mTask.init_state = INIT_BMM150;
+        mTask.mag_state = MAG_SET_START;
         spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask);
         break;
 
     case INIT_BMM150:
+        // Don't check stateBuffer if we are just starting mag config
+        if (mTask.mag_state == MAG_SET_START) {
+            mRetryLeft = RETRY_CNT_MAG;
+            magConfig();
+        } else if (mTask.mag_state < MAG_SET_DATA && mTask.stateBuffer[1] & 0x04) {
+            SPI_READ(BMI160_REG_STATUS, 1, mTask.stateBuffer, 1000);
+            if (--mRetryLeft == 0) {
+                osLog(LOG_ERROR, "bmi160: Enable MAG failed. Go back to IDLE\n");
+                mTask.state = SENSOR_IDLE;
+                processPendingEvt();
+                break;
+            }
+        } else {
+            mRetryLeft = RETRY_CNT_MAG;
+            magConfig();
+        }
 
-        SPI_WRITE(BMI160_REG_DATA_1, mTask.rxBuffer[1] | 0x30);
-        SPI_WRITE(BMI160_REG_MAGIC, 0x80);
-
-        // setup MAG I2C address.
-        SPI_WRITE(BMI160_REG_MAG_IF_0, 0x20);
-
-        // set mag_manual_enable, mag_offset=0, mag_rd_burst='0 bytes'
-        // Seems need to set burst read size to 0 bytes once at the
-        // beginning
-        SPI_WRITE(BMI160_REG_MAG_IF_1, 0x80);
-
-        // primary interface: autoconfig, secondary: magnetometer.
-        SPI_WRITE(BMI160_REG_IF_CONF, 0x20);
-
-        // Turn on and turn off (toggle once) the power control bit on
-        // BMM150
-        SPI_WRITE(BMI160_REG_MAG_IF_4, 0x01);
-        SPI_WRITE(BMI160_REG_MAG_IF_3, BMM150_REG_CTRL_1, 60000);
-        // TODO: verify mag is BMM150
-        SPI_WRITE(BMI160_REG_MAG_IF_4, 0x00);
-        SPI_WRITE(BMI160_REG_MAG_IF_3, BMM150_REG_CTRL_1, 60000);
-        SPI_WRITE(BMI160_REG_MAG_IF_1, 0x00);
-
-        // set the MAG power to SUSPEND mode
-        SPI_WRITE(BMI160_REG_CMD, 0x18, 1000);
-
-        mTask.init_state = INIT_ON_CHANGE_SENSORS;
         spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask);
         break;
 
@@ -2089,42 +2097,6 @@ static void sensorInit(void)
 
     default:
         osLog(LOG_INFO, "Invalid init_state.\n");
-    }
-}
-
-static void processPendingEvt(void)
-{
-    enum SensorIndex i;
-    if (mTask.pending_int[0]) {
-        osLog(LOG_INFO, "INT1 PENDING!!\n");
-        mTask.pending_int[0] = false;
-        int1Evt();
-        return;
-    }
-    if (mTask.pending_int[1]) {
-        osLog(LOG_INFO, "INT2 PENDING!!\n");
-        mTask.pending_int[1] = false;
-        int2Evt();
-        return;
-    }
-    if (mTask.pending_time_sync) {
-        osLog(LOG_INFO, "Pending Time Sync Evt\n");
-        mTask.pending_time_sync = false;
-        timeSyncEvt();
-        return;
-    }
-
-    for (i = ACC; i < NUM_OF_SENSOR; i++) {
-        if (mTask.pending_config[i]) {
-            osLog(LOG_INFO, "Process pending config event for %s\n", mSensorInfo[i].sensorName);
-            mTask.pending_config[i] = false;
-            configEvent(&mTask.sensors[i], &mTask.sensors[i].pConfig);
-            return;
-        }
-    }
-    if (mTask.sensors[STEPCNT].flush > 0) {
-        stepCntFlushGetData();
-        return;
     }
 }
 
@@ -2179,40 +2151,25 @@ static void handleSpiDoneEvt(const void* evtData)
         break;
     case SENSOR_POWERING_UP:
         mSensor = (struct BMI160Sensor *)evtData;
-        if (mSensor->idx == MAG && mTask.mag_state != MAG_SET_DONE) {
-            if (mTask.mag_state < MAG_SET_DATA && mTask.stateBuffer[1] & 0x04) {
-                SPI_READ(BMI160_REG_STATUS, 1, mTask.stateBuffer, 1000);
-                if (--mRetryLeft == 0) {
-                    osLog(LOG_ERROR, "bmi160: Enable MAG failed. Go back to IDLE\n");
-                    mTask.state = SENSOR_IDLE;
-                    processPendingEvt();
-                    break;
-                }
-            } else {
-                mRetryLeft = RETRY_CNT_MAG;
-                magConfig();
+        if (mSensor->idx <= MAG) {
+            if (++mTask.active_data_sensor_cnt == 1) {
+                // if this is the first data sensor to enable, we need to
+                // sync the sensor time and rtc time
+                invalidate_sensortime_to_rtc_time();
+                timTimerSet(kTimeSyncPeriodNs, 100, 100, timeSyncCallback, NULL, true);
+            } else if (mSensor->idx == GYR) {
+                minimize_sensortime_history();
             }
+            configInt1(true);
         } else {
-            if (mSensor->idx <= MAG) {
-                if (++mTask.active_data_sensor_cnt == 1) {
-                    // if this is the first data sensor to enable, we need to
-                    // sync the sensor time and rtc time
-                    invalidate_sensortime_to_rtc_time();
-                    timTimerSet(kTimeSyncPeriodNs, 100, 100, timeSyncCallback, NULL, true);
-                } else if (mSensor->idx == GYR) {
-                    minimize_sensortime_history();
-                }
-                configInt1(true);
-            } else {
-                if (++mTask.active_oneshot_sensor_cnt == 1) {
-                    // if this is the first one-shot sensor to enable, we need
-                    // to request the accel at 50Hz.
-                    sensorRequest(mTask.tid, mTask.sensors[ACC].handle, SENSOR_HZ(50), SENSOR_LATENCY_NODATA);
-                }
-                configInt2(true);
+            if (++mTask.active_oneshot_sensor_cnt == 1) {
+                // if this is the first one-shot sensor to enable, we need
+                // to request the accel at 50Hz.
+                sensorRequest(mTask.tid, mTask.sensors[ACC].handle, SENSOR_HZ(50), SENSOR_LATENCY_NODATA);
             }
-            mTask.state = SENSOR_POWERING_UP_DONE;
+            configInt2(true);
         }
+        mTask.state = SENSOR_POWERING_UP_DONE;
         SPI_READ(BMI160_REG_ERR, 1, mTask.errBuffer);
         SPI_READ(BMI160_REG_PMU_STATUS, 1, mTask.pmuBuffer);
         spiBatchTxRx(&mTask.mode, sensorSpiCallback, mSensor);
