@@ -220,7 +220,6 @@ enum FifoState {
 enum InitState {
     RESET_BMI160,
     INIT_BMI160,
-    INIT_BMM150_MAGIC,
     INIT_BMM150,
     INIT_ON_CHANGE_SENSORS,
     INIT_DONE,
