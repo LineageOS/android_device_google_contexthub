@@ -40,7 +40,9 @@ struct Sensor {
     uint32_t currentRate;    /* here 0 means off */
     TaggedPtr callInfo;      /* pointer to ops struct or app tid */
     void *callData;
-    bool initComplete;       /* sensor finished initializing */
+    uint32_t initComplete:1; /* sensor finished initializing */
+    uint32_t hasOnchange :1; /* sensor supports onchange and wants to be notified to send new clients current state */
+    uint32_t hasOndemand :1; /* sensor supports ondemand and wants to get triggers */
 };
 
 struct SensorsInternalEvent {
@@ -52,12 +54,13 @@ struct SensorsInternalEvent {
         };
         struct SensorPowerEvent externalPowerEvt;
         struct SensorSetRateEvent externalSetRateEvt;
+        struct SensorSendDirectEventEvent externalSendDirectEvt;
     };
 };
 
 struct SensorsClientRequest {
     uint32_t handle;
-    uint32_t clientId;
+    uint32_t clientTid;
     uint64_t latency;
     uint32_t rate;
 };
@@ -104,8 +107,8 @@ static struct Sensor* sensorFindByHandle(uint32_t handle)
 static uint32_t sensorRegisterEx(const struct SensorInfo *si, TaggedPtr callInfo, void *callData, bool initComplete)
 {
     int32_t idx = atomicBitsetFindClearAndSet(mSensorsUsed);
+    uint32_t handle, i;
     struct Sensor *s;
-    uint32_t handle;
 
     /* grab a slot */
     if (idx < 0)
@@ -123,9 +126,18 @@ static uint32_t sensorRegisterEx(const struct SensorInfo *si, TaggedPtr callInfo
     s->currentLatency = SENSOR_LATENCY_INVALID;
     s->callInfo = callInfo;
     s->callData = callData;
-    s->initComplete = initComplete;
+    s->initComplete = initComplete ? 1 : 0;
     mem_reorder_barrier();
     s->handle = handle;
+    s->hasOnchange = 0;
+    s->hasOndemand = 0;
+
+    for (i = 0; si->supportedRates[i]; i++) {
+        if (si->supportedRates[i] == SENSOR_RATE_ONCHANGE)
+            s->hasOnchange = 1;
+        if (si->supportedRates[i] == SENSOR_RATE_ONDEMAND)
+            s->hasOndemand = 1;
+    }
 
     return handle;
 }
@@ -203,7 +215,7 @@ static bool sensorCallFuncFwUpld(struct Sensor* s)
         return osEnqueuePrivateEvt(EVT_APP_SENSOR_FW_UPLD, s->callData, NULL, taggedPtrToUint(s->callInfo));
 }
 
-static void sensorCallFuncSetRateEvtFreeF(void* event)
+static void sensorCallFuncExternalEvtFreeF(void* event)
 {
     slabAllocatorFree(mInternalEvents, event);
 }
@@ -221,7 +233,7 @@ static bool sensorCallFuncSetRate(struct Sensor* s, uint32_t rate, uint64_t late
         evt->externalSetRateEvt.latency = latency;
         evt->externalSetRateEvt.rate = rate;
         evt->externalSetRateEvt.callData = s->callData;
-        if (osEnqueuePrivateEvt(EVT_APP_SENSOR_SET_RATE, &evt->externalSetRateEvt, sensorCallFuncSetRateEvtFreeF, taggedPtrToUint(s->callInfo)))
+        if (osEnqueuePrivateEvt(EVT_APP_SENSOR_SET_RATE, &evt->externalSetRateEvt, sensorCallFuncExternalEvtFreeF, taggedPtrToUint(s->callInfo)))
             return true;
 
         slabAllocatorFree(mInternalEvents, evt);
@@ -251,6 +263,27 @@ static bool sensorCallFuncTrigger(struct Sensor* s)
         return ((const struct SensorOps*)taggedPtrToPtr(s->callInfo))->sensorTriggerOndemand(s->callData);
     else
         return osEnqueuePrivateEvt(EVT_APP_SENSOR_TRIGGER, s->callData, NULL, taggedPtrToUint(s->callInfo));
+}
+
+static bool sensorCallFuncSendOneDirectEvt(struct Sensor* s, uint32_t tid)
+{
+    if (taggedPtrIsPtr(s->callInfo))
+        return ((const struct SensorOps*)taggedPtrToPtr(s->callInfo))->sensorSendOneDirectEvt(s->callData, tid);
+    else {
+        struct SensorsInternalEvent *evt = (struct SensorsInternalEvent*)slabAllocatorAlloc(mInternalEvents);
+
+        if (!evt)
+            return false;
+
+        evt->externalSendDirectEvt.tid = tid;
+        evt->externalSendDirectEvt.callData = s->callData;
+        if (osEnqueuePrivateEvt(EVT_APP_SENSOR_SEND_ONE_DIR_EVT, &evt->externalSendDirectEvt, sensorCallFuncExternalEvtFreeF, taggedPtrToUint(s->callInfo)))
+            return true;
+
+        slabAllocatorFree(mInternalEvents, evt);
+    }
+
+    return false;
 }
 
 static void sensorReconfig(struct Sensor* s, uint32_t newHwRate, uint64_t newHwLatency)
@@ -459,7 +492,7 @@ const struct SensorInfo* sensorFind(uint32_t sensorType, uint32_t idx, uint32_t 
     return NULL;
 }
 
-static bool sensorAddRequestor(uint32_t sensorHandle, uint32_t clientId, uint32_t rate, uint64_t latency)
+static bool sensorAddRequestor(uint32_t sensorHandle, uint32_t clientTid, uint32_t rate, uint64_t latency)
 {
     struct SensorsClientRequest *req = slabAllocatorAlloc(mCliSensMatrix);
 
@@ -467,7 +500,7 @@ static bool sensorAddRequestor(uint32_t sensorHandle, uint32_t clientId, uint32_
         return false;
 
     req->handle = sensorHandle;
-    req->clientId = clientId;
+    req->clientTid = clientTid;
     mem_reorder_barrier();
     req->rate = rate;
     req->latency = latency;
@@ -475,14 +508,14 @@ static bool sensorAddRequestor(uint32_t sensorHandle, uint32_t clientId, uint32_
     return true;
 }
 
-static bool sensorGetCurRequestorRate(uint32_t sensorHandle, uint32_t clientId, uint32_t *rateP, uint64_t *latencyP)
+static bool sensorGetCurRequestorRate(uint32_t sensorHandle, uint32_t clientTid, uint32_t *rateP, uint64_t *latencyP)
 {
     uint32_t i;
 
     for (i = 0; i < MAX_CLI_SENS_MATRIX_SZ; i++) {
         struct SensorsClientRequest *req = slabAllocatorGetNth(mCliSensMatrix, i);
 
-        if (req && req->handle == sensorHandle && req->clientId == clientId) {
+        if (req && req->handle == sensorHandle && req->clientTid == clientTid) {
             if (rateP) {
                 *rateP = req->rate;
                 *latencyP = req->latency;
@@ -494,14 +527,14 @@ static bool sensorGetCurRequestorRate(uint32_t sensorHandle, uint32_t clientId, 
     return false;
 }
 
-static bool sensorAmendRequestor(uint32_t sensorHandle, uint32_t clientId, uint32_t newRate, uint64_t newLatency)
+static bool sensorAmendRequestor(uint32_t sensorHandle, uint32_t clientTid, uint32_t newRate, uint64_t newLatency)
 {
     uint32_t i;
 
     for (i = 0; i < MAX_CLI_SENS_MATRIX_SZ; i++) {
         struct SensorsClientRequest *req = slabAllocatorGetNth(mCliSensMatrix, i);
 
-        if (req && req->handle == sensorHandle && req->clientId == clientId) {
+        if (req && req->handle == sensorHandle && req->clientTid == clientTid) {
             req->rate = newRate;
             req->latency = newLatency;
             return true;
@@ -511,14 +544,14 @@ static bool sensorAmendRequestor(uint32_t sensorHandle, uint32_t clientId, uint3
     return false;
 }
 
-static bool sensorDeleteRequestor(uint32_t sensorHandle, uint32_t clientId)
+static bool sensorDeleteRequestor(uint32_t sensorHandle, uint32_t clientTid)
 {
     uint32_t i;
 
     for (i = 0; i < MAX_CLI_SENS_MATRIX_SZ; i++) {
         struct SensorsClientRequest *req = slabAllocatorGetNth(mCliSensMatrix, i);
 
-        if (req && req->handle == sensorHandle && req->clientId == clientId) {
+        if (req && req->handle == sensorHandle && req->clientTid == clientTid) {
             req->rate = SENSOR_RATE_OFF;
             req->latency = SENSOR_LATENCY_INVALID;
             mem_reorder_barrier();
@@ -530,7 +563,7 @@ static bool sensorDeleteRequestor(uint32_t sensorHandle, uint32_t clientId)
     return false;
 }
 
-bool sensorRequest(uint32_t clientId, uint32_t sensorHandle, uint32_t rate, uint64_t latency)
+bool sensorRequest(uint32_t clientTid, uint32_t sensorHandle, uint32_t rate, uint64_t latency)
 {
     struct Sensor* s = sensorFindByHandle(sensorHandle);
     uint32_t newSensorRate;
@@ -544,15 +577,20 @@ bool sensorRequest(uint32_t clientId, uint32_t sensorHandle, uint32_t rate, uint
         return false;
 
     /* record the request */
-    if (!sensorAddRequestor(sensorHandle, clientId, rate, latency))
+    if (!sensorAddRequestor(sensorHandle, clientTid, rate, latency))
         return false;
 
     /* update actual sensor if needed */
     sensorReconfig(s, newSensorRate, sensorCalcHwLatency(s));
+
+    /* if onchange request, ask sensor to send last state */
+    if (s->hasOnchange && !sensorCallFuncSendOneDirectEvt(s, clientTid))
+        osLog(LOG_WARN, "Cannot send last state for onchange sensor: enqueue fail");
+
     return true;
 }
 
-bool sensorRequestRateChange(uint32_t clientId, uint32_t sensorHandle, uint32_t newRate, uint64_t newLatency)
+bool sensorRequestRateChange(uint32_t clientTid, uint32_t sensorHandle, uint32_t newRate, uint64_t newLatency)
 {
     struct Sensor* s = sensorFindByHandle(sensorHandle);
     uint32_t oldRate, newSensorRate;
@@ -563,7 +601,7 @@ bool sensorRequestRateChange(uint32_t clientId, uint32_t sensorHandle, uint32_t 
 
 
     /* get current rate */
-    if (!sensorGetCurRequestorRate(sensorHandle, clientId, &oldRate, &oldLatency))
+    if (!sensorGetCurRequestorRate(sensorHandle, clientTid, &oldRate, &oldLatency))
         return false;
 
     /* verify the new rate is possible given all othe rongoing requests */
@@ -572,7 +610,7 @@ bool sensorRequestRateChange(uint32_t clientId, uint32_t sensorHandle, uint32_t 
         return false;
 
     /* record the request */
-    if (!sensorAmendRequestor(sensorHandle, clientId, newRate, newLatency))
+    if (!sensorAmendRequestor(sensorHandle, clientTid, newRate, newLatency))
         return false;
 
     /* update actual sensor if needed */
@@ -580,14 +618,14 @@ bool sensorRequestRateChange(uint32_t clientId, uint32_t sensorHandle, uint32_t 
     return true;
 }
 
-bool sensorRelease(uint32_t clientId, uint32_t sensorHandle)
+bool sensorRelease(uint32_t clientTid, uint32_t sensorHandle)
 {
     struct Sensor* s = sensorFindByHandle(sensorHandle);
     if (!s)
         return false;
 
     /* record the request */
-    if (!sensorDeleteRequestor(sensorHandle, clientId))
+    if (!sensorDeleteRequestor(sensorHandle, clientTid))
         return false;
 
     /* update actual sensor if needed */
@@ -595,18 +633,18 @@ bool sensorRelease(uint32_t clientId, uint32_t sensorHandle)
     return true;
 }
 
-bool sensorTriggerOndemand(uint32_t clientId, uint32_t sensorHandle)
+bool sensorTriggerOndemand(uint32_t clientTid, uint32_t sensorHandle)
 {
     struct Sensor* s = sensorFindByHandle(sensorHandle);
     uint32_t i;
 
-    if (!s)
+    if (!s || !s->hasOndemand)
         return false;
 
     for (i = 0; i < MAX_CLI_SENS_MATRIX_SZ; i++) {
         struct SensorsClientRequest *req = slabAllocatorGetNth(mCliSensMatrix, i);
 
-        if (req && req->handle == sensorHandle && req->clientId == clientId)
+        if (req && req->handle == sensorHandle && req->clientTid == clientTid)
             return sensorCallFuncTrigger(s);
     }
 

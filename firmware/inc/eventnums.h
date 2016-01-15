@@ -55,6 +55,7 @@ struct HostHubRawPacket {
 #define EVT_APP_SENSOR_FLUSH             0x000000EC
 #define EVT_APP_SENSOR_TRIGGER           0x000000EB
 #define EVT_APP_SENSOR_CALIBRATE         0x000000EA
+#define EVT_APP_SENSOR_SEND_ONE_DIR_EVT  0x000000E9
 
 //for timers
 #define EVT_APP_TIMER                    0x000000DF

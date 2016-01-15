@@ -138,14 +138,19 @@ struct WifiScanEvent {
 #define SENSOR_DATA_EVENT_FLUSH (void *)0xFFFFFFFF // flush for all data
 
 struct SensorPowerEvent {
-    bool on;
     void *callData;
+    bool on;
 };
 
 struct SensorSetRateEvent {
+    void *callData;
     uint64_t latency;
     uint32_t rate;
+};
+
+struct SensorSendDirectEventEvent {
     void *callData;
+    uint32_t tid;
 };
 
 
@@ -155,9 +160,11 @@ struct SensorOps {
     bool (*sensorFirmwareUpload)(void *);    /* -> SENSOR_INTERNAL_EVT_FW_STATE_CHG (rate or 0 if fail)  */
     bool (*sensorSetRate)(uint32_t rate, uint64_t latency, void *);
                                            /* -> SENSOR_INTERNAL_EVT_RATE_CHG (rate)                   */
-    bool (*sensorFlush)(void *);
+    bool (*sensorFlush)(void *); //trigger a measurement for ondemand sensors (if supported)
     bool (*sensorTriggerOndemand)(void *);
     bool (*sensorCalibrate)(void *);
+
+    bool (*sensorSendOneDirectEvt)(void *, uint32_t tid); //resend last state (if known), only for onchange-supporting sensors, to bring on a new client
 };
 
 struct SensorInfo {
@@ -212,13 +219,12 @@ bool sensorSignalInternalEvt(uint32_t handle, uint32_t intEvtNum, uint32_t value
 
 /*
  * api for using sensors (enum is not synced with sensor sub/unsub, this is ok since we do not expect a lot of dynamic sub/unsub)
- * client ID should almost always be your TID (as we have no other way to disambiguate them)
  */
 const struct SensorInfo* sensorFind(uint32_t sensorType, uint32_t idx, uint32_t *handleP); //enumerate all sensors of a type
-bool sensorRequest(uint32_t clientId, uint32_t sensorHandle, uint32_t rate, uint64_t latency);
-bool sensorRequestRateChange(uint32_t clientId, uint32_t sensorHandle, uint32_t newRate, uint64_t newLatency);
-bool sensorRelease(uint32_t clientId, uint32_t sensorHandle);
-bool sensorTriggerOndemand(uint32_t clientId, uint32_t sensorHandle);
+bool sensorRequest(uint32_t clientTid, uint32_t sensorHandle, uint32_t rate, uint64_t latency);
+bool sensorRequestRateChange(uint32_t clientTid, uint32_t sensorHandle, uint32_t newRate, uint64_t newLatency);
+bool sensorRelease(uint32_t clientTid, uint32_t sensorHandle);
+bool sensorTriggerOndemand(uint32_t clientTid, uint32_t sensorHandle);
 bool sensorFlush(uint32_t sensorHandle);
 bool sensorCalibrate(uint32_t sensorHandle);
 uint32_t sensorGetCurRate(uint32_t sensorHandle);
