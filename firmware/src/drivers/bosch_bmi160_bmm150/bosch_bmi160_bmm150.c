@@ -177,7 +177,7 @@
 #define kScale_gyr 0.00106472439f  // GYR_range * M_PI / (180.0f * 32768.0f);
 #define kScale_mag 0.0625f         // 1.0f / 16.0f;
 #define kTimeSyncPeriodNs   100000000ull // sync sensor and RTC time every 100ms
-#define kMinTimeIncrementUs 25000ull // min time increment set to 25ms
+#define kMinTimeIncrementNs 2500000ull // min time increment set to 2.5ms
 #define kSensorTimerIntervalUs 39ull   // bmi160 clock increaments every 39000ns
 
 #define ACC_MIN_RATE    5
@@ -1453,8 +1453,8 @@ static void parseRawData(struct BMI160Sensor *mSensor, int i, float kScale, uint
         return;
     }
 
-    if (rtc_time < mSensor->prev_rtc_time + kMinTimeIncrementUs) {
-        rtc_time = mSensor->prev_rtc_time + kMinTimeIncrementUs;
+    if (rtc_time < mSensor->prev_rtc_time + kMinTimeIncrementNs) {
+        rtc_time = mSensor->prev_rtc_time + kMinTimeIncrementNs;
     }
 
     raw_x = (mTask.rxBuffer[i] | mTask.rxBuffer[i+1] << 8);
