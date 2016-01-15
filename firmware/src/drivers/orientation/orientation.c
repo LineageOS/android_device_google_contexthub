@@ -34,16 +34,16 @@
 #include <slab.h>
 
 #define MAX_NUM_COMMS_EVENT_SAMPLES 15
-#define FIFO_MARGIN 10
-#define MAX_NUM_SAMPLES         (MAX_NUM_COMMS_EVENT_SAMPLES + FIFO_MARGIN)
-#define MAX_NUM_RAW_DATA_SAMPLES  50000000000ull
-#define EVT_SENSOR_ACC_DATA_RDY         sensorGetMyEventType(SENS_TYPE_ACCEL)
-#define EVT_SENSOR_GYR_DATA_RDY         sensorGetMyEventType(SENS_TYPE_GYRO)
-#define EVT_SENSOR_MAG_DATA_RDY         sensorGetMyEventType(SENS_TYPE_MAG)
+#define FIFO_MARGIN                 10
+#define MAX_NUM_SAMPLES             (MAX_NUM_COMMS_EVENT_SAMPLES + FIFO_MARGIN)
+#define MAX_NUM_RAW_DATA_SAMPLES    50000000000ull
+#define EVT_SENSOR_ACC_DATA_RDY     sensorGetMyEventType(SENS_TYPE_ACCEL)
+#define EVT_SENSOR_GYR_DATA_RDY     sensorGetMyEventType(SENS_TYPE_GYRO)
+#define EVT_SENSOR_MAG_DATA_RDY     sensorGetMyEventType(SENS_TYPE_MAG)
 
-#define kGravityEarth 9.80665f
-#define DEFAULT_GYRO_RATE_HZ    SENSOR_HZ(100.0f)
-#define DEFAULT_MAG_RATE_HZ     SENSOR_HZ(50.0f)
+#define kGravityEarth               9.80665f
+#define MIN_GYRO_RATE_HZ            SENSOR_HZ(100.0f)
+#define MAX_MAG_RATE_HZ             SENSOR_HZ(50.0f)
 
 enum
 {
@@ -85,7 +85,7 @@ struct FusionSensor {
     uint64_t latency;
     uint32_t rate;
     bool active;
-    bool use_gyr_data;
+    bool use_gyro_data;
     bool use_mag_data;
     uint8_t idx;
 };
@@ -113,8 +113,8 @@ struct FusionTask {
     uint32_t raw_sensor_rate[NUM_OF_RAW_SENSOR];
     uint64_t raw_sensor_latency;
 
-    uint8_t acc_cnt;
-    uint8_t gyr_cnt;
+    uint8_t accel_cnt;
+    uint8_t gyro_cnt;
     uint8_t mag_cnt;
 };
 
@@ -164,7 +164,7 @@ static void fillSamples(struct TripleAxisDataEvent *ev, enum RawSensorType index
     uint64_t sample_spacing_ns;
     float weight_next;
 
-    if (index == GYR && mTask.gyr_cnt == 0) {
+    if (index == GYR && mTask.gyro_cnt == 0) {
         return;
     }
     if (index == MAG && mTask.mag_cnt == 0) {
@@ -380,17 +380,17 @@ static void drainSamples()
     float dT;
     uint64_t a_time, g_time, m_time;
 
-    if (mTask.gyr_cnt > 0)
+    if (mTask.gyro_cnt > 0)
         j = mTask.sample_indices[GYR];
 
     if (mTask.mag_cnt > 0)
         k = mTask.sample_indices[MAG];
 
     while (mTask.sample_counts[ACC] > 0
-            && (!mTask.gyr_cnt > 0 || mTask.sample_counts[GYR] > 0)
+            && (!mTask.gyro_cnt > 0 || mTask.sample_counts[GYR] > 0)
             && (!mTask.mag_cnt > 0 || mTask.sample_counts[MAG] > 0)) {
         a_time = mTask.samples[ACC][i].time;
-        g_time = mTask.gyr_cnt > 0 ? mTask.samples[GYR][j].time
+        g_time = mTask.gyro_cnt > 0 ? mTask.samples[GYR][j].time
                             : ULONG_LONG_MAX;
         m_time = mTask.mag_cnt > 0 ? mTask.samples[MAG][k].time
                             : ULONG_LONG_MAX;
@@ -448,7 +448,7 @@ static void drainSamples()
 
     mTask.sample_indices[ACC] = i;
 
-    if (mTask.gyr_cnt > 0)
+    if (mTask.gyro_cnt > 0)
         mTask.sample_indices[GYR] = j;
 
     if (mTask.mag_cnt > 0)
@@ -472,7 +472,7 @@ static void configureFusion()
         mTask.flags |= FUSION_FLAG_ENABLED;
         initFusion(&mTask.fusion,
                 (mTask.mag_cnt > 0 ? FUSION_USE_MAG : 0) |
-                (mTask.gyr_cnt > 0 ? FUSION_USE_GYRO : 0) |
+                (mTask.gyro_cnt > 0 ? FUSION_USE_GYRO : 0) |
                 ((mTask.flags & FUSION_FLAG_INITIALIZED) ? 0 : FUSION_REINITIALIZE));
         mTask.flags |= FUSION_FLAG_INITIALIZED;
     } else {
@@ -568,21 +568,21 @@ static bool fusionSetRate(uint32_t rate, uint64_t latency, void *cookie)
         }
     }
 
-    if (mTask.acc_cnt > 0) {
+    if (mTask.accel_cnt > 0) {
         mTask.ResamplePeriodNs[ACC] = sensorTimerLookupCommon(FusionRates, rateTimerVals, max_rate);
         mTask.raw_sensor_rate[ACC] = max_rate;
         total_sample += mTask.raw_sensor_rate[ACC];
     }
 
-    if (mTask.gyr_cnt > 0) {
+    if (mTask.gyro_cnt > 0) {
         mTask.ResamplePeriodNs[GYR] = sensorTimerLookupCommon(FusionRates, rateTimerVals, max_rate);
-        gyr_rate = max_rate > DEFAULT_GYRO_RATE_HZ ? max_rate : DEFAULT_GYRO_RATE_HZ;
+        gyr_rate = max_rate > MIN_GYRO_RATE_HZ ? max_rate : MIN_GYRO_RATE_HZ;
         mTask.raw_sensor_rate[GYR] = gyr_rate;
         total_sample += mTask.raw_sensor_rate[GYR];
     }
 
     if (mTask.mag_cnt > 0) {
-        mag_rate = max_rate < DEFAULT_MAG_RATE_HZ ? max_rate : DEFAULT_MAG_RATE_HZ;
+        mag_rate = max_rate < MAX_MAG_RATE_HZ ? max_rate : MAX_MAG_RATE_HZ;
         mTask.ResamplePeriodNs[MAG] = sensorTimerLookupCommon(FusionRates, rateTimerVals, mag_rate);
         mTask.raw_sensor_rate[MAG] = mag_rate;
         total_sample += mTask.raw_sensor_rate[MAG];
@@ -618,9 +618,9 @@ static bool fusionSetRate(uint32_t rate, uint64_t latency, void *cookie)
         }
     }
 
-    if (mTask.acc_cnt > 0)
+    if (mTask.accel_cnt > 0)
         fusionSetRateAcc();
-    if (mTask.gyr_cnt > 0)
+    if (mTask.gyro_cnt > 0)
         fusionSetRateGyr();
     if (mTask.mag_cnt > 0)
         fusionSetRateMag();
@@ -637,21 +637,21 @@ static bool fusionPower(bool on, void *cookie)
 
     mSensor->active = on;
     if (on == false) {
-        mTask.acc_cnt--;
-        if (mSensor->idx != GEOMAG)
-            mTask.gyr_cnt--;
-        if (mSensor->idx != GAME && mSensor->idx != GRAVITY)
+        mTask.accel_cnt--;
+        if (mSensor->use_gyro_data)
+            mTask.gyro_cnt--;
+        if (mSensor->use_mag_data)
             mTask.mag_cnt--;
 
         // if cnt == 0 and Handle == 0, nothing need to be done.
         // if cnt > 0 and Handle == 0, something else is turning it on, all will be done.
-        if (mTask.acc_cnt == 0 && mTask.accelHandle != 0) {
+        if (mTask.accel_cnt == 0 && mTask.accelHandle != 0) {
             sensorRelease(mTask.tid, mTask.accelHandle);
             mTask.accelHandle = 0;
             osEventUnsubscribe(mTask.tid, EVT_SENSOR_ACC_DATA_RDY);
         }
 
-        if (mTask.gyr_cnt == 0 && mTask.gyroHandle != 0) {
+        if (mTask.gyro_cnt == 0 && mTask.gyroHandle != 0) {
             sensorRelease(mTask.tid, mTask.gyroHandle);
             mTask.gyroHandle = 0;
             osEventUnsubscribe(mTask.tid, EVT_SENSOR_GYR_DATA_RDY);
@@ -666,10 +666,10 @@ static bool fusionPower(bool on, void *cookie)
         idx = mSensor->idx;
         (void) fusionSetRate(0, ULONG_LONG_MAX, (void *)idx);
     } else {
-        mTask.acc_cnt++;
-        if (mSensor->idx != GEOMAG)
-            mTask.gyr_cnt++;
-        if (mSensor->idx != GAME && mSensor->idx != GRAVITY)
+        mTask.accel_cnt++;
+        if (mSensor->use_gyro_data)
+            mTask.gyro_cnt++;
+        if (mSensor->use_mag_data)
             mTask.mag_cnt++;
     }
 
@@ -700,11 +700,26 @@ static bool fusionFlush(void *cookie)
 static void fusionHandleEvent(uint32_t evtType, const void* evtData)
 {
     struct TripleAxisDataEvent *ev;
+    int i;
 
     if (evtData == SENSOR_DATA_EVENT_FLUSH)
         return;
 
     switch (evtType) {
+    case EVT_APP_START:
+        // check for gyro and mag
+        osEventUnsubscribe(mTask.tid, EVT_APP_START);
+        if (!sensorFind(SENS_TYPE_GYRO, 0, &mTask.gyroHandle)) {
+            for (i = ORIENT; i < NUM_OF_FUSION_SENSOR; i++)
+                mTask.sensors[i].use_gyro_data = false;
+        }
+        mTask.gyroHandle = 0;
+        if (!sensorFind(SENS_TYPE_MAG, 0, &mTask.magHandle)) {
+            for (i = ORIENT; i < NUM_OF_FUSION_SENSOR; i++)
+                mTask.sensors[i].use_mag_data = false;
+        }
+        mTask.magHandle = 0;
+        break;
     case EVT_SENSOR_ACC_DATA_RDY:
         ev = (struct TripleAxisDataEvent *)evtData;
         fillSamples(ev, ACC);
@@ -749,14 +764,13 @@ static bool fusionStart(uint32_t tid)
     for (i = ORIENT; i < NUM_OF_FUSION_SENSOR; i++) {
         mTask.sensors[i].handle = sensorRegister(&mSi[i], &mSops, (void *)i, true);
         mTask.sensors[i].idx = i;
-        mTask.sensors[i].use_gyr_data = true;
+        mTask.sensors[i].use_gyro_data = true;
         mTask.sensors[i].use_mag_data = true;
     }
 
-    mTask.sensors[GEOMAG].use_gyr_data = false;
+    mTask.sensors[GEOMAG].use_gyro_data = false;
     mTask.sensors[GAME].use_mag_data = false;
     mTask.sensors[GRAVITY].use_mag_data = false;
-
 
     slabSize = sizeof(struct TripleAxisDataEvent)
         + MAX_NUM_COMMS_EVENT_SAMPLES * sizeof(struct TripleAxisDataPoint);
@@ -765,6 +779,8 @@ static bool fusionStart(uint32_t tid)
         osLog(LOG_ERROR, "FUSION SLAB ALLOCATION FAILED\n");
         return false;
     }
+
+    osEventSubscribe(mTask.tid, EVT_APP_START);
 
     return true;
 }
