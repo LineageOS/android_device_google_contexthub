@@ -32,26 +32,27 @@
 #include <sensors.h>
 #include <limits.h>
 
-#define ACCEL_MIN_RATE                  SENSOR_HZ(15) // 15 HZ
-#define ACCEL_MAX_LATENCY               40000000ull   // 40 ms
+#define ACCEL_MIN_RATE_HZ                  SENSOR_HZ(15) // 15 HZ
+#define ACCEL_MAX_LATENCY_NS               40000000ull   // 40 ms in nsec
 
 // all time units in usec, angles in degrees
 #define RADIANS_TO_DEGREES                              (180.0f / M_PI)
 
-#define PROPOSAL_SETTLE_TIME                            40000000ull       // 40 ms
-#define PROPOSAL_MIN_TIME_SINCE_FLAT_ENDED              500000000ull      // 500 ms
-#define PROPOSAL_MIN_TIME_SINCE_SWING_ENDED             300000000ull      // 300 ms
-#define PROPOSAL_MIN_TIME_SINCE_ACCELERATION_ENDED      500000000ull      // 500 ms
-// #define PROPOSAL_MIN_TIME_SINCE_TOUCH_END               500000000ull   // 500 ms
+#define NS2US(x) (x >> 10)   // convert nsec to approx usec
+
+#define PROPOSAL_SETTLE_TIME                            NS2US(40000000ull)       // 40 ms
+#define PROPOSAL_MIN_TIME_SINCE_FLAT_ENDED              NS2US(500000000ull)      // 500 ms
+#define PROPOSAL_MIN_TIME_SINCE_SWING_ENDED             NS2US(300000000ull)      // 300 ms
+#define PROPOSAL_MIN_TIME_SINCE_ACCELERATION_ENDED      NS2US(500000000ull)      // 500 ms
 
 #define FLAT_ANGLE                      80
-#define FLAT_TIME                       1000000000ull     // 1 sec
+#define FLAT_TIME                       NS2US(1000000000ull)     // 1 sec
 
 #define SWING_AWAY_ANGLE_DELTA          20
-#define SWING_TIME                      300000000ull      // 300 ms
+#define SWING_TIME                      NS2US(300000000ull)      // 300 ms
 
-#define MAX_FILTER_DELTA_TIME           1000000000ull     // 1 sec
-#define FILTER_TIME_CONSTANT            200000000ull      // 200 ms
+#define MAX_FILTER_DELTA_TIME           NS2US(1000000000ull)     // 1 sec
+#define FILTER_TIME_CONSTANT            NS2US(200000000ull)      // 200 ms
 
 #define NEAR_ZERO_MAGNITUDE             1.0f        // m/s^2
 #define ACCELERATION_TOLERANCE          4.0f
@@ -66,10 +67,10 @@
 #define ADJACENT_ORIENTATION_ANGLE_GAP  45
 
 #define TILT_HISTORY_SIZE               200
-#define TILT_REFERENCE_PERIOD           1800000000000ull  // 30 min
-#define TILT_REFERENCE_BACKOFF          300000000000ull   // 5 min
+#define TILT_REFERENCE_PERIOD           NS2US(1800000000000ull)  // 30 min
+#define TILT_REFERENCE_BACKOFF          NS2US(300000000000ull)   // 5 min
 
-#define MIN_ACCEL_INTERVAL              33333333ull       // 33.3 ms for 30 Hz
+#define MIN_ACCEL_INTERVAL              NS2US(33333333ull)       // 33.3 ms for 30 Hz
 
 #define EVT_SENSOR_ACC_DATA_RDY sensorGetMyEventType(SENS_TYPE_ACCEL)
 #define EVT_SENSOR_WIN_ORIENTATION_DATA_RDY sensorGetMyEventType(SENS_TYPE_WIN_ORIENTATION)
@@ -268,6 +269,7 @@ static void addTiltHistoryEntry(uint64_t now, int8_t tilt)
 
         mTask.tilt_reference_time = now - 1;
     } else if (mTask.tilt_reference_time + TILT_REFERENCE_PERIOD < now) {
+        // uint32_t tilt_history_time[] is good up to 71 min (2^32 * 1e-6 sec).
         // proactively shift reference_time every 30 min,
         // all history entries are within 5 min interval (15Hz x 200 samples)
 
@@ -332,7 +334,7 @@ static bool add_samples(struct TripleAxisDataEvent *ev)
     int i, tilt_tmp;
     int orientation_angle, nearest_rotation;
     float x, y, z, alpha, magnitude;
-    uint64_t now = ev->referenceTime;
+    uint64_t now_nsec = ev->referenceTime, now;
     uint64_t then, time_delta;
     struct TripleAxisDataPoint *last_sample;
     size_t sampleCnt = ev->samples[0].firstSample.numSamples;
@@ -351,7 +353,8 @@ static bool add_samples(struct TripleAxisDataEvent *ev)
         // Apply a low-pass filter to the acceleration up vector in cartesian space.
         // Reset the orientation listener state if the samples are too far apart in time.
 
-        now += i > 0 ? ev->samples[i].deltaTime : 0;
+        now_nsec += i > 0 ? ev->samples[i].deltaTime : 0;
+        now = NS2US(now_nsec); // convert to ~usec
 
         last_sample = &mTask.last_filtered_sample;
         then = mTask.last_filtered_time;
@@ -474,10 +477,6 @@ static bool add_samples(struct TripleAxisDataEvent *ev)
         }
         proposed_rotation = mTask.proposed_rotation;
 
-        //dprintf("rotation: current %d, proposed %d, predicted %d: a %d f %d s %d o %d\r\n",
-        //        mTask.current_rotation, proposed_rotation, mTask.predicted_rotation,
-        //        accelerating, flat, swinging, mTask.overhead);
-
         if ((proposed_rotation != old_proposed_rotation)
                 && (proposed_rotation >= 0)) {
             mTask.current_rotation = proposed_rotation;
@@ -487,8 +486,6 @@ static bool add_samples(struct TripleAxisDataEvent *ev)
             mTask.prev_valid_rotation = proposed_rotation;
 
             if (change_detected) {
-                // dprintf("window orientation change: %d -> %d\r\n",
-                //         old_proposed_rotation, proposed_rotation);
                 return true;
             }
         }
@@ -517,8 +514,11 @@ static bool windowOrientationSetRate(uint32_t rate, uint64_t latency, void *cook
 
     osLog(LOG_INFO, "WO: SENDING TO ACCEL TO ACTIVATE\n");
     if (mTask.accelHandle == 0) {
-        for (i=0; sensorFind(SENS_TYPE_ACCEL, i, &mTask.accelHandle) != NULL; i++) {
-            if (sensorRequest(mTask.tid, mTask.accelHandle, ACCEL_MIN_RATE, ACCEL_MAX_LATENCY)) {
+        for (i = 0; sensorFind(SENS_TYPE_ACCEL, i, &mTask.accelHandle) != NULL; i++) {
+            if (sensorRequest(mTask.tid, mTask.accelHandle, ACCEL_MIN_RATE_HZ, ACCEL_MAX_LATENCY_NS)) {
+                // clear hysteresis
+                mTask.current_rotation = -1;
+                mTask.prev_valid_rotation = -1;
                 reset();
                 osEventSubscribe(mTask.tid, EVT_SENSOR_ACC_DATA_RDY);
                 break;
