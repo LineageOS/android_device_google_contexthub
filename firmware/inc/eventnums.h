@@ -17,11 +17,20 @@
 #ifndef EVENTNUMS_H
 #define EVENTNUMS_H
 
+#include <stdint.h>
+
 /* These define ranges of reserved events */
 #define EVT_NO_FIRST_USER_EVENT          0x00000100    //all events lower than this are reserved for the OS. all of them are nondiscardable necessarily!
 #define EVT_NO_FIRST_SENSOR_EVENT        0x00000200    //sensor type SENSOR_TYPE_x produces events of type EVT_NO_FIRST_SENSOR_EVENT + SENSOR_TYPE_x for all Google-defined sensors
 #define EVT_NO_SENSOR_CONFIG_EVENT       0x00000300    //event to configure sensors
 #define EVT_APP_START                    0x00000400    //sent when an app can actually start
+#define EVT_APP_TO_HOST                  0x00000401    //app data to host. Type is struct HostHubRawPacket
+
+struct HostHubRawPacket {
+    uint64_t appId;
+    uint8_t dataLen; //not incl this header, 128 bytes max
+    //raw data in unspecified format here
+} __attribute((packed));
 
 /*
  * These events are in private OS-reserved range, and are sent targettedly
@@ -32,6 +41,9 @@
 
 //for all apps
 #define EVT_APP_FREE_EVT_DATA            0x000000FF    //sent to an external app when its event has been marked for freeing. Data: struct AppEventFreeData
+
+//for host comms
+#define EVT_APP_FROM_HOST                0x000000F8    //host data to an app. Type is struct HostHubRawPacket
 
 //for apps that use I2C
 #define EVT_APP_I2C_CBK                  0x000000F0    //data pointer points to struct I2cEventData
