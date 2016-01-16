@@ -2154,7 +2154,7 @@ static void handleSpiDoneEvt(const void* evtData)
     case SENSOR_POWERING_UP:
         mSensor = (struct BMI160Sensor *)evtData;
         if (mSensor->idx <= MAG) {
-            if (!(mTask.fifo_enabled[0] || mTask.fifo_enabled[1] || mTask.fifo_enabled[2])) {
+            if (mTask.active_data_sensor_cnt++ == 0) {
                 // if this is the first data sensor to enable, we need to
                 // sync the sensor time and rtc time
                 invalidate_sensortime_to_rtc_time();
@@ -2358,6 +2358,7 @@ static bool startTask(uint32_t task_id)
     mTask.Int2_EN = false;
     mTask.pending_int[0] = false;
     mTask.pending_int[1] = false;
+    mTask.active_data_sensor_cnt = 0;
 
     mTask.mode.speed = BMI160_SPI_SPEED_HZ;
     mTask.mode.bitsPerWord = 8;
