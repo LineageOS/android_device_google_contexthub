@@ -21,6 +21,8 @@
 #include <sys/types.h>
 #include <float.h>
 #include <string.h>
+#include <seos.h>
+
 
 #define kEps 1E-5
 
@@ -28,17 +30,19 @@ void initZeroMatrix(struct Mat33 *A) {
     memset(A->elem, 0.0f, sizeof(A->elem));
 }
 
-void initDiagonalMatrix(struct Mat33 *A, float x) {
+UNROLLED
+void initDiagonalMatrix(struct Mat33 *A, float x)
+{
     initZeroMatrix(A);
 
-    size_t i;
+    uint32_t i;
     for (i = 0; i < 3; ++i) {
         A->elem[i][i] = x;
     }
 }
 
-void initMatrixColumns(
-        struct Mat33 *A, const struct Vec3 *v1, const struct Vec3 *v2, const struct Vec3 *v3) {
+void initMatrixColumns(struct Mat33 *A, const struct Vec3 *v1, const struct Vec3 *v2, const struct Vec3 *v3)
+{
     A->elem[0][0] = v1->x;
     A->elem[0][1] = v2->x;
     A->elem[0][2] = v3->x;
@@ -52,22 +56,25 @@ void initMatrixColumns(
     A->elem[2][2] = v3->z;
 }
 
-void mat33Apply(struct Vec3 *out, const struct Mat33 *A, const struct Vec3 *v) {
+void mat33Apply(struct Vec3 *out, const struct Mat33 *A, const struct Vec3 *v)
+{
     // assert(out != v);
     out->x = A->elem[0][0] * v->x + A->elem[0][1] * v->y + A->elem[0][2] * v->z;
     out->y = A->elem[1][0] * v->x + A->elem[1][1] * v->y + A->elem[1][2] * v->z;
     out->z = A->elem[2][0] * v->x + A->elem[2][1] * v->y + A->elem[2][2] * v->z;
 }
 
-void mat33Multiply(struct Mat33 *out, const struct Mat33 *A, const struct Mat33 *B) {
+UNROLLED
+void mat33Multiply(struct Mat33 *out, const struct Mat33 *A, const struct Mat33 *B)
+{
     // assert(out != A);
     // assert(out != B);
 
-    size_t i;
+    uint32_t i;
     for (i = 0; i < 3; ++i) {
-        size_t j;
+        uint32_t j;
         for (j = 0; j < 3; ++j) {
-            size_t k;
+            uint32_t k;
             float sum = 0.0f;
             for (k = 0; k < 3; ++k) {
                 sum += A->elem[i][k] * B->elem[k][j];
@@ -78,38 +85,46 @@ void mat33Multiply(struct Mat33 *out, const struct Mat33 *A, const struct Mat33 
     }
 }
 
-void mat33ScalarMul(struct Mat33 *A, float c) {
-    size_t i;
+UNROLLED
+void mat33ScalarMul(struct Mat33 *A, float c)
+{
+    uint32_t i;
     for (i = 0; i < 3; ++i) {
-        size_t j;
+        uint32_t j;
         for (j = 0; j < 3; ++j) {
             A->elem[i][j] *= c;
         }
     }
 }
 
-void mat33Add(struct Mat33 *out, const struct Mat33 *A) {
-    size_t i;
+UNROLLED
+void mat33Add(struct Mat33 *out, const struct Mat33 *A)
+{
+    uint32_t i;
     for (i = 0; i < 3; ++i) {
-        size_t j;
+        uint32_t j;
         for (j = 0; j < 3; ++j) {
             out->elem[i][j] += A->elem[i][j];
         }
     }
 }
 
-void mat33Sub(struct Mat33 *out, const struct Mat33 *A) {
-    size_t i;
+UNROLLED
+void mat33Sub(struct Mat33 *out, const struct Mat33 *A)
+{
+    uint32_t i;
     for (i = 0; i < 3; ++i) {
-        size_t j;
+        uint32_t j;
         for (j = 0; j < 3; ++j) {
             out->elem[i][j] -= A->elem[i][j];
         }
     }
 }
 
-int mat33IsPositiveSemidefinite(const struct Mat33 *A, float tolerance) {
-    size_t i;
+UNROLLED
+int mat33IsPositiveSemidefinite(const struct Mat33 *A, float tolerance)
+{
+    uint32_t i;
     for (i = 0; i < 3; ++i) {
         if (A->elem[i][i] < 0.0f) {
             return 0;
@@ -117,7 +132,7 @@ int mat33IsPositiveSemidefinite(const struct Mat33 *A, float tolerance) {
     }
 
     for (i = 0; i < 3; ++i) {
-        size_t j;
+        uint32_t j;
         for (j = i + 1; j < 3; ++j) {
             if (fabsf(A->elem[i][j] - A->elem[j][i]) > tolerance) {
                 return 0;
@@ -128,16 +143,17 @@ int mat33IsPositiveSemidefinite(const struct Mat33 *A, float tolerance) {
     return 1;
 }
 
-void mat33MultiplyTransposed(
-        struct Mat33 *out, const struct Mat33 *A, const struct Mat33 *B) {
+UNROLLED
+void mat33MultiplyTransposed(struct Mat33 *out, const struct Mat33 *A, const struct Mat33 *B)
+{
     // assert(out != A);
     // assert(out != B);
 
-    size_t i;
+    uint32_t i;
     for (i = 0; i < 3; ++i) {
-        size_t j;
+        uint32_t j;
         for (j = 0; j < 3; ++j) {
-            size_t k;
+            uint32_t k;
             float sum = 0.0f;
             for (k = 0; k < 3; ++k) {
                 sum += A->elem[k][i] * B->elem[k][j];
@@ -148,16 +164,17 @@ void mat33MultiplyTransposed(
     }
 }
 
-void mat33MultiplyTransposed2(
-        struct Mat33 *out, const struct Mat33 *A, const struct Mat33 *B) {
+UNROLLED
+void mat33MultiplyTransposed2(struct Mat33 *out, const struct Mat33 *A, const struct Mat33 *B)
+{
     // assert(out != A);
     // assert(out != B);
 
-    size_t i;
+    uint32_t i;
     for (i = 0; i < 3; ++i) {
-        size_t j;
+        uint32_t j;
         for (j = 0; j < 3; ++j) {
-            size_t k;
+            uint32_t k;
             float sum = 0.0f;
             for (k = 0; k < 3; ++k) {
                 sum += A->elem[i][k] * B->elem[j][k];
@@ -168,16 +185,18 @@ void mat33MultiplyTransposed2(
     }
 }
 
-void mat33Invert(struct Mat33 *out, const struct Mat33 *A) {
+UNROLLED
+void mat33Invert(struct Mat33 *out, const struct Mat33 *A)
+{
     float t;
     initDiagonalMatrix(out, 1.0f);
 
     struct Mat33 tmp = *A;
 
-    size_t i, k;
+    uint32_t i, k;
     for (i = 0; i < 3; ++i) {
-        size_t swap = i;
-        size_t j;
+        uint32_t swap = i;
+        uint32_t j;
         for (j = i + 1; j < 3; ++j) {
             if (fabsf(tmp.elem[j][i]) > fabsf(tmp.elem[i][i])) {
                 swap = j;
@@ -214,20 +233,24 @@ void mat33Invert(struct Mat33 *out, const struct Mat33 *A) {
     }
 }
 
-void mat33Transpose(struct Mat33 *out, const struct Mat33 *A) {
-    size_t i;
+UNROLLED
+void mat33Transpose(struct Mat33 *out, const struct Mat33 *A)
+{
+    uint32_t i;
     for (i = 0; i < 3; ++i) {
-        size_t j;
+        uint32_t j;
         for (j = 0; j < 3; ++j) {
             out->elem[i][j] = A->elem[j][i];
         }
     }
 }
 
-void mat33DecomposeLup(struct Mat33 *LU, struct Size3 *pivot) {
+UNROLLED
+void mat33DecomposeLup(struct Mat33 *LU, struct Size3 *pivot)
+{
 
-    const size_t N = 3;
-    size_t i, j, k;
+    const uint32_t N = 3;
+    uint32_t i, j, k;
 
     for (k = 0; k < N; ++k) {
         pivot->elem[k] = k;
@@ -259,10 +282,12 @@ void mat33DecomposeLup(struct Mat33 *LU, struct Size3 *pivot) {
     }
 }
 
-void mat33SwapRows(struct Mat33 *A, const size_t i, const size_t j) {
+UNROLLED
+void mat33SwapRows(struct Mat33 *A, const uint32_t i, const uint32_t j)
+{
 
-    const size_t N = 3;
-    size_t k;
+    const uint32_t N = 3;
+    uint32_t k;
 
     if (i == j) {
         return;
@@ -275,10 +300,12 @@ void mat33SwapRows(struct Mat33 *A, const size_t i, const size_t j) {
     }
 }
 
-void mat33Solve(const struct Mat33 *A, struct Vec3 *x, const struct Vec3 *b, const struct Size3 *pivot) {
+UNROLLED
+void mat33Solve(const struct Mat33 *A, struct Vec3 *x, const struct Vec3 *b, const struct Size3 *pivot)
+{
 
-    const size_t N = 3;
-    size_t i, k;
+    const uint32_t N = 3;
+    uint32_t i, k;
 
     float bCopy[N];
     bCopy[0] = b->x;
@@ -313,14 +340,16 @@ void mat33Solve(const struct Mat33 *A, struct Vec3 *x, const struct Vec3 *b, con
  The i-th eigenvalue corresponds to the eigenvector in the i-th _row_ of "eigenvecs".
  */
 
-void mat33GetEigenbasis(struct Mat33 *S, struct Vec3 *eigenvals, struct Mat33 *eigenvecs) {
+UNROLLED
+void mat33GetEigenbasis(struct Mat33 *S, struct Vec3 *eigenvals, struct Mat33 *eigenvecs)
+{
 
-    const size_t N = 3;
-    size_t i, j, k, l, m;
+    const uint32_t N = 3;
+    uint32_t i, j, k, l, m;
 
     float _eigenvals[N];
 
-    size_t ind[N];
+    uint32_t ind[N];
     for (k = 0; k < N; ++k) {
         ind[k] = mat33Maxind(S, k);
         _eigenvals[k] = S->elem[k][k];
@@ -416,12 +445,14 @@ void mat33GetEigenbasis(struct Mat33 *S, struct Vec3 *eigenvals, struct Mat33 *e
 }
 
 // index of largest off-diagonal element in row k
-size_t mat33Maxind(const struct Mat33 *A, size_t k) {
+UNROLLED
+uint32_t mat33Maxind(const struct Mat33 *A, uint32_t k)
+{
 
-    const size_t N = 3;
+    const uint32_t N = 3;
 
-    size_t m = k + 1;
-    size_t i;
+    uint32_t m = k + 1;
+    uint32_t i;
 
     for (i = k + 2; i < N; ++i) {
         if (fabsf(A->elem[k][i]) > fabsf(A->elem[k][m])) {
@@ -432,13 +463,15 @@ size_t mat33Maxind(const struct Mat33 *A, size_t k) {
     return m;
 }
 
-void mat33Rotate(struct Mat33 *A, float c, float s, size_t k, size_t l, size_t i, size_t j) {
+void mat33Rotate(struct Mat33 *A, float c, float s, uint32_t k, uint32_t l, uint32_t i, uint32_t j)
+{
     float tmp = c * A->elem[k][l] - s * A->elem[i][j];
     A->elem[i][j] = s * A->elem[k][l] + c * A->elem[i][j];
     A->elem[k][l] = tmp;
 }
 
-void mat44Apply(struct Vec4 *out, const struct Mat44 *A, const struct Vec4 *v) {
+void mat44Apply(struct Vec4 *out, const struct Mat44 *A, const struct Vec4 *v)
+{
     // assert(out != v);
 
     out->x =
@@ -466,10 +499,11 @@ void mat44Apply(struct Vec4 *out, const struct Mat44 *A, const struct Vec4 *v) {
             + A->elem[3][3] * v->w;
 }
 
-void mat44DecomposeLup(struct Mat44 *LU, struct Size4 *pivot) {
-
-    const size_t N = 4;
-    size_t i, j, k;
+UNROLLED
+void mat44DecomposeLup(struct Mat44 *LU, struct Size4 *pivot)
+{
+    const uint32_t N = 4;
+    uint32_t i, j, k;
 
     for (k = 0; k < N; ++k) {
         pivot->elem[k] = k;
@@ -501,10 +535,12 @@ void mat44DecomposeLup(struct Mat44 *LU, struct Size4 *pivot) {
     }
 }
 
-void mat44SwapRows(struct Mat44 *A, const size_t i, const size_t j) {
+UNROLLED
+void mat44SwapRows(struct Mat44 *A, const uint32_t i, const uint32_t j)
+{
 
-    const size_t N = 4;
-    size_t k;
+    const uint32_t N = 4;
+    uint32_t k;
 
     if (i == j) {
         return;
@@ -517,10 +553,12 @@ void mat44SwapRows(struct Mat44 *A, const size_t i, const size_t j) {
     }
 }
 
-void mat44Solve(const struct Mat44 *A, struct Vec4 *x, const struct Vec4 *b, const struct Size4 *pivot) {
+UNROLLED
+void mat44Solve(const struct Mat44 *A, struct Vec4 *x, const struct Vec4 *b, const struct Size4 *pivot)
+{
 
-    const size_t N = 4;
-    size_t i, k;
+    const uint32_t N = 4;
+    uint32_t i, k;
 
     float bCopy[N];
     bCopy[0] = b->x;
@@ -551,3 +589,5 @@ void mat44Solve(const struct Mat44 *A, struct Vec4 *x, const struct Vec4 *b, con
 
     initVec4(x, _x[0], _x[1], _x[2], _x[3]);
 }
+
+

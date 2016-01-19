@@ -48,7 +48,7 @@ struct Fusion {
     uint32_t mInitState;
     float mPredictDt;
     struct Vec3 mData[3];
-    size_t mCount[3];
+    uint32_t mCount[3];
     uint32_t flags;
 
     float  fake_mag_decimation;

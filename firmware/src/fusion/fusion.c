@@ -251,6 +251,7 @@ static void fusionCheckState(struct Fusion *fusion) {
 
 #define kEps 1.0E-4f
 
+UNROLLED
 static void fusionPredict(struct Fusion *fusion, const struct Vec3 *w) {
     const float dT = fusion->mPredictDt;
 
@@ -295,9 +296,9 @@ static void fusionPredict(struct Fusion *fusion, const struct Vec3 *w) {
     matrixCross(&O33, &negPsi, k2);
 
     struct Mat44 O;
-    size_t i;
+    uint32_t i;
     for (i = 0; i < 3; ++i) {
-        size_t j;
+        uint32_t j;
         for (j = 0; j < 3; ++j) {
             O.elem[i][j] = O33.elem[i][j];
         }
@@ -389,16 +390,17 @@ void fusionHandleGyro(struct Fusion *fusion, const struct Vec3 *w, float dT) {
     fusionPredict(fusion, w);
 }
 
+UNROLLED
 static void scaleCovariance(struct Mat33 *out, const struct Mat33 *A, const struct Mat33 *P) {
-    size_t r;
+    uint32_t r;
     for (r = 0; r < 3; ++r) {
-        size_t j;
+        uint32_t j;
         for (j = r; j < 3; ++j) {
             float apat = 0.0f;
-            size_t c;
+            uint32_t c;
             for (c = 0; c < 3; ++c) {
                 float v = A->elem[c][r] * P->elem[c][c] * 0.5f;
-                size_t k;
+                uint32_t k;
                 for (k = c + 1; k < 3; ++k) {
                     v += A->elem[k][r] * P->elem[c][k];
                 }

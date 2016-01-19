@@ -32,6 +32,9 @@ extern "C" {
 
 
 
+#define UNROLLED   __attribute__((optimize("unroll-loops")))
+
+
 #define MAX_TASKS                        16
 #define MAX_EMBEDDED_EVT_SUBS            6 /*tradeoff, no wrong answer */
 

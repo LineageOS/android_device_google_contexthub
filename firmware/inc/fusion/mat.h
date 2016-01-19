@@ -19,6 +19,7 @@
 #define MAT_H_
 
 #include "vec.h"
+#include <stdint.h>
 #include <sys/types.h>
 
 #ifdef __cplusplus
@@ -31,7 +32,7 @@ struct Mat33 {
 };
 
 struct Size3 {
-    size_t elem[3];
+    uint32_t elem[3];
 
 };
 
@@ -41,7 +42,7 @@ struct Mat44 {
 };
 
 struct Size4 {
-    size_t elem[4];
+    uint32_t elem[4];
 
 };
 
@@ -76,21 +77,21 @@ void mat33Transpose(struct Mat33 *out, const struct Mat33 *A);
 
 void mat33DecomposeLup(struct Mat33 *LU, struct Size3 *pivot);
 
-void mat33SwapRows(struct Mat33 *A, const size_t i, const size_t j);
+void mat33SwapRows(struct Mat33 *A, const uint32_t i, const uint32_t j);
 
 void mat33Solve(const struct Mat33 *A, struct Vec3 *x, const struct Vec3 *b, const struct Size3 *pivot);
 
 void mat33GetEigenbasis(struct Mat33 *S, struct Vec3 *eigenvals, struct Mat33 *eigenvecs);
 
-size_t mat33Maxind(const struct Mat33 *A, size_t k);
+uint32_t mat33Maxind(const struct Mat33 *A, uint32_t k);
 
-void mat33Rotate(struct Mat33 *A, float c, float s, size_t k, size_t l, size_t i, size_t j);
+void mat33Rotate(struct Mat33 *A, float c, float s, uint32_t k, uint32_t l, uint32_t i, uint32_t j);
 
 void mat44Apply(struct Vec4 *out, const struct Mat44 *A, const struct Vec4 *v);
 
 void mat44DecomposeLup(struct Mat44 *LU, struct Size4 *pivot);
 
-void mat44SwapRows(struct Mat44 *A, const size_t i, const size_t j);
+void mat44SwapRows(struct Mat44 *A, const uint32_t i, const uint32_t j);
 
 void mat44Solve(const struct Mat44 *A, struct Vec4 *x, const struct Vec4 *b, const struct Size4 *pivot);
 
