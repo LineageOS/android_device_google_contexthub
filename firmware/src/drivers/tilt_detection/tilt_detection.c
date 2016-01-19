@@ -35,7 +35,7 @@
 #define EVT_SENSOR_ACCEL sensorGetMyEventType(SENS_TYPE_ACCEL)
 
 #define ACCEL_MIN_RATE    SENSOR_HZ(50)
-#define ACCEL_MAX_LATENCY 250000000ull   // 40 ms
+#define ACCEL_MAX_LATENCY 250000000ull   // 250 ms
 
 #define BATCH_TIME      (2000000000) // 2.0 seconds
 #define ANGLE_THRESH    (0.819 * 9.81 * 9.81) // ~cos(35) * (1G in m/s^2)^2
