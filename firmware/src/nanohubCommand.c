@@ -173,14 +173,14 @@ static void resetDownloadState()
 
 static size_t startFirmwareUpload(void *rx, uint8_t rx_len, void *tx, uint64_t timestamp)
 {
-    extern char __shared_start[];
-    extern char __shared_end[];
     struct NanohubStartFirmwareUploadRequest *req = rx;
     struct NanohubStartFirmwareUploadResponse *resp = tx;
-    uint8_t *shared_start = (uint8_t *)&__shared_start;
-    uint8_t *shared_end = (uint8_t *)&__shared_end;
-    uint8_t *shared;
+    uint8_t *shared, *shared_start, *shared_end;
     int len, total_len;
+    uint32_t sharedSz;
+
+    shared_start = platGetSharedAreaInfo(&sharedSz);
+    shared_end = shared_start + sharedSz;
 
     if (!mDownloadState)
         mDownloadState = heapAlloc(sizeof(struct DownloadState));

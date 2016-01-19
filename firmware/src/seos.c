@@ -171,22 +171,17 @@ static uint32_t osGetFreeTid(void)
 
 static void osStartTasks(void)
 {
-    extern char __shared_start[];
-    extern char __shared_end[];
-    extern const struct AppHdr __internal_app_start, __internal_app_end;
     static const char magic[] = APP_HDR_MAGIC;
     const struct AppHdr *app;
-    uint32_t i, nTasks = 0;
+    uint32_t i, nTasks = 0, nApps, sharedSz;
     struct Task* task;
-    uint8_t *shared_start = (uint8_t *)&__shared_start;
-    uint8_t *shared_end = (uint8_t *)&__shared_end;
-    uint8_t *shared;
+    const uint8_t *shared, *sharedEnd;
     int len, total_len;
     uint8_t id1, id2;
 
     /* first enum all internal apps, making sure to check for dupes */
     osLog(LOG_DEBUG, "Reading internal app list...\n");
-    for (app = &__internal_app_start; app != &__internal_app_end && nTasks < MAX_TASKS  && app->fmtVer == APP_HDR_VER_CUR; app++) {
+    for (i = 0, app = platGetInternalAppList(&nApps); i < nApps && nTasks < MAX_TASKS  && app->fmtVer == APP_HDR_VER_CUR; app++) {
 
         if (app->marker != APP_HDR_MARKER_INTERNAL) {
             osLog(LOG_WARN, "Weird marker on internal app: [%p]=0x%04X\n", app, app->marker);
@@ -201,15 +196,13 @@ static void osStartTasks(void)
 
     /* then enum all external apps, making sure to find the latest (by position in flash) and checking for conflicts with internal apps */
     osLog(LOG_DEBUG, "Reading external app list...\n");
-    for (shared = shared_start;
-         shared < shared_end && shared[0] != 0xFF;
-         shared += total_len) {
+    for (shared = platGetSharedAreaInfo(&sharedSz), sharedEnd = shared + sharedSz; shared < sharedEnd && shared[0] != 0xFF; shared += total_len) {
         id1 = shared[0] & 0x0F;
         id2 = (shared[0] >> 4) & 0x0F;
         len = (shared[1] << 16) | (shared[2] << 8) | shared[3];
         total_len = sizeof(uint32_t) + ((len + 3) & ~3) + sizeof(uint32_t);
 
-        if (shared + total_len > shared_end)
+        if (shared + total_len > sharedEnd)
             break;
 
         //skip over erased sections
