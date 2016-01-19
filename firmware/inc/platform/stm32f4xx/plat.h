@@ -50,6 +50,22 @@ struct StmPlatEeDataEncrKey {
     uint8_t key[32];
 } __attribute__((packed));
 
+static inline const struct AppHdr* platGetInternalAppList(uint32_t *numAppsP)
+{
+    extern const struct AppHdr __internal_app_start, __internal_app_end;
+
+    *numAppsP = &__internal_app_end - &__internal_app_start;
+    return &__internal_app_start;
+}
+
+static inline uint8_t* platGetSharedAreaInfo(uint32_t *areaSzP)
+{
+    extern uint8_t __shared_start[];
+    extern uint8_t __shared_end[];
+
+    *areaSzP = __shared_end - __shared_start;
+    return __shared_start;
+}
 
 #define PREPOPULATED_ENCR_KEY(name, keyid, ...) \
     const struct StmPlatEeDataEncrKey __attribute__ ((section (".eedata"))) __EE__ ## name = { { EE_DATA_TYPE_ENCR_KEY, sizeof(struct StmPlatEeDataEncrKey) - sizeof(struct StmPlatEeDataGeneric)}, keyid, {__VA_ARGS__}}
