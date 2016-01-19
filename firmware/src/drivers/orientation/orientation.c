@@ -33,15 +33,16 @@
 #include <limits.h>
 #include <slab.h>
 
-#define MAX_NUM_COMMS_EVENT_SAMPLES 15
-#define FIFO_MARGIN                 10
-#define MAX_NUM_SAMPLES             (MAX_NUM_COMMS_EVENT_SAMPLES + FIFO_MARGIN)
-#define MAX_NUM_RAW_DATA_SAMPLES    50000000000ull
+#define MAX_NUM_COMMS_EVENT_SAMPLES 15 // at most 15 output samples can fit in one comms_event
+#define FIFO_MARGIN                 10 // max raw sensor rate ratio is 8:1, there can be 7 samples left in FIFO.
+#define FIFO_DEPTH                  15 // needs to be greater than max raw sensor rate ratio
+#define MAX_NUM_SAMPLES             (FIFO_MARGIN + FIFO_DEPTH)
 #define EVT_SENSOR_ACC_DATA_RDY     sensorGetMyEventType(SENS_TYPE_ACCEL)
 #define EVT_SENSOR_GYR_DATA_RDY     sensorGetMyEventType(SENS_TYPE_GYRO)
 #define EVT_SENSOR_MAG_DATA_RDY     sensorGetMyEventType(SENS_TYPE_MAG)
 
 #define kGravityEarth               9.80665f
+#define kRad2deg                    (180.0f / M_PI)
 #define MIN_GYRO_RATE_HZ            SENSOR_HZ(100.0f)
 #define MAX_MAG_RATE_HZ             SENSOR_HZ(50.0f)
 
@@ -200,7 +201,7 @@ static void fillSamples(struct TripleAxisDataEvent *ev, enum RawSensorType index
         // error handling for non-chronological accel timestamps
         sample_spacing_ns = (next_time > curr_time) ?  (next_time - curr_time) : 0;
 
-        // This happens during BMI160 config changes
+        // This can happen during sensor config changes
         bad_timestamp = (sample_spacing_ns > 10 * ResamplePeriodNs);
 
         // Check to see if we need to move the interpolation window or
@@ -252,7 +253,6 @@ static void fillSamples(struct TripleAxisDataEvent *ev, enum RawSensorType index
 static void addSample(struct FusionSensor *mSensor, uint64_t time, float x, float y, float z)
 {
     struct TripleAxisDataPoint *sample;
-    uint32_t deltaTime = 0;
 
     if (mSensor->ev == NULL) {
         mSensor->ev = slabAllocatorAlloc(mDataSlab);
@@ -274,9 +274,7 @@ static void addSample(struct FusionSensor *mSensor, uint64_t time, float x, floa
     sample = &mSensor->ev->samples[mSensor->ev->samples[0].firstSample.numSamples++];
 
     if (mSensor->ev->samples[0].firstSample.numSamples > 1) {
-        deltaTime = time - mSensor->prev_time;
-        deltaTime = deltaTime < 0 ? 0 : deltaTime;
-        sample->deltaTime = deltaTime;
+        sample->deltaTime = time > mSensor->prev_time ? (time - mSensor->prev_time) : 0;
         mSensor->prev_time = time;
     }
 
@@ -323,7 +321,6 @@ static void updateOutput(ssize_t last_accel_sample_index, uint64_t last_sensor_t
 
         if (mTask.sensors[ORIENT].active) {
             // x, y, z = yaw, pitch, roll
-            static const float kRad2deg = 180.0f / M_PI;
             float x = atan2f(-R.elem[0][1], R.elem[0][0]) * kRad2deg;
             float y = atan2f(-R.elem[1][2], R.elem[2][2]) * kRad2deg;
             float z = asinf(R.elem[0][2]) * kRad2deg;
@@ -502,7 +499,7 @@ static void fusionSetRateAcc(void)
         mTask.sample_indices[ACC] = 0;
         mTask.counters[ACC] = 0;
         mTask.last_time[ACC] = ULONG_LONG_MAX;
-        for (i=0; sensorFind(SENS_TYPE_ACCEL, i, &mTask.accelHandle) != NULL; i++) {
+        for (i = 0; sensorFind(SENS_TYPE_ACCEL, i, &mTask.accelHandle) != NULL; i++) {
             if (sensorRequest(mTask.tid, mTask.accelHandle, mTask.raw_sensor_rate[ACC], mTask.raw_sensor_latency)) {
                 osEventSubscribe(mTask.tid, EVT_SENSOR_ACC_DATA_RDY);
                 break;
@@ -521,7 +518,7 @@ static void fusionSetRateGyr(void)
         mTask.sample_indices[GYR] = 0;
         mTask.counters[GYR] = 0;
         mTask.last_time[GYR] = ULONG_LONG_MAX;
-        for (i=0; sensorFind(SENS_TYPE_GYRO, i, &mTask.gyroHandle) != NULL; i++) {
+        for (i = 0; sensorFind(SENS_TYPE_GYRO, i, &mTask.gyroHandle) != NULL; i++) {
             if (sensorRequest(mTask.tid, mTask.gyroHandle, mTask.raw_sensor_rate[GYR], mTask.raw_sensor_latency)) {
                 osEventSubscribe(mTask.tid, EVT_SENSOR_GYR_DATA_RDY);
                 break;
@@ -540,7 +537,7 @@ static void fusionSetRateMag(void)
         mTask.sample_indices[MAG] = 0;
         mTask.counters[MAG] = 0;
         mTask.last_time[MAG] = ULONG_LONG_MAX;
-        for (i=0; sensorFind(SENS_TYPE_MAG, i, &mTask.magHandle) != NULL; i++) {
+        for (i = 0; sensorFind(SENS_TYPE_MAG, i, &mTask.magHandle) != NULL; i++) {
             if (sensorRequest(mTask.tid, mTask.magHandle, mTask.raw_sensor_rate[MAG], mTask.raw_sensor_latency)) {
                 osEventSubscribe(mTask.tid, EVT_SENSOR_MAG_DATA_RDY);
                 break;
@@ -557,7 +554,7 @@ static bool fusionSetRate(uint32_t rate, uint64_t latency, void *cookie)
     int i;
     uint32_t max_rate = 0;
     uint32_t gyr_rate, mag_rate;
-    uint32_t total_sample = 0;
+    uint64_t min_resample_period = ULONG_LONG_MAX;
 
     mSensor->rate = rate;
     mSensor->latency = latency;
@@ -569,48 +566,31 @@ static bool fusionSetRate(uint32_t rate, uint64_t latency, void *cookie)
     }
 
     if (mTask.accel_cnt > 0) {
-        mTask.ResamplePeriodNs[ACC] = sensorTimerLookupCommon(FusionRates, rateTimerVals, max_rate);
         mTask.raw_sensor_rate[ACC] = max_rate;
-        total_sample += mTask.raw_sensor_rate[ACC];
+        mTask.ResamplePeriodNs[ACC] = sensorTimerLookupCommon(FusionRates, rateTimerVals, max_rate);
+        min_resample_period = mTask.ResamplePeriodNs[ACC] < min_resample_period ?
+            mTask.ResamplePeriodNs[ACC] : min_resample_period;
     }
 
     if (mTask.gyro_cnt > 0) {
-        mTask.ResamplePeriodNs[GYR] = sensorTimerLookupCommon(FusionRates, rateTimerVals, max_rate);
         gyr_rate = max_rate > MIN_GYRO_RATE_HZ ? max_rate : MIN_GYRO_RATE_HZ;
         mTask.raw_sensor_rate[GYR] = gyr_rate;
-        total_sample += mTask.raw_sensor_rate[GYR];
+        mTask.ResamplePeriodNs[GYR] = sensorTimerLookupCommon(FusionRates, rateTimerVals, gyr_rate);
+        min_resample_period = mTask.ResamplePeriodNs[GYR] < min_resample_period ?
+            mTask.ResamplePeriodNs[GYR] : min_resample_period;
     }
 
     if (mTask.mag_cnt > 0) {
         mag_rate = max_rate < MAX_MAG_RATE_HZ ? max_rate : MAX_MAG_RATE_HZ;
-        mTask.ResamplePeriodNs[MAG] = sensorTimerLookupCommon(FusionRates, rateTimerVals, mag_rate);
         mTask.raw_sensor_rate[MAG] = mag_rate;
-        total_sample += mTask.raw_sensor_rate[MAG];
+        mTask.ResamplePeriodNs[MAG] = sensorTimerLookupCommon(FusionRates, rateTimerVals, mag_rate);
+        min_resample_period = mTask.ResamplePeriodNs[MAG] < min_resample_period ?
+            mTask.ResamplePeriodNs[MAG] : min_resample_period;
     }
 
-    //Note:
-    // Previous code here:
-    //   mTask.raw_sensor_latency = total_sample ? (MAX_NUM_RAW_DATA_SAMPLES * 1024ull / total_sample) : 0;
-    //
-    // At this point total_sample = sum of 0, 1, 2, or 3 values from FusionRates[].
-    // But also note that for all N, FusionRates[N] = SENSOR_HZ(2^ N * 12.5f),
-    // Thus means that total_samples here is sure to be an integer multiple of
-    // SENSOR_HZ(12.5f). We'll use this here to avoid a uint64 division. Also of
-    // note is that when they use 1024ull here, they really mean SENSOR_HZ(1) just
-    // to remove the SENSOR_HZ() bias. So we'll decompose this into a few pieces.
-    // For now we'll ingore the zero-check on total_sample. Just pretend it is there.
-    // First we'll divide both top and bottom by SENSOR_HZ(1), and thus get
-    // mTask.raw_sensor_latency = MAX_NUM_RAW_DATA_SAMPLES / (total_sample / SENSOR_HZ(1))
-    // this has not lost us any precision, as we know total_sample is divisible
-    // by SENSOR_HZ(12.5f), and thus certainly by SENSOR_HZ(1). But wait, there is
-    // more. We can actually divide both top and bottom by SENSOR_HZ(12.5) to reduce
-    // the size of that constant. We thus get:
-    // mTask.raw_sensor_latency = (MAX_NUM_RAW_DATA_SAMPLES / 12.5) / (total_sample / SENSOR_HZ(12.5))
-    // Why all this? Well, MAX_NUM_RAW_DATA_SAMPLES is used just here, so it just gets
-    // redefined from 50000000000ull to 4000000000ull. And that, my friends is a
-    // 32-bit number. woohoo!
+    // This guarantees that local raw sensor FIFOs won't overflow.
+    mTask.raw_sensor_latency = min_resample_period * (FIFO_DEPTH - 1);
 
-    mTask.raw_sensor_latency = total_sample ? ((uint32_t)(MAX_NUM_RAW_DATA_SAMPLES / 12.5f) / (total_sample / SENSOR_HZ(12.5))) : 0;
     for (i = ORIENT; i < NUM_OF_FUSION_SENSOR; i++) {
         if (mTask.sensors[i].active) {
             mTask.raw_sensor_latency = mTask.sensors[i].latency < mTask.raw_sensor_latency ?
@@ -772,9 +752,13 @@ static bool fusionStart(uint32_t tid)
     mTask.sensors[GAME].use_mag_data = false;
     mTask.sensors[GRAVITY].use_mag_data = false;
 
+    mTask.accel_cnt = 0;
+    mTask.gyro_cnt = 0;
+    mTask.mag_cnt = 0;
+
     slabSize = sizeof(struct TripleAxisDataEvent)
         + MAX_NUM_COMMS_EVENT_SAMPLES * sizeof(struct TripleAxisDataPoint);
-    mDataSlab = slabAllocatorNew(slabSize, 4, 10); // 10 slots for now..
+    mDataSlab = slabAllocatorNew(slabSize, 4, 10); // 10 slots for now, worst case 6 output sensors * 2 comms_events = 12
     if (!mDataSlab) {
         osLog(LOG_ERROR, "FUSION SLAB ALLOCATION FAILED\n");
         return false;
@@ -788,6 +772,7 @@ static bool fusionStart(uint32_t tid)
 static void fusionEnd()
 {
     mTask.flags &= ~FUSION_FLAG_INITIALIZED;
+    mTask.flags &= ~FUSION_FLAG_GAME_INITIALIZED;
     slabAllocatorDestroy(mDataSlab);
 }
 
