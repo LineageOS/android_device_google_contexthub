@@ -52,6 +52,7 @@ Finding an example that does not obey these guidelines is not a cause for also d
 25. Do not cast floats to 64-bit values or back, this is slow. Use floatRt.h. This will be enforced
     at compile time and will fail your build. This is intentional as the power and speed costs are
     substantial.
+26. Do not use types with uncertain sizes. NO size_t, ssize_t, etc. use uintXX_t or uintptr_t
 
 
 99. These guidelines will be kept updated as things come up/are decided
