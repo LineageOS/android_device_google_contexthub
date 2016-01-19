@@ -119,7 +119,7 @@ static const struct SensorInfo mSi =
     NULL,
     SENS_TYPE_WIN_ORIENTATION,
     NUM_AXIS_EMBEDDED,
-    NANOHUB_INT_WAKEUP,
+    NANOHUB_INT_NONWAKEUP,
     20
 };
 
