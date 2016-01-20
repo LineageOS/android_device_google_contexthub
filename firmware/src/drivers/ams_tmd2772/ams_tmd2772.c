@@ -27,11 +27,11 @@
 #include <nanohubPacket.h>
 #include <eventnums.h>
 
-#define DRIVER_NAME "AMS: "
+#define DRIVER_NAME                            "AMS: "
 
-#define I2C_BUS_ID 0
-#define I2C_SPEED 400000
-#define I2C_ADDR 0x39
+#define I2C_BUS_ID                             0
+#define I2C_SPEED                              400000
+#define I2C_ADDR                               0x39
 
 #define AMS_TMD2772_ID                         0x39
 
@@ -92,6 +92,11 @@
 
 #define AMS_TMD2772_ALS_MAX_CHANNEL_COUNT      37888 // in raw data
 #define AMS_TMD2772_ALS_MAX_REPORT_VALUE       10000 // in lux
+
+#define AMS_TMD2772_ALS_INVALID                UINT32_MAX
+
+/* Used when SENSOR_RATE_ONCHANGE is requested */
+#define AMS_TMD2772_DEFAULT_RATE               SENSOR_HZ(5)
 
 /* Private driver events */
 enum SensorEvents
@@ -161,7 +166,9 @@ struct SensorData
     bool alsReading;
     bool proxOn;
     bool proxReading;
-} data;
+};
+
+static struct SensorData mData;
 
 /* TODO: check rates are supported */
 static const uint32_t supportedRates[] =
@@ -170,7 +177,8 @@ static const uint32_t supportedRates[] =
     SENSOR_HZ(1),
     SENSOR_HZ(4),
     SENSOR_HZ(5),
-    0,
+    SENSOR_RATE_ONCHANGE,
+    0
 };
 
 static const uint64_t rateTimerVals[] = //should match "supported rates in length" and be the timer length for that rate in nanosecs
@@ -188,19 +196,19 @@ static const uint64_t rateTimerVals[] = //should match "supported rates in lengt
 static void i2cCallback(void *cookie, size_t tx, size_t rx, int err)
 {
     if (err == 0)
-        osEnqueuePrivateEvt(EVT_SENSOR_I2C, cookie, NULL, data.tid);
+        osEnqueuePrivateEvt(EVT_SENSOR_I2C, cookie, NULL, mData.tid);
     else
         osLog(LOG_INFO, DRIVER_NAME "i2c error (%d)\n", err);
 }
 
 static void alsTimerCallback(uint32_t timerId, void *cookie)
 {
-    osEnqueuePrivateEvt(EVT_SENSOR_ALS_TIMER, cookie, NULL, data.tid);
+    osEnqueuePrivateEvt(EVT_SENSOR_ALS_TIMER, cookie, NULL, mData.tid);
 }
 
 static void proxTimerCallback(uint32_t timerId, void *cookie)
 {
-    osEnqueuePrivateEvt(EVT_SENSOR_PROX_TIMER, cookie, NULL, data.tid);
+    osEnqueuePrivateEvt(EVT_SENSOR_PROX_TIMER, cookie, NULL, mData.tid);
 }
 
 static inline float getLuxFromAlsData(uint16_t als0, uint16_t als1)
@@ -236,13 +244,13 @@ static inline float getLuxFromAlsData(uint16_t als0, uint16_t als1)
 
 static void setMode(bool alsOn, bool proxOn, void *cookie)
 {
-    data.txrxBuf.bytes[0] = AMS_TMD2772_REG_ENABLE;
-    data.txrxBuf.bytes[1] = POWER_ON_BIT | WAIT_ENABLE_BIT |
+    mData.txrxBuf.bytes[0] = AMS_TMD2772_REG_ENABLE;
+    mData.txrxBuf.bytes[1] = POWER_ON_BIT | WAIT_ENABLE_BIT |
                             (alsOn ? ALS_ENABLE_BIT : 0) | (proxOn ? PROX_ENABLE_BIT : 0);
-    data.txrxBuf.bytes[2] = AMS_TMD2772_ATIME_SETTING;
-    data.txrxBuf.bytes[3] = AMS_TMD2772_PTIME_SETTING;
-    data.txrxBuf.bytes[4] = alsOn ? AMS_TMD2772_WTIME_SETTING_ALS_ON : AMS_TMD2772_WTIME_SETTING_ALS_OFF;
-    i2cMasterTx(I2C_BUS_ID, I2C_ADDR, data.txrxBuf.bytes, 5,
+    mData.txrxBuf.bytes[2] = AMS_TMD2772_ATIME_SETTING;
+    mData.txrxBuf.bytes[3] = AMS_TMD2772_PTIME_SETTING;
+    mData.txrxBuf.bytes[4] = alsOn ? AMS_TMD2772_WTIME_SETTING_ALS_ON : AMS_TMD2772_WTIME_SETTING_ALS_OFF;
+    i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mData.txrxBuf.bytes, 5,
                 &i2cCallback, cookie);
 }
 
@@ -250,34 +258,37 @@ static bool sensorPowerAls(bool on, void *cookie)
 {
     osLog(LOG_INFO, DRIVER_NAME "sensorPowerAls: %d\n", on);
 
-    if (data.alsTimerHandle) {
-        timTimerCancel(data.alsTimerHandle);
-        data.alsTimerHandle = 0;
-        data.alsReading = false;
+    if (mData.alsTimerHandle) {
+        timTimerCancel(mData.alsTimerHandle);
+        mData.alsTimerHandle = 0;
+        mData.alsReading = false;
     }
 
-    data.alsOn = on;
-    setMode(on, data.proxOn, (void *)(on ? SENSOR_STATE_ENABLING_ALS : SENSOR_STATE_DISABLING_ALS));
+    mData.lastAlsSample.idata = AMS_TMD2772_ALS_INVALID;
+    mData.alsOn = on;
+    setMode(on, mData.proxOn, (void *)(on ? SENSOR_STATE_ENABLING_ALS : SENSOR_STATE_DISABLING_ALS));
 
     return true;
 }
 
 static bool sensorFirmwareAls(void *cookie)
 {
-    sensorSignalInternalEvt(data.alsHandle, SENSOR_INTERNAL_EVT_FW_STATE_CHG, 1, 0);
+    sensorSignalInternalEvt(mData.alsHandle, SENSOR_INTERNAL_EVT_FW_STATE_CHG, 1, 0);
     return true;
 }
 
 static bool sensorRateAls(uint32_t rate, uint64_t latency, void *cookie)
 {
+    if (rate == SENSOR_RATE_ONCHANGE) {
+        rate = AMS_TMD2772_DEFAULT_RATE;
+    }
     osLog(LOG_INFO, DRIVER_NAME "sensorRateAls: %ld/%lld\n", rate, latency);
 
-    if (data.alsTimerHandle)
-        timTimerCancel(data.alsTimerHandle);
-    data.alsTimerHandle = timTimerSet(sensorTimerLookupCommon(supportedRates, rateTimerVals, rate), 0, 50, alsTimerCallback, NULL, false);
-    data.lastAlsSample.fdata = -FLT_MAX;
-    osEnqueuePrivateEvt(EVT_SENSOR_ALS_TIMER, NULL, NULL, data.tid);
-    sensorSignalInternalEvt(data.alsHandle, SENSOR_INTERNAL_EVT_RATE_CHG, rate, latency);
+    if (mData.alsTimerHandle)
+        timTimerCancel(mData.alsTimerHandle);
+    mData.alsTimerHandle = timTimerSet(sensorTimerLookupCommon(supportedRates, rateTimerVals, rate), 0, 50, alsTimerCallback, NULL, false);
+    osEnqueuePrivateEvt(EVT_SENSOR_ALS_TIMER, NULL, NULL, mData.tid);
+    sensorSignalInternalEvt(mData.alsHandle, SENSOR_INTERNAL_EVT_RATE_CHG, rate, latency);
 
     return true;
 }
@@ -287,38 +298,52 @@ static bool sensorFlushAls(void *cookie)
     return osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_ALS), SENSOR_DATA_EVENT_FLUSH, NULL);
 }
 
+static bool sendLastSampleAls(void *cookie, uint32_t tid) {
+    bool result = true;
+
+    // If we don't end up doing anything here, the expectation is that we are powering up/haven't got the
+    // first sample yet, so a broadcast event will go out soon with the first sample
+    if (mData.lastAlsSample.idata != AMS_TMD2772_ALS_INVALID) {
+        result = osEnqueuePrivateEvt(sensorGetMyEventType(SENS_TYPE_ALS), mData.lastAlsSample.vptr, NULL, tid);
+    }
+    return result;
+}
+
 static bool sensorPowerProx(bool on, void *cookie)
 {
     osLog(LOG_INFO, DRIVER_NAME "sensorPowerProx: %d\n", on);
 
-    if (data.proxTimerHandle) {
-        timTimerCancel(data.proxTimerHandle);
-        data.proxTimerHandle = 0;
-        data.proxReading = false;
+    if (mData.proxTimerHandle) {
+        timTimerCancel(mData.proxTimerHandle);
+        mData.proxTimerHandle = 0;
+        mData.proxReading = false;
     }
 
-    data.proxOn = on;
-    setMode(data.alsOn, on, (void *)(on ? SENSOR_STATE_ENABLING_PROX : SENSOR_STATE_DISABLING_PROX));
+    mData.proxState = PROX_STATE_INIT;
+    mData.proxOn = on;
+    setMode(mData.alsOn, on, (void *)(on ? SENSOR_STATE_ENABLING_PROX : SENSOR_STATE_DISABLING_PROX));
 
     return true;
 }
 
 static bool sensorFirmwareProx(void *cookie)
 {
-    sensorSignalInternalEvt(data.proxHandle, SENSOR_INTERNAL_EVT_FW_STATE_CHG, 1, 0);
+    sensorSignalInternalEvt(mData.proxHandle, SENSOR_INTERNAL_EVT_FW_STATE_CHG, 1, 0);
     return true;
 }
 
 static bool sensorRateProx(uint32_t rate, uint64_t latency, void *cookie)
 {
+    if (rate == SENSOR_RATE_ONCHANGE) {
+        rate = AMS_TMD2772_DEFAULT_RATE;
+    }
     osLog(LOG_INFO, DRIVER_NAME "sensorRateProx: %ld/%lld\n", rate, latency);
 
-    if (data.proxTimerHandle)
-        timTimerCancel(data.proxTimerHandle);
-    data.proxTimerHandle = timTimerSet(sensorTimerLookupCommon(supportedRates, rateTimerVals, rate), 0, 50, proxTimerCallback, NULL, false);
-    data.proxState = PROX_STATE_INIT;
-    osEnqueuePrivateEvt(EVT_SENSOR_PROX_TIMER, NULL, NULL, data.tid);
-    sensorSignalInternalEvt(data.proxHandle, SENSOR_INTERNAL_EVT_RATE_CHG, rate, latency);
+    if (mData.proxTimerHandle)
+        timTimerCancel(mData.proxTimerHandle);
+    mData.proxTimerHandle = timTimerSet(sensorTimerLookupCommon(supportedRates, rateTimerVals, rate), 0, 50, proxTimerCallback, NULL, false);
+    osEnqueuePrivateEvt(EVT_SENSOR_PROX_TIMER, NULL, NULL, mData.tid);
+    sensorSignalInternalEvt(mData.proxHandle, SENSOR_INTERNAL_EVT_RATE_CHG, rate, latency);
 
     return true;
 }
@@ -328,42 +353,59 @@ static bool sensorFlushProx(void *cookie)
     return osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_PROX), SENSOR_DATA_EVENT_FLUSH, NULL);
 }
 
+static bool sendLastSampleProx(void *cookie, uint32_t tid) {
+    union EmbeddedDataPoint sample;
+    bool result = true;
+
+    // See note in sendLastSampleAls
+    if (mData.proxState != PROX_STATE_INIT) {
+        sample.fdata = (mData.proxState == PROX_STATE_NEAR) ?
+            AMS_TMD2772_REPORT_NEAR_VALUE : AMS_TMD2772_REPORT_FAR_VALUE;
+        result = osEnqueuePrivateEvt(sensorGetMyEventType(SENS_TYPE_PROX), sample.vptr, NULL, tid);
+    }
+    return result;
+}
+
 static const struct SensorInfo sensorInfoAls =
 {
-    "ALS",
-    supportedRates,
-    SENS_TYPE_ALS,
-    NUM_AXIS_EMBEDDED,
-    NANOHUB_INT_NONWAKEUP,
-    20
+    .sensorName = "ALS",
+    .supportedRates = supportedRates,
+    .sensorType = SENS_TYPE_ALS,
+    .numAxis = NUM_AXIS_EMBEDDED,
+    .interrupt = NANOHUB_INT_NONWAKEUP,
+    .minSamples = 20
 };
 
 static const struct SensorOps sensorOpsAls =
 {
-    sensorPowerAls,
-    sensorFirmwareAls,
-    sensorRateAls,
-    sensorFlushAls,
-    NULL
+    .sensorPower = sensorPowerAls,
+    .sensorFirmwareUpload = sensorFirmwareAls,
+    .sensorSetRate = sensorRateAls,
+    .sensorFlush = sensorFlushAls,
+    .sensorTriggerOndemand = NULL,
+    .sensorCalibrate = NULL,
+    .sensorSendOneDirectEvt = sendLastSampleAls
 };
 
 static const struct SensorInfo sensorInfoProx =
 {
-    "Proximity",
-    supportedRates,
-    SENS_TYPE_PROX,
-    NUM_AXIS_EMBEDDED,
-    NANOHUB_INT_WAKEUP,
-    300
+    .sensorName = "Proximity",
+    .supportedRates = supportedRates,
+    .sensorType = SENS_TYPE_PROX,
+    .numAxis = NUM_AXIS_EMBEDDED,
+    .interrupt = NANOHUB_INT_WAKEUP,
+    .minSamples = 300
 };
 
 static const struct SensorOps sensorOpsProx =
 {
-    sensorPowerProx,
-    sensorFirmwareProx,
-    sensorRateProx,
-    sensorFlushProx,
-    NULL
+    .sensorPower = sensorPowerProx,
+    .sensorFirmwareUpload = sensorFirmwareProx,
+    .sensorSetRate = sensorRateProx,
+    .sensorFlush = sensorFlushProx,
+    .sensorTriggerOndemand = NULL,
+    .sensorCalibrate = NULL,
+    .sensorSendOneDirectEvt = sendLastSampleProx
 };
 
 /*
@@ -373,30 +415,30 @@ static const struct SensorOps sensorOpsProx =
 static void handle_calibration_event(int state) {
     switch (state) {
     case SENSOR_STATE_CALIBRATE_RESET:
-        data.calibrationSampleCount = 0;
-        data.calibrationSampleTotal = 0;
+        mData.calibrationSampleCount = 0;
+        mData.calibrationSampleTotal = 0;
         /* Intentional fall-through */
 
     case SENSOR_STATE_CALIBRATE_START:
-        data.txrxBuf.bytes[0] = AMS_TMD2772_REG_ENABLE;
-        data.txrxBuf.bytes[1] = POWER_ON_BIT | PROX_ENABLE_BIT;
-        i2cMasterTx(I2C_BUS_ID, I2C_ADDR, data.txrxBuf.bytes, 2,
+        mData.txrxBuf.bytes[0] = AMS_TMD2772_REG_ENABLE;
+        mData.txrxBuf.bytes[1] = POWER_ON_BIT | PROX_ENABLE_BIT;
+        i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mData.txrxBuf.bytes, 2,
                     &i2cCallback, (void *)SENSOR_STATE_CALIBRATE_ENABLING);
         break;
 
     case SENSOR_STATE_CALIBRATE_ENABLING:
-        data.txrxBuf.bytes[0] = AMS_TMD2772_REG_STATUS;
-        i2cMasterTxRx(I2C_BUS_ID, I2C_ADDR, data.txrxBuf.bytes, 1,
-                      data.txrxBuf.bytes, 1, &i2cCallback,
+        mData.txrxBuf.bytes[0] = AMS_TMD2772_REG_STATUS;
+        i2cMasterTxRx(I2C_BUS_ID, I2C_ADDR, mData.txrxBuf.bytes, 1,
+                      mData.txrxBuf.bytes, 1, &i2cCallback,
                       (void *)SENSOR_STATE_CALIBRATE_POLLING_STATUS);
         break;
 
     case SENSOR_STATE_CALIBRATE_POLLING_STATUS:
-        if (data.txrxBuf.bytes[0] & PROX_INT_BIT) {
+        if (mData.txrxBuf.bytes[0] & PROX_INT_BIT) {
             /* Done */
-            data.txrxBuf.bytes[0] = AMS_TMD2772_REG_PDATAL;
-            i2cMasterTxRx(I2C_BUS_ID, I2C_ADDR, data.txrxBuf.bytes, 1,
-                          data.txrxBuf.bytes, 2, &i2cCallback,
+            mData.txrxBuf.bytes[0] = AMS_TMD2772_REG_PDATAL;
+            i2cMasterTxRx(I2C_BUS_ID, I2C_ADDR, mData.txrxBuf.bytes, 1,
+                          mData.txrxBuf.bytes, 2, &i2cCallback,
                           (void *)SENSOR_STATE_CALIBRATE_AWAITING_SAMPLE);
         } else {
             /* Poll again; go back to previous state */
@@ -405,24 +447,24 @@ static void handle_calibration_event(int state) {
         break;
 
     case SENSOR_STATE_CALIBRATE_AWAITING_SAMPLE:
-        data.calibrationSampleCount++;
-        data.calibrationSampleTotal += data.txrxBuf.calibration.prox;
+        mData.calibrationSampleCount++;
+        mData.calibrationSampleTotal += mData.txrxBuf.calibration.prox;
 
-        data.txrxBuf.bytes[0] = AMS_TMD2772_REG_ENABLE;
-        data.txrxBuf.bytes[1] = 0x00;
-        i2cMasterTx(I2C_BUS_ID, I2C_ADDR, data.txrxBuf.bytes, 2,
+        mData.txrxBuf.bytes[0] = AMS_TMD2772_REG_ENABLE;
+        mData.txrxBuf.bytes[1] = 0x00;
+        i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mData.txrxBuf.bytes, 2,
                     &i2cCallback, (void *)SENSOR_STATE_CALIBRATE_DISABLING);
         break;
 
     case SENSOR_STATE_CALIBRATE_DISABLING:
-        if (data.calibrationSampleCount >= 20) {
+        if (mData.calibrationSampleCount >= 20) {
             /* Done, calculate calibration */
-            uint16_t average = data.calibrationSampleTotal / data.calibrationSampleCount;
+            uint16_t average = mData.calibrationSampleTotal / mData.calibrationSampleCount;
             uint16_t crosstalk = (average > 0x7f) ? 0x7f : average;
 
-            data.txrxBuf.bytes[0] = AMS_TMD2772_REG_POFFSET;
-            data.txrxBuf.bytes[1] = crosstalk;
-            i2cMasterTx(I2C_BUS_ID, I2C_ADDR, data.txrxBuf.bytes, 2,
+            mData.txrxBuf.bytes[0] = AMS_TMD2772_REG_POFFSET;
+            mData.txrxBuf.bytes[1] = crosstalk;
+            i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mData.txrxBuf.bytes, 2,
                         &i2cCallback, (void *)SENSOR_STATE_IDLE);
         } else {
             /* Get another sample; go back to earlier state */
@@ -443,61 +485,61 @@ static void handle_i2c_event(int state)
     switch (state) {
     case SENSOR_STATE_VERIFY_ID:
         /* Check the sensor ID */
-        if (data.txrxBuf.bytes[0] != AMS_TMD2772_ID) {
+        if (mData.txrxBuf.bytes[0] != AMS_TMD2772_ID) {
             osLog(LOG_INFO, DRIVER_NAME "not detected\n");
-            sensorUnregister(data.alsHandle);
-            sensorUnregister(data.proxHandle);
+            sensorUnregister(mData.alsHandle);
+            sensorUnregister(mData.proxHandle);
             break;
         }
 
         /* Start address */
-        data.txrxBuf.bytes[0] = AMS_TMD2772_REG_ENABLE;
+        mData.txrxBuf.bytes[0] = AMS_TMD2772_REG_ENABLE;
         /* ENABLE */
-        data.txrxBuf.bytes[1] = 0x00;
+        mData.txrxBuf.bytes[1] = 0x00;
         /* ATIME */
-        data.txrxBuf.bytes[2] = AMS_TMD2772_ATIME_SETTING;
+        mData.txrxBuf.bytes[2] = AMS_TMD2772_ATIME_SETTING;
         /* PTIME */
-        data.txrxBuf.bytes[3] = AMS_TMD2772_PTIME_SETTING;
+        mData.txrxBuf.bytes[3] = AMS_TMD2772_PTIME_SETTING;
         /* WTIME */
-        data.txrxBuf.bytes[4] = 0xFF;
-        i2cMasterTx(I2C_BUS_ID, I2C_ADDR, data.txrxBuf.bytes, 5,
+        mData.txrxBuf.bytes[4] = 0xFF;
+        i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mData.txrxBuf.bytes, 5,
                     &i2cCallback, (void *)SENSOR_STATE_INIT);
         break;
 
     case SENSOR_STATE_INIT:
         /* Start address */
-        data.txrxBuf.bytes[0] = AMS_TMD2772_REG_PERS;
+        mData.txrxBuf.bytes[0] = AMS_TMD2772_REG_PERS;
         /* PERS */
-        data.txrxBuf.bytes[1] = 0x00;
+        mData.txrxBuf.bytes[1] = 0x00;
         /* CONFIG */
-        data.txrxBuf.bytes[2] = 0x00;
+        mData.txrxBuf.bytes[2] = 0x00;
         /* PPULSE */
-        data.txrxBuf.bytes[3] = AMS_TMD2772_PPULSE_SETTING;
+        mData.txrxBuf.bytes[3] = AMS_TMD2772_PPULSE_SETTING;
         /* CONTROL */
-        data.txrxBuf.bytes[4] = 0x20;
-        i2cMasterTx(I2C_BUS_ID, I2C_ADDR, data.txrxBuf.bytes, 5,
+        mData.txrxBuf.bytes[4] = 0x20;
+        i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mData.txrxBuf.bytes, 5,
                     &i2cCallback, (void *)SENSOR_STATE_IDLE);
         break;
 
     case SENSOR_STATE_IDLE:
-        sensorRegisterInitComplete(data.alsHandle);
-        sensorRegisterInitComplete(data.proxHandle);
+        sensorRegisterInitComplete(mData.alsHandle);
+        sensorRegisterInitComplete(mData.proxHandle);
         break;
 
     case SENSOR_STATE_ENABLING_ALS:
-        sensorSignalInternalEvt(data.alsHandle, SENSOR_INTERNAL_EVT_POWER_STATE_CHG, true, 0);
+        sensorSignalInternalEvt(mData.alsHandle, SENSOR_INTERNAL_EVT_POWER_STATE_CHG, true, 0);
         break;
 
     case SENSOR_STATE_ENABLING_PROX:
-        sensorSignalInternalEvt(data.proxHandle, SENSOR_INTERNAL_EVT_POWER_STATE_CHG, true, 0);
+        sensorSignalInternalEvt(mData.proxHandle, SENSOR_INTERNAL_EVT_POWER_STATE_CHG, true, 0);
         break;
 
     case SENSOR_STATE_DISABLING_ALS:
-        sensorSignalInternalEvt(data.alsHandle, SENSOR_INTERNAL_EVT_POWER_STATE_CHG, false, 0);
+        sensorSignalInternalEvt(mData.alsHandle, SENSOR_INTERNAL_EVT_POWER_STATE_CHG, false, 0);
         break;
 
     case SENSOR_STATE_DISABLING_PROX:
-        sensorSignalInternalEvt(data.proxHandle, SENSOR_INTERNAL_EVT_POWER_STATE_CHG, false, 0);
+        sensorSignalInternalEvt(mData.proxHandle, SENSOR_INTERNAL_EVT_POWER_STATE_CHG, false, 0);
         break;
 
     case SENSOR_STATE_SAMPLING:
@@ -507,36 +549,36 @@ static void handle_i2c_event(int state)
               data.txrxBuf.sample.als[0], data.txrxBuf.sample.als[1]);
         */
 
-        if (data.alsOn && data.alsReading) {
+        if (mData.alsOn && mData.alsReading) {
             /* Create event */
-            sample.fdata = getLuxFromAlsData(data.txrxBuf.sample.als[0],
-                                             data.txrxBuf.sample.als[1]);
-            if (data.lastAlsSample.idata != sample.idata) {
+            sample.fdata = getLuxFromAlsData(mData.txrxBuf.sample.als[0],
+                                             mData.txrxBuf.sample.als[1]);
+            if (mData.lastAlsSample.idata != sample.idata) {
                 osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_ALS), sample.vptr, NULL);
-                data.lastAlsSample.fdata = sample.fdata;
+                mData.lastAlsSample.fdata = sample.fdata;
             }
         }
 
-        if (data.proxOn && data.proxReading) {
+        if (mData.proxOn && mData.proxReading) {
             /* Create event */
             sendData = true;
-            if (data.proxState == PROX_STATE_INIT) {
-                if (data.txrxBuf.sample.prox > AMS_TMD2772_THRESHOLD_ASSERT_NEAR) {
+            if (mData.proxState == PROX_STATE_INIT) {
+                if (mData.txrxBuf.sample.prox > AMS_TMD2772_THRESHOLD_ASSERT_NEAR) {
                     sample.fdata = AMS_TMD2772_REPORT_NEAR_VALUE;
-                    data.proxState = PROX_STATE_NEAR;
+                    mData.proxState = PROX_STATE_NEAR;
                 } else {
                     sample.fdata = AMS_TMD2772_REPORT_FAR_VALUE;
-                    data.proxState = PROX_STATE_FAR;
+                    mData.proxState = PROX_STATE_FAR;
                 }
             } else {
-                if (data.proxState == PROX_STATE_NEAR &&
-                    data.txrxBuf.sample.prox < AMS_TMD2772_THRESHOLD_DEASSERT_NEAR) {
+                if (mData.proxState == PROX_STATE_NEAR &&
+                    mData.txrxBuf.sample.prox < AMS_TMD2772_THRESHOLD_DEASSERT_NEAR) {
                     sample.fdata = AMS_TMD2772_REPORT_FAR_VALUE;
-                    data.proxState = PROX_STATE_FAR;
-                } else if (data.proxState == PROX_STATE_FAR &&
-                    data.txrxBuf.sample.prox > AMS_TMD2772_THRESHOLD_ASSERT_NEAR) {
+                    mData.proxState = PROX_STATE_FAR;
+                } else if (mData.proxState == PROX_STATE_FAR &&
+                    mData.txrxBuf.sample.prox > AMS_TMD2772_THRESHOLD_ASSERT_NEAR) {
                     sample.fdata = AMS_TMD2772_REPORT_NEAR_VALUE;
-                    data.proxState = PROX_STATE_NEAR;
+                    mData.proxState = PROX_STATE_NEAR;
                 } else {
                     sendData = false;
                 }
@@ -546,8 +588,8 @@ static void handle_i2c_event(int state)
                 osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_PROX), sample.vptr, NULL);
         }
 
-        data.alsReading = false;
-        data.proxReading = false;
+        mData.alsReading = false;
+        mData.proxReading = false;
         break;
 
     default:
@@ -565,15 +607,17 @@ static bool init_app(uint32_t myTid)
     osLog(LOG_INFO, DRIVER_NAME "task starting\n");
 
     /* Set up driver private data */
-    data.tid = myTid;
-    data.alsOn = false;
-    data.alsReading = false;
-    data.proxOn = false;
-    data.proxReading = false;
+    mData.tid = myTid;
+    mData.alsOn = false;
+    mData.alsReading = false;
+    mData.proxOn = false;
+    mData.proxReading = false;
+    mData.lastAlsSample.idata = AMS_TMD2772_ALS_INVALID;
+    mData.proxState = PROX_STATE_INIT;
 
     /* Register sensors */
-    data.alsHandle = sensorRegister(&sensorInfoAls, &sensorOpsAls, NULL, false);
-    data.proxHandle = sensorRegister(&sensorInfoProx, &sensorOpsProx, NULL, false);
+    mData.alsHandle = sensorRegister(&sensorInfoAls, &sensorOpsAls, NULL, false);
+    mData.proxHandle = sensorRegister(&sensorInfoProx, &sensorOpsProx, NULL, false);
 
     osEventSubscribe(myTid, EVT_APP_START);
 
@@ -582,8 +626,8 @@ static bool init_app(uint32_t myTid)
 
 static void end_app(void)
 {
-    sensorUnregister(data.alsHandle);
-    sensorUnregister(data.proxHandle);
+    sensorUnregister(mData.alsHandle);
+    sensorUnregister(mData.proxHandle);
 
     i2cMasterRelease(I2C_BUS_ID);
 }
@@ -592,14 +636,14 @@ static void handle_event(uint32_t evtType, const void* evtData)
 {
     switch (evtType) {
     case EVT_APP_START:
-        osEventUnsubscribe(data.tid, EVT_APP_START);
+        osEventUnsubscribe(mData.tid, EVT_APP_START);
         i2cMasterRequest(I2C_BUS_ID, I2C_SPEED);
 
         /* TODO: reset chip first */
 
-        data.txrxBuf.bytes[0] = AMS_TMD2772_REG_ID;
-        i2cMasterTxRx(I2C_BUS_ID, I2C_ADDR, data.txrxBuf.bytes, 1,
-                        data.txrxBuf.bytes, 1, &i2cCallback,
+        mData.txrxBuf.bytes[0] = AMS_TMD2772_REG_ID;
+        i2cMasterTxRx(I2C_BUS_ID, I2C_ADDR, mData.txrxBuf.bytes, 1,
+                        mData.txrxBuf.bytes, 1, &i2cCallback,
                         (void *)SENSOR_STATE_VERIFY_ID);
         break;
 
@@ -610,17 +654,17 @@ static void handle_event(uint32_t evtType, const void* evtData)
     case EVT_SENSOR_ALS_TIMER:
     case EVT_SENSOR_PROX_TIMER:
         /* Start sampling for a value */
-        if (!data.alsReading && !data.proxReading) {
-            data.txrxBuf.bytes[0] = AMS_TMD2772_REG_STATUS;
-            i2cMasterTxRx(I2C_BUS_ID, I2C_ADDR, data.txrxBuf.bytes, 1,
-                                data.txrxBuf.bytes, 7, &i2cCallback,
+        if (!mData.alsReading && !mData.proxReading) {
+            mData.txrxBuf.bytes[0] = AMS_TMD2772_REG_STATUS;
+            i2cMasterTxRx(I2C_BUS_ID, I2C_ADDR, mData.txrxBuf.bytes, 1,
+                                mData.txrxBuf.bytes, 7, &i2cCallback,
                                 (void *)SENSOR_STATE_SAMPLING);
         }
 
         if (evtType == EVT_SENSOR_ALS_TIMER)
-            data.alsReading = true;
+            mData.alsReading = true;
         else
-            data.proxReading = true;
+            mData.proxReading = true;
         break;
     }
 }

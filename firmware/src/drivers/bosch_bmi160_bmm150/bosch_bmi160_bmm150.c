@@ -375,6 +375,11 @@ static uint32_t MagRates[] = {
     0,
 };
 
+static uint32_t StepCntRates[] = {
+    SENSOR_RATE_ONCHANGE,
+    0
+};
+
 static struct BMI160Task mTask;
 static uint16_t mWbufCnt = 0;
 static uint8_t mRegCnt = 0;
@@ -385,15 +390,15 @@ static struct SlabAllocator *mDataSlab;
 
 static const struct SensorInfo mSensorInfo[NUM_OF_SENSOR] =
 {
-    {"Accelerometer",      AccRates, SENS_TYPE_ACCEL,       NUM_AXIS_THREE,    NANOHUB_INT_NONWAKEUP, 3000},
-    {"Gyroscope",          GyrRates, SENS_TYPE_GYRO,        NUM_AXIS_THREE,    NANOHUB_INT_NONWAKEUP,   20},
-    {"Magnetometer",       MagRates, SENS_TYPE_MAG,         NUM_AXIS_THREE,    NANOHUB_INT_NONWAKEUP,   20},
-    {"Step Detector",      NULL,     SENS_TYPE_STEP_DETECT, NUM_AXIS_EMBEDDED, NANOHUB_INT_NONWAKEUP,  100},
-    {"Double Tap",         NULL,     SENS_TYPE_DOUBLE_TAP,  NUM_AXIS_EMBEDDED, NANOHUB_INT_NONWAKEUP,   20},
-    {"Flat",               NULL,     SENS_TYPE_FLAT,        NUM_AXIS_EMBEDDED, NANOHUB_INT_NONWAKEUP,   20},
-    {"Any Motion",         NULL,     SENS_TYPE_ANY_MOTION,  NUM_AXIS_EMBEDDED, NANOHUB_INT_NONWAKEUP,   20},
-    {"No Motion",          NULL,     SENS_TYPE_NO_MOTION,   NUM_AXIS_EMBEDDED, NANOHUB_INT_NONWAKEUP,   20},
-    {"Step Counter",       NULL,     SENS_TYPE_STEP_COUNT,  NUM_AXIS_EMBEDDED, NANOHUB_INT_NONWAKEUP,   20},
+    {"Accelerometer",  AccRates,     SENS_TYPE_ACCEL,       NUM_AXIS_THREE,    NANOHUB_INT_NONWAKEUP, 3000},
+    {"Gyroscope",      GyrRates,     SENS_TYPE_GYRO,        NUM_AXIS_THREE,    NANOHUB_INT_NONWAKEUP,   20},
+    {"Magnetometer",   MagRates,     SENS_TYPE_MAG,         NUM_AXIS_THREE,    NANOHUB_INT_NONWAKEUP,   20},
+    {"Step Detector",  NULL,         SENS_TYPE_STEP_DETECT, NUM_AXIS_EMBEDDED, NANOHUB_INT_NONWAKEUP,  100},
+    {"Double Tap",     NULL,         SENS_TYPE_DOUBLE_TAP,  NUM_AXIS_EMBEDDED, NANOHUB_INT_NONWAKEUP,   20},
+    {"Flat",           NULL,         SENS_TYPE_FLAT,        NUM_AXIS_EMBEDDED, NANOHUB_INT_NONWAKEUP,   20},
+    {"Any Motion",     NULL,         SENS_TYPE_ANY_MOTION,  NUM_AXIS_EMBEDDED, NANOHUB_INT_NONWAKEUP,   20},
+    {"No Motion",      NULL,         SENS_TYPE_NO_MOTION,   NUM_AXIS_EMBEDDED, NANOHUB_INT_NONWAKEUP,   20},
+    {"Step Counter",   StepCntRates, SENS_TYPE_STEP_COUNT,  NUM_AXIS_EMBEDDED, NANOHUB_INT_NONWAKEUP,   20},
 };
 
 static void dataEvtFree(void *ptr)
@@ -1389,6 +1394,12 @@ static void sendStepCnt()
     }
 }
 
+static bool stepCntSendLastData(void *cookie, uint32_t tid)
+{
+    // If this comes in and we don't have data yet, there's no harm in reporting step_cnt = 0
+    return osEnqueuePrivateEvt(EVT_SENSOR_STEP_COUNTER, (void *) mTask.total_step_cnt, NULL, tid);
+}
+
 static uint64_t parseSensortime(uint32_t sensor_time24)
 {
     uint32_t prev_time24;
@@ -1894,15 +1905,15 @@ static bool gyrCalibration(void *cookie)
 
 static const struct SensorOps mSensorOps[NUM_OF_SENSOR] =
 {
-    {accPower, accFirmwareUpload, accSetRate, accFlush, NULL, accCalibration},
-    {gyrPower, gyrFirmwareUpload, gyrSetRate, gyrFlush, NULL, gyrCalibration},
-    {magPower, magFirmwareUpload, magSetRate, magFlush, NULL, NULL},
-    {stepPower, stepFirmwareUpload, stepSetRate, stepFlush, NULL, NULL},
-    {doubleTapPower, doubleTapFirmwareUpload, doubleTapSetRate, doubleTapFlush, NULL, NULL},
-    {flatPower, flatFirmwareUpload, flatSetRate, flatFlush, NULL, NULL},
-    {anyMotionPower, anyMotionFirmwareUpload, anyMotionSetRate, anyMotionFlush, NULL, NULL},
-    {noMotionPower, noMotionFirmwareUpload, noMotionSetRate, noMotionFlush, NULL, NULL},
-    {stepCntPower, stepCntFirmwareUpload, stepCntSetRate, stepCntFlush, NULL, NULL},
+    {accPower, accFirmwareUpload, accSetRate, accFlush, NULL, accCalibration, NULL},
+    {gyrPower, gyrFirmwareUpload, gyrSetRate, gyrFlush, NULL, gyrCalibration, NULL},
+    {magPower, magFirmwareUpload, magSetRate, magFlush, NULL, NULL, NULL},
+    {stepPower, stepFirmwareUpload, stepSetRate, stepFlush, NULL, NULL, NULL},
+    {doubleTapPower, doubleTapFirmwareUpload, doubleTapSetRate, doubleTapFlush, NULL, NULL, NULL},
+    {flatPower, flatFirmwareUpload, flatSetRate, flatFlush, NULL, NULL, NULL},
+    {anyMotionPower, anyMotionFirmwareUpload, anyMotionSetRate, anyMotionFlush, NULL, NULL, NULL},
+    {noMotionPower, noMotionFirmwareUpload, noMotionSetRate, noMotionFlush, NULL, NULL, NULL},
+    {stepCntPower, stepCntFirmwareUpload, stepCntSetRate, stepCntFlush, NULL, NULL, stepCntSendLastData},
 };
 
 static void configEvent(struct BMI160Sensor *mSensor, struct ConfigStat *ConfigData)
