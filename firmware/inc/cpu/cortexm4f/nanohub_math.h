@@ -22,8 +22,23 @@
 #define sinf   arm_sin_f32
 #define cosf   arm_cos_f32
 #define expf   __ieee754_expf
+#define sqrtf  arm_sqrtf
 
-float sqrtf(float);
+
+
+static inline float arm_sqrtf(float val)
+{
+    float ret;
+
+    asm(
+        "vsqrt.f32 %0, %1"
+        : "=w" (ret)
+        :"w" (val)
+    );
+
+    return ret;
+}
+
 float atan2f(float, float);
 
 static inline float arm_asinf(float x)
