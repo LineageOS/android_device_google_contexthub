@@ -23,6 +23,18 @@
 
 #include <stdint.h>
 
+struct Sha2state;
+struct RsaState;
+struct AesContext;
+struct AesSetupTempWorksSpace;
+struct AesCbcContext;
+
+
+//tags functions and data to live in the bootloader
+#define BOOTLOADER    __attribute__ ((section (".bltext")))
+#define BOOTLOADER_RO __attribute__ ((section (".blrodata")))
+
+
 #define BL_VERSION_1        1
 #define BL_VERSION_CUR      BL_VERSION_1
 
@@ -44,13 +56,34 @@ struct BlVecTable {
     void        (*blUsageFaultHandler)(void);
 
     /* bl api */
+
     //ver 1 bl supports:
+
+    //basics
     uint32_t        (*blGetVersion)(void);
     void            (*blReboot)(void);
     void            (*blGetSnum)(uint32_t *snum, uint8_t length);
+
+    //flash
     int             (*blProgramShared)(uint8_t *dst, uint8_t *src, uint32_t length, uint32_t key1, uint32_t key2);
     int             (*blEraseShared)(uint32_t key1, uint32_t key2);
+
+    //security data
     const uint32_t* (*blGetPubKeysInfo)(uint32_t *numKeys);
+
+    //hashing, encryption, signature apis
+    const uint32_t* (*blRsaPubOp)(struct RsaState* state, const uint32_t *a, const uint32_t *c);
+    void            (*blSha2init)(struct Sha2state *state);
+    void            (*blSha2processBytes)(struct Sha2state *state, const void *bytes, uint32_t numBytes);
+    const uint32_t* (*blSha2finish)(struct Sha2state *state);
+    void            (*blAesInitForEncr)(struct AesContext *ctx, const uint32_t *k);
+    void            (*blAesInitForDecr)(struct AesContext *ctx, struct AesSetupTempWorksSpace *tmpSpace, const uint32_t *k);
+    void            (*blAesEncr)(struct AesContext *ctx, const uint32_t *src, uint32_t *dst);
+    void            (*blAesDecr)(struct AesContext *ctx, const uint32_t *src, uint32_t *dst);
+    void            (*blAesCbcInitForEncr)(struct AesCbcContext *ctx, const uint32_t *k, const uint32_t *iv);
+    void            (*blAesCbcInitForDecr)(struct AesCbcContext *ctx, const uint32_t *k, const uint32_t *iv);
+    void            (*blAesCbcEncr)(struct AesCbcContext *ctx, const uint32_t *src, uint32_t *dst);
+    void            (*blAesCbcDecr)(struct AesCbcContext *ctx, const uint32_t *src, uint32_t *dst);
 };
 
 //for using outside of bootloader

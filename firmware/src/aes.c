@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+#include <plat/inc/bl.h>
 #include <string.h>
 #include <stdint.h>
 #include <aes.h>
@@ -23,6 +24,7 @@
 
 
 
+BOOTLOADER_RO
 static const uint8_t FwdSbox[] = {
     0x63, 0x7C, 0x77, 0x7B, 0xF2, 0x6B, 0x6F, 0xC5, 0x30, 0x01, 0x67, 0x2B, 0xFE, 0xD7, 0xAB, 0x76,
     0xCA, 0x82, 0xC9, 0x7D, 0xFA, 0x59, 0x47, 0xF0, 0xAD, 0xD4, 0xA2, 0xAF, 0x9C, 0xA4, 0x72, 0xC0,
@@ -42,6 +44,7 @@ static const uint8_t FwdSbox[] = {
     0x8C, 0xA1, 0x89, 0x0D, 0xBF, 0xE6, 0x42, 0x68, 0x41, 0x99, 0x2D, 0x0F, 0xB0, 0x54, 0xBB, 0x16,
 };
 
+BOOTLOADER_RO
 static const uint8_t RevSbox[] = {
     0x52, 0x09, 0x6A, 0xD5, 0x30, 0x36, 0xA5, 0x38, 0xBF, 0x40, 0xA3, 0x9E, 0x81, 0xF3, 0xD7, 0xFB,
     0x7C, 0xE3, 0x39, 0x82, 0x9B, 0x2F, 0xFF, 0x87, 0x34, 0x8E, 0x43, 0x44, 0xC4, 0xDE, 0xE9, 0xCB,
@@ -61,6 +64,7 @@ static const uint8_t RevSbox[] = {
     0x17, 0x2B, 0x04, 0x7E, 0xBA, 0x77, 0xD6, 0x26, 0xE1, 0x69, 0x14, 0x63, 0x55, 0x21, 0x0C, 0x7D,
 };
 
+BOOTLOADER_RO
 static const uint32_t FwdTab0[] = { //other 3 tables are this same table, RORed 8, 16, and 24 bits respectively.
     0xC66363A5, 0xF87C7C84, 0xEE777799, 0xF67B7B8D, 0xFFF2F20D, 0xD66B6BBD, 0xDE6F6FB1, 0x91C5C554,
     0x60303050, 0x02010103, 0xCE6767A9, 0x562B2B7D, 0xE7FEFE19, 0xB5D7D762, 0x4DABABE6, 0xEC76769A,
@@ -96,6 +100,7 @@ static const uint32_t FwdTab0[] = { //other 3 tables are this same table, RORed 
     0x824141C3, 0x299999B0, 0x5A2D2D77, 0x1E0F0F11, 0x7BB0B0CB, 0xA85454FC, 0x6DBBBBD6, 0x2C16163A,
 };
 
+BOOTLOADER_RO
 static const uint32_t RevTab0[] = { //other 3 tables are this same table, RORed 8, 16, and 24 bits respectively.
     0x51F4A750, 0x7E416553, 0x1A17A4C3, 0x3A275E96, 0x3BAB6BCB, 0x1F9D45F1, 0xACFA58AB, 0x4BE30393,
     0x2030FA55, 0xAD766DF6, 0x88CC7691, 0xF5024C25, 0x4FE5D7FC, 0xC52ACBD7, 0x26354480, 0xB562A38F,
@@ -139,6 +144,7 @@ static const uint32_t RevTab0[] = { //other 3 tables are this same table, RORed 
 
 #else
 
+    BOOTLOADER
     inline static uint32_t ror(uint32_t val, uint32_t by)
     {
         if (!by)
@@ -152,12 +158,21 @@ static const uint32_t RevTab0[] = { //other 3 tables are this same table, RORed 
 #endif
 
 
-void aesInitForEncr(struct AesContext *ctx, const uint32_t *k)
+//no memcpy in the bootloader
+BOOTLOADER
+static void wordsCpy(uint32_t *dst, const uint32_t *src, uint32_t num)
+{
+    while(num--)
+        *dst++ = *src++;
+}
+
+BOOTLOADER
+void _aesInitForEncr(struct AesContext *ctx, const uint32_t *k)
 {
     uint32_t i, *ks = ctx->K, roundConstant = 0x01000000;
 
     //first 8 words are just the key itself
-    memcpy(ctx->K, k, sizeof(uint32_t[AES_KEY_WORDS]));
+    wordsCpy(ctx->K, k, AES_KEY_WORDS);
 
     //create round keys for encryption
     for (i = 0; i < 7; i++, ks += 8, roundConstant <<= 1) {
@@ -180,7 +195,8 @@ void aesInitForEncr(struct AesContext *ctx, const uint32_t *k)
     }
 }
 
-void aesInitForDecr(struct AesContext *ctx, struct AesSetupTempWorksSpace *tmpSpace, const uint32_t *k)
+BOOTLOADER
+void _aesInitForDecr(struct AesContext *ctx, struct AesSetupTempWorksSpace *tmpSpace, const uint32_t *k)
 {
     uint32_t i, j, *ks = ctx->K + 4, *encrK = tmpSpace->tmpCtx.K + 52;
 
@@ -188,7 +204,7 @@ void aesInitForDecr(struct AesContext *ctx, struct AesSetupTempWorksSpace *tmpSp
     aesInitForEncr(&tmpSpace->tmpCtx, k);
 
     //now we can calculate round keys for decryption
-    memcpy(ctx->K, tmpSpace->tmpCtx.K + 56, sizeof(uint32_t[4]));
+    wordsCpy(ctx->K, tmpSpace->tmpCtx.K + 56, 4);
     for (i = 0; i < AES_NUM_ROUNDS - 1; i++, encrK -= 4, ks += 4) { //num_rounds-1 seems to be concensus, but num_rounds make more sense...
         for (j = 0; j < 4; j++) {
             ks[j] =
@@ -198,10 +214,11 @@ void aesInitForDecr(struct AesContext *ctx, struct AesSetupTempWorksSpace *tmpSp
                 ror(RevTab0[FwdSbox[(encrK[j] >>  0) & 0xff]], 24);
         }
     }
-    memcpy(ks, encrK, sizeof(uint32_t[4]));
+    wordsCpy(ks, encrK, 4);
 }
 
-void aesEncr(struct AesContext *ctx, const uint32_t *src, uint32_t *dst)
+BOOTLOADER
+void _aesEncr(struct AesContext *ctx, const uint32_t *src, uint32_t *dst)
 {
     uint32_t x0, x1, x2, x3; //we CAN use an array, but then GCC will not use registers. so we use separate vars. sigh...
     uint32_t *k = ctx->K, i;
@@ -271,7 +288,8 @@ void aesEncr(struct AesContext *ctx, const uint32_t *src, uint32_t *dst)
             (((uint32_t)(FwdSbox[(x2 >>  0) & 0xff])) <<  0);
 }
 
-void aesDecr(struct AesContext *ctx, const uint32_t *src, uint32_t *dst)
+BOOTLOADER
+void _aesDecr(struct AesContext *ctx, const uint32_t *src, uint32_t *dst)
 {
     uint32_t x0, x1, x2, x3;
     uint32_t *k = ctx->K, i;
@@ -341,41 +359,45 @@ void aesDecr(struct AesContext *ctx, const uint32_t *src, uint32_t *dst)
             (((uint32_t)(RevSbox[(x0 >>  0) & 0xff])) <<  0);
 }
 
-void aesCbcInitForEncr(struct AesCbcContext *ctx, const uint32_t *k, const uint32_t *iv)
+BOOTLOADER
+void _aesCbcInitForEncr(struct AesCbcContext *ctx, const uint32_t *k, const uint32_t *iv)
 {
-    aesInitForEncr(&ctx->aes, k);
-    memcpy(ctx->iv, iv, sizeof(uint32_t[AES_BLOCK_WORDS]));
+    _aesInitForEncr(&ctx->aes, k);
+    wordsCpy(ctx->iv, iv, AES_BLOCK_WORDS);
 }
 
-void aesCbcInitForDecr(struct AesCbcContext *ctx, const uint32_t *k, const uint32_t *iv)
+BOOTLOADER
+void _aesCbcInitForDecr(struct AesCbcContext *ctx, const uint32_t *k, const uint32_t *iv)
 {
     struct AesSetupTempWorksSpace tmp;
 
-    aesInitForDecr(&ctx->aes, &tmp, k);
-    memcpy(ctx->iv, iv, sizeof(uint32_t[AES_BLOCK_WORDS]));
+    _aesInitForDecr(&ctx->aes, &tmp, k);
+    wordsCpy(ctx->iv, iv, AES_BLOCK_WORDS);
 }
 
-void aesCbcEncr(struct AesCbcContext *ctx, const uint32_t *src, uint32_t *dst)
+BOOTLOADER
+void _aesCbcEncr(struct AesCbcContext *ctx, const uint32_t *src, uint32_t *dst)
 {
     uint32_t i;
 
     for (i = 0; i < AES_BLOCK_WORDS; i++)
         ctx->iv[i] ^= *src++;
 
-    aesEncr(&ctx->aes, ctx->iv, dst);
-    memcpy(ctx->iv, dst, sizeof(uint32_t[AES_BLOCK_WORDS]));
+    _aesEncr(&ctx->aes, ctx->iv, dst);
+    wordsCpy(ctx->iv, dst, AES_BLOCK_WORDS);
 }
 
-void aesCbcDecr(struct AesCbcContext *ctx, const uint32_t *src, uint32_t *dst)
+BOOTLOADER
+void _aesCbcDecr(struct AesCbcContext *ctx, const uint32_t *src, uint32_t *dst)
 {
     uint32_t i, tmp[AES_BLOCK_WORDS];
 
-    aesDecr(&ctx->aes, src, tmp);
+    _aesDecr(&ctx->aes, src, tmp);
     for (i = 0; i < AES_BLOCK_WORDS; i++)
         tmp[i] ^= ctx->iv[i];
 
-    memcpy(ctx->iv, src, sizeof(uint32_t[AES_BLOCK_WORDS]));
-    memcpy(dst, tmp, sizeof(uint32_t[AES_BLOCK_WORDS]));
+    wordsCpy(ctx->iv, src, AES_BLOCK_WORDS);
+    wordsCpy(dst, tmp, AES_BLOCK_WORDS);
 }
 
 
