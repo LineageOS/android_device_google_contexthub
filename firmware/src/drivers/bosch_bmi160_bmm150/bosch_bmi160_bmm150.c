@@ -1925,7 +1925,11 @@ static void configEvent(struct BMI160Sensor *mSensor, struct ConfigStat *ConfigD
 static void timeSyncEvt(void)
 {
     if (!(mTask.fifo_enabled[0] || mTask.fifo_enabled[1] || mTask.fifo_enabled[2])) {
-        // if fifo is not enabled, no time sync is needed.
+        // if fifo is not enabled, no time sync is needed. check to see if there
+        // are still active sensors, in which case we should keep the timer
+        // event going
+        if (mTask.active_data_sensor_cnt)
+            timTimerSet(kTimeSyncPeriodNs, 100, 100, timeSyncCallback, NULL, true);
         return;
     } else if (mTask.state != SENSOR_IDLE) {
         mTask.pending_time_sync = true;
@@ -2284,7 +2288,7 @@ static void handleSpiDoneEvt(const void* evtData)
         SensorTime = parseSensortime(mTask.sensor_time[1] | (mTask.sensor_time[2] << 8) | (mTask.sensor_time[3] << 16));
         map_sensortime_to_rtc_time(SensorTime, rtcGetTime());
 
-        if (mTask.fifo_enabled[0] || mTask.fifo_enabled[1] || mTask.fifo_enabled[2])
+        if (mTask.active_data_sensor_cnt)
             timTimerSet(kTimeSyncPeriodNs, 100, 100, timeSyncCallback, NULL, true);
 
         mTask.state = SENSOR_IDLE;
