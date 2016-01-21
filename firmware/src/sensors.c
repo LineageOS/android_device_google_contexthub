@@ -132,11 +132,13 @@ static uint32_t sensorRegisterEx(const struct SensorInfo *si, TaggedPtr callInfo
     s->hasOnchange = 0;
     s->hasOndemand = 0;
 
-    for (i = 0; si->supportedRates[i]; i++) {
-        if (si->supportedRates[i] == SENSOR_RATE_ONCHANGE)
-            s->hasOnchange = 1;
-        if (si->supportedRates[i] == SENSOR_RATE_ONDEMAND)
-            s->hasOndemand = 1;
+    if (si->supportedRates) {
+        for (i = 0; si->supportedRates[i]; i++) {
+            if (si->supportedRates[i] == SENSOR_RATE_ONCHANGE)
+                s->hasOnchange = 1;
+            if (si->supportedRates[i] == SENSOR_RATE_ONDEMAND)
+                s->hasOndemand = 1;
+        }
     }
 
     return handle;
@@ -344,9 +346,16 @@ static uint32_t sensorCalcHwRate(struct Sensor* s, uint32_t extraReqedRate, uint
     uint32_t highestReq = 0;
     uint32_t i;
 
+    if (s->si->supportedRates &&
+        ((extraReqedRate == SENSOR_RATE_ONCHANGE && !s->hasOnchange) ||
+         (extraReqedRate == SENSOR_RATE_ONDEMAND && !s->hasOndemand))) {
+        osLog(LOG_WARN, "Bad rate 0x%08lx for sensor %u", extraReqedRate, s->si->sensorType);
+        return SENSOR_RATE_IMPOSSIBLE;
+    }
+
     if (extraReqedRate) {
-         haveUsers = true;
-         highestReq = (extraReqedRate == SENSOR_RATE_ONDEMAND || extraReqedRate == SENSOR_RATE_ONCHANGE) ? 0 : extraReqedRate;
+        haveUsers = true;
+        highestReq = (extraReqedRate == SENSOR_RATE_ONDEMAND || extraReqedRate == SENSOR_RATE_ONCHANGE) ? 0 : extraReqedRate;
     }
 
     for (i = 0; i < MAX_CLI_SENS_MATRIX_SZ; i++) {
