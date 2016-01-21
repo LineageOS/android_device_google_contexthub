@@ -119,6 +119,7 @@ extern "C" {
 
 
 /* base addrs */
+#define UDID_BASE                     0x1FFF7A10UL
 #define TIM2_BASE                     0x40000000UL
 #define TIM3_BASE                     0x40000400UL
 #define TIM4_BASE                     0x40000800UL
@@ -161,7 +162,6 @@ extern "C" {
 #define DMA1_BASE                     0x40026000UL
 #define DMA2_BASE                     0x40026400UL
 #define DBG_BASE                      0xE0042000UL
-
 
 
 enum Stm32F4xxSleepType {       //current       power          wkup way       wkup speed   (typ/max) 
