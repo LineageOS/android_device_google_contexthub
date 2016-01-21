@@ -14,11 +14,13 @@
  * limitations under the License.
  */
 
+#include <plat/inc/bl.h>
 #include <string.h>
 #include <sha2.h>
 
 
-void sha2init(struct Sha2state *state)
+BOOTLOADER
+void _sha2init(struct Sha2state *state)
 {
     state->h[0] = 0x6a09e667;
     state->h[1] = 0xbb67ae85;
@@ -40,6 +42,7 @@ void sha2init(struct Sha2state *state)
 
 #else
 
+    BOOTLOADER
     inline static uint32_t ror(uint32_t val, uint32_t by)
     {
         if (!by)
@@ -53,8 +56,10 @@ void sha2init(struct Sha2state *state)
 #endif
 
 
+BOOTLOADER
 static void sha2processBlock(struct Sha2state *state)
 {
+    BOOTLOADER_RO
     static const uint32_t k[] = {
         0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
         0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
@@ -118,7 +123,16 @@ static void sha2processBlock(struct Sha2state *state)
     state->h[7] += h;
 }
 
-void sha2processBytes(struct Sha2state *state, const void *bytes, uint32_t numBytes)
+//no memcpy in the bootloader
+BOOTLOADER
+static void bytesCpy(uint8_t *dst, const uint8_t *src, uint32_t num)
+{
+    while(num--)
+        *dst++ = *src++;
+}
+
+BOOTLOADER
+void _sha2processBytes(struct Sha2state *state, const void *bytes, uint32_t numBytes)
 {
     const uint8_t *inBytes = (const uint8_t*)bytes;
 
@@ -130,7 +144,7 @@ void sha2processBytes(struct Sha2state *state, const void *bytes, uint32_t numBy
         bytesToCopy = numBytes;
         if (bytesToCopy > SHA2_BLOCK_SIZE - state->bufBytesUsed)
             bytesToCopy = SHA2_BLOCK_SIZE - state->bufBytesUsed;
-        memcpy(state->b + state->bufBytesUsed, inBytes, bytesToCopy);
+        bytesCpy(state->b + state->bufBytesUsed, inBytes, bytesToCopy);
         inBytes += bytesToCopy;
         numBytes -= bytesToCopy;
         state->bufBytesUsed += bytesToCopy;
@@ -143,7 +157,8 @@ void sha2processBytes(struct Sha2state *state, const void *bytes, uint32_t numBy
     }
 }
 
-const uint32_t* sha2finish(struct Sha2state *state)
+BOOTLOADER
+const uint32_t* _sha2finish(struct Sha2state *state)
 {
     uint8_t appendend = 0x80;
     uint64_t dataLenInBits = state->msgLen * 8;
