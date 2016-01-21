@@ -87,12 +87,11 @@ static bool disableInterrupt(struct Gpio *pin, struct ChainedIsr *isr)
 
 static const struct SensorInfo mSensorInfo =
 {
-    "Camera Vsync",
-    NULL,
-    SENS_TYPE_VSYNC,
-    NUM_AXIS_EMBEDDED,
-    NANOHUB_INT_NONWAKEUP,
-    20,
+    .sensorName = "Camera Vsync",
+    .sensorType = SENS_TYPE_VSYNC,
+    .numAxis = NUM_AXIS_EMBEDDED,
+    .interrupt = NANOHUB_INT_NONWAKEUP,
+    .minSamples = 20,
 };
 
 static bool vsyncPower(bool on, void *cookie)
@@ -127,11 +126,10 @@ static bool vsyncFlush(void *cookie)
 
 static const struct SensorOps mSensorOps =
 {
-    vsyncPower,
-    vsyncFirmwareUpload,
-    vsyncSetRate,
-    vsyncFlush,
-    NULL
+    .sensorPower = vsyncPower,
+    .sensorFirmwareUpload = vsyncFirmwareUpload,
+    .sensorSetRate = vsyncSetRate,
+    .sensorFlush = vsyncFlush,
 };
 
 static void handleEvent(uint32_t evtType, const void* evtData)

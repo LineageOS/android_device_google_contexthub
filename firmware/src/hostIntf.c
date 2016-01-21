@@ -43,22 +43,22 @@
 #define MAX_NUM_BLOCKS      350 /* times 252 = 88200 bytes */
 #define SENSOR_INIT_DELAY   500000000 /* ns */
 
+enum ConfigCmds
+{
+    CONFIG_CMD_DISABLE      = 0,
+    CONFIG_CMD_ENABLE       = 1,
+    CONFIG_CMD_FLUSH        = 2,
+    CONFIG_CMD_CFG_DATA     = 3,
+    CONFIG_CMD_CALIBRATE    = 4,
+};
+
 struct ConfigCmd
 {
     uint64_t latency;
     uint32_t rate;
     uint8_t sensType;
-    union
-    {
-        struct
-        {
-            uint8_t enabled : 1;
-            uint8_t flush : 1;
-            uint8_t calibrate : 1;
-            uint8_t reserved : 5;
-        };
-        uint8_t flags;
-    };
+    uint8_t cmd;
+    uint16_t flags;
 } __attribute__((packed));
 
 struct DataBuffer
@@ -501,6 +501,10 @@ static bool initSensors()
             mActiveSensorTable[j].latency = 0ull;
             mActiveSensorTable[j].numAxis = si->numAxis;
             mActiveSensorTable[j].interrupt = si->interrupt;
+            if (si->biasType != SENS_TYPE_INVALID) {
+                mSensorList[si->biasType - 1] = j;
+                osEventSubscribe(mHostIntfTid, sensorGetMyEventType(si->biasType));
+            }
             if (si->minSamples > MAX_MIN_SAMPLES) {
                 mActiveSensorTable[j].minSamples = MAX_MIN_SAMPLES;
                 osLog(LOG_INFO, "initSensors: %s: minSamples of %d exceeded max of %d\n", si->sensorName, si->minSamples, MAX_MIN_SAMPLES);
@@ -525,7 +529,7 @@ static bool initSensors()
                 break;
             }
             j++;
-        } else {
+        } else if (mSensorList[i-1] == 0) {
             mSensorList[i-1] = MAX_REGISTERED_SENSORS;
         }
     }
@@ -616,6 +620,12 @@ static void copyTripleSamples(struct ActiveSensor *sensor, const struct TripleAx
             sensor->buffer.triple[0].ix = triple->samples[i].ix;
             sensor->buffer.triple[0].iy = triple->samples[i].iy;
             sensor->buffer.triple[0].iz = triple->samples[i].iz;
+            if (triple->samples[0].firstSample.biasPresent && triple->samples[0].firstSample.biasSample == i) {
+                sensor->buffer.firstSample.biasCurrent = triple->samples[0].firstSample.biasCurrent;
+                sensor->buffer.firstSample.biasPresent = 1;
+                sensor->buffer.firstSample.biasSample = 0;
+                sensor->discard = false;
+            }
             sensor->buffer.firstSample.numSamples = 1;
             sensor->curSamples ++;
         } else {
@@ -635,6 +645,12 @@ static void copyTripleSamples(struct ActiveSensor *sensor, const struct TripleAx
                     sensor->buffer.triple[numSamples].iy = triple->samples[0].iy;
                     sensor->buffer.triple[numSamples].iz = triple->samples[0].iz;
                     sensor->lastTime = triple->referenceTime;
+                    if (triple->samples[0].firstSample.biasPresent && triple->samples[0].firstSample.biasSample == 0) {
+                        sensor->buffer.firstSample.biasCurrent = triple->samples[0].firstSample.biasCurrent;
+                        sensor->buffer.firstSample.biasPresent = 1;
+                        sensor->buffer.firstSample.biasSample = numSamples;
+                        sensor->discard = false;
+                    }
                     sensor->buffer.firstSample.numSamples ++;
                     sensor->curSamples ++;
                 }
@@ -648,6 +664,12 @@ static void copyTripleSamples(struct ActiveSensor *sensor, const struct TripleAx
                 sensor->buffer.triple[numSamples].iy = triple->samples[i].iy;
                 sensor->buffer.triple[numSamples].iz = triple->samples[i].iz;
                 sensor->lastTime += deltaTime;
+                if (triple->samples[0].firstSample.biasPresent && triple->samples[0].firstSample.biasSample == i) {
+                    sensor->buffer.firstSample.biasCurrent = triple->samples[0].firstSample.biasCurrent;
+                    sensor->buffer.firstSample.biasPresent = 1;
+                    sensor->buffer.firstSample.biasSample = numSamples;
+                    sensor->discard = false;
+                }
                 sensor->buffer.firstSample.numSamples ++;
                 sensor->curSamples ++;
             }
@@ -743,9 +765,9 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
             sensor = mActiveSensorTable + mSensorList[cmd->sensType - 1];
 
             if (sensor->sensorHandle) {
-                if (cmd->flush) {
+                if (cmd->cmd == CONFIG_CMD_FLUSH) {
                     sensorFlush(sensor->sensorHandle);
-                } else if (cmd->enabled) {
+                } else if (cmd->cmd == CONFIG_CMD_ENABLE) {
                     if (sensorRequestRateChange(mHostIntfTid, sensor->sensorHandle, cmd->rate, cmd->latency)) {
                         sensor->rate = cmd->rate;
                         if (sensor->latency != cmd->latency) {
@@ -753,7 +775,7 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
                             sensor->lastInterrupt = timGetTime();
                         }
                     }
-                } else if (!cmd->flags) {
+                } else if (cmd->cmd == CONFIG_CMD_DISABLE) {
                     sensorRelease(mHostIntfTid, sensor->sensorHandle);
                     osEventUnsubscribe(mHostIntfTid, sensorGetMyEventType(cmd->sensType));
                     sensor->sensorHandle = 0;
@@ -763,7 +785,7 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
                         resetBuffer(sensor);
                     }
                 }
-            } else if (cmd->enabled) {
+            } else if (cmd->cmd == CONFIG_CMD_ENABLE) {
                 for (i=0; (si = sensorFind(cmd->sensType, i, &sensor->sensorHandle)) != NULL; i++) {
                     if (cmd->rate == SENSOR_RATE_ONESHOT) {
                         cmd->rate = SENSOR_RATE_ONCHANGE;
@@ -782,9 +804,12 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
                         sensor->sensorHandle = 0;
                     }
                 }
-            } else if (cmd->calibrate) {
+            } else if (cmd->cmd == CONFIG_CMD_CALIBRATE) {
                 for (i=0; sensorFind(cmd->sensType, i, &tempSensorHandle) != NULL; i++)
                     sensorCalibrate(tempSensorHandle);
+            } else if (cmd->cmd == CONFIG_CMD_CFG_DATA) {
+                for (i=0; sensorFind(cmd->sensType, i, &tempSensorHandle) != NULL; i++)
+                    sensorCfgData(tempSensorHandle, (void *)(cmd+1));
             }
         }
     } else if (evtType > EVT_NO_FIRST_SENSOR_EVENT && evtType < EVT_NO_SENSOR_CONFIG_EVENT && mSensorList[(evtType & 0xFF)-1] < MAX_REGISTERED_SENSORS) { // data
@@ -862,6 +887,19 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
                 osEventUnsubscribe(mHostIntfTid, evtType);
                 sensor->sensorHandle = 0;
                 sensor->oneshot = false;
+            }
+        } else if (evtData != SENSOR_DATA_EVENT_FLUSH) {
+            // handle bias data which can be generated for sensors that are
+            // not currently requested by the AP
+            switch (sensor->numAxis) {
+            case NUM_AXIS_THREE:
+                if (((const struct TripleAxisDataEvent *)evtData)->samples[0].firstSample.biasPresent) {
+                    copyTripleSamples(sensor, evtData);
+                    hostIntfSetInterrupt(sensor->interrupt);
+                }
+                break;
+            default:
+                break;
             }
         }
     }

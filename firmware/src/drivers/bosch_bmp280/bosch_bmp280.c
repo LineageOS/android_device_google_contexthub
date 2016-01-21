@@ -236,38 +236,38 @@ static bool sensorFlushTemp(void *cookie)
 
 static const struct SensorInfo sensorInfoBaro =
 {
-    "Pressure",
-    baroSupportedRates,
-    SENS_TYPE_BARO,
-    NUM_AXIS_EMBEDDED,
-    NANOHUB_INT_NONWAKEUP,
-    300
+    .sensorName = "Pressure",
+    .supportedRates = baroSupportedRates,
+    .sensorType = SENS_TYPE_BARO,
+    .numAxis = NUM_AXIS_EMBEDDED,
+    .interrupt = NANOHUB_INT_NONWAKEUP,
+    .minSamples = 300
 };
 
 static const struct SensorOps sensorOpsBaro =
 {
-    sensorPowerBaro,
-    sensorFirmwareBaro,
-    sensorRateBaro,
-    sensorFlushBaro,
+    .sensorPower = sensorPowerBaro,
+    .sensorFirmwareUpload = sensorFirmwareBaro,
+    .sensorSetRate = sensorRateBaro,
+    .sensorFlush = sensorFlushBaro,
 };
 
 static const struct SensorInfo sensorInfoTemp =
 {
-    "Temperature",
-    tempSupportedRates,
-    SENS_TYPE_TEMP,
-    NUM_AXIS_EMBEDDED,
-    NANOHUB_INT_NONWAKEUP,
-    20
+    .sensorName = "Temperature",
+    .supportedRates = tempSupportedRates,
+    .sensorType = SENS_TYPE_TEMP,
+    .numAxis = NUM_AXIS_EMBEDDED,
+    .interrupt = NANOHUB_INT_NONWAKEUP,
+    .minSamples = 20
 };
 
 static const struct SensorOps sensorOpsTemp =
 {
-    sensorPowerTemp,
-    sensorFirmwareTemp,
-    sensorRateTemp,
-    sensorFlushTemp,
+    .sensorPower = sensorPowerTemp,
+    .sensorFirmwareUpload = sensorFirmwareTemp,
+    .sensorSetRate = sensorRateTemp,
+    .sensorFlush = sensorFlushTemp,
 };
 
 // Returns temperature in units of 0.01 degrees celsius.
