@@ -1996,37 +1996,37 @@ static void sensorInit(void)
         SPI_READ(BMI160_REG_INT_STATUS_0, 4, mTask.rxBuffer);
 
         // disable accel, gyro and mag data in FIFO, enable header, enable time.
-        SPI_WRITE(BMI160_REG_FIFO_CONFIG_1, 0x12);
+        SPI_WRITE(BMI160_REG_FIFO_CONFIG_1, 0x12, 450);
 
         // set the watermark to 24 byte
-        SPI_WRITE(BMI160_REG_FIFO_CONFIG_0, 0x06);
+        SPI_WRITE(BMI160_REG_FIFO_CONFIG_0, 0x06, 450);
 
         // FIFO watermark and fifo_full interrupt enabled
-        SPI_WRITE(BMI160_REG_INT_EN_0, 0x00);
-        SPI_WRITE(BMI160_REG_INT_EN_1, 0x60);
-        SPI_WRITE(BMI160_REG_INT_EN_2, 0x00);
+        SPI_WRITE(BMI160_REG_INT_EN_0, 0x00, 450);
+        SPI_WRITE(BMI160_REG_INT_EN_1, 0x60, 450);
+        SPI_WRITE(BMI160_REG_INT_EN_2, 0x00, 450);
 
         // INT1, INT2 enabled, high-edge (push-pull) triggered.
-        SPI_WRITE(BMI160_REG_INT_OUT_CTRL, 0xbb);
+        SPI_WRITE(BMI160_REG_INT_OUT_CTRL, 0xbb, 450);
 
         // INT1, INT2 input disabled, interrupt mode: non-latched
-        SPI_WRITE(BMI160_REG_INT_LATCH, 0x00);
+        SPI_WRITE(BMI160_REG_INT_LATCH, 0x00, 450);
 
         // Map data interrupts (e.g., FIFO) to INT1 and physical
         // interrupts (e.g., any motion) to INT2
-        SPI_WRITE(BMI160_REG_INT_MAP_0, 0x00);
-        SPI_WRITE(BMI160_REG_INT_MAP_1, 0xE1);
-        SPI_WRITE(BMI160_REG_INT_MAP_2, 0xFF);
+        SPI_WRITE(BMI160_REG_INT_MAP_0, 0x00, 450);
+        SPI_WRITE(BMI160_REG_INT_MAP_1, 0xE1, 450);
+        SPI_WRITE(BMI160_REG_INT_MAP_2, 0xFF, 450);
 
         // Disable PMU_TRIGGER
-        SPI_WRITE(BMI160_REG_PMU_TRIGGER, 0x00);
+        SPI_WRITE(BMI160_REG_PMU_TRIGGER, 0x00, 450);
 
         // tell gyro and accel to NOT use the FOC offset.
-        SPI_WRITE(BMI160_REG_OFFSET_6, 0x00);
+        SPI_WRITE(BMI160_REG_OFFSET_6, 0x00, 450);
 
         // initial range for accel (+-8g) and gyro (+-2000 degree).
-        SPI_WRITE(BMI160_REG_ACC_RANGE, 0x08);
-        SPI_WRITE(BMI160_REG_GYR_RANGE, 0x00);
+        SPI_WRITE(BMI160_REG_ACC_RANGE, 0x08, 450);
+        SPI_WRITE(BMI160_REG_GYR_RANGE, 0x00, 450);
 
         // Reset step counter
         SPI_WRITE(BMI160_REG_CMD, 0xB2, 10000);
@@ -2064,37 +2064,37 @@ static void sensorInit(void)
     case INIT_ON_CHANGE_SENSORS:
         // set any_motion duration to 0
         // set no_motion duration to ~5sec
-        SPI_WRITE(BMI160_REG_INT_MOTION_0, 0x0c);
+        SPI_WRITE(BMI160_REG_INT_MOTION_0, 0x0c, 450);
 
         // set any_motion threshould to 5*15.63mg(for 8g range)=78.15mg
         // I use the same value as chinook...
-        SPI_WRITE(BMI160_REG_INT_MOTION_1, 0x05);
+        SPI_WRITE(BMI160_REG_INT_MOTION_1, 0x05, 450);
 
         // set no_motion threshould to 10*15.63mg (for 8g range)
         // I use the same value as chinook.. Don't know why it is higher than
         // any_motion.
-        SPI_WRITE(BMI160_REG_INT_MOTION_2, 0x0A);
+        SPI_WRITE(BMI160_REG_INT_MOTION_2, 0x0A, 450);
 
         // select no_motion over slow_motion
         // select any_motion over significant motion
-        SPI_WRITE(BMI160_REG_INT_MOTION_3, 0x15);
+        SPI_WRITE(BMI160_REG_INT_MOTION_3, 0x15, 450);
 
         // int_tap_quiet=30ms, int_tap_shock=75ms, int_tap_dur=150ms
-        SPI_WRITE(BMI160_REG_INT_TAP_0, 0x42);
+        SPI_WRITE(BMI160_REG_INT_TAP_0, 0x42, 450);
 
         // int_tap_th = 7 * 250 mg (8-g range)
-        SPI_WRITE(BMI160_REG_INT_TAP_1, TAP_THRESHOULD);
+        SPI_WRITE(BMI160_REG_INT_TAP_1, TAP_THRESHOULD, 450);
 
         // config step detector
-        SPI_WRITE(BMI160_REG_STEP_CONF_0, 0x15);
-        SPI_WRITE(BMI160_REG_STEP_CONF_1, 0x03);
+        SPI_WRITE(BMI160_REG_STEP_CONF_0, 0x15, 450);
+        SPI_WRITE(BMI160_REG_STEP_CONF_1, 0x03, 450);
 
         // int_flat_theta = 44.8 deg * (16/64) = 11.2 deg
-        SPI_WRITE(BMI160_REG_INT_FLAT_0, 0x10);
+        SPI_WRITE(BMI160_REG_INT_FLAT_0, 0x10, 450);
 
         // int_flat_hold_time = (640 msec)
         // int_flat_hy = 44.8 * 4 / 64 = 2.8 deg
-        SPI_WRITE(BMI160_REG_INT_FLAT_1, 0x14);
+        SPI_WRITE(BMI160_REG_INT_FLAT_1, 0x14, 450);
 
         mTask.init_state = INIT_DONE;
         spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask);
