@@ -687,6 +687,35 @@ static const uint32_t *__blGetPubKeysInfo(uint32_t *numKeys)
     return __pubkeys_start;
 }
 
+static const uint32_t* __blSigPaddingVerify(const uint32_t *rsaResult)
+{
+    uint32_t i;
+
+    //all but first and last word of padding MUST have no zero bytes
+    for (i = SHA2_HASH_WORDS + 1; i < RSA_WORDS - 1; i++) {
+        if (!(uint8_t)(rsaResult[i] >>  0))
+            return NULL;
+        if (!(uint8_t)(rsaResult[i] >>  8))
+            return NULL;
+        if (!(uint8_t)(rsaResult[i] >> 16))
+            return NULL;
+        if (!(uint8_t)(rsaResult[i] >> 24))
+            return NULL;
+    }
+
+    //first padding word must have all nonzero bytes except low byte
+    if ((rsaResult[SHA2_HASH_WORDS] & 0xff) || !(rsaResult[SHA2_HASH_WORDS] & 0xff00) || !(rsaResult[SHA2_HASH_WORDS] & 0xff0000) || !(rsaResult[SHA2_HASH_WORDS] & 0xff000000))
+        return NULL;
+
+    //last padding word must have 0x0002 in top 16 bits and nonzero random bytes in lower bytes
+    if ((rsaResult[RSA_WORDS - 1] >> 16) != 2)
+        return NULL;
+    if (!(rsaResult[RSA_WORDS - 1] & 0xff00) || !(rsaResult[RSA_WORDS - 1] & 0xff))
+        return NULL;
+
+    return rsaResult;
+}
+
 const struct BlVecTable __attribute__((section(".blvec"))) __BL_VECTORS =
 {
     /* cortex */
@@ -716,4 +745,6 @@ const struct BlVecTable __attribute__((section(".blvec"))) __BL_VECTORS =
     .blAesCbcInitForDecr = &_aesCbcInitForDecr,
     .blAesCbcEncr = &_aesCbcEncr,
     .blAesCbcDecr = &_aesCbcDecr,
+    .blSigPaddingVerify = &__blSigPaddingVerify,
 };
+
