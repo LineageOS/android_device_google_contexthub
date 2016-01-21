@@ -331,6 +331,9 @@ static bool sensorFirmwareProx(void *cookie)
 
 static bool sensorRateProx(uint32_t rate, uint64_t latency, void *cookie)
 {
+    if (rate == SENSOR_RATE_ONCHANGE) {
+        rate = ROHM_RPR0521_DEFAULT_RATE;
+    }
     osLog(LOG_INFO, "ROHM: sensorRateProx: rate=%ld Hz latency=%lld ns\n",
           rate / 1024, latency);
 
