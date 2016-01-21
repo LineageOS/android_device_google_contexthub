@@ -23,6 +23,7 @@
 #define RSA_LEN	    2048
 #define RSA_LIMBS   ((RSA_LEN + 31)/ 32)
 #define RSA_BYTES   sizeof(uint32_t[RSA_LIMBS])
+#define RSA_WORDS   (RSA_BYTES / sizeof(uint32_t)) //limbs may change in size, but words are always same :)
 
 struct RsaState {
     uint32_t tmpA[RSA_LIMBS * 2];

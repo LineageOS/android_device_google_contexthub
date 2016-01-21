@@ -27,8 +27,6 @@
 #define APP_DATA_CHUNK_SIZE         (AES_BLOCK_WORDS * sizeof(uint32_t))  //data blocks are this size
 #define APP_SIG_SIZE                RSA_BYTES
 
-#define RSA_WORDS                   (RSA_BYTES / sizeof(uint32_t))
-
 #define APP_SEC_SIG_ALIGN           APP_DATA_CHUNK_SIZE
 #define APP_SEC_ENCR_ALIGN          APP_DATA_CHUNK_SIZE
 
@@ -263,7 +261,6 @@ static AppSecErr appSecProcessIncomingData(struct AppSecState *state)
 static AppSecErr appSecProcessIncomingSigData(struct AppSecState *state)
 {
     const uint32_t *result;
-    uint32_t i;
 
     //if we're RXing the hash, just stash it away and move on
     if (state->curState == STATE_RXING_SIG_HASH) {
@@ -291,26 +288,9 @@ static AppSecErr appSecProcessIncomingSigData(struct AppSecState *state)
     //we now have the pubKey. decrypt.
     result = rsaPubOp(&state->rsa, state->rsaTmp, state->dataWords);
 
-    //verify padding: all by first and last word of padding MUST have no zero bytes
-    for (i = SHA2_HASH_WORDS + 1; i < RSA_WORDS - 1; i++) {
-        if (!(uint8_t)(result[i] >>  0))
-            return APP_SEC_SIG_DECODE_FAIL;
-        if (!(uint8_t)(result[i] >>  8))
-            return APP_SEC_SIG_DECODE_FAIL;
-        if (!(uint8_t)(result[i] >> 16))
-            return APP_SEC_SIG_DECODE_FAIL;
-        if (!(uint8_t)(result[i] >> 24))
-            return APP_SEC_SIG_DECODE_FAIL;
-    }
-
-    //verify padding: first padding word must have all nonzero bytes except low byte
-    if ((result[SHA2_HASH_WORDS] & 0xff) || !(result[SHA2_HASH_WORDS] & 0xff00) || !(result[SHA2_HASH_WORDS] & 0xff0000) || !(result[SHA2_HASH_WORDS] & 0xff000000))
-        return APP_SEC_SIG_DECODE_FAIL;
-
-    //verify padding: last padding word must have 0x0002 in top 16 bits and nonzero random bytes in lower bytes
-    if ((result[RSA_WORDS - 1] >> 16) != 2)
-        return APP_SEC_SIG_DECODE_FAIL;
-    if (!(result[RSA_WORDS - 1] & 0xff00) || !(result[RSA_WORDS - 1] & 0xff))
+    //verify signature padding (and thus likely: correct decrption)
+    result = BL.blSigPaddingVerify(result);
+    if (!result)
         return APP_SEC_SIG_DECODE_FAIL;
 
     //check if hashes match
