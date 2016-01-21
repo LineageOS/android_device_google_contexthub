@@ -1371,15 +1371,7 @@ static void sendStepCnt()
     if (cur_step_cnt != mTask.last_step_cnt) {
         // Check for possible overflow
         if (cur_step_cnt < mTask.last_step_cnt) {
-            // Sanity check: if the 16bits hardware counter is already
-            // overflowed, total_step_cnt should greater or equal to
-            // last_step_cnt. Otherwise, something is corrupted.
-            if (mTask.total_step_cnt < mTask.last_step_cnt) {
-                osLog(LOG_ERROR, "step count corrupted, start over\n");
-                mTask.total_step_cnt = cur_step_cnt;
-            } else {
-                mTask.total_step_cnt += cur_step_cnt + (0xFFFF - mTask.last_step_cnt);
-            }
+            mTask.total_step_cnt += cur_step_cnt + (0xFFFF - mTask.last_step_cnt);
         } else {
             mTask.total_step_cnt += (cur_step_cnt - mTask.last_step_cnt);
         }
