@@ -14,15 +14,14 @@
  * limitations under the License.
  */
 
-#include <alloca.h>
-
+#define SECURITY_API_IN_BOOTLOADER
 #include <plat/inc/cmsis.h>
 #include <plat/inc/pwr.h>
 #include <plat/inc/bl.h>
+#include <alloca.h>
+#include <sha2.h>
 #include <rsa.h>
 
-#define BOOTLOADER    __attribute__ ((section (".bltext")))
-#define BOOTLOADER_RO __attribute__ ((section (".blrodata")))
 
 struct StmCrc
 {
@@ -704,4 +703,16 @@ const struct BlVecTable __attribute__((section(".blvec"))) __BL_VECTORS =
     .blProgramShared = &__blProgramShared,
     .blEraseShared = &__blEraseShared,
     .blGetPubKeysInfo = &__blGetPubKeysInfo,
+    .blRsaPubOp = &_rsaPubOp,
+    .blSha2init = &_sha2init,
+    .blSha2processBytes = &_sha2processBytes,
+    .blSha2finish = &_sha2finish,
+    .blAesInitForEncr = &_aesInitForEncr,
+    .blAesInitForDecr = &_aesInitForDecr,
+    .blAesEncr = &_aesEncr,
+    .blAesDecr = &_aesDecr,
+    .blAesCbcInitForEncr = &_aesCbcInitForEncr,
+    .blAesCbcInitForDecr = &_aesCbcInitForDecr,
+    .blAesCbcEncr = &_aesCbcEncr,
+    .blAesCbcDecr = &_aesCbcDecr,
 };
