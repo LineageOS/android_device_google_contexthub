@@ -26,7 +26,6 @@ extern "C" {
 #include <stdint.h>
 #include <stdarg.h>
 #include <eventQ.h>
-#include <aes.h>
 #include <plat/inc/app.h>
 #include <eventnums.h>
 
