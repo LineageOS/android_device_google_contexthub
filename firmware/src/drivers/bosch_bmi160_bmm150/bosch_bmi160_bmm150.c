@@ -781,9 +781,15 @@ static uint8_t calcWaterMark(void)
     return water_mark;
 }
 
+static inline bool anyFifoEnabled(void)
+{
+    return (mTask.fifo_enabled[ACC] || mTask.fifo_enabled[GYR] || mTask.fifo_enabled[MAG]);
+}
+
 static void configFifo(bool on)
 {
     uint8_t val = 0x12;
+    bool prev_fifo_state = anyFifoEnabled();
     // if ACC is configed, enable ACC bit in fifo_config reg.
     if (mTask.sensors[ACC].configed && mTask.sensors[ACC].latency != SENSOR_LATENCY_NODATA) {
         val |= 0x40;
@@ -806,6 +812,13 @@ static void configFifo(bool on)
         mTask.fifo_enabled[MAG] = true;
     } else {
         mTask.fifo_enabled[MAG] = false;
+    }
+
+    if (!prev_fifo_state && anyFifoEnabled()) {
+        // if this is the first data sensor fifo to enable, we need to
+        // sync the sensor time and rtc time
+        invalidate_sensortime_to_rtc_time();
+        osEnqueuePrivateEvt(EVT_TIME_SYNC, NULL, NULL, mTask.tid);
     }
 
     // clear all fifo data;
@@ -913,7 +926,7 @@ static bool stepPower(bool on, void *cookie)
             mTask.sensors[STEP].configed = false;
         }
         mTask.sensors[STEP].powered = on;
-        SPI_WRITE(BMI160_REG_INT_EN_2, mTask.interrupt_enable_2);
+        SPI_WRITE(BMI160_REG_INT_EN_2, mTask.interrupt_enable_2, 450);
         spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[STEP]);
     } else {
         mTask.pending_config[STEP] = true;
@@ -934,7 +947,7 @@ static bool flatPower(bool on, void *cookie)
             mTask.sensors[FLAT].configed = false;
         }
         mTask.sensors[FLAT].powered = on;
-        SPI_WRITE(BMI160_REG_INT_EN_0, mTask.interrupt_enable_0);
+        SPI_WRITE(BMI160_REG_INT_EN_0, mTask.interrupt_enable_0, 450);
         spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[FLAT]);
     } else {
         mTask.pending_config[FLAT] = true;
@@ -955,7 +968,7 @@ static bool doubleTapPower(bool on, void *cookie)
             mTask.sensors[DTAP].configed = false;
         }
         mTask.sensors[DTAP].powered = on;
-        SPI_WRITE(BMI160_REG_INT_EN_0, mTask.interrupt_enable_0);
+        SPI_WRITE(BMI160_REG_INT_EN_0, mTask.interrupt_enable_0, 450);
         spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[DTAP]);
     } else {
         mTask.pending_config[DTAP] = true;
@@ -976,7 +989,7 @@ static bool anyMotionPower(bool on, void *cookie)
             mTask.sensors[ANYMO].configed = false;
         }
         mTask.sensors[ANYMO].powered = on;
-        SPI_WRITE(BMI160_REG_INT_EN_0, mTask.interrupt_enable_0);
+        SPI_WRITE(BMI160_REG_INT_EN_0, mTask.interrupt_enable_0, 450);
         spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[ANYMO]);
     } else {
         mTask.pending_config[ANYMO] = true;
@@ -997,7 +1010,7 @@ static bool noMotionPower(bool on, void *cookie)
             mTask.sensors[NOMO].configed = false;
         }
         mTask.sensors[NOMO].powered = on;
-        SPI_WRITE(BMI160_REG_INT_EN_2, mTask.interrupt_enable_2);
+        SPI_WRITE(BMI160_REG_INT_EN_2, mTask.interrupt_enable_2, 450);
         spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[NOMO]);
     } else {
         mTask.pending_config[NOMO] = true;
@@ -1013,7 +1026,7 @@ static bool stepCntPower(bool on, void *cookie)
             mTask.state = SENSOR_POWERING_UP;
             if (!mTask.sensors[STEP].powered) {
                 mTask.interrupt_enable_2 |= 0x08;
-                SPI_WRITE(BMI160_REG_INT_EN_2, mTask.interrupt_enable_2);
+                SPI_WRITE(BMI160_REG_INT_EN_2, mTask.interrupt_enable_2, 450);
             }
             // set step_cnt_en bit
             SPI_WRITE(BMI160_REG_STEP_CONF_1, 0x08 | 0x03, 1000);
@@ -1924,12 +1937,8 @@ static void configEvent(struct BMI160Sensor *mSensor, struct ConfigStat *ConfigD
 
 static void timeSyncEvt(void)
 {
-    if (!(mTask.fifo_enabled[0] || mTask.fifo_enabled[1] || mTask.fifo_enabled[2])) {
-        // if fifo is not enabled, no time sync is needed. check to see if there
-        // are still active sensors, in which case we should keep the timer
-        // event going
-        if (mTask.active_data_sensor_cnt)
-            timTimerSet(kTimeSyncPeriodNs, 100, 100, timeSyncCallback, NULL, true);
+    if (!anyFifoEnabled()) {
+        // if fifo is not enabled, no time sync is needed.
         return;
     } else if (mTask.state != SENSOR_IDLE) {
         mTask.pending_time_sync = true;
@@ -2161,12 +2170,8 @@ static void handleSpiDoneEvt(const void* evtData)
     case SENSOR_POWERING_UP:
         mSensor = (struct BMI160Sensor *)evtData;
         if (mSensor->idx <= MAG) {
-            if (mTask.active_data_sensor_cnt++ == 0) {
-                // if this is the first data sensor to enable, we need to
-                // sync the sensor time and rtc time
-                invalidate_sensortime_to_rtc_time();
-                timTimerSet(kTimeSyncPeriodNs, 100, 100, timeSyncCallback, NULL, true);
-            } else if (mSensor->idx == GYR) {
+            mTask.active_data_sensor_cnt++;
+            if (mSensor->idx == GYR && anyFifoEnabled()) {
                 minimize_sensortime_history();
             }
             configInt1(true);
@@ -2259,7 +2264,7 @@ static void handleSpiDoneEvt(const void* evtData)
         sensorSignalInternalEvt(mSensor->handle,
                 SENSOR_INTERNAL_EVT_RATE_CHG, mSensor->rate, mSensor->latency);
         mTask.state = SENSOR_IDLE;
-        osLog(LOG_INFO, "Done changing config\n");
+        osLog(LOG_INFO, "Done changing config for %s\n", mSensorInfo[mSensor->idx].sensorName);
         dispatchData();
         processPendingEvt();
         break;
@@ -2288,7 +2293,7 @@ static void handleSpiDoneEvt(const void* evtData)
         SensorTime = parseSensortime(mTask.sensor_time[1] | (mTask.sensor_time[2] << 8) | (mTask.sensor_time[3] << 16));
         map_sensortime_to_rtc_time(SensorTime, rtcGetTime());
 
-        if (mTask.active_data_sensor_cnt)
+        if (anyFifoEnabled())
             timTimerSet(kTimeSyncPeriodNs, 100, 100, timeSyncCallback, NULL, true);
 
         mTask.state = SENSOR_IDLE;
