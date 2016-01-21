@@ -14,12 +14,34 @@
  * limitations under the License.
  */
 
+#include <plat/inc/bl.h> //for function tagging to bootloader segment
 #include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
 #include <rsa.h>
 
 
+//memcpy is not in bootloader
+BOOTLOADER
+static void rsaCpy(uint32_t *dst, const uint32_t* src)
+{
+    uint32_t i;
+
+    for (i = 0; i < RSA_LIMBS; i++)
+        *dst++ = *src++;
+}
+
+//memset is not in bootloader
+BOOTLOADER
+static void rsaZeroDoubleLength(uint32_t *dst)
+{
+    uint32_t i;
+
+    for (i = 0; i < RSA_LIMBS * 2; i++)
+        *dst++ = 0;
+}
+
+BOOTLOADER
 static void biMod(uint32_t *num, const uint32_t *denum, uint32_t *tmp) //num %= denum where num is RSA_LEN * 2 and denum is RSA_LEN and tmp is RSA_LEN + limb_sz
 {
     uint32_t bitsh = 32, limbsh = RSA_LIMBS - 1;
@@ -27,7 +49,7 @@ static void biMod(uint32_t *num, const uint32_t *denum, uint32_t *tmp) //num %= 
     int32_t i;
 
     //initially set it up left shifted as far as possible
-    memcpy(tmp + 1, denum, RSA_BYTES);
+    rsaCpy(tmp + 1, denum);
     tmp[0] = 0;
     bitsh = 32;
 
@@ -73,7 +95,7 @@ dont_subtract:
             if (!limbsh)
                 break;
 
-            memcpy(tmp + 1, denum, RSA_BYTES);
+            rsaCpy(tmp + 1, denum);
             tmp[0] = 0;
             bitsh = 32;
             limbsh--;
@@ -90,13 +112,14 @@ dont_subtract:
     }
 }
 
+BOOTLOADER
 static void biMul(uint32_t *ret, const uint32_t *a, const uint32_t *b) //ret = a * b
 {
     uint32_t i, j, c;
     uint64_t r;
 
     //zero the result
-    memset(ret, 0, RSA_BYTES * 2);
+    rsaZeroDoubleLength(ret);
 
     for (i = 0; i < RSA_LIMBS; i++) {
 
@@ -117,16 +140,17 @@ static void biMul(uint32_t *ret, const uint32_t *a, const uint32_t *b) //ret = a
     }
 }
 
-const uint32_t* rsaPubOp(struct RsaState* state, const uint32_t *a, const uint32_t *c)
+BOOTLOADER
+const uint32_t* _rsaPubOp(struct RsaState* state, const uint32_t *a, const uint32_t *c)
 {
     uint32_t i;
 
     //calculate a ^ 65536 mod c into state->tmpB
-    memcpy(state->tmpB, a, RSA_BYTES);
+    rsaCpy(state->tmpB, a);
     for (i = 0; i < 16; i++) {
         biMul(state->tmpA, state->tmpB, state->tmpB);
         biMod(state->tmpA, c, state->tmpB);
-        memcpy(state->tmpB, state->tmpA, RSA_BYTES);
+        rsaCpy(state->tmpB, state->tmpA);
     }
 
     //calculate a ^ 65537 mod c into state->tmpA [ at this point this means do state->tmpA = (state->tmpB * a) % c ]
@@ -138,32 +162,32 @@ const uint32_t* rsaPubOp(struct RsaState* state, const uint32_t *a, const uint32
 }
 
 #if defined(RSA_SUPPORT_PRIV_OP_LOWRAM) || defined (RSA_SUPPORT_PRIV_OP_BIGRAM)
-const uint32_t* rsaPrivOp(struct RsaState* state, const uint32_t *a, const uint32_t *b, const uint32_t *c)
+const uint32_t* _rsaPrivOp(struct RsaState* state, const uint32_t *a, const uint32_t *b, const uint32_t *c)
 {
     uint32_t i;
 
-    memcpy(state->tmpC, a, RSA_BYTES);  //tC will hold our powers of a
+    rsaCpy(state->tmpC, a);  //tC will hold our powers of a
 
-    memset(state->tmpA, 0, RSA_BYTES * 2); //tA will hold result
+    rsaZeroDoubleLength(state->tmpA); //tA will hold result
     state->tmpA[0] = 1;
 
     for (i = 0; i < RSA_LEN; i++) {
         //if the bit is set, multiply the current power of A into result
         if (b[i / 32] & (1 << (i % 32))) {
-            memcpy(state->tmpB, state->tmpA, RSA_BYTES);
+            rsaCpy(state->tmpB, state->tmpA);
             biMul(state->tmpA, state->tmpB, state->tmpC);
             biMod(state->tmpA, c, state->tmpB);
         }
 
         //calculate the next power of a and modulus it
 #if defined(RSA_SUPPORT_PRIV_OP_LOWRAM)
-        memcpy(state->tmpB, state->tmpA, RSA_BYTES); //save tA
+        rsaCpy(state->tmpB, state->tmpA); //save tA
         biMul(state->tmpA, state->tmpC, state->tmpC);
         biMod(state->tmpA, c, state->tmpC);
-        memcpy(state->tmpC, state->tmpA, RSA_BYTES);
-        memcpy(state->tmpA, state->tmpB, RSA_BYTES); //restore tA
+        rsaCpy(state->tmpC, state->tmpA);
+        rsaCpy(state->tmpA, state->tmpB); //restore tA
 #elif defined (RSA_SUPPORT_PRIV_OP_BIGRAM)
-        memcpy(state->tmpB, state->tmpC, RSA_BYTES);
+        rsaCpy(state->tmpB, state->tmpC);
         biMul(state->tmpC, state->tmpB, state->tmpB);
         biMod(state->tmpC, c, state->tmpB);
 #endif
