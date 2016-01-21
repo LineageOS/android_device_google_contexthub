@@ -19,6 +19,7 @@
 #include <plat/inc/pwr.h>
 #include <plat/inc/bl.h>
 #include <alloca.h>
+#include <aes.h>
 #include <sha2.h>
 #include <rsa.h>
 
