@@ -23,7 +23,6 @@ extern "C" {
 
 #include <stdbool.h>
 #include <stdint.h>
-#include <seos.h>
 #include <eventnums.h>
 #include <sensType.h>
 
