@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 
-#include <plat/inc/bl.h>
 #include <string.h>
 #include <sha2.h>
 
@@ -165,12 +164,12 @@ const uint32_t* _sha2finish(struct Sha2state *state)
     uint32_t i;
 
     //append the one
-    sha2processBytes(state, &appendend, 1);
+    _sha2processBytes(state, &appendend, 1);
 
     //append the zeroes
     appendend = 0;
     while (state->bufBytesUsed != 56)
-        sha2processBytes(state, &appendend, 1);
+        _sha2processBytes(state, &appendend, 1);
 
     //append the length in bits (we can safely write into state since we're sure where to write to (we're definitely 56-bytes into a block)
     for (i = 0; i < 8; i++, dataLenInBits >>= 8)

@@ -17,7 +17,9 @@
 #ifndef _AES_H_
 #define _AES_H_
 
-#include <plat/inc/bl.h>
+#ifndef HOST_BUILD
+#include <plat/inc/bl.h> //for BOOTLOADER define
+#endif
 #include <stdint.h>
 
 struct AesContext {
@@ -52,6 +54,7 @@ void _aesCbcEncr(struct AesCbcContext *ctx, const uint32_t *src, uint32_t *dst);
 void _aesCbcDecr(struct AesCbcContext *ctx, const uint32_t *src, uint32_t *dst); //encrypts AES_BLOCK_WORDS words
 
 
+#ifndef HOST_BUILD
 static inline void aesInitForEncr(struct AesContext *ctx, const uint32_t *k)
 {
     BL.blAesInitForEncr(ctx, k);
@@ -91,7 +94,7 @@ static inline void aesCbcDecr(struct AesCbcContext *ctx, const uint32_t *src, ui
 {
     BL.blAesCbcDecr(ctx, src, dst);
 }
-
+#endif //HOST_BUILD
 
 
 

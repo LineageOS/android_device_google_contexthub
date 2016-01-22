@@ -17,7 +17,9 @@
 #ifndef _RSA_H_
 #define _RSA_H_
 
-#include <plat/inc/bl.h>
+#ifndef HOST_BUILD
+#include <plat/inc/bl.h> //for BOOTLOADER define
+#endif
 #include <stdint.h>
 
 #define RSA_LEN	    2048
@@ -50,11 +52,12 @@ const uint32_t* _rsaPrivOp(struct RsaState* state, const uint32_t *a, const uint
 
 #endif
 
-
+#ifndef HOST_BUILD
 static inline const uint32_t* rsaPubOp(struct RsaState* state, const uint32_t *a, const uint32_t *c)
 {
     return BL.blRsaPubOp(state, a, c);
 }
+#endif //HOST_BUILD
 
 
 #endif

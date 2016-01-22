@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 
-#include <plat/inc/bl.h> //for function tagging to bootloader segment
 #include <stdint.h>
 #include <stdbool.h>
 #include <string.h>

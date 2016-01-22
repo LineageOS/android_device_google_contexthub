@@ -146,10 +146,10 @@ int main(int argc, char **argv)
             fwrite(iv + i, 4, 1, stdout);
 
         //encrypt and emit data
-        aesCbcInitForEncr(&ctx, key, iv); //todo
+        _aesCbcInitForEncr(&ctx, key, iv); //todo
         for (i = 0; i < inputLen / sizeof(uint32_t); i += AES_BLOCK_WORDS) {
             uint32_t out[AES_BLOCK_WORDS];
-            aesCbcEncr(&ctx, inputData + i, out);
+            _aesCbcEncr(&ctx, inputData + i, out);
             for (j = 0; j < AES_BLOCK_WORDS; j++)
                 fwrite(out + j, 4, 1, stdout);
         }
@@ -198,10 +198,10 @@ int main(int argc, char **argv)
         fprintf(stderr, "'\n");
 
         //decrypt and emit data
-        aesCbcInitForDecr(&ctx, key, iv); //todo
+        _aesCbcInitForDecr(&ctx, key, iv); //todo
         for (i = 0; i < (inputLen - 32)/ sizeof(uint32_t); i += AES_BLOCK_WORDS) {
             uint32_t out[AES_BLOCK_WORDS];
-            aesCbcDecr(&ctx, inputData + i + 8, out);
+            _aesCbcDecr(&ctx, inputData + i + 8, out);
             for (j = 0; j < AES_BLOCK_WORDS; j++) {
                 uint32_t now = origLen >= 4 ? 4 : origLen;
                 fwrite(out + j, now, 1, stdout);

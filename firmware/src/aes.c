@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 
-#include <plat/inc/bl.h>
 #include <string.h>
 #include <stdint.h>
 #include <aes.h>
@@ -201,7 +200,7 @@ void _aesInitForDecr(struct AesContext *ctx, struct AesSetupTempWorksSpace *tmpS
     uint32_t i, j, *ks = ctx->K + 4, *encrK = tmpSpace->tmpCtx.K + 52;
 
     //we need encryption keys to calculate decryption keys
-    aesInitForEncr(&tmpSpace->tmpCtx, k);
+    _aesInitForEncr(&tmpSpace->tmpCtx, k);
 
     //now we can calculate round keys for decryption
     wordsCpy(ctx->K, tmpSpace->tmpCtx.K + 56, 4);
