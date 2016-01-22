@@ -182,8 +182,16 @@ static size_t startFirmwareUpload(void *rx, uint8_t rx_len, void *tx, uint64_t t
     shared_start = platGetSharedAreaInfo(&sharedSz);
     shared_end = shared_start + sharedSz;
 
-    if (!mDownloadState)
+    if (!mDownloadState) {
         mDownloadState = heapAlloc(sizeof(struct DownloadState));
+
+        if (!mDownloadState) {
+            resp->accepted = false;
+            return sizeof(*resp);
+        } else {
+            memset(mDownloadState, 0x00, sizeof(struct DownloadState));
+        }
+    }
 
     mDownloadState->type = req->type;
     mDownloadState->size = le32toh(req->size);
@@ -206,8 +214,7 @@ static size_t startFirmwareUpload(void *rx, uint8_t rx_len, void *tx, uint64_t t
     }
     resetDownloadState();
 
-    resp->accepted = 1;
-
+    resp->accepted = true;
     return sizeof(*resp);
 }
 
@@ -486,10 +493,14 @@ static size_t writeEvent(void *rx, uint8_t rx_len, void *tx, uint64_t timestamp)
     struct NanohubWriteEventResponse *resp = tx;
     uint8_t *packet = heapAlloc(rx_len - sizeof(req->evtType));
 
-    memcpy(packet, req->evtData, rx_len - sizeof(req->evtType));
-    resp->accepted = osEnqueueEvt(le32toh(req->evtType), packet, heapFree);
-    if (!resp->accepted)
-        heapFree(packet);
+    if (!packet) {
+        resp->accepted = false;
+    } else {
+        memcpy(packet, req->evtData, rx_len - sizeof(req->evtType));
+        resp->accepted = osEnqueueEvt(le32toh(req->evtType), packet, heapFree);
+        if (!resp->accepted)
+            heapFree(packet);
+    }
 
     return sizeof(*resp);
 }
