@@ -19,7 +19,7 @@ SRC = nanoapp_encr.c ../../firmware/src/aes.c
 CC ?= gcc
 
 $(APP): $(SRC) Makefile
-	$(CC) -o $(APP) -O2 $(SRC) -I../../firmware/inc
+	$(CC) -o $(APP) -O2 $(SRC) -I../../firmware/inc -DHOST_BUILD -DBOOTLOADER= -DBOOTLOADER_RO=
 
 clean:
 	rm $(APP)

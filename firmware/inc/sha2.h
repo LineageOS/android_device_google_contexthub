@@ -19,7 +19,9 @@
 
 //this is neither the fastest nor the smallest. but it is simple and matches the spec. cool.
 
-#include <plat/inc/bl.h>
+#ifndef HOST_BUILD
+#include <plat/inc/bl.h> //for BOOTLOADER define
+#endif
 #include <stdint.h>
 
 #define SHA2_BLOCK_SIZE         64 //in bytes
@@ -43,6 +45,7 @@ void _sha2init(struct Sha2state *state);
 void _sha2processBytes(struct Sha2state *state, const void *bytes, uint32_t numBytes);
 const uint32_t* _sha2finish(struct Sha2state *state); //returned hash pointer is only valid as long as "state" is!
 
+#ifndef HOST_BUILD
 static inline void sha2init(struct Sha2state *state)
 {
     BL.blSha2init(state);
@@ -57,6 +60,7 @@ static inline const uint32_t* sha2finish(struct Sha2state *state)
 {
     return BL.blSha2finish(state);
 }
+#endif //HOST_BUILD
 
 
 
