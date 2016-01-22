@@ -58,8 +58,6 @@ printhex() {
 #create temp dir
 stage=$(mktemp -dt "$(basename $0).XXXXXXXXXX")
 
-#save update to file in dir
-cat > "$stage/raw"
 
 #sanity checks (on the user)
 if [ -t 1 ]
@@ -79,6 +77,10 @@ then
 fi
 priv1="$1"
 pub1="$2"
+
+
+#save update to file in dir
+cat > "$stage/raw"
 
 #pad update to 4 byte boundary
 t=$(du -b "$stage/raw" | cut -f1)
