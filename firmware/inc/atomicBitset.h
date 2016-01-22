@@ -51,5 +51,13 @@ int32_t atomicBitsetFindClearAndSet(struct AtomicBitset *set);
 // NOTE: the copy back to otherSet is not atomic
 bool atomicBitsetXchg(struct AtomicBitset *atomicallyAccessedSet, struct AtomicBitset *otherSet);
 
+//read the bits in set into an array of uint32_t's
+// returns false if the number of bits in set is not numBits
+// otherwise atomically read a uint32_t at a time from the bitset in set into
+// dest
+// NOTE: if bitset is not a multiple of 32, the remaining bits up to 32 in the
+// last uint32_t will contain undefined values
+bool atomicBitsetBulkRead(struct AtomicBitset *set, uint32_t *dest, uint32_t numBits);
+
 #endif
 
