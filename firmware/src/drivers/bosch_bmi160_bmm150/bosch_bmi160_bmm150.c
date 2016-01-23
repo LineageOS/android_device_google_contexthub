@@ -915,6 +915,7 @@ static bool stepPower(bool on, void *cookie)
         // detector.
         if (mTask.sensors[STEPCNT].powered) {
             mTask.sensors[STEP].powered = on;
+            mTask.active_oneshot_sensor_cnt += on ? 1 : -1;
             return true;
         }
         if (on) {
