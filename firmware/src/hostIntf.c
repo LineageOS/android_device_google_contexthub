@@ -19,11 +19,11 @@
 #include <sys/endian.h>
 #include <string.h>
 
-#include <plat/inc/plat.h>
 #include <plat/inc/pwr.h>
 #include <variant/inc/variant.h>
 
 #include <platform.h>
+#include <cpu.h>
 #include <crc.h>
 #include <hostIntf.h>
 #include <hostIntf_priv.h>
@@ -120,11 +120,12 @@ static size_t mTxSize;
 static uint8_t *mTxBufPtr;
 static uint32_t mSeq;
 static const struct NanohubCommand *mRxCmd;
-ATOMIC_BITSET_DECL(mInterrupt, MAX_INTERRUPTS, static);
-ATOMIC_BITSET_DECL(mInterruptMask, MAX_INTERRUPTS, static);
+static uint8_t mRxIdle;
+ATOMIC_BITSET_DECL(mInterrupt, HOSTINTF_MAX_INTERRUPTS, static);
+ATOMIC_BITSET_DECL(mInterruptMask, HOSTINTF_MAX_INTERRUPTS, static);
+static uint32_t mInterruptCntWkup, mInterruptCntNonWkup;
 static uint32_t mHostIntfTid;
 
-static void hostIntfRxPacket();
 static void hostIntfTxPacket(uint32_t reason, uint8_t len, uint32_t seq,
         HostIntfCommCallbackF callback);
 
@@ -241,7 +242,7 @@ static void hostIntfTxPacket(__le32 reason, uint8_t len, uint32_t seq,
     hostIntfTxBuf(1+NANOHUB_PACKET_SIZE(len), &mTxBuf.prePreamble, callback);
 }
 
-static inline void hostIntfTxPacketDone(int err, size_t tx,
+static inline bool hostIntfTxPacketDone(int err, size_t tx,
         HostIntfCommCallbackF callback)
 {
     if (!err && tx < mTxSize) {
@@ -249,14 +250,17 @@ static inline void hostIntfTxPacketDone(int err, size_t tx,
         mTxBufPtr += tx;
 
         mComm->txPacket(mTxBufPtr, mTxSize, callback);
+        return false;
     }
+
+    return true;
 }
 
 static bool hostIntfRequest(uint32_t tid)
 {
     mHostIntfTid = tid;
-    atomicBitsetInit(mInterrupt, MAX_INTERRUPTS);
-    atomicBitsetInit(mInterruptMask, MAX_INTERRUPTS);
+    atomicBitsetInit(mInterrupt, HOSTINTF_MAX_INTERRUPTS);
+    atomicBitsetInit(mInterruptMask, HOSTINTF_MAX_INTERRUPTS);
     hostIntfSetInterruptMask(NANOHUB_INT_NONWAKEUP);
     mTxBuf.prePreamble = NANOHUB_PREAMBLE_BYTE;
     mTxBuf.postPreamble = NANOHUB_PREAMBLE_BYTE;
@@ -265,6 +269,7 @@ static bool hostIntfRequest(uint32_t tid)
     if (mComm) {
         int err = mComm->request();
         if (!err) {
+            atomicXchgByte(&mRxIdle, 1);
             hostIntfRxPacket();
             osEventSubscribe(mHostIntfTid, EVT_APP_START);
             return true;
@@ -274,9 +279,10 @@ static bool hostIntfRequest(uint32_t tid)
     return false;
 }
 
-static inline void hostIntfRxPacket()
+void hostIntfRxPacket()
 {
-    mComm->rxPacket(mRxBuf, sizeof(mRxBuf), hostIntfRxDone);
+    if (atomicXchgByte(&mRxIdle, 0))
+        mComm->rxPacket(mRxBuf, sizeof(mRxBuf), hostIntfRxDone);
 }
 
 static void hostIntfRxDone(size_t rx, int err)
@@ -286,7 +292,6 @@ static void hostIntfRxDone(size_t rx, int err)
 
     if (err != 0) {
         osLog(LOG_ERROR, "%s: failed to receive request: %d\n", __func__, err);
-        hostIntfRxPacket();
         return;
     }
 
@@ -296,6 +301,7 @@ static void hostIntfRxDone(size_t rx, int err)
 static void hostIntfGenerateAck(void *cookie)
 {
     uint32_t seq = 0;
+    void *txPayload = hostIntfGetPayload(mTxBuf.buf);
 
     mRxCmd = hostIntfFindHandler(mRxBuf, mRxSize, &seq);
 
@@ -304,7 +310,8 @@ static void hostIntfGenerateAck(void *cookie)
             hostIntfTxBuf(mTxSize, &mTxBuf.prePreamble, hostIntfTxPayloadDone);
         } else {
             mSeq = seq;
-            hostIntfTxPacket(NANOHUB_REASON_ACK, 0, seq, hostIntfTxAckDone);
+            hostIntfCopyInterrupts(txPayload, HOSTINTF_MAX_INTERRUPTS);
+            hostIntfTxPacket(NANOHUB_REASON_ACK, 32, seq, hostIntfTxAckDone);
         }
     } else {
         if (mBusy)
@@ -320,13 +327,15 @@ static void hostIntfTxAckDone(size_t tx, int err)
 
     if (err) {
         osLog(LOG_ERROR, "%s: failed to ACK request: %d\n", __func__, err);
-        hostIntfRxPacket();
+        atomicXchgByte(&mRxIdle, 1);
+        hostIntfClearInterrupt(NANOHUB_INT_WAKE_COMPLETE);
         return;
     }
     if (!mRxCmd) {
         if (!mBusy)
             osLog(LOG_DEBUG, "%s: NACKed invalid request\n", __func__);
-        hostIntfRxPacket();
+        atomicXchgByte(&mRxIdle, 1);
+        hostIntfClearInterrupt(NANOHUB_INT_WAKE_COMPLETE);
         return;
     }
 
@@ -345,12 +354,15 @@ static void hostIntfGenerateResponse(void *cookie)
 
 static void hostIntfTxPayloadDone(size_t tx, int err)
 {
-    hostIntfTxPacketDone(err, tx, hostIntfTxPayloadDone);
+    bool done = hostIntfTxPacketDone(err, tx, hostIntfTxPayloadDone);
 
     if (err)
         osLog(LOG_ERROR, "%s: failed to send response: %d\n", __func__, err);
 
-    hostIntfRxPacket();
+    if (done) {
+        atomicXchgByte(&mRxIdle, 1);
+        hostIntfClearInterrupt(NANOHUB_INT_WAKE_COMPLETE);
+    }
 }
 
 static void hostIntfRelease()
@@ -497,8 +509,8 @@ static bool initSensors()
     for (i = SENS_TYPE_INVALID + 1, j = 0; i <= SENS_TYPE_LAST_USER && j < mNumSensors; i++) {
         if ((si = sensorFind(i, 0, &handle)) != NULL) {
             mSensorList[i - 1] = j;
-            mActiveSensorTable[j].rate = 0ul;
-            mActiveSensorTable[j].latency = 0ull;
+            mActiveSensorTable[j].rate = 0;
+            mActiveSensorTable[j].latency = 0;
             mActiveSensorTable[j].numAxis = si->numAxis;
             mActiveSensorTable[j].interrupt = si->interrupt;
             if (si->biasType != SENS_TYPE_INVALID) {
@@ -529,8 +541,8 @@ static bool initSensors()
                 break;
             }
             j++;
-        } else if (mSensorList[i-1] == 0) {
-            mSensorList[i-1] = MAX_REGISTERED_SENSORS;
+        } else if (mSensorList[i - 1] == 0) {
+            mSensorList[i - 1] = MAX_REGISTERED_SENSORS;
         }
     }
 
@@ -543,7 +555,7 @@ static void copySingleSamples(struct ActiveSensor *sensor, const struct SingleAx
     uint32_t deltaTime;
     uint8_t numSamples;
 
-    for (i=0; i<single->samples[0].firstSample.numSamples; i++) {
+    for (i = 0; i < single->samples[0].firstSample.numSamples; i++) {
         if (sensor->buffer.firstSample.numSamples == sensor->packetSamples) {
             simpleQueueEnqueue(mOutputQ, &sensor->buffer, sensor->discard);
             resetBuffer(sensor);
@@ -603,7 +615,7 @@ static void copyTripleSamples(struct ActiveSensor *sensor, const struct TripleAx
     uint32_t deltaTime;
     uint8_t numSamples;
 
-    for (i=0; i<triple->samples[0].firstSample.numSamples; i++) {
+    for (i = 0; i < triple->samples[0].firstSample.numSamples; i++) {
         if (sensor->buffer.firstSample.numSamples == sensor->packetSamples) {
             simpleQueueEnqueue(mOutputQ, &sensor->buffer, sensor->discard);
             resetBuffer(sensor);
@@ -786,7 +798,7 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
                     }
                 }
             } else if (cmd->cmd == CONFIG_CMD_ENABLE) {
-                for (i=0; (si = sensorFind(cmd->sensType, i, &sensor->sensorHandle)) != NULL; i++) {
+                for (i = 0; (si = sensorFind(cmd->sensType, i, &sensor->sensorHandle)) != NULL; i++) {
                     if (cmd->rate == SENSOR_RATE_ONESHOT) {
                         cmd->rate = SENSOR_RATE_ONCHANGE;
                         sensor->oneshot = true;
@@ -805,10 +817,10 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
                     }
                 }
             } else if (cmd->cmd == CONFIG_CMD_CALIBRATE) {
-                for (i=0; sensorFind(cmd->sensType, i, &tempSensorHandle) != NULL; i++)
+                for (i = 0; sensorFind(cmd->sensType, i, &tempSensorHandle) != NULL; i++)
                     sensorCalibrate(tempSensorHandle);
             } else if (cmd->cmd == CONFIG_CMD_CFG_DATA) {
-                for (i=0; sensorFind(cmd->sensType, i, &tempSensorHandle) != NULL; i++)
+                for (i = 0; sensorFind(cmd->sensType, i, &tempSensorHandle) != NULL; i++)
                     sensorCfgData(tempSensorHandle, (void *)(cmd+1));
             }
         }
@@ -905,40 +917,84 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
     }
 }
 
-void hostIntfCopyClearInterrupts(struct AtomicBitset *dst, uint32_t numBits)
+void hostIntfCopyInterrupts(void *dst, uint32_t numBits)
 {
-    atomicBitsetInit(dst, numBits);
+    if (mInterrupt->numBits != numBits)
+        return;
 
-    apIntClear(false);
-    apIntClear(true);
+    atomicBitsetBulkRead(mInterrupt, dst, numBits);
+}
 
-    atomicBitsetXchg(mInterrupt, dst);
+void hostIntfClearInterrupts()
+{
+    int i;
+
+    for (i = 0; i < HOSTINTF_MAX_INTERRUPTS; i++) {
+        if (atomicBitsetGetBit(mInterrupt, i))
+            hostIntfClearInterrupt(i);
+    }
 }
 
 void hostIntfSetInterrupt(uint32_t bit)
 {
-    atomicBitsetSetBit(mInterrupt, bit);
-    if (!atomicBitsetGetBit(mInterruptMask, bit)) {
-        platRequestDevInSleepMode(Stm32sleepWakeup, 12);
-        apIntSet(true);
-    } else {
-        apIntSet(false);
+    uint64_t state = cpuIntsOff();
+    if (!atomicBitsetGetBit(mInterrupt, bit)) {
+        atomicBitsetSetBit(mInterrupt, bit);
+        if (!atomicBitsetGetBit(mInterruptMask, bit)) {
+            if (mInterruptCntWkup++ == 0)
+                apIntSet(true);
+        } else {
+            if (mInterruptCntNonWkup++ == 0)
+                apIntSet(false);
+        }
     }
+    cpuIntsRestore(state);
 }
 
-void hostInfClearInterrupt(uint32_t bit)
+void hostIntfClearInterrupt(uint32_t bit)
 {
-    atomicBitsetClearBit(mInterrupt, bit);
+    uint64_t state = cpuIntsOff();
+    if (atomicBitsetGetBit(mInterrupt, bit)) {
+        atomicBitsetClearBit(mInterrupt, bit);
+        if (!atomicBitsetGetBit(mInterruptMask, bit)) {
+            if (--mInterruptCntWkup == 0)
+                apIntClear(true);
+        } else {
+            if (--mInterruptCntNonWkup == 0)
+                apIntClear(false);
+        }
+    }
+    cpuIntsRestore(state);
 }
 
 void hostIntfSetInterruptMask(uint32_t bit)
 {
-    atomicBitsetSetBit(mInterruptMask, bit);
+    uint64_t state = cpuIntsOff();
+    if (!atomicBitsetGetBit(mInterruptMask, bit)) {
+        atomicBitsetSetBit(mInterruptMask, bit);
+        if (atomicBitsetGetBit(mInterrupt, bit)) {
+            if (--mInterruptCntWkup == 0)
+                apIntClear(true);
+            if (mInterruptCntNonWkup++ == 0)
+                apIntSet(false);
+        }
+    }
+    cpuIntsRestore(state);
 }
 
-void hostInfClearInterruptMask(uint32_t bit)
+void hostIntfClearInterruptMask(uint32_t bit)
 {
-    atomicBitsetClearBit(mInterruptMask, bit);
+    uint64_t state = cpuIntsOff();
+    if (atomicBitsetGetBit(mInterruptMask, bit)) {
+        atomicBitsetClearBit(mInterruptMask, bit);
+        if (atomicBitsetGetBit(mInterrupt, bit)) {
+            if (mInterruptCntWkup++ == 0)
+                apIntSet(true);
+            if (--mInterruptCntNonWkup == 0)
+                apIntClear(false);
+        }
+    }
+    cpuIntsRestore(state);
 }
 
 INTERNAL_APP_INIT(APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 0), 0, hostIntfRequest, hostIntfRelease, hostIntfHandleEvent);
