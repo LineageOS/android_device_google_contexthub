@@ -126,3 +126,16 @@ bool atomicBitsetXchg(struct AtomicBitset *atomicallyAccessedSet, struct AtomicB
 
     return true;
 }
+
+bool atomicBitsetBulkRead(struct AtomicBitset *set, uint32_t *dest, uint32_t numBits)
+{
+    uint32_t idx, numWords = (set->numBits + 31) / 32;
+
+    if (set->numBits != numBits)
+        return false;
+
+    for (idx = 0; idx < numWords; idx++)
+        dest[idx] = atomicRead32bits(&set->words[idx]);
+
+    return true;
+}
