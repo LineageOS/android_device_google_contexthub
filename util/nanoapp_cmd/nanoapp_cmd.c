@@ -121,6 +121,9 @@ static int setType(struct ConfigCmd *cmd, char *sensor)
     } else if (strcmp(sensor, "activity") == 0) {
         cmd->sensorType = SENS_TYPE_ACTIVITY;
         cmd->rate = SENSOR_RATE_ONCHANGE;
+    } else if (strcmp(sensor, "twist") == 0) {
+        cmd->sensorType = SENS_TYPE_DOUBLE_TWIST;
+        cmd->rate = SENSOR_RATE_ONCHANGE;
     } else {
         return 1;
     }
@@ -152,7 +155,7 @@ int main(int argc, char *argv[])
         printf("               gravity|geomag|linear_acc|rotation|game\n");
         printf("               win_orien|tilt|step_det|step_cnt|double_tap\n");
         printf("               flat|anymo|nomo|sigmo|gesture|hall|vsync\n");
-        printf("               activity\n");
+        printf("               activity|twist\n");
         printf("       data: config: <true|false> <rate in Hz> <latency in u-sec>\n");
         printf("             calibrate: [N.A.]\n");
         printf("             flush: [N.A.]\n");
