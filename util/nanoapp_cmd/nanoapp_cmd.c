@@ -25,6 +25,7 @@
 #include <stdlib.h>
 #include <eventnums.h>
 #include <sensType.h>
+#include <signal.h>
 
 #define SENSOR_RATE_ONCHANGE    0xFFFFFF01UL
 #define SENSOR_RATE_ONESHOT     0xFFFFFF02UL
@@ -118,14 +119,25 @@ static int setType(struct ConfigCmd *cmd, char *sensor)
     return 0;
 }
 
+bool drain = false;
+bool stop = false;
+char *buf;
+int nread, buf_size = 2048;
+
+void sig_handle(int sig)
+{
+    printf("Terminating...\n");
+    stop = true;
+}
+
 int main(int argc, char *argv[])
 {
     struct ConfigCmd mConfigCmd;
-    int fd;
+    int fd, dev_null;
     int ret;
 
     if (argc < 3) {
-        printf("usage: %s <action> <sensor> <data>\n", argv[0]);
+        printf("usage: %s <action> <sensor> <data> -d\n", argv[0]);
         printf("       action: config|calibrate|flush\n");
         printf("       sensor: accel|(uncal_)gyro|(uncal_)mag|als|prox|baro|temp|orien\n");
         printf("               gravity|geomag|linear_acc|rotation|game\n");
@@ -135,14 +147,22 @@ int main(int argc, char *argv[])
         printf("       data: config: <true|false> <rate in Hz> <latency in u-sec>\n");
         printf("             calibrate: [N.A.]\n");
         printf("             flush: [N.A.]\n");
+        printf("       -d: if specified, %s will keep draining /dev/nanohub until cancelled.\n", argv[0]);
 
         return 1;
     }
 
     if (strcmp(argv[1], "config") == 0) {
-        if (argc != 6) {
+        if (argc != 6 && argc != 7) {
             printf("Wrong arg number\n");
             return 1;
+        }
+        if (argc == 7) {
+            if(strcmp(argv[6], "-d") == 0) {
+                drain = true;
+            } else {
+                printf("Last arg unsupported, ignored.\n");
+            }
         }
         if (strcmp(argv[3], "true") == 0)
             mConfigCmd.enable = 1;
@@ -202,5 +222,17 @@ int main(int argc, char *argv[])
     } while (ret < 0);
     close(fd);
 
+    if (drain) {
+        signal(SIGINT, sig_handle);
+        fd = open("/dev/nanohub", O_RDONLY);
+        dev_null = open("dev/null", O_WRONLY);
+        while (!stop) {
+            if ((nread = read(fd, buf, buf_size)) > 0) {
+                (void) write(dev_null, buf, nread);
+            }
+        }
+        close(fd);
+        close(dev_null);
+    }
     return 0;
 }
