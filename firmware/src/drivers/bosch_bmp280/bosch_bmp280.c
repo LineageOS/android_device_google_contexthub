@@ -151,7 +151,7 @@ static void setMode(bool on, void *cookie)
         mTask.txrxBuf[1] = (2 << 5) | (5 << 2) | 3;
     } else {
         // temp: 2x oversampling, baro: 16x oversampling, power: sleep
-        mTask.txrxBuf[1] = (2 << 5) | (5 << 2) | 0;
+        mTask.txrxBuf[1] = (2 << 5) | (5 << 2);
     }
     i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 2, &i2cCallback,
                 cookie);
@@ -160,16 +160,19 @@ static void setMode(bool on, void *cookie)
 // TODO: only turn on the timer when enabled
 static bool sensorPowerBaro(bool on, void *cookie)
 {
+    bool oldMode = mTask.baroOn || mTask.tempOn;
+    bool newMode = on || mTask.tempOn;
+
     if (!on && mTask.baroTimerHandle) {
         timTimerCancel(mTask.baroTimerHandle);
         mTask.baroTimerHandle = 0;
         mTask.baroReading = false;
     }
 
-    if (on != mTask.baroOn) {
-        setMode(on || mTask.tempOn,
-                (void*)(on ? STATE_ENABLING_BARO : STATE_DISABLING_BARO));
-    }
+    if (oldMode != newMode)
+        setMode(newMode, (void*)(on ? STATE_ENABLING_BARO : STATE_DISABLING_BARO));
+    else
+        sensorSignalInternalEvt(mTask.baroHandle, SENSOR_INTERNAL_EVT_POWER_STATE_CHG, on, 0);
 
     mTask.baroOn = on;
 
@@ -178,8 +181,7 @@ static bool sensorPowerBaro(bool on, void *cookie)
 
 static bool sensorFirmwareBaro(void *cookie)
 {
-    sensorSignalInternalEvt(mTask.baroHandle, SENSOR_INTERNAL_EVT_FW_STATE_CHG, 1, 0);
-    return true;
+    return sensorSignalInternalEvt(mTask.baroHandle, SENSOR_INTERNAL_EVT_FW_STATE_CHG, 1, 0);
 }
 
 static bool sensorRateBaro(uint32_t rate, uint64_t latency, void *cookie)
@@ -187,8 +189,7 @@ static bool sensorRateBaro(uint32_t rate, uint64_t latency, void *cookie)
     if (mTask.baroTimerHandle)
         timTimerCancel(mTask.baroTimerHandle);
     mTask.baroTimerHandle = timTimerSet(sensorTimerLookupCommon(baroSupportedRates, rateTimerValsBaro, rate), 0, 50, baroTimerCallback, NULL, false);
-    sensorSignalInternalEvt(mTask.baroHandle, SENSOR_INTERNAL_EVT_RATE_CHG, rate, latency);
-    return true;
+    return sensorSignalInternalEvt(mTask.baroHandle, SENSOR_INTERNAL_EVT_RATE_CHG, rate, latency);
 }
 
 static bool sensorFlushBaro(void *cookie)
@@ -198,16 +199,19 @@ static bool sensorFlushBaro(void *cookie)
 
 static bool sensorPowerTemp(bool on, void *cookie)
 {
+    bool oldMode = mTask.baroOn || mTask.tempOn;
+    bool newMode = on || mTask.baroOn;
+
     if (!on && mTask.tempTimerHandle) {
         timTimerCancel(mTask.tempTimerHandle);
         mTask.tempTimerHandle = 0;
         mTask.tempReading = false;
     }
 
-    if (on != mTask.tempOn) {
-        setMode(on || mTask.baroOn,
-                (void*)(on ? STATE_ENABLING_TEMP : STATE_DISABLING_TEMP));
-    }
+    if (oldMode != newMode)
+        setMode(newMode, (void*)(on ? STATE_ENABLING_TEMP : STATE_DISABLING_TEMP));
+    else
+        sensorSignalInternalEvt(mTask.tempHandle, SENSOR_INTERNAL_EVT_POWER_STATE_CHG, on, 0);
 
     mTask.tempOn = on;
 
