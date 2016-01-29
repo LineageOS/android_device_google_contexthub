@@ -491,15 +491,35 @@ static size_t writeEvent(void *rx, uint8_t rx_len, void *tx, uint64_t timestamp)
 {
     struct NanohubWriteEventRequest *req = rx;
     struct NanohubWriteEventResponse *resp = tx;
-    uint8_t *packet = heapAlloc(rx_len - sizeof(req->evtType));
+    uint8_t *packet;
+    struct HostHubRawPacket *rawPacket;
+    uint32_t tid;
 
-    if (!packet) {
-        resp->accepted = false;
+    if (le32toh(req->evtType) == EVT_APP_FROM_HOST) {
+        rawPacket = (struct HostHubRawPacket *)req->evtData;
+        if (rx_len >= sizeof(req->evtType) + sizeof(struct HostHubRawPacket) && rx_len == sizeof(req->evtType) + sizeof(struct HostHubRawPacket) + rawPacket->dataLen && osTidById(rawPacket->appId, &tid)) {
+            packet = heapAlloc(rawPacket->dataLen);
+            if (!packet) {
+                resp->accepted = false;
+            } else {
+                memcpy(packet, rawPacket+1, rawPacket->dataLen);
+                resp->accepted = osEnqueuePrivateEvt(EVT_APP_FROM_HOST, packet, heapFree, tid);
+                if (!resp->accepted)
+                    heapFree(packet);
+            }
+        } else {
+            resp->accepted = false;
+        }
     } else {
-        memcpy(packet, req->evtData, rx_len - sizeof(req->evtType));
-        resp->accepted = osEnqueueEvt(le32toh(req->evtType), packet, heapFree);
-        if (!resp->accepted)
-            heapFree(packet);
+        packet = heapAlloc(rx_len - sizeof(req->evtType));
+        if (!packet) {
+            resp->accepted = false;
+        } else {
+            memcpy(packet, req->evtData, rx_len - sizeof(req->evtType));
+            resp->accepted = osEnqueueEvt(le32toh(req->evtType), packet, heapFree);
+            if (!resp->accepted)
+                heapFree(packet);
+        }
     }
 
     return sizeof(*resp);

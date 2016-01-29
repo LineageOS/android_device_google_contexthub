@@ -63,6 +63,8 @@ bool magCalUpdate(struct MagCal *moc, uint64_t sample_time_us,
 
 void magCalGetBias(struct MagCal *moc, float *x, float *y, float *z);
 
+void magCalAddBias(struct MagCal *moc, float x, float y, float z);
+
 void magCalRemoveBias(struct MagCal *moc, float xi, float yi, float zi,
                          float *xo, float *yo, float *zo);
 

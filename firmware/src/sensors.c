@@ -54,6 +54,7 @@ struct SensorsInternalEvent {
         };
         struct SensorPowerEvent externalPowerEvt;
         struct SensorSetRateEvent externalSetRateEvt;
+        struct SensorCfgDataEvent externalCfgDataEvt;
         struct SensorSendDirectEventEvent externalSendDirectEvt;
     };
 };
@@ -257,6 +258,26 @@ static bool sensorCallFuncFlush(struct Sensor* s)
         return ((const struct SensorOps*)taggedPtrToPtr(s->callInfo))->sensorFlush(s->callData);
     else
         return osEnqueuePrivateEvt(EVT_APP_SENSOR_FLUSH, s->callData, NULL, taggedPtrToUint(s->callInfo));
+}
+
+static bool sensorCallFuncCfgData(struct Sensor* s, void* cfgData)
+{
+    if (taggedPtrIsPtr(s->callInfo) && ((const struct SensorOps*)taggedPtrToPtr(s->callInfo))->sensorCfgData)
+        return ((const struct SensorOps*)taggedPtrToPtr(s->callInfo))->sensorCfgData(cfgData, s->callData);
+    else {
+        struct SensorsInternalEvent *evt = (struct SensorsInternalEvent*)slabAllocatorAlloc(mInternalEvents);
+
+        if (!evt)
+            return false;
+
+        evt->externalCfgDataEvt.data = cfgData;
+        evt->externalCfgDataEvt.callData = s->callData;
+        if (osEnqueuePrivateEvt(EVT_APP_SENSOR_CFG_DATA, &evt->externalCfgDataEvt, sensorCallFuncExternalEvtFreeF, taggedPtrToUint(s->callInfo)))
+            return true;
+
+        slabAllocatorFree(mInternalEvents, evt);
+        return false;
+    }
 }
 
 static bool sensorCallFuncTrigger(struct Sensor* s)
@@ -679,6 +700,16 @@ bool sensorCalibrate(uint32_t sensorHandle)
         return false;
 
     return sensorCallFuncCalibrate(s);
+}
+
+bool sensorCfgData(uint32_t sensorHandle, void* cfgData)
+{
+    struct Sensor* s = sensorFindByHandle(sensorHandle);
+
+    if (!s)
+        return false;
+
+    return sensorCallFuncCfgData(s, cfgData);
 }
 
 uint32_t sensorGetCurRate(uint32_t sensorHandle)

@@ -176,12 +176,11 @@ static void configAccel(bool on) {
 
 static const struct SensorInfo mSi =
 {
-    "Tilt Detection",
-    NULL,
-    SENS_TYPE_TILT,
-    NUM_AXIS_EMBEDDED,
-    NANOHUB_INT_WAKEUP,
-    20
+    .sensorName = "Tilt Detection",
+    .sensorType = SENS_TYPE_TILT,
+    .numAxis = NUM_AXIS_EMBEDDED,
+    .interrupt = NANOHUB_INT_WAKEUP,
+    .minSamples = 20
 };
 
 static bool tiltDetectionPower(bool on, void *cookie)
@@ -269,11 +268,10 @@ static void tiltDetectionHandleEvent(uint32_t evtType, const void* evtData)
 
 static const struct SensorOps mSops =
 {
-    tiltDetectionPower,
-    tiltDetectionFirmwareUpload,
-    tiltDetectionSetRate,
-    tiltDetectionFlush,
-    NULL,
+    .sensorPower = tiltDetectionPower,
+    .sensorFirmwareUpload = tiltDetectionFirmwareUpload,
+    .sensorSetRate = tiltDetectionSetRate,
+    .sensorFlush = tiltDetectionFlush,
 };
 
 static bool tiltDetectionStart(uint32_t taskId)

@@ -92,12 +92,11 @@ static bool disableInterrupt(struct Gpio *pin, struct ChainedIsr *isr)
 
 static const struct SensorInfo mSensorInfo =
 {
-    "Hall",
-    NULL,
-    SENS_TYPE_HALL,
-    NUM_AXIS_EMBEDDED,
-    NANOHUB_INT_WAKEUP,
-    20
+    .sensorName = "Hall",
+    .sensorType = SENS_TYPE_HALL,
+    .numAxis = NUM_AXIS_EMBEDDED,
+    .interrupt = NANOHUB_INT_WAKEUP,
+    .minSamples = 20
 };
 
 static bool hallPower(bool on, void *cookie)
@@ -142,11 +141,10 @@ static bool hallFlush(void *cookie)
 
 static const struct SensorOps mSensorOps =
 {
-    hallPower,
-    hallFirmwareUpload,
-    hallSetRate,
-    hallFlush,
-    NULL
+    .sensorPower = hallPower,
+    .sensorFirmwareUpload = hallFirmwareUpload,
+    .sensorSetRate = hallSetRate,
+    .sensorFlush = hallFlush,
 };
 
 static void handleEvent(uint32_t evtType, const void* evtData)
