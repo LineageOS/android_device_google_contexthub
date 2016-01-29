@@ -138,14 +138,23 @@ static const uint64_t rateTimerVals[] = //should match "supported rates in lengt
 };
 
 static struct FusionTask mTask;
+
+#define DEC_INFO_RATE(name, rates, type, axis, inter, samples) \
+    .sensorName = name, \
+    .supportedRates = rates, \
+    .sensorType = type, \
+    .numAxis = axis, \
+    .interrupt = inter, \
+    .minSamples = samples
+
 static const struct SensorInfo mSi[NUM_OF_FUSION_SENSOR] =
 {
-    {"Orientation",                 FusionRates, SENS_TYPE_ORIENTATION,     NUM_AXIS_THREE, NANOHUB_INT_NONWAKEUP,  20 },
-    {"Gravity",                     FusionRates, SENS_TYPE_GRAVITY,         NUM_AXIS_THREE, NANOHUB_INT_NONWAKEUP,  20 },
-    {"Geomagnetic Rotation Vector", FusionRates, SENS_TYPE_GEO_MAG_ROT_VEC, NUM_AXIS_THREE, NANOHUB_INT_NONWAKEUP,  20 },
-    {"Linear Acceleration",         FusionRates, SENS_TYPE_LINEAR_ACCEL,    NUM_AXIS_THREE, NANOHUB_INT_NONWAKEUP,  20 },
-    {"Game Rotation Vector",        FusionRates, SENS_TYPE_GAME_ROT_VECTOR, NUM_AXIS_THREE, NANOHUB_INT_NONWAKEUP, 300 },
-    {"Rotation Vector",             FusionRates, SENS_TYPE_ROTATION_VECTOR, NUM_AXIS_THREE, NANOHUB_INT_NONWAKEUP,  20 },
+    { DEC_INFO_RATE("Orientation", FusionRates, SENS_TYPE_ORIENTATION, NUM_AXIS_THREE, NANOHUB_INT_NONWAKEUP, 20) },
+    { DEC_INFO_RATE("Gravity", FusionRates, SENS_TYPE_GRAVITY, NUM_AXIS_THREE, NANOHUB_INT_NONWAKEUP, 20) },
+    { DEC_INFO_RATE("Geomagnetic Rotation Vector", FusionRates, SENS_TYPE_GEO_MAG_ROT_VEC, NUM_AXIS_THREE, NANOHUB_INT_NONWAKEUP, 20) },
+    { DEC_INFO_RATE("Linear Acceleration", FusionRates, SENS_TYPE_LINEAR_ACCEL, NUM_AXIS_THREE, NANOHUB_INT_NONWAKEUP, 20) },
+    { DEC_INFO_RATE("Game Rotation Vector", FusionRates, SENS_TYPE_GAME_ROT_VECTOR, NUM_AXIS_THREE, NANOHUB_INT_NONWAKEUP, 300) },
+    { DEC_INFO_RATE("Rotation Vector", FusionRates, SENS_TYPE_ROTATION_VECTOR, NUM_AXIS_THREE, NANOHUB_INT_NONWAKEUP, 20) },
 };
 
 static struct SlabAllocator *mDataSlab;
@@ -720,12 +729,10 @@ static void fusionHandleEvent(uint32_t evtType, const void* evtData)
 
 static const struct SensorOps mSops =
 {
-    fusionPower,
-    fusionFirmwareUpload,
-    fusionSetRate,
-    fusionFlush,
-    NULL,
-    NULL,
+    .sensorPower = fusionPower,
+    .sensorFirmwareUpload = fusionFirmwareUpload,
+    .sensorSetRate = fusionSetRate,
+    .sensorFlush = fusionFlush,
 };
 
 static bool fusionStart(uint32_t tid)

@@ -31,15 +31,23 @@
 #define SENSOR_RATE_ONESHOT     0xFFFFFF02UL
 #define SENSOR_HZ(_hz)          ((uint32_t)((_hz) * 1024.0f))
 
+enum ConfigCmds
+{
+    CONFIG_CMD_DISABLE      = 0,
+    CONFIG_CMD_ENABLE       = 1,
+    CONFIG_CMD_FLUSH        = 2,
+    CONFIG_CMD_CFG_DATA     = 3,
+    CONFIG_CMD_CALIBRATE    = 4,
+};
+
 struct ConfigCmd
 {
     uint32_t evtType;
     uint64_t latency;
     uint32_t rate;
     uint8_t sensorType;
-    uint8_t enable : 1;
-    uint8_t flush : 1;
-    uint8_t calibrate : 1;
+    uint8_t cmd;
+    uint16_t flags;
 } __attribute__((packed));
 
 static int setType(struct ConfigCmd *cmd, char *sensor)
@@ -76,6 +84,7 @@ static int setType(struct ConfigCmd *cmd, char *sensor)
         cmd->sensorType = SENS_TYPE_GAME_ROT_VECTOR;
     } else if (strcmp(sensor, "win_orien") == 0) {
         cmd->sensorType = SENS_TYPE_WIN_ORIENTATION;
+        cmd->rate = SENSOR_RATE_ONCHANGE;
     } else if (strcmp(sensor, "tilt") == 0) {
         cmd->sensorType = SENS_TYPE_TILT;
         cmd->rate = SENSOR_RATE_ONCHANGE;
@@ -165,9 +174,9 @@ int main(int argc, char *argv[])
             }
         }
         if (strcmp(argv[3], "true") == 0)
-            mConfigCmd.enable = 1;
+            mConfigCmd.cmd = CONFIG_CMD_ENABLE;
         else if (strcmp(argv[3], "false") == 0) {
-            mConfigCmd.enable = 0;
+            mConfigCmd.cmd = CONFIG_CMD_DISABLE;
         } else {
             printf("Unsupported data: %s For action: %s\n", argv[3], argv[1]);
             return 1;
@@ -175,8 +184,6 @@ int main(int argc, char *argv[])
         mConfigCmd.evtType = EVT_NO_SENSOR_CONFIG_EVENT;
         mConfigCmd.rate = SENSOR_HZ((float)atoi(argv[4]));
         mConfigCmd.latency = atoi(argv[5]) * 1000ull;
-        mConfigCmd.flush = 0;
-        mConfigCmd.calibrate = 0;
         if (setType(&mConfigCmd, argv[2])) {
             printf("Unsupported sensor: %s For action: %s\n", argv[2], argv[1]);
             return 1;
@@ -189,9 +196,7 @@ int main(int argc, char *argv[])
         mConfigCmd.evtType = EVT_NO_SENSOR_CONFIG_EVENT;
         mConfigCmd.rate = 0;
         mConfigCmd.latency = 0;
-        mConfigCmd.enable = 0;
-        mConfigCmd.flush = 0;
-        mConfigCmd.calibrate = 1;
+        mConfigCmd.cmd = CONFIG_CMD_CALIBRATE;
         if (setType(&mConfigCmd, argv[2])) {
             printf("Unsupported sensor: %s For action: %s\n", argv[2], argv[1]);
             return 1;
@@ -204,9 +209,7 @@ int main(int argc, char *argv[])
         mConfigCmd.evtType = EVT_NO_SENSOR_CONFIG_EVENT;
         mConfigCmd.rate = 0;
         mConfigCmd.latency = 0;
-        mConfigCmd.enable = 0;
-        mConfigCmd.flush = 1;
-        mConfigCmd.calibrate = 0;
+        mConfigCmd.cmd = CONFIG_CMD_FLUSH;
         if (setType(&mConfigCmd, argv[2])) {
             printf("Unsupported sensor: %s For action: %s\n", argv[2], argv[1]);
             return 1;

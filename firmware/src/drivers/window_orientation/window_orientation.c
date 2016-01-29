@@ -115,12 +115,11 @@ static struct WindowOrientationTask mTask;
 
 static const struct SensorInfo mSi =
 {
-    "Window Orientation",
-    NULL,
-    SENS_TYPE_WIN_ORIENTATION,
-    NUM_AXIS_EMBEDDED,
-    NANOHUB_INT_NONWAKEUP,
-    20
+    .sensorName = "Window Orientation",
+    .sensorType = SENS_TYPE_WIN_ORIENTATION,
+    .numAxis = NUM_AXIS_EMBEDDED,
+    .interrupt = NANOHUB_INT_NONWAKEUP,
+    .minSamples = 20
 };
 
 static bool isTiltAngleAcceptable(int rotation, int8_t tilt_angle)
@@ -571,11 +570,10 @@ static void windowOrientationHandleEvent(uint32_t evtType, const void* evtData)
 
 static const struct SensorOps mSops =
 {
-    windowOrientationPower,
-    windowOrientationFirmwareUpload,
-    windowOrientationSetRate,
-    windowOrientationFlush,
-    NULL,
+    .sensorPower = windowOrientationPower,
+    .sensorFirmwareUpload = windowOrientationFirmwareUpload,
+    .sensorSetRate = windowOrientationSetRate,
+    .sensorFlush = windowOrientationFlush,
 };
 
 static bool window_orientation_start(uint32_t tid)

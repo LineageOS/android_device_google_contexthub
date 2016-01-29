@@ -473,6 +473,20 @@ bool osEnqueuePrivateEvtAsApp(uint32_t evtType, void *evtData, uint32_t fromAppT
     return osEnqueuePrivateEvtEx(evtType, evtData, taggedPtrMakeFromUint(fromAppTid), toTid);
 }
 
+bool osTidById(uint64_t appId, uint32_t *tid)
+{
+    uint32_t i;
+
+    for (i = 0; i < MAX_TASKS; i++) {
+        if (mTasks[i].appHdr && mTasks[i].appHdr->appId == appId) {
+            *tid = mTasks[i].tid;
+            return true;
+        }
+    }
+
+    return false;
+}
+
 bool osAppInfoById(uint64_t appId, uint32_t *appIdx, uint32_t *appVer, uint32_t *appSize)
 {
     uint32_t i;
