@@ -72,7 +72,7 @@ struct BlVecTable {
     const uint32_t* (*blGetPubKeysInfo)(uint32_t *numKeys);
 
     //hashing, encryption, signature apis
-    const uint32_t* (*blRsaPubOp)(struct RsaState* state, const uint32_t *a, const uint32_t *c);
+    const uint32_t* (*blRsaPubOpIterative)(struct RsaState* state, const uint32_t *a, const uint32_t *c, uint32_t *state1, uint32_t *state2, uint32_t *stepP);
     void            (*blSha2init)(struct Sha2state *state);
     void            (*blSha2processBytes)(struct Sha2state *state, const void *bytes, uint32_t numBytes);
     const uint32_t* (*blSha2finish)(struct Sha2state *state);
