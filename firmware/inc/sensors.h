@@ -145,6 +145,11 @@ struct SensorSetRateEvent {
     uint32_t rate;
 };
 
+struct SensorCfgDataEvent {
+    void *callData;
+    void *data;
+};
+
 struct SensorSendDirectEventEvent {
     void *callData;
     uint32_t tid;
@@ -160,6 +165,7 @@ struct SensorOps {
     bool (*sensorFlush)(void *); //trigger a measurement for ondemand sensors (if supported)
     bool (*sensorTriggerOndemand)(void *);
     bool (*sensorCalibrate)(void *);
+    bool (*sensorCfgData)(void *cfgData, void *);
 
     bool (*sensorSendOneDirectEvt)(void *, uint32_t tid); //resend last state (if known), only for onchange-supporting sensors, to bring on a new client
 };
@@ -189,6 +195,7 @@ struct SensorInfo {
     uint8_t sensorType;
     uint8_t numAxis; /* enum NumAxis */
     uint8_t interrupt; /* interrupt to generate to AP */
+    uint8_t biasType;
     uint16_t minSamples; /* minimum host fifo size (in # of samples) */
 };
 
@@ -243,6 +250,7 @@ bool sensorRelease(uint32_t clientTid, uint32_t sensorHandle);
 bool sensorTriggerOndemand(uint32_t clientTid, uint32_t sensorHandle);
 bool sensorFlush(uint32_t sensorHandle);
 bool sensorCalibrate(uint32_t sensorHandle);
+bool sensorCfgData(uint32_t sensorHandle, void* cfgData);
 uint32_t sensorGetCurRate(uint32_t sensorHandle);
 uint64_t sensorGetCurLatency(uint32_t sensorHandle);
 bool sensorGetInitComplete(uint32_t sensorHandle); // DO NOT poll on this value

@@ -31,6 +31,7 @@
 #include <hostIntf.h>
 #include <nanohubPacket.h>
 #include <variant/inc/variant.h>
+#include <variant/inc/sensType.h>
 #include <cpu/inc/cpuMath.h>
 
 #include <seos.h>
@@ -249,6 +250,7 @@ enum SensorState {
     SENSOR_CALIBRATING,
     SENSOR_STEP_CNT,
     SENSOR_TIME_SYNC,
+    SENSOR_SAVE_CALIBRATION,
 };
 
 enum MagConfigState {
@@ -307,6 +309,7 @@ struct BMI160Task {
     bool Int2_EN;
     bool pending_int[2];
     bool pending_config[NUM_OF_SENSOR];
+    bool pending_calibration_save;
     struct BMI160Sensor sensors[NUM_OF_SENSOR];
     enum FifoState fifo_state;
     enum InitState init_state;
@@ -314,7 +317,9 @@ struct BMI160Task {
     enum SensorState state;
 
     struct MagCal moc;
-    bool new_mag_bias;
+    float last_charging_bias_x;
+    bool magBiasPosted;
+    bool magBiasCurrent;
 
     enum CalibrationState calibration_state;
 
@@ -388,17 +393,34 @@ static uint8_t mRetryLeft;
 
 static struct SlabAllocator *mDataSlab;
 
+#define DEC_INFO(name, type, axis, inter, samples) \
+    .sensorName = name, \
+    .sensorType = type, \
+    .numAxis = axis, \
+    .interrupt = inter, \
+    .minSamples = samples
+
+
+#define DEC_INFO_RATE(name, rates, type, axis, inter, samples) \
+    DEC_INFO(name, type, axis, inter, samples), \
+    .supportedRates = rates
+
+#define DEC_INFO_RATE_BIAS(name, rates, type, axis, inter, bias, samples) \
+    DEC_INFO(name, type, axis, inter, samples), \
+    .supportedRates = rates, \
+    .biasType = bias
+
 static const struct SensorInfo mSensorInfo[NUM_OF_SENSOR] =
 {
-    {"Accelerometer",  AccRates,     SENS_TYPE_ACCEL,       NUM_AXIS_THREE,    NANOHUB_INT_NONWAKEUP, 3000},
-    {"Gyroscope",      GyrRates,     SENS_TYPE_GYRO,        NUM_AXIS_THREE,    NANOHUB_INT_NONWAKEUP,   20},
-    {"Magnetometer",   MagRates,     SENS_TYPE_MAG,         NUM_AXIS_THREE,    NANOHUB_INT_NONWAKEUP,   20},
-    {"Step Detector",  NULL,         SENS_TYPE_STEP_DETECT, NUM_AXIS_EMBEDDED, NANOHUB_INT_NONWAKEUP,  100},
-    {"Double Tap",     NULL,         SENS_TYPE_DOUBLE_TAP,  NUM_AXIS_EMBEDDED, NANOHUB_INT_NONWAKEUP,   20},
-    {"Flat",           NULL,         SENS_TYPE_FLAT,        NUM_AXIS_EMBEDDED, NANOHUB_INT_NONWAKEUP,   20},
-    {"Any Motion",     NULL,         SENS_TYPE_ANY_MOTION,  NUM_AXIS_EMBEDDED, NANOHUB_INT_NONWAKEUP,   20},
-    {"No Motion",      NULL,         SENS_TYPE_NO_MOTION,   NUM_AXIS_EMBEDDED, NANOHUB_INT_NONWAKEUP,   20},
-    {"Step Counter",   StepCntRates, SENS_TYPE_STEP_COUNT,  NUM_AXIS_EMBEDDED, NANOHUB_INT_NONWAKEUP,   20},
+    { DEC_INFO_RATE("Accelerometer", AccRates, SENS_TYPE_ACCEL, NUM_AXIS_THREE, NANOHUB_INT_NONWAKEUP, 3000) },
+    { DEC_INFO_RATE("Gyroscope", GyrRates, SENS_TYPE_GYRO, NUM_AXIS_THREE, NANOHUB_INT_NONWAKEUP, 20) },
+    { DEC_INFO_RATE_BIAS("Magnetometer", MagRates, SENS_TYPE_MAG, NUM_AXIS_THREE, NANOHUB_INT_NONWAKEUP, SENS_TYPE_MAG_BIAS, 20) },
+    { DEC_INFO("Step Detector", SENS_TYPE_STEP_DETECT, NUM_AXIS_EMBEDDED, NANOHUB_INT_NONWAKEUP, 100) },
+    { DEC_INFO("Double Tap", SENS_TYPE_DOUBLE_TAP, NUM_AXIS_EMBEDDED, NANOHUB_INT_NONWAKEUP, 20) },
+    { DEC_INFO("Flat", SENS_TYPE_FLAT, NUM_AXIS_EMBEDDED, NANOHUB_INT_NONWAKEUP, 20) },
+    { DEC_INFO("Any Motion", SENS_TYPE_ANY_MOTION, NUM_AXIS_EMBEDDED, NANOHUB_INT_NONWAKEUP, 20) },
+    { DEC_INFO("No Motion", SENS_TYPE_NO_MOTION, NUM_AXIS_EMBEDDED, NANOHUB_INT_NONWAKEUP, 20) },
+    { DEC_INFO_RATE("Step Counter", StepCntRates, SENS_TYPE_STEP_COUNT, NUM_AXIS_EMBEDDED, NANOHUB_INT_NONWAKEUP, 20) },
 };
 
 static void dataEvtFree(void *ptr)
@@ -565,31 +587,6 @@ static bool disableInterrupt(struct Gpio *pin, struct ChainedIsr *isr)
     extiUnchainIsr(BMI160_INT_IRQ, isr);
     extiDisableIntGpio(pin);
     return true;
-}
-
-static void magBias(void)
-{
-    struct TripleAxisDataEvent *evt = mTask.sensors[MAG].data_evt;
-    uint8_t idx;
-
-    if (evt == NULL) {
-        idx = 0;
-        evt = slabAllocatorAlloc(mDataSlab);
-        if (evt == NULL) {
-            // slab allocation failed
-            osLog(LOG_ERROR, "Slab allocation failed for MAG bias event\n");
-            return;
-        }
-        evt->referenceTime = timGetTime();
-    } else {
-        idx = evt->samples[0].firstSample.numSamples++;
-        evt->samples[idx].deltaTime = timGetTime() - mTask.sensors[MAG].prev_rtc_time;
-    }
-    evt->samples[0].firstSample.biasPresent = 1;
-    evt->samples[0].firstSample.biasSample = idx;
-    evt->samples[idx].x = mTask.moc.x_bias;
-    evt->samples[idx].y = mTask.moc.y_bias;
-    evt->samples[idx].z = mTask.moc.z_bias;
 }
 
 static void magConfigMagic(void)
@@ -1200,6 +1197,9 @@ static bool magSetRate(uint32_t rate, uint64_t latency, void *cookie)
 {
     int odr;
 
+    if (rate == SENSOR_RATE_ONCHANGE)
+        rate = SENSOR_HZ(100);
+
     osLog(LOG_INFO, "BMI160: magSetRate: rate=%ld, latency=%lld, state=%d\n", rate, latency, mTask.state);
 
     if (mTask.state == SENSOR_IDLE) {
@@ -1441,20 +1441,48 @@ static uint64_t parseSensortime(uint32_t sensor_time24)
     return (full -  0x1000000ull);
 }
 
-static void flushRawData(void)
+static bool flushData(struct BMI160Sensor *sensor, uint32_t eventId)
+{
+    bool success = false;
+
+    if (sensor->data_evt) {
+        success = osEnqueueEvt(eventId, sensor->data_evt, dataEvtFree);
+        if (!success) {
+            // don't log error since queue is already full. silently drop
+            // this data event.
+            dataEvtFree(sensor->data_evt);
+        }
+        sensor->data_evt = NULL;
+    }
+
+    return success;
+}
+
+static void flushAllData(void)
 {
     int i;
-    for (i = ACC; i <= MAG; i++) {
-        if (mTask.sensors[i].data_evt) {
-            if (!osEnqueueEvt(EVENT_TYPE_BIT_DISCARDABLE | sensorGetMyEventType(mSensorInfo[i].sensorType),
-                    mTask.sensors[i].data_evt, dataEvtFree)) {
-                // don't log error since queue is already full. silently drop
-                // this data event.
-                dataEvtFree(mTask.sensors[i].data_evt);
-            }
-            mTask.sensors[i].data_evt = NULL;
-        }
+    for (i = ACC; i <= MAG; i++)
+        flushData(&mTask.sensors[i], EVENT_TYPE_BIT_DISCARDABLE | sensorGetMyEventType(mSensorInfo[i].sensorType));
+}
+
+static bool allocateDataEvt(struct BMI160Sensor *mSensor, uint64_t rtc_time)
+{
+    mSensor->data_evt = slabAllocatorAlloc(mDataSlab);
+    if (mSensor->data_evt == NULL) {
+        // slab allocation failed
+        osLog(LOG_ERROR, "bmi160: IMU: Slab allocation failed\n");
+        return false;
     }
+
+    // delta time for the first sample is sample count
+    mSensor->data_evt->samples[0].firstSample.numSamples = 0;
+    mSensor->data_evt->samples[0].firstSample.biasCurrent = 0;
+    mSensor->data_evt->samples[0].firstSample.biasPresent = 0;
+    mSensor->data_evt->samples[0].firstSample.biasSample = 0;
+    mSensor->data_evt->referenceTime = rtc_time;
+    mSensor->prev_rtc_time = rtc_time;
+
+    return true;
 }
 
 static void parseRawData(struct BMI160Sensor *mSensor, int i, float kScale, uint64_t sensorTime)
@@ -1464,6 +1492,7 @@ static void parseRawData(struct BMI160Sensor *mSensor, int i, float kScale, uint
     struct TripleAxisDataPoint *sample;
     uint32_t delta_time;
     uint64_t rtc_time;
+    bool newMagBias = false;
 
     if (!sensortime_to_rtc_time(sensorTime, &rtc_time)) {
         return;
@@ -1496,7 +1525,7 @@ static void parseRawData(struct BMI160Sensor *mSensor, int i, float kScale, uint
                 (float)mag_z * kScale,
                 &xi, &yi, &zi);
 
-        mTask.new_mag_bias |= magCalUpdate(&mTask.moc,
+        newMagBias |= magCalUpdate(&mTask.moc,
                 sensorTime * kSensorTimerIntervalUs, xi, yi, zi);
 
         magCalRemoveBias(&mTask.moc, xi, yi, zi, &x, &y, &z);
@@ -1510,21 +1539,36 @@ static void parseRawData(struct BMI160Sensor *mSensor, int i, float kScale, uint
     }
 
     if (mSensor->data_evt == NULL) {
-        mSensor->data_evt = slabAllocatorAlloc(mDataSlab);
-        if (mSensor->data_evt == NULL) {
-            // slab allocation failed
-            osLog(LOG_ERROR, "bmi160: IMU: Slab allocation failed\n");
+        if (!allocateDataEvt(mSensor, rtc_time))
             return;
-        }
-        // delta time for the first sample is sample count
-        mSensor->data_evt->samples[0].firstSample.numSamples = 0;
-        mSensor->data_evt->referenceTime = rtc_time;
-        mSensor->prev_rtc_time = rtc_time;
     }
 
     if (mSensor->data_evt->samples[0].firstSample.numSamples >= MAX_NUM_COMMS_EVENT_SAMPLES) {
         osLog(LOG_ERROR, "BAD INDEX\n");
         return;
+    }
+
+    if (mSensor->idx == MAG && (newMagBias || !mTask.magBiasPosted)) {
+        if (mSensor->data_evt->samples[0].firstSample.numSamples > 0) {
+            // flush existing samples so the bias appears after them
+            flushData(mSensor, EVENT_TYPE_BIT_DISCARDABLE | sensorGetMyEventType(mSensorInfo[MAG].sensorType));
+            if (!allocateDataEvt(mSensor, rtc_time))
+                return;
+        }
+        if (newMagBias)
+            mTask.magBiasCurrent = true;
+        mSensor->data_evt->samples[0].firstSample.biasCurrent = mTask.magBiasCurrent;
+        mSensor->data_evt->samples[0].firstSample.biasPresent = 1;
+        mSensor->data_evt->samples[0].firstSample.biasSample = mSensor->data_evt->samples[0].firstSample.numSamples;
+        sample = &mSensor->data_evt->samples[mSensor->data_evt->samples[0].firstSample.numSamples++];
+        magCalGetBias(&mTask.moc, &sample->x, &sample->y, &sample->z);
+
+        // bias is non-discardable, if we fail to enqueue, don't clear new_mag_bias
+        if (flushData(mSensor, sensorGetMyEventType(mSensorInfo[MAG].biasType)))
+            mTask.magBiasPosted = true;
+
+        if (!allocateDataEvt(mSensor, rtc_time))
+            return;
     }
 
     sample = &mSensor->data_evt->samples[mSensor->data_evt->samples[0].firstSample.numSamples++];
@@ -1544,7 +1588,7 @@ static void parseRawData(struct BMI160Sensor *mSensor, int i, float kScale, uint
     //osLog(LOG_INFO, "bmi160: x: %d, y: %d, z: %d\n", (int)(1000*x), (int)(1000*y), (int)(1000*z));
 
     if (mSensor->data_evt->samples[0].firstSample.numSamples == MAX_NUM_COMMS_EVENT_SAMPLES) {
-        flushRawData();
+        flushAllData();
     }
 
 }
@@ -1562,8 +1606,6 @@ static void dispatchData(void)
     uint64_t frame_sensor_time = mTask.frame_sensortime;
     bool observed[3] = {false, false, false};
     uint64_t tmp_frame_time, tmp_time[3];
-
-    mTask.new_mag_bias = false;
 
     while (size > 0) {
         if (buf[i] == 0x80) {
@@ -1669,11 +1711,8 @@ static void dispatchData(void)
         }
     }
 
-    if (mTask.new_mag_bias)
-        magBias();
-
     // flush data events.
-    flushRawData();
+    flushAllData();
 }
 
 /*
@@ -1782,12 +1821,31 @@ static uint8_t offset6Mode(void)
         mode |= 0x01 << 7;
     if (mTask.sensors[ACC].offset_enable)
         mode |= 0x01 << 6;
-    mode |= (mTask.sensors[GYR].offset[2] & (0x03 << 8)) >> 4;
-    mode |= (mTask.sensors[GYR].offset[1] & (0x03 << 8)) >> 6;
-    mode |= (mTask.sensors[GYR].offset[0] & (0x03 << 8)) >> 8;
+    mode |= (mTask.sensors[GYR].offset[2] & 0x0300) >> 4;
+    mode |= (mTask.sensors[GYR].offset[1] & 0x0300) >> 6;
+    mode |= (mTask.sensors[GYR].offset[0] & 0x0300) >> 8;
     osLog(LOG_INFO, "OFFSET_6_MODE is: %02x\n", mode);
     return mode;
 }
+
+static void saveCalibration()
+{
+    mTask.state = SENSOR_SAVE_CALIBRATION;
+    if (mTask.sensors[ACC].offset_enable) {
+        SPI_WRITE(BMI160_REG_OFFSET_0, mTask.sensors[ACC].offset[0] & 0xFF, 450);
+        SPI_WRITE(BMI160_REG_OFFSET_0 + 1, mTask.sensors[ACC].offset[1] & 0xFF, 450);
+        SPI_WRITE(BMI160_REG_OFFSET_0 + 2, mTask.sensors[ACC].offset[2] & 0xFF, 450);
+    }
+    if (mTask.sensors[GYR].offset_enable) {
+        SPI_WRITE(BMI160_REG_OFFSET_3, mTask.sensors[GYR].offset[0] & 0xFF, 450);
+        SPI_WRITE(BMI160_REG_OFFSET_3 + 1, mTask.sensors[GYR].offset[1] & 0xFF, 450);
+        SPI_WRITE(BMI160_REG_OFFSET_3 + 2, mTask.sensors[GYR].offset[2] & 0xFF, 450);
+    }
+    SPI_WRITE(BMI160_REG_OFFSET_6, offset6Mode(), 450);
+    SPI_READ(BMI160_REG_OFFSET_0, 7, mTask.rxBuffer);
+    spiBatchTxRx(&mTask.mode, sensorSpiCallback, NULL);
+}
+
 
 static void accCalibrationHandling(void)
 {
@@ -1890,6 +1948,25 @@ static bool accCalibration(void *cookie)
     return true;
 }
 
+static bool accCfgData(void *data, void *cookie)
+{
+    int32_t *values = data;
+
+    mTask.sensors[ACC].offset[0] = values[0];
+    mTask.sensors[ACC].offset[1] = values[1];
+    mTask.sensors[ACC].offset[2] = values[2];
+    mTask.sensors[ACC].offset_enable = true;
+
+    osLog(LOG_INFO, "accCfgData: data=%02lx, %02lx, %02lx\n", values[0] & 0xFF, values[1] & 0xFF, values[2] & 0xFF);
+
+    if (mTask.state == SENSOR_IDLE)
+        saveCalibration();
+    else
+        mTask.pending_calibration_save = true;
+
+    return true;
+}
+
 static void gyrCalibrationHandling(void)
 {
     // gyro calibration not implemented yet. Seems unnecessary.
@@ -1909,17 +1986,70 @@ static bool gyrCalibration(void *cookie)
     return true;
 }
 
+static bool gyrCfgData(void *data, void *cookie)
+{
+    int32_t *values = data;
+
+    mTask.sensors[GYR].offset[0] = values[0];
+    mTask.sensors[GYR].offset[1] = values[1];
+    mTask.sensors[GYR].offset[2] = values[2];
+    mTask.sensors[GYR].offset_enable = true;
+
+    osLog(LOG_INFO, "gyrCfgData: data=%02lx, %02lx, %02lx\n", values[0] & 0xFF, values[1] & 0xFF, values[2] & 0xFF);
+
+    if (mTask.state == SENSOR_IDLE)
+        saveCalibration();
+    else
+        mTask.pending_calibration_save = true;
+
+    return true;
+}
+
+static bool magCfgData(void *data, void *cookie)
+{
+    float *values = data;
+
+    osLog(LOG_INFO, "magCfgData: %ld, %ld, %ld\n", (int32_t)(values[0] * 1000), (int32_t)(values[1] * 1000), (int32_t)(values[2] * 1000));
+
+    mTask.moc.x_bias = values[0];
+    mTask.moc.y_bias = values[1];
+    mTask.moc.z_bias = values[2];
+
+    mTask.magBiasPosted = false;
+
+    return true;
+}
+
+#define DEC_OPS(power, firmware, rate, flush) \
+    .sensorPower = power, \
+    .sensorFirmwareUpload = firmware, \
+    .sensorSetRate = rate, \
+    .sensorFlush = flush
+
+#define DEC_OPS_SEND(power, firmware, rate, flush, send) \
+    DEC_OPS(power, firmware, rate, flush), \
+    .sensorSendOneDirectEvt = send
+
+#define DEC_OPS_CAL_CFG(power, firmware, rate, flush, cal, cfg) \
+    DEC_OPS(power, firmware, rate, flush), \
+    .sensorCalibrate = cal, \
+    .sensorCfgData = cfg
+
+#define DEC_OPS_CFG(power, firmware, rate, flush, cfg) \
+    DEC_OPS(power, firmware, rate, flush), \
+    .sensorCfgData = cfg
+
 static const struct SensorOps mSensorOps[NUM_OF_SENSOR] =
 {
-    {accPower, accFirmwareUpload, accSetRate, accFlush, NULL, accCalibration, NULL},
-    {gyrPower, gyrFirmwareUpload, gyrSetRate, gyrFlush, NULL, gyrCalibration, NULL},
-    {magPower, magFirmwareUpload, magSetRate, magFlush, NULL, NULL, NULL},
-    {stepPower, stepFirmwareUpload, stepSetRate, stepFlush, NULL, NULL, NULL},
-    {doubleTapPower, doubleTapFirmwareUpload, doubleTapSetRate, doubleTapFlush, NULL, NULL, NULL},
-    {flatPower, flatFirmwareUpload, flatSetRate, flatFlush, NULL, NULL, NULL},
-    {anyMotionPower, anyMotionFirmwareUpload, anyMotionSetRate, anyMotionFlush, NULL, NULL, NULL},
-    {noMotionPower, noMotionFirmwareUpload, noMotionSetRate, noMotionFlush, NULL, NULL, NULL},
-    {stepCntPower, stepCntFirmwareUpload, stepCntSetRate, stepCntFlush, NULL, NULL, stepCntSendLastData},
+    { DEC_OPS_CAL_CFG(accPower, accFirmwareUpload, accSetRate, accFlush, accCalibration, accCfgData) },
+    { DEC_OPS_CAL_CFG(gyrPower, gyrFirmwareUpload, gyrSetRate, gyrFlush, gyrCalibration, gyrCfgData) },
+    { DEC_OPS_CFG(magPower, magFirmwareUpload, magSetRate, magFlush, magCfgData) },
+    { DEC_OPS(stepPower, stepFirmwareUpload, stepSetRate, stepFlush) },
+    { DEC_OPS(doubleTapPower, doubleTapFirmwareUpload, doubleTapSetRate, doubleTapFlush) },
+    { DEC_OPS(flatPower, flatFirmwareUpload, flatSetRate, flatFlush) },
+    { DEC_OPS(anyMotionPower, anyMotionFirmwareUpload, anyMotionSetRate, anyMotionFlush) },
+    { DEC_OPS(noMotionPower, noMotionFirmwareUpload, noMotionSetRate, noMotionFlush) },
+    { DEC_OPS_SEND(stepCntPower, stepCntFirmwareUpload, stepCntSetRate, stepCntFlush, stepCntSendLastData) },
 };
 
 static void configEvent(struct BMI160Sensor *mSensor, struct ConfigStat *ConfigData)
@@ -1984,6 +2114,12 @@ static void processPendingEvt(void)
         stepCntFlushGetData();
         return;
     }
+    if (mTask.pending_calibration_save) {
+        mTask.pending_calibration_save = false;
+        saveCalibration();
+        return;
+    }
+
 }
 
 static void sensorInit(void)
@@ -2036,7 +2172,9 @@ static void sensorInit(void)
         SPI_WRITE(BMI160_REG_PMU_TRIGGER, 0x00, 450);
 
         // tell gyro and accel to NOT use the FOC offset.
-        SPI_WRITE(BMI160_REG_OFFSET_6, 0x00, 450);
+        mTask.sensors[ACC].offset_enable = false;
+        mTask.sensors[GYR].offset_enable = false;
+        SPI_WRITE(BMI160_REG_OFFSET_6, offset6Mode(), 450);
 
         // initial range for accel (+-8g) and gyro (+-2000 degree).
         SPI_WRITE(BMI160_REG_ACC_RANGE, 0x08, 450);
@@ -2300,6 +2438,11 @@ static void handleSpiDoneEvt(const void* evtData)
         mTask.state = SENSOR_IDLE;
         processPendingEvt();
         break;
+    case SENSOR_SAVE_CALIBRATION:
+        osLog(LOG_INFO, "SENSOR_SAVE_CALIBRATION: %02x %02x %02x %02x %02x %02x %02x\n", mTask.rxBuffer[1], mTask.rxBuffer[2], mTask.rxBuffer[3], mTask.rxBuffer[4], mTask.rxBuffer[5], mTask.rxBuffer[6], mTask.rxBuffer[7]);
+        mTask.state = SENSOR_IDLE;
+        processPendingEvt();
+        break;
     default:
         break;
     }
@@ -2308,6 +2451,7 @@ static void handleSpiDoneEvt(const void* evtData)
 static void handleEvent(uint32_t evtType, const void* evtData)
 {
     uint64_t currTime;
+    float bias_delta_x;
 
     switch (evtType) {
     case EVT_APP_START:
@@ -2321,6 +2465,13 @@ static void handleEvent(uint32_t evtType, const void* evtData)
             break;
         }
         /* We have already been powered on long enough - fall through */
+    case EVT_APP_FROM_HOST:
+        bias_delta_x = mTask.last_charging_bias_x - *(const float *)evtData;
+        mTask.last_charging_bias_x = *(const float *)evtData;
+        magCalAddBias(&mTask.moc, bias_delta_x, 0.0, 0.0);
+        mTask.magBiasPosted = false;
+        break;
+
     case EVT_SPI_DONE:
         handleSpiDoneEvt(evtData);
         break;

@@ -271,6 +271,13 @@ void magCalGetBias(struct MagCal *moc, float *x, float *y, float *z)
     *z = moc->z_bias;
 }
 
+void magCalAddBias(struct MagCal *moc, float x, float y, float z)
+{
+    moc->x_bias += x;
+    moc->y_bias += y;
+    moc->z_bias += z;
+}
+
 void magCalRemoveBias(struct MagCal *moc, float xi, float yi, float zi,
                          float *xo, float *yo, float *zo)
 {
