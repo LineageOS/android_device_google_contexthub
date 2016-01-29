@@ -260,6 +260,7 @@ static AppSecErr appSecProcessIncomingData(struct AppSecState *state)
 
 static AppSecErr appSecProcessIncomingSigData(struct AppSecState *state)
 {
+    uint32_t rsaStateVar1, rsaStateVar2, rsaStep = 0;
     const uint32_t *result;
 
     //if we're RXing the hash, just stash it away and move on
@@ -286,7 +287,9 @@ static AppSecErr appSecProcessIncomingSigData(struct AppSecState *state)
     }
 
     //we now have the pubKey. decrypt.
-    result = rsaPubOp(&state->rsa, state->rsaTmp, state->dataWords);
+    do {
+        result = rsaPubOpIterative(&state->rsa, state->rsaTmp, state->dataWords, &rsaStateVar1, &rsaStateVar2, &rsaStep);
+    } while (rsaStep);
 
     //verify signature padding (and thus likely: correct decrption)
     result = BL.blSigPaddingVerify(result);
