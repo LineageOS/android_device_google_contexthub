@@ -225,6 +225,16 @@ static void firmwareErase(void *cookie)
     }
 }
 
+static AppSecErr giveAppSecTimeIfNeeded(struct AppSecState *state, AppSecErr prevRet)
+{
+    /* XXX: this will need to go away for real asynchronicity */
+
+    while (prevRet == APP_SEC_NEED_MORE_TIME)
+        prevRet = appSecDoSomeProcessing(state);
+
+    return prevRet;
+}
+
 static uint8_t firmwareFinish(bool valid)
 {
     uint8_t buffer[7];
@@ -236,6 +246,7 @@ static uint8_t firmwareFinish(bool valid)
     AppSecErr ret;
 
     ret = appSecRxDataOver(mDownloadState->appSecState);
+    ret = giveAppSecTimeIfNeeded(mDownloadState->appSecState, ret);
 
     if (ret == APP_SEC_NO_ERROR && valid && mDownloadState->type == BL_FLASH_APP_ID) {
         app = (const struct AppHdr *)&mDownloadState->start[4];
@@ -302,8 +313,20 @@ static void firmwareWrite(void *cookie)
 {
     AppSecErr ret;
 
-    if (mDownloadState->type == BL_FLASH_APP_ID)
-        ret = appSecRxData(mDownloadState->appSecState, mDownloadState->data, mDownloadState->len);
+    if (mDownloadState->type == BL_FLASH_APP_ID) {
+        /* XXX: this will need to change for real asynchronicity */
+        const uint8_t *data = mDownloadState->data;
+        uint32_t len = mDownloadState->len, lenLeft;
+        ret = APP_SEC_NO_ERROR;
+
+        while (len) {
+            ret = appSecRxData(mDownloadState->appSecState, data, len, &lenLeft);
+            data += len - lenLeft;
+            len = lenLeft;
+
+            ret = giveAppSecTimeIfNeeded(mDownloadState->appSecState, ret);
+        }
+    }
     else
         ret = writeCbk(mDownloadState->data, mDownloadState->len);
 
