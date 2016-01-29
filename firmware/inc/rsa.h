@@ -39,12 +39,13 @@ struct RsaState {
 };
 
 //DO NOT CALL THESE DIRECTLY, IT WILL BREAK!
-//calculate a ^ 65537 mod c, where a and c are each exactly RSA_LEN bits long, result is only valid as long as state is. state needs no init
-const uint32_t* _rsaPubOp(struct RsaState* state, const uint32_t *a, const uint32_t *c);
+//calculate a ^ 65537 mod c, where a and c are each exactly RSA_LEN bits long, result is only valid as long as state is. state needs no init, set state to 0 at start, call till it is zero on return
+const uint32_t* _rsaPubOpIterative(struct RsaState* state, const uint32_t *a, const uint32_t *c, uint32_t *state1, uint32_t *state2, uint32_t *stepP);
 
 #if defined(RSA_SUPPORT_PRIV_OP_LOWRAM) || defined (RSA_SUPPORT_PRIV_OP_BIGRAM)
 //calculate a ^ b mod c, where a and c are each exactly RSA_LEN bits long, result is only valid as long as state is. state needs no init
 const uint32_t* _rsaPrivOp(struct RsaState* state, const uint32_t *a, const uint32_t *b, const uint32_t *c);
+const uint32_t* _rsaPubOp(struct RsaState* state, const uint32_t *a, const uint32_t *c);
 
 #ifdef ARM
 #error "RSA private ops should never be compiled into firmware. You *ARE* doing something wrong! Stop!"
@@ -53,9 +54,9 @@ const uint32_t* _rsaPrivOp(struct RsaState* state, const uint32_t *a, const uint
 #endif
 
 #ifndef HOST_BUILD
-static inline const uint32_t* rsaPubOp(struct RsaState* state, const uint32_t *a, const uint32_t *c)
+static inline const uint32_t* rsaPubOpIterative(struct RsaState* state, const uint32_t *a, const uint32_t *c, uint32_t *state1, uint32_t *state2, uint32_t *stepP)
 {
-    return BL.blRsaPubOp(state, a, c);
+    return BL.blRsaPubOpIterative(state, a, c, state1, state2, stepP);
 }
 #endif //HOST_BUILD
 
