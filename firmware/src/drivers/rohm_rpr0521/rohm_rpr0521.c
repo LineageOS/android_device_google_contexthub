@@ -439,19 +439,21 @@ static void handle_i2c_event(int state)
             break;
         }
 
+        mData.txrxBuf.bytes[0] = ROHM_RPR0521_REG_ALS_PS_CONTROL;
+
         /* ALS gain and LED current */
-        mData.txrxBuf.bytes[0] = (ROHM_RPR0521_GAIN_ALS0 << 4) |
+        mData.txrxBuf.bytes[1] = (ROHM_RPR0521_GAIN_ALS0 << 4) |
                           (ROHM_RPR0521_GAIN_ALS1 << 2) |
                           ROHM_RPR0521_LED_CURRENT_100MA;
         /* PS gain */
-        mData.txrxBuf.bytes[1] = (ROHM_RPR0521_GAIN_PS << 4) | 0x1;
+        mData.txrxBuf.bytes[2] = (ROHM_RPR0521_GAIN_PS << 4) | 0x1;
 
-        i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mData.txrxBuf.bytes, 2,
+        i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mData.txrxBuf.bytes, 3,
                           &i2cCallback, (void *)SENSOR_STATE_INIT);
         break;
 
     case SENSOR_STATE_INIT:
-        /* Start register */
+        /* Offset register */
         mData.txrxBuf.bytes[0] = ROHM_RPR0521_REG_PS_OFFSET_LSB;
         mData.txrxBuf.bytes[1] = ROHM_RPR0521_CAL_DEFAULT_OFFSET & 0xff;
         mData.txrxBuf.bytes[2] = (ROHM_RPR0521_CAL_DEFAULT_OFFSET >> 8) & 0x3;
