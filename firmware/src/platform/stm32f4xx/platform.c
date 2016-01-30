@@ -104,6 +104,7 @@ static uint64_t mWakeupTime = 0;
 static uint32_t mDevsMaxWakeTime[PLAT_MAX_SLEEP_DEVS] = {0,};
 static struct Gpio *mShWakeupGpio;
 static struct ChainedIsr mShWakeupIsr;
+static bool mWakeActive;
 
 
 void platUninitialize(void)
@@ -177,10 +178,17 @@ static bool platWakeupIsr(struct ChainedIsr *isr)
 
     extiClearPendingGpio(mShWakeupGpio);
 
-    if (gpioGet(mShWakeupGpio) == 0)
+    if (!gpioGet(mShWakeupGpio)) {
         hostIntfSetInterrupt(NANOHUB_INT_WAKE_COMPLETE);
-    else
-        platReleaseDevInSleepMode(Stm32sleepWakeup);
+        if (mWakeActive)
+            hostIntfRxPacket();
+        mWakeActive = true;
+    } else {
+        hostIntfClearInterrupt(NANOHUB_INT_WAKE_COMPLETE);
+        if (mWakeActive)
+            hostIntfRxPacket();
+        mWakeActive = false;
+    }
 
     return true;
 }
