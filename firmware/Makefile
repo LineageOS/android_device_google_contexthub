@@ -18,6 +18,7 @@
 PLATFORM ?= stm32f4xx
 CPU ?= cortexm4f
 VARIANT ?= lunchbox
+DEBUG ?= -DDEBUG
 
 APP = nanohub
 
@@ -44,8 +45,8 @@ endif
 MAKE_VAR = $(LINK_PATH_MISC)/Makefile
 
 #top make target
-SRCS := 
-DELIVERABLES := 
+SRCS :=
+DELIVERABLES :=
 real: all
 
 #include makefiles for plat and cpu
@@ -57,11 +58,11 @@ FLAGS += -Wall -Werror -Iinc -Ilinks -Iexternal/freebsd/inc -fshort-double
 #help avoid commmon embedded C mistakes
 FLAGS += -Wmissing-declarations -Wlogical-op -Waddress -Wempty-body -Wpointer-arith -Wenum-compare -Wdouble-promotion -Wfloat-equal -Wshadow -fno-strict-aliasing
 
-OSFLAGS += -g -ggdb3 -D_OS_BUILD_ -O2 
+OSFLAGS += -g -ggdb3 -D_OS_BUILD_ -O2
 APPFLAGS += -Os
 
 #debug mode
-FLAGS += -DDEBUG
+FLAGS += $(DEBUG)
 
 #frameworks
 SRCS += src/printf.c src/timer.c src/seos.c src/heap.c src/slab.c src/spi.c src/trylock.c
