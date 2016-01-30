@@ -24,15 +24,17 @@
  * System-facing hostIntf API
  */
 
-#define MAX_INTERRUPTS      256
+#define HOSTINTF_MAX_INTERRUPTS     256
 
-void hostIntfCopyClearInterrupts(struct AtomicBitset *dst, uint32_t numBits);
+void hostIntfCopyInterrupts(void *dst, uint32_t numBits);
+void hostIntfClearInterrupts();
 void hostIntfSetInterrupt(uint32_t bit);
-void hostInfClearInterrupt(uint32_t bit);
+void hostIntfClearInterrupt(uint32_t bit);
 void hostIntfSetInterruptMask(uint32_t bit);
-void hostInfClearInterruptMask(uint32_t bit);
+void hostIntfClearInterruptMask(uint32_t bit);
 void hostIntfPacketFree(void *ptr);
 bool hostIntfPacketDequeue(void *ptr);
 void hostIntfSetBusy(bool busy);
+void hostIntfRxPacket();
 
 #endif /* __HOSTINTF_H */

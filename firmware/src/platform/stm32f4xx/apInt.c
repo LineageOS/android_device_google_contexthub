@@ -18,6 +18,9 @@
 #include <gpio.h>
 #include <variant/inc/variant.h>
 #include <plat/inc/gpio.h>
+#include <seos.h>
+#include <platform.h>
+#include <plat/inc/plat.h>
 
 static struct Gpio *apIntWkup;
 #ifdef AP_INT_NONWAKEUP
@@ -37,8 +40,10 @@ void apIntInit()
 
 void apIntSet(bool wakeup)
 {
-    if (wakeup)
+    if (wakeup) {
+        platRequestDevInSleepMode(Stm32sleepWakeup, 12);
         gpioSet(apIntWkup, 0);
+    }
 #ifdef AP_INT_NONWAKEUP
     else
         gpioSet(apIntNonWkup, 0);
@@ -47,8 +52,10 @@ void apIntSet(bool wakeup)
 
 void apIntClear(bool wakeup)
 {
-    if (wakeup)
+    if (wakeup) {
+        platReleaseDevInSleepMode(Stm32sleepWakeup);
         gpioSet(apIntWkup, 1);
+    }
 #ifdef AP_INT_NONWAKEUP
     else
         gpioSet(apIntNonWkup, 1);

@@ -59,7 +59,7 @@ static struct DownloadState
     bool     erase;
 } *mDownloadState;
 
-static size_t getOsHwVersion(void *rx, uint8_t rx_len, void *tx, uint64_t timestamp)
+static uint32_t getOsHwVersion(void *rx, uint8_t rx_len, void *tx, uint64_t timestamp)
 {
     struct NanohubOsHwVersionsResponse *resp = tx;
     resp->hwType = htole16(platHwType());
@@ -71,7 +71,7 @@ static size_t getOsHwVersion(void *rx, uint8_t rx_len, void *tx, uint64_t timest
     return sizeof(*resp);
 }
 
-static size_t getAppVersion(void *rx, uint8_t rx_len, void *tx, uint64_t timestamp)
+static uint32_t getAppVersion(void *rx, uint8_t rx_len, void *tx, uint64_t timestamp)
 {
     struct NanohubAppVersionsRequest *req = rx;
     struct NanohubAppVersionsResponse *resp = tx;
@@ -85,7 +85,7 @@ static size_t getAppVersion(void *rx, uint8_t rx_len, void *tx, uint64_t timesta
     return 0;
 }
 
-static size_t queryAppInfo(void *rx, uint8_t rx_len, void *tx, uint64_t timestamp)
+static uint32_t queryAppInfo(void *rx, uint8_t rx_len, void *tx, uint64_t timestamp)
 {
     struct NanohubAppInfoRequest *req = rx;
     struct NanohubAppInfoResponse *resp = tx;
@@ -171,7 +171,7 @@ static void resetDownloadState()
     mDownloadState->dstOffset = 4; // skip over header
 }
 
-static size_t startFirmwareUpload(void *rx, uint8_t rx_len, void *tx, uint64_t timestamp)
+static uint32_t startFirmwareUpload(void *rx, uint8_t rx_len, void *tx, uint64_t timestamp)
 {
     struct NanohubStartFirmwareUploadRequest *req = rx;
     struct NanohubStartFirmwareUploadResponse *resp = tx;
@@ -326,7 +326,7 @@ static void firmwareWrite(void *cookie)
     hostIntfSetBusy(false);
 }
 
-static size_t firmwareChunk(void *rx, uint8_t rx_len, void *tx, uint64_t timestamp)
+static uint32_t firmwareChunk(void *rx, uint8_t rx_len, void *tx, uint64_t timestamp)
 {
     uint32_t offset;
     uint8_t len;
@@ -364,18 +364,25 @@ static size_t firmwareChunk(void *rx, uint8_t rx_len, void *tx, uint64_t timesta
     return sizeof(*resp);
 }
 
-static size_t getInterrupt(void *rx, uint8_t rx_len, void *tx, uint64_t timestamp)
+static uint32_t getInterrupt(void *rx, uint8_t rx_len, void *tx, uint64_t timestamp)
 {
+    struct NanohubGetInterruptRequest *req = rx;
     struct NanohubGetInterruptResponse *resp = tx;
-    ATOMIC_BITSET_DECL(interrupts, MAX_INTERRUPTS,);
+    int i;
 
-    hostIntfCopyClearInterrupts(interrupts, MAX_INTERRUPTS);
-    memcpy(resp->interrupts, interrupts->words, sizeof(resp->interrupts));
+    if (rx_len == sizeof(struct NanohubGetInterruptRequest)) {
+        for (i = 0; i < HOSTINTF_MAX_INTERRUPTS; i++) {
+            if (req->clear[i/32] & (1UL << (i & 31)))
+                hostIntfClearInterrupt(i);
+        }
+    }
+
+    hostIntfCopyInterrupts(resp->interrupts, HOSTINTF_MAX_INTERRUPTS);
 
     return sizeof(*resp);
 }
 
-static size_t maskInterrupt(void *rx, uint8_t rx_len, void *tx, uint64_t timestamp)
+static uint32_t maskInterrupt(void *rx, uint8_t rx_len, void *tx, uint64_t timestamp)
 {
     struct NanohubMaskInterruptRequest *req = rx;
     struct NanohubMaskInterruptResponse *resp = tx;
@@ -386,12 +393,12 @@ static size_t maskInterrupt(void *rx, uint8_t rx_len, void *tx, uint64_t timesta
     return sizeof(*resp);
 }
 
-static size_t unmaskInterrupt(void *rx, uint8_t rx_len, void *tx, uint64_t timestamp)
+static uint32_t unmaskInterrupt(void *rx, uint8_t rx_len, void *tx, uint64_t timestamp)
 {
     struct NanohubUnmaskInterruptRequest *req = rx;
     struct NanohubUnmaskInterruptResponse *resp = tx;
 
-    hostInfClearInterruptMask(req->interrupt);
+    hostIntfClearInterruptMask(req->interrupt);
 
     resp->accepted = true;
     return sizeof(*resp);
@@ -455,7 +462,7 @@ static uint64_t getAvgDelta(struct TimeSync *sync)
     return sync->avgDelta;
 }
 
-static size_t readEvent(void *rx, uint8_t rx_len, void *tx, uint64_t timestamp)
+static uint32_t readEvent(void *rx, uint8_t rx_len, void *tx, uint64_t timestamp)
 {
     struct NanohubReadEventRequest *req = rx;
     struct NanohubReadEventResponse *resp = tx;
@@ -481,13 +488,15 @@ static size_t readEvent(void *rx, uint8_t rx_len, void *tx, uint64_t timestamp)
                 packet->timestamp += getAvgDelta(&timeSync);
         }
     } else {
+        hostIntfClearInterrupt(NANOHUB_INT_WAKEUP);
+        hostIntfClearInterrupt(NANOHUB_INT_NONWAKEUP);
         length = 0;
     }
 
     return length;
 }
 
-static size_t writeEvent(void *rx, uint8_t rx_len, void *tx, uint64_t timestamp)
+static uint32_t writeEvent(void *rx, uint8_t rx_len, void *tx, uint64_t timestamp)
 {
     struct NanohubWriteEventRequest *req = rx;
     struct NanohubWriteEventResponse *resp = tx;
@@ -502,7 +511,7 @@ static size_t writeEvent(void *rx, uint8_t rx_len, void *tx, uint64_t timestamp)
             if (!packet) {
                 resp->accepted = false;
             } else {
-                memcpy(packet, rawPacket+1, rawPacket->dataLen);
+                memcpy(packet, rawPacket + 1, rawPacket->dataLen);
                 resp->accepted = osEnqueuePrivateEvt(EVT_APP_FROM_HOST, packet, heapFree, tid);
                 if (!resp->accepted)
                     heapFree(packet);
@@ -548,7 +557,7 @@ const static struct NanohubCommand mBuiltinCommands[] = {
                 struct NanohubFirmwareChunkRequest),
         NANOHUB_COMMAND(NANOHUB_REASON_GET_INTERRUPT,
                 getInterrupt,
-                struct NanohubGetInterruptRequest,
+                0,
                 struct NanohubGetInterruptRequest),
         NANOHUB_COMMAND(NANOHUB_REASON_MASK_INTERRUPT,
                 maskInterrupt,
@@ -570,7 +579,7 @@ const static struct NanohubCommand mBuiltinCommands[] = {
 
 const struct NanohubCommand *nanohubFindCommand(uint32_t packetReason)
 {
-    size_t i;
+    uint32_t i;
 
     for (i = 0; i < ARRAY_SIZE(mBuiltinCommands); i++) {
         const struct NanohubCommand *cmd = &mBuiltinCommands[i];
