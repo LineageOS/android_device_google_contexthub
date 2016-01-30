@@ -23,7 +23,6 @@ static uint8_t gBusId;
 static struct SpiDevice *gSpi;
 
 static void *gRxBuf;
-static size_t gRxSize;
 static size_t gTxSize;
 
 static struct SpiPacket gPacket;
@@ -49,24 +48,6 @@ static void hostIntfSpiTxCallback(void *cookie, int err)
     callback(gTxSize, err);
 }
 
-static void hostIntfSpiInactiveCallback(void *cookie, int err)
-{
-    HostIntfCommCallbackF callback = cookie;
-
-    if (err < 0) {
-        callback(0, err);
-        return;
-    }
-
-    gPacket.rxBuf = gRxBuf;
-    gPacket.txBuf = NULL;
-    gPacket.size = gRxSize;
-
-    err = spiSlaveRxTx(gSpi, &gPacket, 1, hostIntfSpiRxCallback, callback);
-    if (err < 0)
-        callback(0, err);
-}
-
 static int hostIntfSpiRequest()
 {
     return spiSlaveRequest(gBusId, &gSpiMode, &gSpi);
@@ -75,9 +56,17 @@ static int hostIntfSpiRequest()
 static int hostIntfSpiRxPacket(void *rxBuf, size_t rxSize,
         HostIntfCommCallbackF callback)
 {
-    gRxBuf = rxBuf;
-    gRxSize = rxSize;
-    return spiSlaveWaitForInactive(gSpi, hostIntfSpiInactiveCallback, callback);
+    int err;
+
+    gPacket.rxBuf = gRxBuf = rxBuf;
+    gPacket.txBuf = NULL;
+    gPacket.size = rxSize;
+
+    err = spiSlaveRxTx(gSpi, &gPacket, 1, hostIntfSpiRxCallback, callback);
+    if (err < 0)
+        callback(0, err);
+
+    return 0;
 }
 
 static int hostIntfSpiTxPacket(const void *txBuf, size_t txSize,

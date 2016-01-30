@@ -27,7 +27,7 @@ static const struct StmSpiBoardCfg mStmSpiBoardCfgs[] = {
         .gpioFunc = GPIO_AF_SPI1,
         .gpioSpeed = GPIO_SPEED_MEDIUM,
 
-        .irqNss = EXTI4_IRQn,
+        .irqNss = -1,
 
         .dmaRx = SPI1_DMA_RX_CFG_B,
         .dmaTx = SPI1_DMA_TX_CFG_B,

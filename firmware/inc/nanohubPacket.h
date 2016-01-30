@@ -150,10 +150,11 @@ struct NanohubFirmwareChunkResponse {
 #define NANOHUB_REASON_GET_INTERRUPT          0x00001080
 
 struct NanohubGetInterruptRequest {
+    uint32_t clear[HOSTINTF_MAX_INTERRUPTS/(32*sizeof(uint8_t))];
 } __attribute__((packed));
 
 struct NanohubGetInterruptResponse {
-    uint8_t interrupts[MAX_INTERRUPTS/(8*sizeof(uint8_t))];
+    uint32_t interrupts[HOSTINTF_MAX_INTERRUPTS/(32*sizeof(uint8_t))];
 } __attribute__ ((packed));
 
 #define NANOHUB_REASON_MASK_INTERRUPT         0x00001081
