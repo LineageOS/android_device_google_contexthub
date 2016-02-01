@@ -340,7 +340,8 @@ AppSecErr appSecRxData(struct AppSecState *state, const void *dataP, uint32_t le
     if (state->curState == STATE_INIT)
         state->curState = STATE_RXING_HEADERS;
 
-    while (len--) {
+    while (len) {
+        len--;
         state->dataBytes[state->haveBytes++] = *data++;
         switch (state->curState) {
 
@@ -397,6 +398,7 @@ AppSecErr appSecRxData(struct AppSecState *state, const void *dataP, uint32_t le
         default:
             state->curState = STATE_BAD;
             state->haveBytes = 0;
+            *lenUnusedP = 0;
             return APP_SEC_BAD;
         }
     }
