@@ -16,12 +16,14 @@
 
 #define SECURITY_API_IN_BOOTLOADER
 #include <plat/inc/cmsis.h>
+#include <plat/inc/gpio.h>
 #include <plat/inc/pwr.h>
 #include <plat/inc/bl.h>
 #include <alloca.h>
 #include <aes.h>
 #include <sha2.h>
 #include <rsa.h>
+#include <variant/inc/variant.h>
 
 
 struct StmCrc
@@ -79,13 +81,33 @@ struct StmUdid
     volatile uint32_t U_ID[3];
 };
 
+struct StmSpi {
+    volatile uint32_t CR1;
+    volatile uint32_t CR2;
+    volatile uint32_t SR;
+    volatile uint32_t DR;
+    volatile uint32_t CRCPR;
+    volatile uint32_t RXCRCR;
+    volatile uint32_t TXCRCR;
+    volatile uint32_t I2SCFGR;
+    volatile uint32_t I2SPR;
+};
+
+struct StmGpio {
+    volatile uint32_t MODER;
+    volatile uint32_t OTYPER;
+    volatile uint32_t OSPEEDR;
+    volatile uint32_t PUPDR;
+    volatile uint32_t IDR;
+    volatile uint32_t ODR;
+    volatile uint32_t BSRR;
+    volatile uint32_t LCKR;
+    volatile uint32_t AFR[2];
+};
+
+//stm defines
 #define BL_MAX_FLASH_CODE   1024
 
-#define STM32F4_CRC_RESIDUE 0xC704DD7B
-
-#define UDID_BASE           0x1FFF7A10
-
-#define CRC_CR_RESET        0x00000001
 
 #define FLASH_ACR_LAT(x)    ((x) & FLASH_ACR_LAT_MASK)
 #define FLASH_ACR_LAT_MASK  0x0F
@@ -122,36 +144,74 @@ struct StmUdid
 #define FLASH_CR_ERRIE      0x02000000
 #define FLASH_CR_LOCK       0x80000000
 
-typedef void (*flashErase)(volatile uint32_t *, uint32_t, volatile uint32_t *);
-typedef void (*flashWrite)(volatile uint8_t *, uint8_t, volatile uint32_t *);
+//for comms protocol
+#define BL_SYNC_IN                      0x5A
+#define BL_ACK                          0x79
+#define BL_NAK                          0x1F
+
+#define BL_CMD_GET                      0x00
+#define BL_CMD_READ_MEM                 0x11
+#define BL_CMD_WRITE_MEM                0x31
+#define BL_CMD_ERASE                    0x44
+#define BL_CMD_GET_SIZES                0xEE /* our own command. reports: {u32 osSz, u32 sharedSz, u32 eeSz} all in big endian */
+#define BL_CMD_UPDATE_FINISHED          0xEF /* our own command. attempts to verify the update -> ACK/NAK. MUST be called after upload to mark it as completed */
+
+#define BL_SHARED_AREA_FAKE_ERASE_BLK   0xFFF0
+#define BL_SHARED_AREA_FAKE_ADDR        0x50000000
+
+
+typedef void (*FlashEraseF)(volatile uint32_t *, uint32_t, volatile uint32_t *);
+typedef void (*FlashWriteF)(volatile uint8_t *, uint8_t, volatile uint32_t *);
 
 //linker provides these
-extern char __stack_top[];
-extern char __ram_start[];
-extern char __ram_end[];
-extern char __eedata_start[];
-extern char __eedata_end[];
-extern char __code_start[];
-extern char __code_end[];
-extern char __shared_start[];
-extern char __shared_end[];
+extern uint32_t __pubkeys_start[];
+extern uint32_t __pubkeys_end[];
+extern uint8_t __stack_top[];
+extern uint8_t __ram_start[];
+extern uint8_t __ram_end[];
+extern uint8_t __eedata_start[];
+extern uint8_t __eedata_end[];
+extern uint8_t __code_start[];
+extern uint8_t __code_end[];
+extern uint8_t __shared_start[];
+extern uint8_t __shared_end[];
 extern void __VECTORS();
 
-void BOOTLOADER __blEntry(void);
-static void BOOTLOADER __blCopyShared(void);
-static int BOOTLOADER __blProgramFlash(uint8_t *, uint8_t *, uint32_t, uint32_t, uint32_t);
-static uint32_t BOOTLOADER __blCrcCont(uint8_t *, unsigned int);
-static uint32_t BOOTLOADER __blCrc(uint8_t *, unsigned int);
-static void BOOTLOADER __blEraseSectors(uint32_t, uint8_t *);
-static void BOOTLOADER __blWriteBytes(uint8_t *, uint8_t *, uint32_t);
-static int BOOTLOADER __blCompareBytes(uint8_t *, uint8_t *, uint32_t);
+//make GCC happy
+BOOTLOADER void __blEntry(void);
 
-static inline int BOOTLOADER __blPad(int length)
+enum BlFlashType
 {
-    return (length + 3) & ~3;
-}
+    BL_FLASH_BL,
+    BL_FLASH_EEDATA,
+    BL_FLASH_KERNEL,
+    BL_FLASH_SHARED
+};
 
-static inline uint32_t BOOTLOADER __blDisableInts(void)
+BOOTLOADER_RO
+static const struct blFlashTable   // For erase code, we need to know which page a given memory address is in
+{
+    uint8_t *address;
+    uint32_t length;
+    uint32_t type;
+} mBlFlashTable[] =
+{
+    { (uint8_t *)(&BL),                      0x04000, BL_FLASH_BL     },
+    { (uint8_t *)(__eedata_start),           0x04000, BL_FLASH_EEDATA },
+    { (uint8_t *)(__eedata_start + 0x04000), 0x04000, BL_FLASH_EEDATA },
+    { (uint8_t *)(__code_start),             0x04000, BL_FLASH_KERNEL },
+    { (uint8_t *)(__code_start + 0x04000),   0x10000, BL_FLASH_KERNEL },
+    { (uint8_t *)(__shared_start),           0x20000, BL_FLASH_SHARED },
+    { (uint8_t *)(__shared_start + 0x20000), 0x20000, BL_FLASH_SHARED },
+    { (uint8_t *)(__shared_start + 0x40000), 0x20000, BL_FLASH_SHARED },
+};
+
+static const char BOOTLOADER_RO mOsUpdateMagic[] = OS_UPDT_MAGIC;
+
+
+
+BOOTLOADER
+static inline uint32_t blDisableInts(void)
 {
     uint32_t state;
 
@@ -164,7 +224,8 @@ static inline uint32_t BOOTLOADER __blDisableInts(void)
     return state;
 }
 
-static inline void BOOTLOADER __blRestoreInts(uint32_t state)
+BOOTLOADER
+static inline void blRestoreInts(uint32_t state)
 {
     asm volatile(
         "msr PRIMASK, %0   \n"
@@ -172,145 +233,32 @@ static inline void BOOTLOADER __blRestoreInts(uint32_t state)
     );
 }
 
-void BOOTLOADER __blEntry(void)
-{
-    uint32_t appBase = ((uint32_t)&__VECTORS) & ~1;
-
-    //make sure we're the vector table and no ints happen (BL does not use them)
-    __blDisableInts();
-    SCB->VTOR = (uint32_t)&BL;
-
-    __blCopyShared();
-
-    //call main app with ints off
-    __blDisableInts();
-    SCB->VTOR = appBase;
-    asm volatile(
-        "LDR SP, [%0, #0]    \n"
-        "LDR PC, [%0, #4]    \n"
-        :
-        :"r"(appBase)
-        :"memory", "cc"
-    );
-
-    //we should never return here
-    while(1);
-}
-
-static uint32_t BOOTLOADER __blVersion(void)
+BOOTLOADER
+static uint32_t blExtApiGetVersion(void)
 {
     return BL_VERSION_CUR;
 }
 
-static void BOOTLOADER __blReboot(void)
+BOOTLOADER
+static void blExtApiReboot(void)
 {
     SCB->AIRCR = 0x05FA0004;
     //we never get here
     while(1);
 }
 
-static void BOOTLOADER __blGetSnum(uint32_t *snum, uint8_t length)
+BOOTLOADER
+static void blExtApiGetSnum(uint32_t *snum, uint32_t length)
 {
     struct StmUdid *reg = (struct StmUdid *)UDID_BASE;
-    int i;
+    uint32_t i;
 
     if (length > 3)
         length = 3;
 
-    for (i=0; i<length; i++)
+    for (i = 0; i < length; i++)
         snum[i] = reg->U_ID[i];
 }
-
-static void BOOTLOADER __blCopyShared()
-{
-    struct StmRcc *rcc = (struct StmRcc *)RCC_BASE;
-    uint8_t *shared_start = (uint8_t *)&__shared_start;
-    uint8_t *shared_end = (uint8_t *)&__shared_end;
-    uint8_t *code_start = (uint8_t *)&__code_start;
-    uint8_t *code_end = (uint8_t *)&__code_end;
-    uint8_t *eedata_start = (uint8_t *)&__eedata_start;
-    uint8_t *eedata_end = (uint8_t *)&__eedata_end;
-    uint8_t *shared, *data, *dest = 0;
-    int len, total_len;
-    uint8_t id1, id2;
-    uint32_t crc, new_crc, old_crc;
-
-    /* enable crc clock */
-    rcc->AHB1ENR |= PERIPH_AHB1_CRC;
-
-    //copy shared to code and eedata
-    for (shared = shared_start;
-         shared < shared_end && shared[0] != 0xFF;
-         shared += total_len) {
-        id1 = shared[0] & 0x0F;
-        id2 = (shared[0] >> 4) & 0x0F;
-        len = (shared[1] << 16) | (shared[2] << 8) | shared[3];
-        total_len = sizeof(uint32_t) + __blPad(len) + sizeof(uint32_t);
-        data = &shared[4];
-
-        if (shared + total_len > shared_end)
-            break;
-
-        //skip over erased sections
-        if (id1 != id2)
-            continue;
-
-        if (id1 == BL_FLASH_KERNEL_ID || id1 == BL_FLASH_EEDATA_ID) {
-            crc = __blCrc(shared, total_len);
-            if (crc == STM32F4_CRC_RESIDUE) {
-                if (id1 == BL_FLASH_KERNEL_ID) {
-                    dest = code_start;
-                    if (dest + len > code_end)
-                        break;
-                } else if (id1 == BL_FLASH_EEDATA_ID) {
-                    dest = eedata_start;
-                    if (dest + len > eedata_end)
-                        break;
-                }
-
-                if (__blProgramFlash(dest, data, len, BL_FLASH_KEY1, BL_FLASH_KEY2) == 0) {
-                    old_crc = __blCrc(data, len);
-                    new_crc = __blCrc(dest, len);
-
-                    if (old_crc == new_crc) {
-                        // mark as erased by zero-ing the upper 4 bits
-                        uint8_t erased = id1;
-                        __blProgramFlash(shared, &erased, 1, BL_FLASH_KEY1, BL_FLASH_KEY2);
-                    }
-                }
-            }
-        }
-    }
-
-    /* disable crc clock */
-    rcc->AHB1ENR &= ~PERIPH_AHB1_CRC;
-}
-
-enum blFlashType
-{
-    BL_FLASH_BL,
-    BL_FLASH_EEDATA,
-    BL_FLASH_KERNEL,
-    BL_FLASH_SHARED
-};
-
-// For erase need to know which page a given memory address is in
-static const BOOTLOADER_RO struct blFlashTable
-{
-    uint8_t *address;
-    uint32_t length;
-    uint32_t type;
-} __blFlashTable[] =
-{
-    { (uint8_t *)(&BL),                      0x04000, BL_FLASH_BL     },
-    { (uint8_t *)(__eedata_start),           0x04000, BL_FLASH_EEDATA },
-    { (uint8_t *)(__eedata_start + 0x04000), 0x04000, BL_FLASH_EEDATA },
-    { (uint8_t *)(__code_start),             0x04000, BL_FLASH_KERNEL },
-    { (uint8_t *)(__code_start + 0x04000),   0x10000, BL_FLASH_KERNEL },
-    { (uint8_t *)(__shared_start),           0x20000, BL_FLASH_SHARED },
-    { (uint8_t *)(__shared_start + 0x20000), 0x20000, BL_FLASH_SHARED },
-    { (uint8_t *)(__shared_start + 0x40000), 0x20000, BL_FLASH_SHARED },
-};
 
 /*
  * Return the address of the erase code and the length of the code
@@ -323,13 +271,14 @@ static const BOOTLOADER_RO struct blFlashTable
  * erase and polls for completion (so we can copy it to ram) as well as the
  * length of the code (so we know how much space to allocate for it)
  *
- * void flashErase(volatile uint32_t *addr, uint32_t value, volatile uint32_t *status)
+ * void FlashEraseF(volatile uint32_t *addr, uint32_t value, volatile uint32_t *status)
  * {
  *     *addr = value;
  *     while (*status & FLASH_SR_BSY) ;
  * }
  */
-static void BOOTLOADER __attribute__((naked)) __blFlashEraseCode(uint16_t **addr, uint32_t *size)
+BOOTLOADER
+static void __attribute__((naked)) blGetFlashEraseCode(uint16_t **addr, uint32_t *size)
 {
     asm volatile (
         "  push {lr}          \n"
@@ -361,13 +310,14 @@ static void BOOTLOADER __attribute__((naked)) __blFlashEraseCode(uint16_t **addr
  * write and polls for completion (so we can copy it to ram) as well as the
  * length of the code (so we know how much space to allocate for it)
  *
- * void flashWrite(volatile uint8_t *addr, uint8_t value, volatile uint32_t *status)
+ * void FlashWriteF(volatile uint8_t *addr, uint8_t value, volatile uint32_t *status)
  * {
  *     *addr = value;
  *     while (*status & FLASH_SR_BSY) ;
  * }
  */
-static void BOOTLOADER __attribute__((naked)) __blFlashWriteCode(uint16_t **addr, uint32_t *size)
+BOOTLOADER
+static void __attribute__((naked)) blGetFlashWriteCode(uint16_t **addr, uint32_t *size)
 {
     asm volatile (
         "  push {lr}          \n"
@@ -388,125 +338,34 @@ static void BOOTLOADER __attribute__((naked)) __blFlashWriteCode(uint16_t **addr
     );
 }
 
-static int BOOTLOADER __blProgramFlash(uint8_t *dst, uint8_t *src,
-        uint32_t length, uint32_t key1, uint32_t key2)
+BOOTLOADER
+static bool blCompareBytes(const uint8_t *dst, const uint8_t *src, uint32_t length)
 {
-    struct StmFlash *flash = (struct StmFlash *)FLASH_BASE;
-    const uint32_t sector_cnt = sizeof(__blFlashTable) / sizeof(struct blFlashTable);
-    uint8_t erase_mask[sector_cnt];
-    uint8_t erase_cnt;
-    int offset, i, j;
-    uint8_t *ptr;
-    uint32_t acr_cache, cr_cache;
-    uint32_t int_state = 0;
+    while(length--)
+        if (*src++ != *dst++)
+            return false;
 
-    if (((length == 0)) ||
-        ((0xFFFFFFFF - (uint32_t)dst) < (length - 1)) ||
-        ((dst < __blFlashTable[0].address)) ||
-        ((dst + length) > (__blFlashTable[sector_cnt-1].address +
-                           __blFlashTable[sector_cnt-1].length))) {
-        return -1;
-    }
-
-    // disable interrupts
-    // otherwise an interrupt during flash write/erase will stall the processor
-    // until the write/erase completes
-    int_state = __blDisableInts();
-
-    // figure out which (if any) blocks we have to erase
-    for (i=0; i<sector_cnt; i++)
-        erase_mask[i] = 0;
-
-    // compute which flash block we are starting from
-    for (i=0; i<sector_cnt; i++) {
-        if (dst >= __blFlashTable[i].address &&
-            dst < (__blFlashTable[i].address + __blFlashTable[i].length)) {
-            break;
-        }
-    }
-
-    // now loop through all the flash blocks and see if we have to do any
-    // 0 -> 1 transitions of a bit. If so, we must erase that block
-    // 1 -> 0 transitions of a bit do not require an erase
-    offset = (uint32_t)(dst - __blFlashTable[i].address);
-    ptr = __blFlashTable[i].address;
-    j = 0;
-    erase_cnt = 0;
-    while (j<length && i<sector_cnt) {
-        if (offset == __blFlashTable[i].length) {
-            i ++;
-            offset = 0;
-            ptr = __blFlashTable[i].address;
-        }
-
-        if ((ptr[offset] & src[j]) != src[j]) {
-            erase_mask[i] = 1;
-            erase_cnt ++;
-            j += __blFlashTable[i].length - offset;
-            offset = __blFlashTable[i].length;
-        } else {
-            j ++;
-            offset ++;
-        }
-    }
-
-    // wait for flash to not be busy (should never be set at this point)
-    while (flash->SR & FLASH_SR_BSY) ;
-
-    cr_cache = flash->CR;
-
-    if (flash->CR & FLASH_CR_LOCK) {
-        // unlock flash
-        flash->KEYR = key1;
-        flash->KEYR = key2;
-    }
-
-    if (flash->CR & FLASH_CR_LOCK) {
-        // unlock failed, restore interrupts
-        __blRestoreInts(int_state);
-
-        return -1;
-    }
-
-    flash->CR = FLASH_CR_PSIZE(FLASH_CR_PSIZE_8);
-
-    acr_cache = flash->ACR;
-
-    // disable and flush data and instruction caches
-    flash->ACR &= ~(FLASH_ACR_DCEN | FLASH_ACR_ICEN);
-    flash->ACR |= (FLASH_ACR_DCRST | FLASH_ACR_ICRST);
-
-    if (erase_cnt > 0)
-        __blEraseSectors(sector_cnt, erase_mask);
-
-    __blWriteBytes(dst, src, length);
-
-    flash->ACR = acr_cache;
-    flash->CR = cr_cache;
-
-    __blRestoreInts(int_state);
-
-    return __blCompareBytes(dst, src, length);
+    return true;
 }
 
-static void BOOTLOADER __blEraseSectors(uint32_t sector_cnt, uint8_t *erase_mask)
+BOOTLOADER
+static void blEraseSectors(uint32_t sector_cnt, uint8_t *erase_mask)
 {
     struct StmFlash *flash = (struct StmFlash *)FLASH_BASE;
-    int i;
     uint16_t *code_src, *code;
-    uint32_t code_length;
-    flashErase func;
+    uint32_t i, code_length;
+    FlashEraseF func;
 
-    __blFlashEraseCode(&code_src, &code_length);
+    blGetFlashEraseCode(&code_src, &code_length);
 
     if (code_length < BL_MAX_FLASH_CODE) {
-        code = (uint16_t *)(((uint32_t)alloca(code_length+1) + 1) & ~0x1);
-        func = (flashErase)((uint8_t *)code+1);
+        code = (uint16_t *)(((uint32_t)alloca(code_length + 1) + 1) & ~0x1);
+        func = (FlashEraseF)((uint8_t *)code+1);
 
-        for (i=0; i<code_length/sizeof(uint16_t); i++)
+        for (i = 0; i < code_length / sizeof(uint16_t); i++)
             code[i] = code_src[i];
 
-        for (i=0; i<sector_cnt; i++) {
+        for (i = 0; i < sector_cnt; i++) {
             if (erase_mask[i]) {
                 flash->CR = (flash->CR & ~(FLASH_CR_SNB_MASK)) |
                     FLASH_CR_SNB(i) | FLASH_CR_SER;
@@ -517,26 +376,26 @@ static void BOOTLOADER __blEraseSectors(uint32_t sector_cnt, uint8_t *erase_mask
     }
 }
 
-static void BOOTLOADER __blWriteBytes(uint8_t *dst, uint8_t *src, uint32_t length)
+BOOTLOADER
+static void blWriteBytes(uint8_t *dst, const uint8_t *src, uint32_t length)
 {
     struct StmFlash *flash = (struct StmFlash *)FLASH_BASE;
-    int i;
     uint16_t *code_src, *code;
-    uint32_t code_length;
-    flashWrite func;
+    uint32_t i, code_length;
+    FlashWriteF func;
 
-    __blFlashWriteCode(&code_src, &code_length);
+    blGetFlashWriteCode(&code_src, &code_length);
 
     if (code_length < BL_MAX_FLASH_CODE) {
         code = (uint16_t *)(((uint32_t)alloca(code_length+1) + 1) & ~0x1);
-        func = (flashWrite)((uint8_t *)code+1);
+        func = (FlashWriteF)((uint8_t *)code+1);
 
-        for (i=0; i<code_length/sizeof(uint16_t); i++)
+        for (i = 0; i < code_length / sizeof(uint16_t); i++)
             code[i] = code_src[i];
 
         flash->CR |= FLASH_CR_PG;
 
-        for (i=0; i<length; i++) {
+        for (i = 0; i < length; i++) {
             if (dst[i] != src[i])
                 func(&dst[i], src[i], &flash->SR);
         }
@@ -545,63 +404,65 @@ static void BOOTLOADER __blWriteBytes(uint8_t *dst, uint8_t *src, uint32_t lengt
     }
 }
 
-static int BOOTLOADER __blCompareBytes(uint8_t *dst, uint8_t *src, uint32_t length)
-{
-    int i;
-
-    for (i=0; i<length; i++) {
-        if (dst[i] != src[i])
-            return -1;
-    }
-
-    return 0;
-}
-
-static int BOOTLOADER __blProgramShared(uint8_t *dst, uint8_t *src,
-        uint32_t length, uint32_t key1, uint32_t key2)
-{
-    int i;
-    const int sector_cnt = sizeof(__blFlashTable) / sizeof(struct blFlashTable);
-
-    for (i=0; i<sector_cnt; i++) {
-        if ((dst >= __blFlashTable[i].address &&
-             dst < (__blFlashTable[i].address + __blFlashTable[i].length)) ||
-            (dst < __blFlashTable[i].address &&
-             (dst + length > __blFlashTable[i].address))) {
-            if (__blFlashTable[i].type != BL_FLASH_SHARED)
-                return -1;
-        }
-    }
-
-    return __blProgramFlash(dst, src, length, key1, key2);
-}
-
-static int BOOTLOADER __blEraseShared(uint32_t key1, uint32_t key2)
+BOOTLOADER
+static bool blProgramFlash(uint8_t *dst, const uint8_t *src, uint32_t length, uint32_t key1, uint32_t key2)
 {
     struct StmFlash *flash = (struct StmFlash *)FLASH_BASE;
-    const int sector_cnt = sizeof(__blFlashTable) / sizeof(struct blFlashTable);
+    const uint32_t sector_cnt = sizeof(mBlFlashTable) / sizeof(struct blFlashTable);
+    uint32_t acr_cache, cr_cache, offset, i, j = 0, int_state = 0, erase_cnt = 0;
     uint8_t erase_mask[sector_cnt];
-    int erase_cnt = 0;
-    int i;
-    uint32_t acr_cache, cr_cache;
-    uint32_t int_state = 0;
+    uint8_t *ptr;
 
-    for (i=0; i<sector_cnt; i++) {
-        if (__blFlashTable[i].type == BL_FLASH_SHARED) {
-            erase_mask[i] = 1;
-            erase_cnt ++;
-        } else {
-            erase_mask[i] = 0;
-        }
+    if (((length == 0)) ||
+        ((0xFFFFFFFF - (uint32_t)dst) < (length - 1)) ||
+        ((dst < mBlFlashTable[0].address)) ||
+        ((dst + length) > (mBlFlashTable[sector_cnt-1].address +
+                           mBlFlashTable[sector_cnt-1].length))) {
+        return false;
     }
 
     // disable interrupts
     // otherwise an interrupt during flash write/erase will stall the processor
     // until the write/erase completes
-    int_state = __blDisableInts();
+    int_state = blDisableInts();
+
+    // figure out which (if any) blocks we have to erase
+    for (i = 0; i < sector_cnt; i++)
+        erase_mask[i] = 0;
+
+    // compute which flash block we are starting from
+    for (i = 0; i < sector_cnt; i++) {
+        if (dst >= mBlFlashTable[i].address &&
+            dst < (mBlFlashTable[i].address + mBlFlashTable[i].length)) {
+            break;
+        }
+    }
+
+    // now loop through all the flash blocks and see if we have to do any
+    // 0 -> 1 transitions of a bit. If so, we must erase that block
+    // 1 -> 0 transitions of a bit do not require an erase
+    offset = (uint32_t)(dst - mBlFlashTable[i].address);
+    ptr = mBlFlashTable[i].address;
+    while (j < length && i < sector_cnt) {
+        if (offset == mBlFlashTable[i].length) {
+            i++;
+            offset = 0;
+            ptr = mBlFlashTable[i].address;
+        }
+
+        if ((ptr[offset] & src[j]) != src[j]) {
+            erase_mask[i] = 1;
+            erase_cnt++;
+            j += mBlFlashTable[i].length - offset;
+            offset = mBlFlashTable[i].length;
+        } else {
+            j++;
+            offset++;
+        }
+    }
 
     // wait for flash to not be busy (should never be set at this point)
-    while (flash->SR & FLASH_SR_BSY) ;
+    while (flash->SR & FLASH_SR_BSY);
 
     cr_cache = flash->CR;
 
@@ -613,9 +474,9 @@ static int BOOTLOADER __blEraseShared(uint32_t key1, uint32_t key2)
 
     if (flash->CR & FLASH_CR_LOCK) {
         // unlock failed, restore interrupts
-        __blRestoreInts(int_state);
+        blRestoreInts(int_state);
 
-        return -1;
+        return false;
     }
 
     flash->CR = FLASH_CR_PSIZE(FLASH_CR_PSIZE_8);
@@ -626,68 +487,120 @@ static int BOOTLOADER __blEraseShared(uint32_t key1, uint32_t key2)
     flash->ACR &= ~(FLASH_ACR_DCEN | FLASH_ACR_ICEN);
     flash->ACR |= (FLASH_ACR_DCRST | FLASH_ACR_ICRST);
 
-    if (erase_cnt > 0)
-        __blEraseSectors(sector_cnt, erase_mask);
+    if (erase_cnt)
+        blEraseSectors(sector_cnt, erase_mask);
+
+    blWriteBytes(dst, src, length);
+
+    flash->ACR = acr_cache;
+    flash->CR = cr_cache;
+
+    blRestoreInts(int_state);
+
+    return blCompareBytes(dst, src, length);
+}
+
+BOOTLOADER
+static bool blExtApiProgramSharedArea(uint8_t *dst, const uint8_t *src, uint32_t length, uint32_t key1, uint32_t key2)
+{
+    const uint32_t sector_cnt = sizeof(mBlFlashTable) / sizeof(struct blFlashTable);
+    uint32_t i;
+
+    for (i = 0; i < sector_cnt; i++) {
+
+        if ((dst >= mBlFlashTable[i].address &&
+             dst < (mBlFlashTable[i].address + mBlFlashTable[i].length)) ||
+            (dst < mBlFlashTable[i].address &&
+             (dst + length > mBlFlashTable[i].address))) {
+            if (mBlFlashTable[i].type != BL_FLASH_SHARED)
+                return false;
+        }
+    }
+
+    return blProgramFlash(dst, src, length, key1, key2);
+}
+
+BOOTLOADER
+static bool blExtApiEraseSharedArea(uint32_t key1, uint32_t key2)
+{
+    struct StmFlash *flash = (struct StmFlash *)FLASH_BASE;
+    const uint32_t sector_cnt = sizeof(mBlFlashTable) / sizeof(struct blFlashTable);
+    uint32_t i, acr_cache, cr_cache, erase_cnt = 0, int_state = 0;
+    uint8_t erase_mask[sector_cnt];
+
+    for (i = 0; i < sector_cnt; i++) {
+        if (mBlFlashTable[i].type == BL_FLASH_SHARED) {
+            erase_mask[i] = 1;
+            erase_cnt++;
+        } else {
+            erase_mask[i] = 0;
+        }
+    }
+
+    // disable interrupts
+    // otherwise an interrupt during flash write/erase will stall the processor
+    // until the write/erase completes
+    int_state = blDisableInts();
+
+    // wait for flash to not be busy (should never be set at this point)
+    while (flash->SR & FLASH_SR_BSY);
+
+    cr_cache = flash->CR;
+
+    if (flash->CR & FLASH_CR_LOCK) {
+        // unlock flash
+        flash->KEYR = key1;
+        flash->KEYR = key2;
+    }
+
+    if (flash->CR & FLASH_CR_LOCK) {
+        // unlock failed, restore interrupts
+        blRestoreInts(int_state);
+
+        return false;
+    }
+
+    flash->CR = FLASH_CR_PSIZE(FLASH_CR_PSIZE_8);
+
+    acr_cache = flash->ACR;
+
+    // disable and flush data and instruction caches
+    flash->ACR &= ~(FLASH_ACR_DCEN | FLASH_ACR_ICEN);
+    flash->ACR |= (FLASH_ACR_DCRST | FLASH_ACR_ICRST);
+
+    if (erase_cnt)
+        blEraseSectors(sector_cnt, erase_mask);
 
     flash->ACR = acr_cache;
     flash->CR = cr_cache;
 
     // restore interrupts
-    __blRestoreInts(int_state);
+    blRestoreInts(int_state);
 
-    return erase_cnt;
+    return true; //we assume erase worked
 }
 
-static uint32_t BOOTLOADER __blCrcCont(uint8_t *addr, unsigned int length)
-{
-    struct StmCrc *crc = (struct StmCrc *)CRC_BASE;
-    uint32_t word;
-    int i;
-
-    if ((uint32_t)addr & 0x3)
-        return 0xFFFFFFFF;
-
-    for (i=0; i<(length>>2); i++)
-        crc->DR = ((uint32_t *)addr)[i];
-
-    if (length & 0x3) {
-        for (i*=4, word=0; i<length; i++)
-            word |= addr[i] << ((i & 0x3) * 8);
-        crc->DR = word;
-    }
-
-    return crc->DR;
-}
-
-static uint32_t BOOTLOADER __blCrc(uint8_t *addr, unsigned int length)
-{
-    struct StmCrc *crc = (struct StmCrc *)CRC_BASE;
-
-    crc->CR = CRC_CR_RESET;
-
-    return __blCrcCont(addr, length);
-}
-
-static void BOOTLOADER __blSpurious(void)
+BOOTLOADER
+static void blSupirousIntHandler(void)
 {
     //BAD!
-    __blReboot();
+    blExtApiReboot();
 }
 
-static const uint32_t *__blGetPubKeysInfo(uint32_t *numKeys)
+BOOTLOADER
+static const uint32_t *blExtApiGetRsaKeyInfo(uint32_t *numKeys)
 {
-    extern uint32_t __pubkeys_start[];
-    extern uint32_t __pubkeys_end[];
     uint32_t numWords = __pubkeys_end - __pubkeys_start;
 
-    if (numWords % RSA_LIMBS) // something is wrong
+    if (numWords % RSA_WORDS) // something is wrong
         return NULL;
 
-    *numKeys = numWords / RSA_LIMBS;
+    *numKeys = numWords / RSA_WORDS;
     return __pubkeys_start;
 }
 
-static const uint32_t* __blSigPaddingVerify(const uint32_t *rsaResult)
+BOOTLOADER
+static const uint32_t* blExtApiSigPaddingVerify(const uint32_t *rsaResult)
 {
     uint32_t i;
 
@@ -721,19 +634,18 @@ const struct BlVecTable __attribute__((section(".blvec"))) __BL_VECTORS =
     /* cortex */
     .blStackTop = (uint32_t)&__stack_top,
     .blEntry = &__blEntry,
-    .blNmiHandler = &__blSpurious,
-    .blMmuFaultHandler = &__blSpurious,
-    .blBusFaultHandler = &__blSpurious,
-    .blUsageFaultHandler = &__blSpurious,
+    .blNmiHandler = &blSupirousIntHandler,
+    .blMmuFaultHandler = &blSupirousIntHandler,
+    .blBusFaultHandler = &blSupirousIntHandler,
+    .blUsageFaultHandler = &blSupirousIntHandler,
 
     /* api */
-    .blGetVersion = &__blVersion,
-    .blReboot = &__blReboot,
-    .blGetSnum = &__blGetSnum,
-    .blProgramShared = &__blProgramShared,
-    .blEraseShared = &__blEraseShared,
-    .blGetPubKeysInfo = &__blGetPubKeysInfo,
-    .blRsaPubOpIterative = &_rsaPubOpIterative,
+    .blGetVersion = &blExtApiGetVersion,
+    .blReboot = &blExtApiReboot,
+    .blGetSnum = &blExtApiGetSnum,
+    .blProgramShared = &blExtApiProgramSharedArea,
+    .blEraseShared = &blExtApiEraseSharedArea,
+    .blGetPubKeysInfo = &blExtApiGetRsaKeyInfo,
     .blSha2init = &_sha2init,
     .blSha2processBytes = &_sha2processBytes,
     .blSha2finish = &_sha2finish,
@@ -745,6 +657,458 @@ const struct BlVecTable __attribute__((section(".blvec"))) __BL_VECTORS =
     .blAesCbcInitForDecr = &_aesCbcInitForDecr,
     .blAesCbcEncr = &_aesCbcEncr,
     .blAesCbcDecr = &_aesCbcDecr,
-    .blSigPaddingVerify = &__blSigPaddingVerify,
+    .blSigPaddingVerify = &blExtApiSigPaddingVerify,
 };
+
+BOOTLOADER
+static void blApplyVerifiedUpdate(void) //only called if an update has been found to exist and be valid, signed, etc!
+{
+    const struct OsUpdateHdr *updt = (const struct OsUpdateHdr*)__shared_start;
+
+    //copy shared to code, and if successful, erase shared area
+    if (blProgramFlash(__code_start, (const uint8_t*)updt + 1, updt->size, BL_FLASH_KEY1, BL_FLASH_KEY2))
+        (void)blExtApiEraseSharedArea(BL_FLASH_KEY1, BL_FLASH_KEY2);
+}
+
+BOOTLOADER
+static void blUpdateMark(uint32_t from, uint32_t to)
+{
+    struct OsUpdateHdr *hdr = (struct OsUpdateHdr*)__shared_start;
+    uint8_t dstVal = to;
+
+    if (hdr->marker != from)
+        return;
+
+    (void)blProgramFlash(&hdr->marker, &dstVal, 1, BL_FLASH_KEY1, BL_FLASH_KEY2);
+}
+
+BOOTLOADER
+static bool blUpdateVerify(void)
+{
+    const uint32_t *rsaKey, *osSigHash, *osSigPubkey, *ourHash, *rsaResult, *expectedHash = NULL;
+    const struct OsUpdateHdr *hdr = (const struct OsUpdateHdr*)__shared_start;
+    uint32_t i, j, numRsaKeys = 0, rsaStateVar1, rsaStateVar2, rsaStep = 0;
+    const uint8_t *updateBinaryData;
+    bool isValid = false;
+    struct Sha2state sha;
+    struct RsaState rsa;
+
+
+    //some basic sanity checking
+    for (i = 0; i < sizeof(hdr->magic); i++) {
+        if (hdr->magic[i] != mOsUpdateMagic[i])
+            break;
+    }
+    if (i != sizeof(hdr->magic)) {
+        //magic value is wrong -> DO NOTHING (shared area might contain something that is not an update but is useful & valid)!
+        return false;
+    }
+
+    if (hdr->marker == OS_UPDT_MARKER_INVALID) {
+        //it's already been checked and found invalid
+        return false;
+    }
+
+    if (hdr->marker == OS_UPDT_MARKER_VERIFIED) {
+        //it's been verified already
+        return true;
+    }
+
+    if (hdr->marker != OS_UPDT_MARKER_DOWNLOADED) {
+        //it's not a fully downloaded update or is not an update
+        goto fail;
+    }
+
+    if (hdr->size & 3) {
+        //updates are always multiples of 4 bytes in size
+        goto fail;
+    }
+
+    if (hdr->size > __shared_end - __shared_start) {
+        //udpate would not fit in shared area if it were real
+        goto fail;
+    }
+
+    if (hdr->size > __code_end - __code_start) {
+        //udpate would not fit in code area
+        goto fail;
+    }
+
+    if (__shared_end - __shared_start - hdr->size < sizeof(struct OsUpdateHdr) + 2 * RSA_WORDS) {
+        //udpate + header + sig would not fit in shared area if it were real
+        goto fail;
+    }
+
+    //get pointers
+    updateBinaryData = (const uint8_t*)(hdr + 1);
+    osSigHash = (const uint32_t*)updateBinaryData + hdr->size;
+    osSigPubkey = osSigHash + RSA_WORDS;
+
+    //hash the update
+    _sha2init(&sha);
+    _sha2processBytes(&sha, hdr, sizeof(const struct OsUpdateHdr) + hdr->size);
+    ourHash = _sha2finish(&sha);
+
+    //make sure the pub key is known
+    for (i = 0, rsaKey = blExtApiGetRsaKeyInfo(&numRsaKeys); i < numRsaKeys; i++, rsaKey += RSA_WORDS) {
+        for (j = 0; j < RSA_WORDS; j++) {
+            if (rsaKey[j] != osSigPubkey[j])
+                break;
+        }
+        if (j == RSA_WORDS) //it matches
+            break;
+    }
+
+    if (i != numRsaKeys) {
+        //signed with an unknown key -> fail
+        goto fail;
+    }
+
+    //decode sig using pubkey
+    do {
+        rsaResult = _rsaPubOpIterative(&rsa, osSigHash, osSigPubkey, &rsaStateVar1, &rsaStateVar2, &rsaStep);
+    } while (rsaStep);
+
+    if (!rsaResult) {
+        //decode fails -> invalid sig
+        goto fail;
+    }
+
+    //verify padding
+    expectedHash = blExtApiSigPaddingVerify(rsaResult);
+
+    if (!expectedHash) {
+        //padding check fails -> invalid sig
+        goto fail;
+    }
+
+    //verify hash match
+    for (i = 0; i < SHA2_HASH_WORDS; i++) {
+        if (expectedHash[i] != ourHash[i])
+            break;
+    }
+
+    if (i != SHA2_HASH_WORDS) {
+        //hash does not match -> data tampered with
+        goto fail;
+    }
+
+    //it is valid
+    isValid = true;
+
+fail:
+    //mark it appropriately
+    blUpdateMark(OS_UPDT_MARKER_DOWNLOADED, isValid ? OS_UPDT_MARKER_VERIFIED : OS_UPDT_MARKER_INVALID);
+    return isValid;
+}
+
+BOOTLOADER
+static uint8_t blSpiLoaderRxByte(struct StmSpi *spi)
+{
+    while (!(spi->SR & 1));
+    return spi->DR;
+}
+
+BOOTLOADER
+static void blSpiLoaderTxByte(struct StmSpi *spi, uint32_t val)
+{
+    while (!(spi->SR & 2));
+    spi->DR = val;
+}
+
+BOOTLOADER
+static void blSpiLoaderTxBytes(struct StmSpi *spi, const void *data, uint32_t len)
+{
+    const uint8_t *buf = (const uint8_t*)data;
+
+    blSpiLoaderTxByte(spi, len - 1);
+    while (len--)
+        blSpiLoaderTxByte(spi, *buf++);
+}
+
+BOOTLOADER
+static bool blSpiLoaderSendAck(struct StmSpi *spi, bool ack)
+{
+    blSpiLoaderTxByte(spi, 0);
+    blSpiLoaderTxByte(spi, ack ? BL_ACK : BL_NAK);
+    return blSpiLoaderRxByte(spi) == BL_ACK;
+}
+
+BOOTLOADER
+static void blSpiLoader(void)
+{
+    const uint32_t intInPin = SH_INT_WAKEUP - GPIO_PA(0);
+    struct StmGpio *gpioa = (struct StmGpio*)GPIOA_BASE;
+    struct StmSpi *spi = (struct StmSpi*)SPI1_BASE;
+    struct StmRcc *rcc = (struct StmRcc*)RCC_BASE;
+    uint32_t oldApb2State, oldAhb1State, nRetries;
+    bool seenErase = false;
+
+    if (SH_INT_WAKEUP < GPIO_PA(0) || SH_INT_WAKEUP > GPIO_PA(15)) {
+
+        //link time assert :)
+        extern void ThisIsAnError_BlIntPinNotInGpioA(void);
+        ThisIsAnError_BlIntPinNotInGpioA();
+    }
+
+    //SPI & GPIOA on
+    oldApb2State = rcc->APB2ENR;
+    oldAhb1State = rcc->AHB1ENR;
+    rcc->APB2ENR |= PERIPH_APB2_SPI1;
+    rcc->AHB1ENR |= PERIPH_AHB1_GPIOA;
+
+    //reset units
+    rcc->APB2RSTR |= PERIPH_APB2_SPI1;
+    rcc->AHB1RSTR |= PERIPH_AHB1_GPIOA;
+    rcc->APB2RSTR &=~ PERIPH_APB2_SPI1;
+    rcc->AHB1RSTR &=~ PERIPH_AHB1_GPIOA;
+
+    //configure GPIOA for SPI A4..A7 for SPI use (function 5), int pin as not func, high speed, no pullups, not open drain, proper directions
+    gpioa->AFR[0] = (gpioa->AFR[0] & 0x0000ffff & ~(0x0f << (intInPin * 4))) | 0x55550000;
+    gpioa->OSPEEDR |= 0x0000ff00 | (3 << (intInPin * 2));
+    gpioa->PUPDR &=~ (0x0000ff00 | (3 << (intInPin * 2)));
+    gpioa->OTYPER &=~ (0x00f0 | (1 << intInPin));
+    gpioa->MODER = (gpioa->MODER & 0xffff00ff & ~(0x03 << (intInPin * 2))) | 0x0000aa00;
+
+    //if int pin is not low, do not bother any further
+    if (gpioa->IDR & (1 << intInPin)) {
+
+        //config SPI
+        spi->CR1 = 0x00000040; //spi is on, configured same as bootloader would
+        spi->CR2 = 0x00000000; //spi is on, configured same as bootloader would
+
+        //wait for sync
+        for (nRetries = 10000; nRetries; nRetries--) {
+            if (spi->SR & 1) {
+                if (spi->DR == BL_SYNC_IN)
+                    break;
+                (void)spi->SR; //re-read to clear overlfow condition (if any)
+            }
+        }
+
+        //if we saw a sync, do the bootloader thing
+        if (nRetries) {
+            static const uint8_t BOOTLOADER_RO supportedCmds[] = {BL_CMD_GET, BL_CMD_READ_MEM, BL_CMD_WRITE_MEM, BL_CMD_ERASE, BL_CMD_GET_SIZES, BL_CMD_UPDATE_FINISHED};
+            uint32_t allSizes[] = {__builtin_bswap32(__code_end - __code_start), __builtin_bswap32(__shared_end - __shared_start), __builtin_bswap32(__eedata_end - __eedata_start)};
+            bool ack = true;  //we ack the sync
+
+            //loop forever listening to commands
+            while (1) {
+                uint32_t sync, cmd, cmdNot, addr = 0, len, checksum = 0, i;
+                uint8_t data[256];
+
+                //send ack or NAK for last thing
+                if (!blSpiLoaderSendAck(spi, ack))
+                    goto out;
+
+                while ((sync = blSpiLoaderRxByte(spi)) != BL_SYNC_IN);
+                cmd = blSpiLoaderRxByte(spi);
+                cmdNot = blSpiLoaderRxByte(spi);
+
+                ack = false;
+                if (sync == BL_SYNC_IN && (cmd ^ cmdNot) == 0xff) switch (cmd) {
+                case BL_CMD_GET:
+
+                    //ACK the command
+                    (void)blSpiLoaderSendAck(spi, true);
+
+                    blSpiLoaderTxBytes(spi, supportedCmds, sizeof(supportedCmds));
+                    ack = true;
+                    break;
+
+                case BL_CMD_READ_MEM:
+                    if (!seenErase)  //no reading till we erase the shared area (this way we do not leak encrypted apps' plaintexts)
+                        break;
+
+                    //ACK the command
+                    (void)blSpiLoaderSendAck(spi, true);
+
+                    //get address
+                    for (i = 0; i < 4; i++) {
+                        uint32_t byte = blSpiLoaderRxByte(spi);
+                        checksum ^= byte;
+                        addr = (addr << 8) + byte;
+                    }
+
+                    //reject addresses outside of our fake area or on invalid checksum
+                    if (blSpiLoaderRxByte(spi) != checksum || addr < BL_SHARED_AREA_FAKE_ADDR || addr - BL_SHARED_AREA_FAKE_ADDR > __shared_end - __shared_start)
+                       break;
+
+                    //ack the address
+                    (void)blSpiLoaderSendAck(spi, true);
+
+                    //get the length
+                    len = blSpiLoaderRxByte(spi);
+
+                    //reject invalid checksum
+                    if (blSpiLoaderRxByte(spi) != (uint8_t)~len || addr + len - BL_SHARED_AREA_FAKE_ADDR > __shared_end - __shared_start)
+                       break;
+
+                    len++;
+
+                    //reject reads past the end of the shared area
+                    if (addr + len - BL_SHARED_AREA_FAKE_ADDR > __shared_end - __shared_start)
+                       break;
+
+                    //ack the length
+                    (void)blSpiLoaderSendAck(spi, true);
+
+                    //read the data & send it
+                    blSpiLoaderTxBytes(spi, __shared_start + addr - BL_SHARED_AREA_FAKE_ADDR, len);
+                    ack = true;
+                    break;
+
+                case BL_CMD_WRITE_MEM:
+                    if (!seenErase)  //no writing till we erase the shared area (this way we do not purposefully modify encrypted apps' plaintexts in a nefarious fashion)
+                        break;
+
+                    //ACK the command
+                    (void)blSpiLoaderSendAck(spi, true);
+
+                    //get address
+                    for (i = 0; i < 4; i++) {
+                        uint32_t byte = blSpiLoaderRxByte(spi);
+                        checksum ^= byte;
+                        addr = (addr << 8) + byte;
+                    }
+
+                    //reject addresses outside of our fake area or on invalid checksum
+                    if (blSpiLoaderRxByte(spi) != checksum || addr < BL_SHARED_AREA_FAKE_ADDR || addr - BL_SHARED_AREA_FAKE_ADDR > __shared_end - __shared_start)
+                       break;
+
+                    //ack the address
+                    (void)blSpiLoaderSendAck(spi, true);
+
+                    //get the length
+                    checksum = len = blSpiLoaderRxByte(spi);
+                    len++;
+
+                    //get bytes
+                    for (i = 0; i < len; i++) {
+                        uint32_t byte = blSpiLoaderRxByte(spi);
+                        checksum ^= byte;
+                        data[i] = byte;
+                    }
+
+                    //reject writes that takes out outside fo shared area or invalid checksums
+                    if (blSpiLoaderRxByte(spi) != checksum || addr + len - BL_SHARED_AREA_FAKE_ADDR > __shared_end - __shared_start)
+                       break;
+
+                    //a write anywhere where the OS header will be must start at 0
+                    if (addr && addr < sizeof(struct OsUpdateHdr))
+                        break;
+
+                    //a write startnig at zero must be big enough to contain a full OS update header
+                    if (!addr) {
+                        const struct OsUpdateHdr *hdr = (const struct OsUpdateHdr*)data;
+
+                        //verify it is at least as big as the header
+                        if (len < sizeof(struct OsUpdateHdr))
+                            break;
+
+                        //check for magic
+                        for (i = 0; i < sizeof(hdr->magic) && hdr->magic[i] == mOsUpdateMagic[i]; i++);
+
+                        //verify magic check passed & marker is properly set to inprogress
+                        if (i != sizeof(hdr->magic) || hdr->marker != OS_UPDT_MARKER_INPROGRESS)
+                            break;
+                    }
+
+                    //do it
+                    ack = blProgramFlash(__shared_start + addr - BL_SHARED_AREA_FAKE_ADDR, data, len, BL_FLASH_KEY1, BL_FLASH_KEY2);
+                    break;
+
+                case BL_CMD_ERASE:
+
+                    //ACK the command
+                    (void)blSpiLoaderSendAck(spi, true);
+
+                    //get address
+                    for (i = 0; i < 2; i++) {
+                        uint32_t byte = blSpiLoaderRxByte(spi);
+                        checksum ^= byte;
+                        addr = (addr << 8) + byte;
+                    }
+
+                    //reject addresses that are not our magic address or on invalid checksum
+                    if (blSpiLoaderRxByte(spi) != checksum || addr != BL_SHARED_AREA_FAKE_ERASE_BLK)
+                        break;
+
+                    //do it
+                    ack = !blExtApiEraseSharedArea(BL_FLASH_KEY1, BL_FLASH_KEY2);
+                    if (ack)
+                        seenErase = true;
+                    break;
+
+                case BL_CMD_GET_SIZES:
+
+                    //ACK the command
+                    (void)blSpiLoaderSendAck(spi, true);
+
+                    blSpiLoaderTxBytes(spi, allSizes, sizeof(allSizes));
+                    break;
+
+                case BL_CMD_UPDATE_FINISHED:
+
+                    blUpdateMark(OS_UPDT_MARKER_INPROGRESS, OS_UPDT_MARKER_DOWNLOADED);
+                    ack = blUpdateVerify();
+                    break;
+                }
+            }
+        }
+    }
+
+out:
+    //reset units & return APB2 & AHB1 to initial state
+    rcc->APB2RSTR |= PERIPH_APB2_SPI1;
+    rcc->AHB1RSTR |= PERIPH_AHB1_GPIOA;
+    rcc->APB2RSTR &=~ PERIPH_APB2_SPI1;
+    rcc->AHB1RSTR &=~ PERIPH_AHB1_GPIOA;
+    rcc->APB2ENR = oldApb2State;
+    rcc->AHB1ENR = oldAhb1State;
+}
+
+BOOTLOADER
+void __blEntry(void)
+{
+    uint32_t appBase = ((uint32_t)&__VECTORS) & ~1;
+
+    //make sure we're the vector table and no ints happen (BL does not use them)
+    blDisableInts();
+    SCB->VTOR = (uint32_t)&BL;
+
+    //enter SPI loader if requested
+    blSpiLoader();
+
+    //try to run main app
+    if (blUpdateVerify())
+        blApplyVerifiedUpdate();
+
+    //call main app with ints off
+    blDisableInts();
+    SCB->VTOR = appBase;
+    asm volatile(
+        "LDR SP, [%0, #0]    \n"
+        "LDR PC, [%0, #4]    \n"
+        :
+        :"r"(appBase)
+        :"memory", "cc"
+    );
+
+    //we should never return here
+    while(1);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
 
