@@ -45,7 +45,10 @@ struct AppSecState {
             struct AesCbcContext cbc;
             struct Sha2state sha;
         };
-        struct RsaState rsa;
+        struct {
+            struct RsaState rsa;
+            uint32_t rsaState1, rsaState2, rsaStep;
+        };
     };
     uint32_t rsaTmp[RSA_WORDS];
     uint32_t lastHash[SHA2_HASH_WORDS];
@@ -76,6 +79,7 @@ struct AppSecState {
     uint8_t needSig    :1;
     uint8_t haveSig    :1;
     uint8_t haveEncr   :1;
+    uint8_t doingRsa   :1;
 };
 
 struct AppSecSigHdr {
@@ -258,11 +262,46 @@ static AppSecErr appSecProcessIncomingData(struct AppSecState *state)
     return state->writeCbk(state->dataBytes, state->haveBytes);
 }
 
-static AppSecErr appSecProcessIncomingSigData(struct AppSecState *state)
+AppSecErr appSecDoSomeProcessing(struct AppSecState *state)
 {
-    uint32_t rsaStateVar1, rsaStateVar2, rsaStep = 0;
     const uint32_t *result;
 
+    if (!state->doingRsa) {
+        //shouldn't be calling us then...
+        return APP_SEC_BAD;
+    }
+
+    result = rsaPubOpIterative(&state->rsa, state->rsaTmp, state->dataWords, &state->rsaState1, &state->rsaState2, &state->rsaStep);
+    if (state->rsaStep)
+        return APP_SEC_NEED_MORE_TIME;
+
+    //we just finished the RSA-ing
+    state->doingRsa = 0;
+
+    //verify signature padding (and thus likely: correct decryption)
+    result = BL.blSigPaddingVerify(result);
+    if (!result)
+        return APP_SEC_SIG_DECODE_FAIL;
+
+    //check if hashes match
+    if (memcmp(state->lastHash, result, SHA2_HASH_SIZE))
+        return APP_SEC_SIG_VERIFY_FAIL;
+
+    //hash the provided pubkey if it is not the last
+    if (state->numSigs) {
+        sha2init(&state->sha);
+        sha2processBytes(&state->sha, state->dataBytes, APP_SIG_SIZE);
+        memcpy(state->lastHash, sha2finish(&state->sha), SHA2_HASH_SIZE);
+        state->curState = STATE_RXING_SIG_HASH;
+    }
+    else
+        state->curState = STATE_DONE;
+
+    return APP_SEC_NO_ERROR;
+}
+
+static AppSecErr appSecProcessIncomingSigData(struct AppSecState *state)
+{
     //if we're RXing the hash, just stash it away and move on
     if (state->curState == STATE_RXING_SIG_HASH) {
         if (!state->numSigs)
@@ -286,34 +325,13 @@ static AppSecErr appSecProcessIncomingSigData(struct AppSecState *state)
             return APP_SEC_SIG_ROOT_UNKNOWN;
     }
 
-    //we now have the pubKey. decrypt.
-    do {
-        result = rsaPubOpIterative(&state->rsa, state->rsaTmp, state->dataWords, &rsaStateVar1, &rsaStateVar2, &rsaStep);
-    } while (rsaStep);
-
-    //verify signature padding (and thus likely: correct decrption)
-    result = BL.blSigPaddingVerify(result);
-    if (!result)
-        return APP_SEC_SIG_DECODE_FAIL;
-
-    //check if hashes match
-    if (memcmp(state->lastHash, result, SHA2_HASH_SIZE))
-        return APP_SEC_SIG_VERIFY_FAIL;
-
-    //hash the provided pubkey if it is not the last
-    if (state->numSigs) {
-        sha2init(&state->sha);
-        sha2processBytes(&state->sha, state->dataBytes, APP_SIG_SIZE);
-        memcpy(state->lastHash, sha2finish(&state->sha), SHA2_HASH_SIZE);
-        state->curState = STATE_RXING_SIG_HASH;
-    }
-    else
-        state->curState = STATE_DONE;
-
-    return APP_SEC_NO_ERROR;
+    //we now have the pubKey. decrypt over time
+    state->doingRsa = 1;
+    state->rsaStep = 0;
+    return APP_SEC_NEED_MORE_TIME;
 }
 
-AppSecErr appSecRxData(struct AppSecState *state, const void *dataP, uint32_t len)
+AppSecErr appSecRxData(struct AppSecState *state, const void *dataP, uint32_t len, uint32_t *lenUnusedP)
 {
     const uint8_t *data = (const uint8_t*)dataP;
     AppSecErr ret = APP_SEC_NO_ERROR;
@@ -383,7 +401,9 @@ AppSecErr appSecRxData(struct AppSecState *state, const void *dataP, uint32_t le
         }
     }
 
-    if (ret != APP_SEC_NO_ERROR)
+    *lenUnusedP = len;
+
+    if (ret != APP_SEC_NO_ERROR && ret != APP_SEC_NEED_MORE_TIME)
         state->curState = STATE_BAD;
 
     return ret;
