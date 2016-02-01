@@ -451,7 +451,7 @@ struct PlatSleepAndClockInfo {
     void (*wake)(void *userData, uint64_t *savedData);
     void *userData;
 } static const platSleepClocks[] = {
-
+#ifndef STM32F4xx_DISABLE_LPLV_SLEEP
     { /* RTC + LPLV STOP MODE */
         .resolution = 1000000000ull/32768,
         .resolutionReciprocal = U64_RECIPROCAL_CALCULATE(1000000000ull/32768),
@@ -463,6 +463,8 @@ struct PlatSleepAndClockInfo {
         .wake = sleepClockRtcWake,
         .userData = (void*)stm32f411SleepModeStopLPLV,
     },
+#endif
+#ifndef STM32F4xx_DISABLE_LPFD_SLEEP
     { /* RTC + LPFD STOP MODE */
         .resolution = 1000000000ull/32768,
         .resolutionReciprocal = U64_RECIPROCAL_CALCULATE(1000000000ull/32768),
@@ -474,6 +476,8 @@ struct PlatSleepAndClockInfo {
         .wake = sleepClockRtcWake,
         .userData = (void*)stm32f411SleepModeStopLPFD,
     },
+#endif
+#ifndef STM32F4xx_DISABLE_MRFPD_SLEEP
     { /* RTC + MRFPD STOP MODE */
         .resolution = 1000000000ull/32768,
         .resolutionReciprocal = U64_RECIPROCAL_CALCULATE(1000000000ull/32768),
@@ -485,6 +489,8 @@ struct PlatSleepAndClockInfo {
         .wake = sleepClockRtcWake,
         .userData = (void*)stm32f144SleepModeStopMRFPD,
     },
+#endif
+#ifndef STM32F4xx_DISABLE_MR_SLEEP
     { /* RTC + MR STOP MODE */
         .resolution = 1000000000ull/32768,
         .resolutionReciprocal = U64_RECIPROCAL_CALCULATE(1000000000ull/32768),
@@ -496,6 +502,8 @@ struct PlatSleepAndClockInfo {
         .wake = sleepClockRtcWake,
         .userData = (void*)stm32f144SleepModeStopMR,
     },
+#endif
+#ifndef STM32F4xx_DISABLE_TIM2_SLEEP
     { /* TIM2 + SLEEP MODE */
         .resolution = 1000000000ull/1000000,
         .resolutionReciprocal = U64_RECIPROCAL_CALCULATE(1000000000ull/1000000),
@@ -507,6 +515,7 @@ struct PlatSleepAndClockInfo {
         .prepare = sleepClockTmrPrepare,
         .wake = sleepClockTmrWake,
     },
+#endif
     { /* just WFI */
         .resolution = 16000000000ull/1000000,
         .resolutionReciprocal = U64_RECIPROCAL_CALCULATE(16000000000ull/1000000),
