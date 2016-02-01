@@ -19,6 +19,7 @@
 #include <plat/inc/gpio.h>
 #include <plat/inc/pwr.h>
 #include <plat/inc/bl.h>
+#include <variant/inc/variant.h>
 #include <alloca.h>
 #include <aes.h>
 #include <sha2.h>
@@ -195,6 +196,7 @@ static const struct blFlashTable   // For erase code, we need to know which page
     uint32_t length;
     uint32_t type;
 } mBlFlashTable[] =
+#ifndef BL_FLASH_TABLE
 {
     { (uint8_t *)(&BL),                      0x04000, BL_FLASH_BL     },
     { (uint8_t *)(__eedata_start),           0x04000, BL_FLASH_EEDATA },
@@ -205,6 +207,9 @@ static const struct blFlashTable   // For erase code, we need to know which page
     { (uint8_t *)(__shared_start + 0x20000), 0x20000, BL_FLASH_SHARED },
     { (uint8_t *)(__shared_start + 0x40000), 0x20000, BL_FLASH_SHARED },
 };
+#else
+BL_FLASH_TABLE;
+#endif
 
 static const char BOOTLOADER_RO mOsUpdateMagic[] = OS_UPDT_MAGIC;
 
