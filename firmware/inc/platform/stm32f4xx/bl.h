@@ -21,6 +21,7 @@
 }
 #endif
 
+#include <stdbool.h>
 #include <stdint.h>
 
 struct Sha2state;
@@ -34,6 +35,18 @@ struct AesCbcContext;
 #define BOOTLOADER    __attribute__ ((section (".bltext")))
 #define BOOTLOADER_RO __attribute__ ((section (".blrodata")))
 
+
+#define OS_UPDT_MARKER_INPROGRESS     0xFF
+#define OS_UPDT_MARKER_DOWNLOADED     0xFE
+#define OS_UPDT_MARKER_VERIFIED       0xF0
+#define OS_UPDT_MARKER_INVALID        0x00
+#define OS_UPDT_MAGIC                 "Nanohub OS" //11 bytes incl terminator
+
+struct OsUpdateHdr {
+    char magic[11];
+    uint8_t marker; //OS_UPDT_MARKER_INPROGRESS -> OS_UPDT_MARKER_DOWNLOADED -> OS_UPDT_MARKER_VERIFIED / OS_UPDT_INVALID
+    uint32_t size;  //does not include the mandatory signature (using device key) that follows
+};
 
 #define BL_VERSION_1        1
 #define BL_VERSION_CUR      BL_VERSION_1
@@ -62,11 +75,11 @@ struct BlVecTable {
     //basics
     uint32_t        (*blGetVersion)(void);
     void            (*blReboot)(void);
-    void            (*blGetSnum)(uint32_t *snum, uint8_t length);
+    void            (*blGetSnum)(uint32_t *snum, uint32_t length);
 
     //flash
-    int             (*blProgramShared)(uint8_t *dst, uint8_t *src, uint32_t length, uint32_t key1, uint32_t key2);
-    int             (*blEraseShared)(uint32_t key1, uint32_t key2);
+    bool            (*blProgramShared)(uint8_t *dst, const uint8_t *src, uint32_t length, uint32_t key1, uint32_t key2);
+    bool            (*blEraseShared)(uint32_t key1, uint32_t key2);
 
     //security data
     const uint32_t* (*blGetPubKeysInfo)(uint32_t *numKeys);
