@@ -108,7 +108,7 @@ static AppSecErr writeCbk(const void *data, uint32_t len)
 
     mpuAllowRamExecution(true);
     mpuAllowRomWrite(true);
-    if (BL.blProgramShared(mDownloadState->start + mDownloadState->dstOffset, (uint8_t *)data, len, BL_FLASH_KEY1, BL_FLASH_KEY2) < 0) {
+    if (!BL.blProgramShared(mDownloadState->start + mDownloadState->dstOffset, (uint8_t *)data, len, BL_FLASH_KEY1, BL_FLASH_KEY2)) {
         ret = APP_SEC_BAD;
     } else {
         ret = APP_SEC_NO_ERROR;
@@ -224,7 +224,7 @@ static void firmwareErase(void *cookie)
     if (mDownloadState->erase == true) {
         mpuAllowRamExecution(true);
         mpuAllowRomWrite(true);
-        BL.blEraseShared(BL_FLASH_KEY1, BL_FLASH_KEY2);
+        (void)BL.blEraseShared(BL_FLASH_KEY1, BL_FLASH_KEY2);
         mpuAllowRomWrite(false);
         mpuAllowRamExecution(false);
         mDownloadState->erase = false;
@@ -271,7 +271,7 @@ static uint8_t firmwareFinish(bool valid)
 
         mpuAllowRamExecution(true);
         mpuAllowRomWrite(true);
-        if (BL.blProgramShared((uint8_t *)&app->marker, (uint8_t *)&marker, sizeof(marker), BL_FLASH_KEY1, BL_FLASH_KEY2) < 0) {
+        if (!BL.blProgramShared((uint8_t *)&app->marker, (uint8_t *)&marker, sizeof(marker), BL_FLASH_KEY1, BL_FLASH_KEY2)) {
             mpuAllowRomWrite(false);
             mpuAllowRamExecution(false);
             return NANOHUB_FIRMWARE_CHUNK_REPLY_RESEND;
@@ -290,7 +290,7 @@ static uint8_t firmwareFinish(bool valid)
     buffer[2] = (mDownloadState->dstOffset - 4) >> 8;
     buffer[3] = (mDownloadState->dstOffset - 4);
 
-    if (BL.blProgramShared(mDownloadState->start, buffer, 4, BL_FLASH_KEY1, BL_FLASH_KEY2) < 0) {
+    if (!BL.blProgramShared(mDownloadState->start, buffer, 4, BL_FLASH_KEY1, BL_FLASH_KEY2)) {
         mpuAllowRomWrite(false);
         mpuAllowRamExecution(false);
         return NANOHUB_FIRMWARE_CHUNK_REPLY_RESEND;
@@ -302,7 +302,7 @@ static uint8_t firmwareFinish(bool valid)
     memcpy(&buffer[padlen], &crc, sizeof(uint32_t));
     mDownloadState->size = mDownloadState->dstOffset + padlen + sizeof(uint32_t);
 
-    if (BL.blProgramShared(mDownloadState->start + mDownloadState->dstOffset, buffer, padlen + sizeof(uint32_t), BL_FLASH_KEY1, BL_FLASH_KEY2) < 0) {
+    if (!BL.blProgramShared(mDownloadState->start + mDownloadState->dstOffset, buffer, padlen + sizeof(uint32_t), BL_FLASH_KEY1, BL_FLASH_KEY2)) {
         mpuAllowRomWrite(false);
         mpuAllowRamExecution(false);
         return NANOHUB_FIRMWARE_CHUNK_REPLY_RESEND;
