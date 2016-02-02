@@ -651,6 +651,7 @@ const struct BlVecTable __attribute__((section(".blvec"))) __BL_VECTORS =
     .blProgramShared = &blExtApiProgramSharedArea,
     .blEraseShared = &blExtApiEraseSharedArea,
     .blGetPubKeysInfo = &blExtApiGetRsaKeyInfo,
+    .blRsaPubOpIterative = &_rsaPubOpIterative,
     .blSha2init = &_sha2init,
     .blSha2processBytes = &_sha2processBytes,
     .blSha2finish = &_sha2finish,
