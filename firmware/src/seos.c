@@ -209,7 +209,7 @@ static void osStartTasks(void)
         if (id1 != id2 || id1 != BL_FLASH_APP_ID)
             continue;
 
-        if (crc32(shared, total_len, ~0) == CRC_RESIDUE) {
+        if (1 /*crc32(shared, total_len, ~0) == CRC_RESIDUE*/) {
             app = (const struct AppHdr *)&shared[4];
             if (len >= sizeof(struct AppHdr) && !memcmp(magic, app->magic, sizeof(magic) - 1) && app->fmtVer == APP_HDR_VER_CUR) {
 
