@@ -59,6 +59,8 @@ static struct DownloadState
     bool     erase;
 } *mDownloadState;
 
+static AppSecErr mAppSecStatus;
+
 static uint32_t getOsHwVersion(void *rx, uint8_t rx_len, void *tx, uint64_t timestamp)
 {
     struct NanohubOsHwVersionsResponse *resp = tx;
@@ -163,6 +165,7 @@ static AppSecErr aesKeyAccessCbk(uint64_t keyIdx, void *keyBuf)
 
 static void resetDownloadState()
 {
+    mAppSecStatus = APP_SEC_NO_ERROR;
     if (mDownloadState->appSecState)
         appSecDeinit(mDownloadState->appSecState);
     mDownloadState->appSecState = appSecInit(writeCbk, pubKeyFindCbk, aesKeyAccessCbk, false);
@@ -250,12 +253,11 @@ static uint8_t firmwareFinish(bool valid)
     uint16_t marker;
     static const char magic[] = APP_HDR_MAGIC;
     const struct AppHdr *app;
-    AppSecErr ret;
 
-    ret = appSecRxDataOver(mDownloadState->appSecState);
-    ret = giveAppSecTimeIfNeeded(mDownloadState->appSecState, ret);
+    mAppSecStatus = appSecRxDataOver(mDownloadState->appSecState);
+    mAppSecStatus = giveAppSecTimeIfNeeded(mDownloadState->appSecState, mAppSecStatus);
 
-    if (ret == APP_SEC_NO_ERROR && valid && mDownloadState->type == BL_FLASH_APP_ID) {
+    if (mAppSecStatus == APP_SEC_NO_ERROR && valid && mDownloadState->type == BL_FLASH_APP_ID) {
         app = (const struct AppHdr *)&mDownloadState->start[4];
 
         if (app->marker != APP_HDR_MARKER_UPLOADING ||
@@ -281,7 +283,7 @@ static uint8_t firmwareFinish(bool valid)
         mpuAllowRomWrite(true);
     }
 
-    if (ret == APP_SEC_NO_ERROR && valid)
+    if (mAppSecStatus == APP_SEC_NO_ERROR && valid)
         buffer[0] = ((mDownloadState->type & 0xF) << 4) | (mDownloadState->type & 0xF);
     else
         buffer[0] = 0x00;
@@ -318,26 +320,24 @@ static uint8_t firmwareFinish(bool valid)
 
 static void firmwareWrite(void *cookie)
 {
-    AppSecErr ret;
-
     if (mDownloadState->type == BL_FLASH_APP_ID) {
         /* XXX: this will need to change for real asynchronicity */
         const uint8_t *data = mDownloadState->data;
         uint32_t len = mDownloadState->len, lenLeft;
-        ret = APP_SEC_NO_ERROR;
+        mAppSecStatus = APP_SEC_NO_ERROR;
 
         while (len) {
-            ret = appSecRxData(mDownloadState->appSecState, data, len, &lenLeft);
+            mAppSecStatus = appSecRxData(mDownloadState->appSecState, data, len, &lenLeft);
             data += len - lenLeft;
             len = lenLeft;
 
-            ret = giveAppSecTimeIfNeeded(mDownloadState->appSecState, ret);
+            mAppSecStatus = giveAppSecTimeIfNeeded(mDownloadState->appSecState, mAppSecStatus);
         }
     }
     else
-        ret = writeCbk(mDownloadState->data, mDownloadState->len);
+        mAppSecStatus = writeCbk(mDownloadState->data, mDownloadState->len);
 
-    if (ret == APP_SEC_NO_ERROR) {
+    if (mAppSecStatus == APP_SEC_NO_ERROR) {
         if (mDownloadState->srcOffset == mDownloadState->size && mDownloadState->crc == ~mDownloadState->srcCrc) {
             mDownloadState->chunkReply = firmwareFinish(true);
         } else {
@@ -363,6 +363,8 @@ static uint32_t firmwareChunk(void *rx, uint8_t rx_len, void *tx, uint64_t times
         resp->chunkReply = NANOHUB_FIRMWARE_CHUNK_REPLY_CANCEL_NO_RETRY;
     } else if (mDownloadState->chunkReply != NANOHUB_FIRMWARE_CHUNK_REPLY_ACCEPTED) {
         resp->chunkReply = mDownloadState->chunkReply;
+        heapFree(mDownloadState);
+        mDownloadState = NULL;
     } else if (mDownloadState->erase == true) {
         resp->chunkReply = NANOHUB_FIRMWARE_CHUNK_REPLY_WAIT;
         osDefer(firmwareErase, NULL, false);
@@ -382,6 +384,55 @@ static uint32_t firmwareChunk(void *rx, uint8_t rx_len, void *tx, uint64_t times
             hostIntfSetBusy(true);
             osDefer(firmwareWrite, NULL, false);
         }
+    }
+
+    return sizeof(*resp);
+}
+
+static uint32_t finishFirmwareUpload(void *rx, uint8_t rx_len, void *tx, uint64_t timestamp)
+{
+    struct NanohubFinishFirmwareUploadResponse *resp = tx;
+
+    if (!mDownloadState) {
+        switch (mAppSecStatus) {
+        case APP_SEC_NO_ERROR:
+            resp->uploadReply = NANOHUB_FIRMWARE_UPLOAD_SUCCESS;
+            break;
+        case APP_SEC_KEY_NOT_FOUND:
+            resp->uploadReply = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_KEY_NOT_FOUND;
+            break;
+        case APP_SEC_HEADER_ERROR:
+            resp->uploadReply = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_HEADER_ERROR;
+            break;
+        case APP_SEC_TOO_MUCH_DATA:
+            resp->uploadReply = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_TOO_MUCH_DATA;
+            break;
+        case APP_SEC_TOO_LITTLE_DATA:
+            resp->uploadReply = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_TOO_LITTLE_DATA;
+            break;
+        case APP_SEC_SIG_VERIFY_FAIL:
+            resp->uploadReply = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_SIG_VERIFY_FAIL;
+            break;
+        case APP_SEC_SIG_DECODE_FAIL:
+            resp->uploadReply = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_SIG_DECODE_FAIL;
+            break;
+        case APP_SEC_SIG_ROOT_UNKNOWN:
+            resp->uploadReply = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_SIG_ROOT_UNKNOWN;
+            break;
+        case APP_SEC_MEMORY_ERROR:
+            resp->uploadReply = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_MEMORY_ERROR;
+            break;
+        case APP_SEC_INVALID_DATA:
+            resp->uploadReply = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_INVALID_DATA;
+            break;
+        default:
+            resp->uploadReply = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_BAD;
+            break;
+        }
+    } else if (mDownloadState->srcOffset == mDownloadState->size) {
+        resp->uploadReply = NANOHUB_FIRMWARE_UPLOAD_PROCESSING;
+    } else {
+        resp->uploadReply = NANOHUB_FIRMWARE_UPLOAD_WAITING_FOR_DATA;
     }
 
     return sizeof(*resp);
@@ -578,6 +629,10 @@ const static struct NanohubCommand mBuiltinCommands[] = {
                 firmwareChunk,
                 __le32,
                 struct NanohubFirmwareChunkRequest),
+        NANOHUB_COMMAND(NANOHUB_REASON_FINISH_FIRMWARE_UPLOAD,
+                finishFirmwareUpload,
+                struct NanohubFinishFirmwareUploadRequest,
+                struct NanohubFinishFirmwareUploadRequest),
         NANOHUB_COMMAND(NANOHUB_REASON_GET_INTERRUPT,
                 getInterrupt,
                 0,
