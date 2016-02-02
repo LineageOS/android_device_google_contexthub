@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+#include <plat/inc/bl.h>
 #include <appSec.h>
 #include <string.h>
 #include <stdio.h>
@@ -138,7 +139,7 @@ static AppSecErr appSecBlockRx(struct AppSecState *state)
         state->signedBytesOut -= state->haveBytes;
 
         //hash the data
-        sha2processBytes(&state->sha, state->dataBytes, state->haveBytes);
+        BL.blSha2processBytes(&state->sha, state->dataBytes, state->haveBytes);
     }
 
     //decrypt if encryption is on
@@ -158,7 +159,7 @@ static AppSecErr appSecBlockRx(struct AppSecState *state)
 
         //decrypt
         for (i = 0; i < numBlocks; i++, dataP += AES_BLOCK_WORDS)
-            aesCbcDecr(&state->cbc, dataP, dataP);
+            BL.blAesCbcDecr(&state->cbc, dataP, dataP);
 
         //make sure we do not produce too much data (discard padding) & make sure we account for it
         if (state->encryptedBytesOut < state->haveBytes)
@@ -195,7 +196,7 @@ static AppSecErr appSecProcessIncomingHdr(struct AppSecState *state, bool *sendD
         state->signedBytesIn = ((state->signedBytesOut + APP_SEC_SIG_ALIGN - 1) / APP_SEC_SIG_ALIGN) * APP_SEC_SIG_ALIGN;
         state->numSigs = sigHdr->numSigs;
         state->haveSig = 1;
-        sha2init(&state->sha);
+        BL.blSha2init(&state->sha);
 
         return APP_SEC_NO_ERROR;
     }
@@ -217,7 +218,7 @@ static AppSecErr appSecProcessIncomingHdr(struct AppSecState *state, bool *sendD
         if (ret)
             return ret;
 
-        aesCbcInitForDecr(&state->cbc, k, encrHdr->IV);
+        BL.blAesCbcInitForDecr(&state->cbc, k, encrHdr->IV);
         state->encryptedBytesOut = encrHdr->dataLen;
         state->encryptedBytesIn = ((state->encryptedBytesOut + APP_SEC_ENCR_ALIGN - 1) / APP_SEC_ENCR_ALIGN) * APP_SEC_ENCR_ALIGN;
         state->haveEncr = 1;
@@ -250,7 +251,7 @@ static AppSecErr appSecProcessIncomingData(struct AppSecState *state)
         state->curState = STATE_RXING_SIG_HASH;
 
         //collect the hash
-        memcpy(state->lastHash, sha2finish(&state->sha), SHA2_HASH_SIZE);
+        memcpy(state->lastHash, BL.blSha2finish(&state->sha), SHA2_HASH_SIZE);
     }
     else if (state->haveEncr && !state->encryptedBytesIn) { //we're all done with encrypted bytes
         if (state->haveSig && state->signedBytesIn)           //somehow we still have more "signed" bytes now - this is not valid
@@ -271,7 +272,7 @@ AppSecErr appSecDoSomeProcessing(struct AppSecState *state)
         return APP_SEC_BAD;
     }
 
-    result = rsaPubOpIterative(&state->rsa, state->rsaTmp, state->dataWords, &state->rsaState1, &state->rsaState2, &state->rsaStep);
+    result = BL.blRsaPubOpIterative(&state->rsa, state->rsaTmp, state->dataWords, &state->rsaState1, &state->rsaState2, &state->rsaStep);
     if (state->rsaStep)
         return APP_SEC_NEED_MORE_TIME;
 
@@ -289,9 +290,9 @@ AppSecErr appSecDoSomeProcessing(struct AppSecState *state)
 
     //hash the provided pubkey if it is not the last
     if (state->numSigs) {
-        sha2init(&state->sha);
-        sha2processBytes(&state->sha, state->dataBytes, APP_SIG_SIZE);
-        memcpy(state->lastHash, sha2finish(&state->sha), SHA2_HASH_SIZE);
+        BL.blSha2init(&state->sha);
+        BL.blSha2processBytes(&state->sha, state->dataBytes, APP_SIG_SIZE);
+        memcpy(state->lastHash, BL.blSha2finish(&state->sha), SHA2_HASH_SIZE);
         state->curState = STATE_RXING_SIG_HASH;
     }
     else

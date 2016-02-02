@@ -20,27 +20,6 @@
 #include <rsa.h>
 
 
-//memcpy is not in bootloader
-BOOTLOADER
-static void rsaCpy(uint32_t *dst, const uint32_t* src)
-{
-    uint32_t i;
-
-    for (i = 0; i < RSA_LIMBS; i++)
-        *dst++ = *src++;
-}
-
-//memset is not in bootloader
-BOOTLOADER
-static void rsaZeroDoubleLength(uint32_t *dst)
-{
-    uint32_t i;
-
-    for (i = 0; i < RSA_LIMBS * 2; i++)
-        *dst++ = 0;
-}
-
-BOOTLOADER
 static bool biModIterative(uint32_t *num, const uint32_t *denum, uint32_t *tmp, uint32_t *state1, uint32_t *state2, uint32_t step)
 //num %= denum where num is RSA_LEN * 2 and denum is RSA_LEN and tmp is RSA_LEN + limb_sz
 //will need to be called till it returns true (up to RSA_LEN * 2 + 2 times)
@@ -53,7 +32,7 @@ static bool biModIterative(uint32_t *num, const uint32_t *denum, uint32_t *tmp, 
     //first step is init
     if (!step) {
         //initially set it up left shifted as far as possible
-        rsaCpy(tmp + 1, denum);
+        memcpy(tmp + 1, denum, RSA_BYTES);
         tmp[0] = 0;
         bitsh = 32;
         limbsh = RSA_LIMBS - 1;
@@ -108,7 +87,7 @@ dont_subtract:
             goto out;
         }
 
-        rsaCpy(tmp + 1, denum);
+        memcpy(tmp + 1, denum, RSA_BYTES);
         tmp[0] = 0;
         bitsh = 32;
         limbsh--;
@@ -130,7 +109,6 @@ out:
     return ret;
 }
 
-BOOTLOADER
 static void biMulIterative(uint32_t *ret, const uint32_t *a, const uint32_t *b, uint32_t step) //ret = a * b, call with step = [0..RSA_LIMBS)
 {
     uint32_t j, c;
@@ -138,8 +116,7 @@ static void biMulIterative(uint32_t *ret, const uint32_t *a, const uint32_t *b, 
 
     //zero the result on first call
     if (!step)
-        rsaZeroDoubleLength(ret);
-
+        memset(ret, 0, RSA_BYTES * 2);
 
     //produce a partial sum & add it in
     c = 0;
@@ -167,16 +144,16 @@ static void biMulIterative(uint32_t *ret, const uint32_t *a, const uint32_t *b, 
  * and the whole opetaion will need <= RSA_LEN * 4 * 34 step values, which fits into a uint32. cool. In fact
  * some values will be skipped, but this makes life easier, really. Call this func with *stepP = 0, and keep calling till
  * output stepP is zero. We'll call each of the RSA_LEN * 4 pieces a gigastep, and have 17 of them as seen above. Each
- * will be logically separated into 4 megasteps. First will contain the MUL, last 3 the MOD and maybe the rsaCpy.
- * In the first 16 gigasteps, the very last step of the gigastep will be used for the rsaCpy call.
+ * will be logically separated into 4 megasteps. First will contain the MUL, last 3 the MOD and maybe the memcpy.
+ * In the first 16 gigasteps, the very last step of the gigastep will be used for the memcpy call.
  *
  * The initial non-iterative RSA logic looks as follows, shown here for clarity:
  *
- *   rsaCpy(state->tmpB, a);
+ *   memcpy(state->tmpB, a, RSA_BYTES);
  *   for (i = 0; i < 16; i++) {
  *       biMul(state->tmpA, state->tmpB, state->tmpB);
  *       biMod(state->tmpA, c, state->tmpB);
- *       rsaCpy(state->tmpB, state->tmpA);
+ *       memcpy(state->tmpB, state->tmpA, RSA_BYTES);
  *   }
  *
  *   //calculate a ^ 65537 mod c into state->tmpA [ at this point this means do state->tmpA = (state->tmpB * a) % c ]
@@ -188,14 +165,13 @@ static void biMulIterative(uint32_t *ret, const uint32_t *a, const uint32_t *b, 
  *
  */
 
-BOOTLOADER
-const uint32_t* _rsaPubOpIterative(struct RsaState* state, const uint32_t *a, const uint32_t *c, uint32_t *state1, uint32_t *state2, uint32_t *stepP)
+const uint32_t* rsaPubOpIterative(struct RsaState* state, const uint32_t *a, const uint32_t *c, uint32_t *state1, uint32_t *state2, uint32_t *stepP)
 {
     uint32_t step = *stepP, gigastep, gigastepBase, gigastepSubstep, megaSubstep;
 
     //step 0: copy a -> tmpB
     if (!step) {
-        rsaCpy(state->tmpB, a);
+        memcpy(state->tmpB, a, RSA_BYTES);
         step = 1;
     }
     else { //subsequent steps: do real work
@@ -223,8 +199,8 @@ const uint32_t* _rsaPubOpIterative(struct RsaState* state, const uint32_t *a, co
             else
                 step++;
         }
-        else {   //last part - rsaCpy
-            rsaCpy(state->tmpB, state->tmpA);
+        else {   //last part - memcpy
+            memcpy(state->tmpB, state->tmpA, RSA_BYTES);
             step++;
         }
     }
@@ -235,13 +211,13 @@ const uint32_t* _rsaPubOpIterative(struct RsaState* state, const uint32_t *a, co
 
 #if defined(RSA_SUPPORT_PRIV_OP_LOWRAM) || defined (RSA_SUPPORT_PRIV_OP_BIGRAM)
 #include <stdio.h>
-const uint32_t* _rsaPubOp(struct RsaState* state, const uint32_t *a, const uint32_t *c)
+const uint32_t* rsaPubOp(struct RsaState* state, const uint32_t *a, const uint32_t *c)
 {
     const uint32_t *ret;
     uint32_t state1 = 0, state2 = 0, step = 0, ns = 0;
 
     do {
-        ret = _rsaPubOpIterative(state, a, c, &state1, &state2, &step);
+        ret = rsaPubOpIterative(state, a, c, &state1, &state2, &step);
         ns++;
     } while(step);
 
@@ -265,32 +241,32 @@ static void biMul(uint32_t *ret, const uint32_t *a, const uint32_t *b)
         biMulIterative(ret, a, b, step);
 }
 
-const uint32_t* _rsaPrivOp(struct RsaState* state, const uint32_t *a, const uint32_t *b, const uint32_t *c)
+const uint32_t* rsaPrivOp(struct RsaState* state, const uint32_t *a, const uint32_t *b, const uint32_t *c)
 {
     uint32_t i;
 
-    rsaCpy(state->tmpC, a);  //tC will hold our powers of a
+    memcpy(state->tmpC, a, RSA_BYTES);  //tC will hold our powers of a
 
-    rsaZeroDoubleLength(state->tmpA); //tA will hold result
+    memset(state->tmpA, 0, RSA_BYTES * 2); //tA will hold result
     state->tmpA[0] = 1;
 
     for (i = 0; i < RSA_LEN; i++) {
         //if the bit is set, multiply the current power of A into result
         if (b[i / 32] & (1 << (i % 32))) {
-            rsaCpy(state->tmpB, state->tmpA);
+            memcpy(state->tmpB, state->tmpA, RSA_BYTES);
             biMul(state->tmpA, state->tmpB, state->tmpC);
             biMod(state->tmpA, c, state->tmpB);
         }
 
         //calculate the next power of a and modulus it
 #if defined(RSA_SUPPORT_PRIV_OP_LOWRAM)
-        rsaCpy(state->tmpB, state->tmpA); //save tA
+        memcpy(state->tmpB, state->tmpA, RSA_BYTES); //save tA
         biMul(state->tmpA, state->tmpC, state->tmpC);
         biMod(state->tmpA, c, state->tmpC);
-        rsaCpy(state->tmpC, state->tmpA);
-        rsaCpy(state->tmpA, state->tmpB); //restore tA
+        memcpy(state->tmpC, state->tmpA, RSA_BYTES);
+        memcpy(state->tmpA, state->tmpB, RSA_BYTES); //restore tA
 #elif defined (RSA_SUPPORT_PRIV_OP_BIGRAM)
-        rsaCpy(state->tmpB, state->tmpC);
+        memcpy(state->tmpB, state->tmpC, RSA_BYTES);
         biMul(state->tmpC, state->tmpB, state->tmpB);
         biMod(state->tmpC, c, state->tmpB);
 #endif

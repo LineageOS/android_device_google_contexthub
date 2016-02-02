@@ -31,11 +31,6 @@ struct AesSetupTempWorksSpace;
 struct AesCbcContext;
 
 
-//tags functions and data to live in the bootloader
-#define BOOTLOADER    __attribute__ ((section (".bltext")))
-#define BOOTLOADER_RO __attribute__ ((section (".blrodata")))
-
-
 #define OS_UPDT_MARKER_INPROGRESS     0xFF
 #define OS_UPDT_MARKER_DOWNLOADED     0xFE
 #define OS_UPDT_MARKER_VERIFIED       0xF0
