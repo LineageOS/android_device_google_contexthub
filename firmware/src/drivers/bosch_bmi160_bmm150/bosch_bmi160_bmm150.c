@@ -185,12 +185,16 @@
 #define GYR_MIN_RATE    6
 #define ACC_MAX_RATE    12
 #define GYR_MAX_RATE    13
-#define SENSOR_OSR      3
+#define MAG_MAX_RATE    11
+#define ACC_MAX_OSR     3
+#define GYR_MAX_OSR     4
 #define OSR_THRESHOULD  8
 
 #define RETRY_CNT_CALIBRATION 10
 #define RETRY_CNT_ID 5
 #define RETRY_CNT_MAG 30
+
+#define SPI_PACKET_SIZE 30
 
 enum SensorIndex {
     ACC = 0,
@@ -289,6 +293,7 @@ struct BMI160Sensor {
     uint8_t flush;
 };
 
+// FIXME: alignment
 struct BMI160Task {
     uint32_t tid;
     struct SpiMode mode;
@@ -299,7 +304,7 @@ struct BMI160Task {
     uint8_t pmuBuffer[2];
     uint8_t errBuffer[2];
     uint8_t stateBuffer[2];
-    struct SpiPacket packets[30];
+    struct SpiPacket packets[SPI_PACKET_SIZE];
     int xferCnt;
     struct Gpio *Int1;
     struct Gpio *Int2;
@@ -330,7 +335,6 @@ struct BMI160Task {
     uint8_t interrupt_enable_2;
 
     uint8_t active_oneshot_sensor_cnt;
-    uint8_t active_data_sensor_cnt;
 
     uint8_t acc_downsample;
     uint8_t gyr_downsample;
@@ -464,6 +468,10 @@ static void spiQueueRead(uint8_t addr, size_t size, void *buf, uint32_t delay)
 static void spiBatchTxRx(struct SpiMode *mode,
         SpiCbkF callback, void *cookie)
 {
+    if (mRegCnt > SPI_PACKET_SIZE) {
+        osLog(LOG_ERROR, "spiBatchTxRx too many packets!\n");
+    }
+
     spiMasterRxTx(mTask.spiDev, mTask.cs,
         mTask.packets, mRegCnt, mode, callback, cookie);
     mRegCnt = 0;
@@ -704,7 +712,7 @@ static void configInt1(bool on)
         mTask.Int1_EN = true;
     } else if (!on && mTask.Int1_EN == true) {
         for (i = ACC; i <= MAG; i++) {
-            if (mTask.sensors[i].powered)
+            if (mTask.fifo_enabled[i])
                 return;
         }
         disableInterrupt(mTask.Int1, &mTask.Isr1);
@@ -783,7 +791,7 @@ static inline bool anyFifoEnabled(void)
     return (mTask.fifo_enabled[ACC] || mTask.fifo_enabled[GYR] || mTask.fifo_enabled[MAG]);
 }
 
-static void configFifo(bool on)
+static void configFifo(void)
 {
     uint8_t val = 0x12;
     bool prev_fifo_state = anyFifoEnabled();
@@ -812,15 +820,19 @@ static void configFifo(bool on)
     }
 
     if (!prev_fifo_state && anyFifoEnabled()) {
-        // if this is the first data sensor fifo to enable, we need to
+        // if this is the first data sensor enabled in the fifo, we need to
         // sync the sensor time and rtc time
         invalidate_sensortime_to_rtc_time();
         osEnqueuePrivateEvt(EVT_TIME_SYNC, NULL, NULL, mTask.tid);
     }
 
-    // clear all fifo data;
-    mTask.xferCnt = 1024;
-    SPI_READ(BMI160_REG_FIFO_DATA, mTask.xferCnt, mTask.rxBuffer);
+    // FIXME: should be if (prev_fifo_state), but SENSOR_CONFIG_CHANGING always dispatchData()...
+    // This inceases time-to-first sample latency?
+    {
+        // flush the FIFO
+        mTask.xferCnt = 1028;
+        SPI_READ(BMI160_REG_FIFO_DATA, mTask.xferCnt, mTask.rxBuffer);
+    }
     // calculate the new water mark level
     SPI_WRITE(BMI160_REG_FIFO_CONFIG_0, calcWaterMark());
     // write the composed byte to fifo_config reg.
@@ -843,6 +855,7 @@ static bool accPower(bool on, void *cookie)
             // set ACC power mode to SUSPEND
             SPI_WRITE(BMI160_REG_CMD, 0x10, 5000);
             mTask.sensors[ACC].configed = false;
+            mTask.fifo_enabled[ACC] = false;
         }
         mTask.sensors[ACC].powered = on;
         spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[ACC]);
@@ -869,6 +882,7 @@ static bool gyrPower(bool on, void *cookie)
             // set GYR power mode to SUSPEND
             SPI_WRITE(BMI160_REG_CMD, 0x14, 1000);
             mTask.sensors[GYR].configed = false;
+            mTask.fifo_enabled[GYR] = false;
         }
         mTask.sensors[GYR].powered = on;
         spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[GYR]);
@@ -895,6 +909,7 @@ static bool magPower(bool on, void *cookie)
             // set MAG power mode to SUSPEND
             SPI_WRITE(BMI160_REG_CMD, 0x18, 1000);
             mTask.sensors[MAG].configed = false;
+            mTask.fifo_enabled[MAG] = false;
         }
         mTask.sensors[MAG].powered = on;
         spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[MAG]);
@@ -1093,8 +1108,10 @@ static bool accSetRate(uint32_t rate, uint64_t latency, void *cookie)
         mTask.state = SENSOR_CONFIG_CHANGING;
 
         odr = computeOdr(rate);
-        if (odr == -1)
+        if (!odr) {
+            osLog(LOG_ERROR, "invalid acc rate\n");
             return false;
+        }
 
         updateTimeDelta(ACC, odr);
 
@@ -1108,7 +1125,7 @@ static bool accSetRate(uint32_t rate, uint64_t latency, void *cookie)
         // for high odrs, oversample to reduce hw latency and downsample
         // to get desired odr
         if (odr > OSR_THRESHOULD) {
-            osr = (SENSOR_OSR + odr) > ACC_MAX_RATE ? (ACC_MAX_RATE - odr) : SENSOR_OSR;
+            osr = (ACC_MAX_OSR + odr) > ACC_MAX_RATE ? (ACC_MAX_RATE - odr) : ACC_MAX_OSR;
             odr += osr;
         }
 
@@ -1126,7 +1143,7 @@ static bool accSetRate(uint32_t rate, uint64_t latency, void *cookie)
         SPI_WRITE(BMI160_REG_FIFO_DOWNS, (mTask.acc_downsample << 4) | mTask.gyr_downsample | 0x88);
 
         // flush the data and configure the fifo
-        configFifo(true);
+        configFifo();
 
         spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[ACC]);
     } else {
@@ -1148,8 +1165,10 @@ static bool gyrSetRate(uint32_t rate, uint64_t latency, void *cookie)
         mTask.state = SENSOR_CONFIG_CHANGING;
 
         odr = computeOdr(rate);
-        if (odr == -1)
+        if (!odr) {
+            osLog(LOG_ERROR, "invalid gyr rate\n");
             return false;
+        }
 
         updateTimeDelta(GYR, odr);
 
@@ -1163,7 +1182,7 @@ static bool gyrSetRate(uint32_t rate, uint64_t latency, void *cookie)
         // for high odrs, oversample to reduce hw latency and downsample
         // to get desired odr
         if (odr > OSR_THRESHOULD) {
-            osr = (SENSOR_OSR + odr) > GYR_MAX_RATE ? (GYR_MAX_RATE - odr) : SENSOR_OSR;
+            osr = (GYR_MAX_OSR + odr) > GYR_MAX_RATE ? (GYR_MAX_RATE - odr) : GYR_MAX_OSR;
             odr += osr;
         }
 
@@ -1181,7 +1200,7 @@ static bool gyrSetRate(uint32_t rate, uint64_t latency, void *cookie)
         SPI_WRITE(BMI160_REG_FIFO_DOWNS, (mTask.acc_downsample << 4) | mTask.gyr_downsample | 0x88);
 
         // flush the data and configure the fifo
-        configFifo(true);
+        configFifo();
 
         spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[GYR]);
     } else {
@@ -1210,14 +1229,18 @@ static bool magSetRate(uint32_t rate, uint64_t latency, void *cookie)
         mTask.sensors[MAG].configed = true;
 
         odr = computeOdr(rate);
-        if (odr == -1)
+        if (!odr) {
+            osLog(LOG_ERROR, "invalid mag rate\n");
             return false;
+        }
 
         updateTimeDelta(MAG, odr);
 
+        odr = odr > MAG_MAX_RATE ? MAG_MAX_RATE : odr;
+
         // set the rate for MAG
         SPI_WRITE(BMI160_REG_MAG_CONF, odr);
-        configFifo(true);
+        configFifo();
 
         spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[MAG]);
     } else {
@@ -1470,7 +1493,7 @@ static bool allocateDataEvt(struct BMI160Sensor *mSensor, uint64_t rtc_time)
     mSensor->data_evt = slabAllocatorAlloc(mDataSlab);
     if (mSensor->data_evt == NULL) {
         // slab allocation failed
-        osLog(LOG_ERROR, "bmi160: IMU: Slab allocation failed\n");
+        osLog(LOG_ERROR, "Slab allocation failed\n");
         return false;
     }
 
@@ -1787,7 +1810,6 @@ static void int1Handling(void)
         mTask.xferCnt = 1028;
         // read out fifo.
         SPI_READ(BMI160_REG_FIFO_DATA, mTask.xferCnt, mTask.rxBuffer);
-        // record the time.
         spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask);
         break;
     default:
@@ -2056,7 +2078,7 @@ static void configEvent(struct BMI160Sensor *mSensor, struct ConfigStat *ConfigD
 {
     int i;
 
-    for (i=0; &mTask.sensors[i] != mSensor; i++) ;
+    for (i = 0; &mTask.sensors[i] != mSensor; i++) ;
 
     if (ConfigData->enable == 0 && mSensor->powered)
         mSensorOps[i].sensorPower(false, (void *)i);
@@ -2101,11 +2123,10 @@ static void processPendingEvt(void)
         timeSyncEvt();
         return;
     }
-
     for (i = ACC; i < NUM_OF_SENSOR; i++) {
         if (mTask.pending_config[i]) {
-            osLog(LOG_INFO, "Process pending config event for %s\n", mSensorInfo[i].sensorName);
             mTask.pending_config[i] = false;
+            osLog(LOG_INFO, "Process pending config event for %s\n", mSensorInfo[i].sensorName);
             configEvent(&mTask.sensors[i], &mTask.sensors[i].pConfig);
             return;
         }
@@ -2119,12 +2140,10 @@ static void processPendingEvt(void)
         saveCalibration();
         return;
     }
-
 }
 
 static void sensorInit(void)
 {
-
     // read ERR reg value and Power state reg value for debug purpose.
     SPI_READ(BMI160_REG_ERR, 1, mTask.errBuffer);
     SPI_READ(BMI160_REG_PMU_STATUS, 1, mTask.pmuBuffer);
@@ -2200,7 +2219,7 @@ static void sensorInit(void)
         } else if (mTask.mag_state < MAG_SET_DATA && mTask.stateBuffer[1] & 0x04) {
             SPI_READ(BMI160_REG_STATUS, 1, mTask.stateBuffer, 1000);
             if (--mRetryLeft == 0) {
-                osLog(LOG_ERROR, "bmi160: Enable MAG failed. Go back to IDLE\n");
+                osLog(LOG_ERROR, "Enable MAG failed. Go back to IDLE\n");
                 mTask.state = SENSOR_IDLE;
                 processPendingEvt();
                 break;
@@ -2278,7 +2297,7 @@ static void handleSpiDoneEvt(const void* evtData)
     case SENSOR_VERIFY_ID:
         if (mTask.rxBuffer[3] != BMI160_ID) {
             mRetryLeft --;
-            osLog(LOG_ERROR, " BMI160 failed id match: %02x\n", mTask.rxBuffer[1]);
+            osLog(LOG_ERROR, "failed id match: %02x\n", mTask.rxBuffer[1]);
             if (mRetryLeft == 0)
                 break;
             // For some reason the first ID read will fail to get the
@@ -2293,7 +2312,6 @@ static void handleSpiDoneEvt(const void* evtData)
             break;
         }
     case SENSOR_INITIALIZING:
-
         if (mTask.init_state == INIT_DONE) {
             osLog(LOG_INFO, "Done initialzing, system IDLE\n");
             for (i=0; i<NUM_OF_SENSOR; i++)
@@ -2309,7 +2327,7 @@ static void handleSpiDoneEvt(const void* evtData)
     case SENSOR_POWERING_UP:
         mSensor = (struct BMI160Sensor *)evtData;
         if (mSensor->idx <= MAG) {
-            mTask.active_data_sensor_cnt++;
+            // wait till FIFO is configed to enable interrupt
             if (mSensor->idx == GYR && anyFifoEnabled()) {
                 minimize_sensortime_history();
             }
@@ -2341,8 +2359,8 @@ static void handleSpiDoneEvt(const void* evtData)
         mTask.state = SENSOR_POWERING_DOWN_DONE;
         if (mSensor->idx <= MAG) {
             configInt1(false);
-            configFifo(false);
-            if (--mTask.active_data_sensor_cnt == 0) {
+            configFifo();
+            if (!anyFifoEnabled()) {
                 // if this is the last data sensor to disable, we need to flush
                 // the fifo and invalidate time
                 mTask.frame_sensortime = ULONG_LONG_MAX;
@@ -2374,9 +2392,8 @@ static void handleSpiDoneEvt(const void* evtData)
         osLog(LOG_INFO, "Done powering down for %s\n", mSensorInfo[mSensor->idx].sensorName);
         osLog(LOG_INFO, "   NEW POWER STATUS: %02x, ERROR: %02x\n", mTask.pmuBuffer[1], mTask.errBuffer[1]);
 
-        if (mTask.active_data_sensor_cnt > 0)
+        if (anyFifoEnabled())
             dispatchData();
-
         processPendingEvt();
         break;
     case SENSOR_INT_1_HANDLING:
@@ -2522,7 +2539,6 @@ static bool startTask(uint32_t task_id)
     mTask.Int2_EN = false;
     mTask.pending_int[0] = false;
     mTask.pending_int[1] = false;
-    mTask.active_data_sensor_cnt = 0;
 
     mTask.mode.speed = BMI160_SPI_SPEED_HZ;
     mTask.mode.bitsPerWord = 8;
