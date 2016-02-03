@@ -746,8 +746,8 @@ static uint8_t calcWaterMark(void)
         }
     }
 
-    // if max_rate is less than 50Hz, we lower the minimum water mark level
-    if (max_rate < SENSOR_HZ(50.0f)) {
+    // if max_rate is less than or equal to 50Hz, we lower the minimum water mark level
+    if (max_rate <= SENSOR_HZ(50.0f)) {
         min_water_mark = 3;
     }
 
