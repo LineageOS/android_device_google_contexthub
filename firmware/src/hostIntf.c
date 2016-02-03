@@ -938,14 +938,16 @@ void hostIntfClearInterrupts()
 void hostIntfSetInterrupt(uint32_t bit)
 {
     uint64_t state = cpuIntsOff();
-    if (!atomicBitsetGetBit(mInterrupt, bit)) {
-        atomicBitsetSetBit(mInterrupt, bit);
-        if (!atomicBitsetGetBit(mInterruptMask, bit)) {
-            if (mInterruptCntWkup++ == 0)
-                apIntSet(true);
-        } else {
-            if (mInterruptCntNonWkup++ == 0)
-                apIntSet(false);
+    if (mHostIntfTid) {
+        if (!atomicBitsetGetBit(mInterrupt, bit)) {
+            atomicBitsetSetBit(mInterrupt, bit);
+            if (!atomicBitsetGetBit(mInterruptMask, bit)) {
+                if (mInterruptCntWkup++ == 0)
+                    apIntSet(true);
+            } else {
+                if (mInterruptCntNonWkup++ == 0)
+                    apIntSet(false);
+            }
         }
     }
     cpuIntsRestore(state);
@@ -954,14 +956,16 @@ void hostIntfSetInterrupt(uint32_t bit)
 void hostIntfClearInterrupt(uint32_t bit)
 {
     uint64_t state = cpuIntsOff();
-    if (atomicBitsetGetBit(mInterrupt, bit)) {
-        atomicBitsetClearBit(mInterrupt, bit);
-        if (!atomicBitsetGetBit(mInterruptMask, bit)) {
-            if (--mInterruptCntWkup == 0)
-                apIntClear(true);
-        } else {
-            if (--mInterruptCntNonWkup == 0)
-                apIntClear(false);
+    if (mHostIntfTid) {
+        if (atomicBitsetGetBit(mInterrupt, bit)) {
+            atomicBitsetClearBit(mInterrupt, bit);
+            if (!atomicBitsetGetBit(mInterruptMask, bit)) {
+                if (--mInterruptCntWkup == 0)
+                    apIntClear(true);
+            } else {
+                if (--mInterruptCntNonWkup == 0)
+                    apIntClear(false);
+            }
         }
     }
     cpuIntsRestore(state);
@@ -970,13 +974,15 @@ void hostIntfClearInterrupt(uint32_t bit)
 void hostIntfSetInterruptMask(uint32_t bit)
 {
     uint64_t state = cpuIntsOff();
-    if (!atomicBitsetGetBit(mInterruptMask, bit)) {
-        atomicBitsetSetBit(mInterruptMask, bit);
-        if (atomicBitsetGetBit(mInterrupt, bit)) {
-            if (--mInterruptCntWkup == 0)
-                apIntClear(true);
-            if (mInterruptCntNonWkup++ == 0)
-                apIntSet(false);
+    if (mHostIntfTid) {
+        if (!atomicBitsetGetBit(mInterruptMask, bit)) {
+            atomicBitsetSetBit(mInterruptMask, bit);
+            if (atomicBitsetGetBit(mInterrupt, bit)) {
+                if (--mInterruptCntWkup == 0)
+                    apIntClear(true);
+                if (mInterruptCntNonWkup++ == 0)
+                    apIntSet(false);
+            }
         }
     }
     cpuIntsRestore(state);
@@ -985,13 +991,15 @@ void hostIntfSetInterruptMask(uint32_t bit)
 void hostIntfClearInterruptMask(uint32_t bit)
 {
     uint64_t state = cpuIntsOff();
-    if (atomicBitsetGetBit(mInterruptMask, bit)) {
-        atomicBitsetClearBit(mInterruptMask, bit);
-        if (atomicBitsetGetBit(mInterrupt, bit)) {
-            if (mInterruptCntWkup++ == 0)
-                apIntSet(true);
-            if (--mInterruptCntNonWkup == 0)
-                apIntClear(false);
+    if (mHostIntfTid) {
+        if (atomicBitsetGetBit(mInterruptMask, bit)) {
+            atomicBitsetClearBit(mInterruptMask, bit);
+            if (atomicBitsetGetBit(mInterrupt, bit)) {
+                if (mInterruptCntWkup++ == 0)
+                    apIntSet(true);
+                if (--mInterruptCntNonWkup == 0)
+                    apIntClear(false);
+            }
         }
     }
     cpuIntsRestore(state);
