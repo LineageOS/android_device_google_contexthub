@@ -597,6 +597,7 @@ bool sensorRequest(uint32_t clientTid, uint32_t sensorHandle, uint32_t rate, uin
 {
     struct Sensor* s = sensorFindByHandle(sensorHandle);
     uint32_t newSensorRate;
+    uint64_t samplingPeriod;
 
     if (!s)
         return false;
@@ -605,6 +606,10 @@ bool sensorRequest(uint32_t clientTid, uint32_t sensorHandle, uint32_t rate, uin
     newSensorRate = sensorCalcHwRate(s, rate, 0);
     if (newSensorRate == SENSOR_RATE_IMPOSSIBLE)
         return false;
+
+    /* the latency should be lower bounded by sampling period */
+    samplingPeriod = ((uint64_t)(1000000000 / rate)) << 10;
+    latency = latency > samplingPeriod ? latency : samplingPeriod;
 
     /* record the request */
     if (!sensorAddRequestor(sensorHandle, clientTid, rate, latency))
@@ -624,7 +629,7 @@ bool sensorRequestRateChange(uint32_t clientTid, uint32_t sensorHandle, uint32_t
 {
     struct Sensor* s = sensorFindByHandle(sensorHandle);
     uint32_t oldRate, newSensorRate;
-    uint64_t oldLatency;
+    uint64_t oldLatency, samplingPeriod;
 
     if (!s)
         return false;
@@ -634,10 +639,14 @@ bool sensorRequestRateChange(uint32_t clientTid, uint32_t sensorHandle, uint32_t
     if (!sensorGetCurRequestorRate(sensorHandle, clientTid, &oldRate, &oldLatency))
         return false;
 
-    /* verify the new rate is possible given all othe rongoing requests */
+    /* verify the new rate is possible given all other ongoing requests */
     newSensorRate = sensorCalcHwRate(s, newRate, oldRate);
     if (newSensorRate == SENSOR_RATE_IMPOSSIBLE)
         return false;
+
+    /* the latency should be lower bounded by sampling period */
+    samplingPeriod = ((uint64_t)(1000000000 / newRate)) << 10;
+    newLatency = newLatency > samplingPeriod ? newLatency : samplingPeriod;
 
     /* record the request */
     if (!sensorAmendRequestor(sensorHandle, clientTid, newRate, newLatency))
