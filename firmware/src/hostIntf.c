@@ -571,6 +571,7 @@ static void copySingleSamples(struct ActiveSensor *sensor, const struct SingleAx
             sensor->buffer.length = sizeof(struct SingleAxisDataEvent) + sizeof(struct SingleAxisDataPoint);
             sensor->buffer.single[0].idata = single->samples[i].idata;
             sensor->buffer.firstSample.numSamples = 1;
+            sensor->buffer.firstSample.interrupt = sensor->interrupt;
             sensor->curSamples ++;
         } else {
             if (i == 0) {
@@ -639,6 +640,7 @@ static void copyTripleSamples(struct ActiveSensor *sensor, const struct TripleAx
                 sensor->discard = false;
             }
             sensor->buffer.firstSample.numSamples = 1;
+            sensor->buffer.firstSample.interrupt = sensor->interrupt;
             sensor->curSamples ++;
         } else {
             if (i == 0) {
@@ -711,6 +713,7 @@ static void copyWifiSamples(struct ActiveSensor *sensor, const struct WifiScanEv
             sensor->buffer.length = sizeof(struct WifiScanEvent) + sizeof(struct WifiScanResult);
             memcpy(&sensor->buffer.wifiScanResults[0], &wifiScanEvent->results[i], sizeof(struct WifiScanResult));
             sensor->buffer.firstSample.numSamples = 1;
+            sensor->buffer.firstSample.interrupt = sensor->interrupt;
             sensor->curSamples ++;
         } else {
             if (i == 0) {
@@ -862,6 +865,7 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
                         sensor->buffer.length = sizeof(struct SingleAxisDataEvent) + sizeof(struct SingleAxisDataPoint);
                         sensor->lastTime = sensor->buffer.referenceTime = rtcTime;
                         sensor->buffer.firstSample.numSamples = 1;
+                        sensor->buffer.firstSample.interrupt = sensor->interrupt;
                         sensor->buffer.single[0].idata = (uint32_t)evtData;
                     } else {
                         sensor->buffer.length += sizeof(struct SingleAxisDataPoint);
