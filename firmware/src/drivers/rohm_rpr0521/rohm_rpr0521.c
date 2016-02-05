@@ -18,14 +18,30 @@
 #include <string.h>
 #include <float.h>
 
-#include <seos.h>
-#include <i2c.h>
+#include <eventnums.h>
+#include <gpio.h>
 #include <timer.h>
 #include <sensors.h>
 #include <heap.h>
 #include <hostIntf.h>
+#include <isr.h>
+#include <i2c.h>
 #include <nanohubPacket.h>
-#include <eventnums.h>
+#include <sensors.h>
+#include <seos.h>
+
+#include <plat/inc/exti.h>
+#include <plat/inc/gpio.h>
+#include <plat/inc/syscfg.h>
+#include <variant/inc/variant.h>
+
+#ifndef PROX_INT_PIN
+#error "PROX_INT_PIN is not defined; please define in variant.h"
+#endif
+
+#ifndef PROX_IRQ
+#error "PROX_IRQ is not defined; please define in variant.h"
+#endif
 
 #define I2C_BUS_ID                              0
 #define I2C_SPEED                               400000
@@ -38,7 +54,6 @@
 #define ROHM_RPR0521_REG_PS_CONTROL             0x43
 #define ROHM_RPR0521_REG_PS_DATA_LSB            0x44
 #define ROHM_RPR0521_REG_ALS_DATA0_LSB          0x46
-#define ROHM_RPR0521_REG_ALS_DATA1_LSB          0x48
 #define ROHM_RPR0521_REG_INTERRUPT              0x4a
 #define ROHM_RPR0521_REG_PS_TH_LSB              0x4b
 #define ROHM_RPR0521_REG_PS_TH_MSB              0x4c
@@ -63,22 +78,50 @@ enum {
 #define ROHM_RPR0521_GAIN_ALS1          ALS_GAIN_X1
 
 enum {
-    PS_GAIN_X1          = 0,
-    PS_GAIN_X2          = 1,
-    PS_GAIN_X4          = 2,
+    LED_CURRENT_25MA    = 0,
+    LED_CURRENT_50MA    = 1,
+    LED_CURRENT_100MA   = 2,
+    LED_CURRENT_200MA   = 3,
 };
-#define ROHM_RPR0521_GAIN_PS            PS_GAIN_X1
-
-#define ROHM_RPR0521_LED_CURRENT_100MA          2
+#define ROHM_RPR0521_LED_CURRENT        LED_CURRENT_100MA
 
 #define ROHM_RPR0521_CAL_DEFAULT_OFFSET         20
 
 /* ROHM_RPR0521_REG_SYSTEM_CONTROL */
 #define SW_RESET_BIT                            (1 << 7)
+#define INT_RESET_BIT                           (1 << 6)
 
 /* ROHM_RPR0521_REG_MODE_CONTROL */
 #define ALS_EN_BIT                              (1 << 7)
 #define PS_EN_BIT                               (1 << 6)
+
+/* ROHM_RPR0521_REG_PS_CONTROL */
+enum {
+    PS_GAIN_X1          = 0,
+    PS_GAIN_X2          = 1,
+    PS_GAIN_X4          = 2,
+};
+enum {
+    PS_PERSISTENCE_ACTIVE_AT_EACH_MEASUREMENT_END         = 0,
+    PS_PERSISTENCE_STATUS_UPDATED_AT_EACH_MEASUREMENT_END = 1,
+};
+#define ROHM_RPR0521_GAIN_PS            PS_GAIN_X1
+
+
+/* ROHM_RPR0521_REG_INTERRUPT */
+#define INTERRUPT_LATCH_BIT                     (1 << 2)
+enum {
+    INTERRUPT_MODE_PS_TH_H_ONLY      = 0,
+    INTERRUPT_MODE_PS_HYSTERESIS     = 1,
+    INTERRUPT_MODE_PS_OUTSIDE_DETECT = 2
+};
+enum {
+    INTERRUPT_TRIGGER_INACTIVE = 0,
+    INTERRUPT_TRIGGER_PS       = 1,
+    INTERRUPT_TRIGGER_ALS      = 2,
+    INTERRUPT_TRIGGER_BOTH     = 3
+};
+
 
 #define ROHM_RPR0521_REPORT_NEAR_VALUE          0.0f // centimeters
 #define ROHM_RPR0521_REPORT_FAR_VALUE           5.0f // centimeters
@@ -87,12 +130,26 @@ enum {
 
 #define ROHM_RPR0521_ALS_INVALID                UINT32_MAX
 
+#define ROHM_RPR0521_ALS_TIMER_DELAY            200000000ULL
+
+#define INFO_PRINT(fmt, ...) do { \
+        osLog(LOG_INFO, "[Rohm RPR-0521] " fmt, ##__VA_ARGS__); \
+    } while (0);
+
+#define DEBUG_PRINT(fmt, ...) do { \
+        if (enable_debug) {  \
+            osLog(LOG_INFO, "[Rohm RPR-0521] " fmt, ##__VA_ARGS__); \
+        } \
+    } while (0);
+
+static const bool enable_debug = 0;
+
 /* Private driver events */
 enum SensorEvents
 {
     EVT_SENSOR_I2C = EVT_APP_START + 1,
     EVT_SENSOR_ALS_TIMER,
-    EVT_SENSOR_PROX_TIMER,
+    EVT_SENSOR_PROX_INTERRUPT,
 };
 
 /* I2C state machine */
@@ -100,13 +157,19 @@ enum SensorState
 {
     SENSOR_STATE_RESET,
     SENSOR_STATE_VERIFY_ID,
-    SENSOR_STATE_INIT,
+    SENSOR_STATE_INIT_GAINS,
+    SENSOR_STATE_INIT_THRESHOLDS,
+    SENSOR_STATE_INIT_OFFSETS,
+    SENSOR_STATE_FINISH_INIT,
     SENSOR_STATE_ENABLING_ALS,
     SENSOR_STATE_ENABLING_PROX,
     SENSOR_STATE_DISABLING_ALS,
     SENSOR_STATE_DISABLING_PROX,
+    SENSOR_STATE_DISABLING_PROX_2,
+    SENSOR_STATE_DISABLING_PROX_3,
+    SENSOR_STATE_ALS_SAMPLING,
+    SENSOR_STATE_PROX_SAMPLING,
     SENSOR_STATE_IDLE,
-    SENSOR_STATE_SAMPLING,
 };
 
 enum ProxState
@@ -134,75 +197,91 @@ enum MeasurementTime {
 
 struct SensorData
 {
-    union {
-        uint8_t bytes[16];
-        struct {
-            uint16_t prox;
-            uint16_t als[2];
-        } sample;
-    } txrxBuf;
+    struct Gpio *pin;
+    struct ChainedIsr isr;
+
+    uint8_t txrxBuf[16];
 
     uint32_t tid;
 
     uint32_t alsHandle;
     uint32_t proxHandle;
     uint32_t alsTimerHandle;
-    uint32_t proxTimerHandle;
 
     union EmbeddedDataPoint lastAlsSample;
 
     uint8_t proxState; // enum ProxState
 
     bool alsOn;
-    bool alsReading;
     bool proxOn;
-    bool proxReading;
 };
 
-static struct SensorData mData;
+static struct SensorData mTask;
 
 static const uint32_t supportedRates[] =
 {
-    SENSOR_HZ(0.1),
-    SENSOR_HZ(1),
-    SENSOR_HZ(4),
     SENSOR_HZ(5),
-    SENSOR_HZ(10),
-    SENSOR_HZ(25),
     SENSOR_RATE_ONCHANGE,
     0,
-};
-
-static const uint64_t rateTimerVals[] = //should match "supported rates in length" and be the timer length for that rate in nanosecs
-{
-    10 * 1000000000ULL,
-     1 * 1000000000ULL,
-    1000000000ULL / 4,
-    1000000000ULL / 5,
-    1000000000ULL / 10,
-    1000000000ULL / 25,
 };
 
 /*
  * Helper functions
  */
+static bool proxIsr(struct ChainedIsr *localIsr)
+{
+    struct SensorData *data = container_of(localIsr, struct SensorData, isr);
+    bool firstProxSample = (data->proxState == PROX_STATE_INIT);
+    uint8_t lastProxState = data->proxState;
+    bool pinState;
+    union EmbeddedDataPoint sample;
+
+    if (!extiIsPendingGpio(data->pin)) {
+        return false;
+    }
+
+    if (data->proxOn) {
+        pinState = gpioGet(data->pin);
+
+        if (firstProxSample && !pinState) {
+            osEnqueuePrivateEvt(EVT_SENSOR_PROX_INTERRUPT, NULL, NULL, mTask.tid);
+        } else if (!firstProxSample) {
+            sample.fdata = (pinState) ? ROHM_RPR0521_REPORT_FAR_VALUE : ROHM_RPR0521_REPORT_NEAR_VALUE;
+            data->proxState = (pinState) ? PROX_STATE_FAR : PROX_STATE_NEAR;
+            if (data->proxState != lastProxState)
+                osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_PROX), sample.vptr, NULL);
+        }
+    }
+
+    extiClearPendingGpio(data->pin);
+    return true;
+}
+
+static bool enableInterrupt(struct Gpio *pin, struct ChainedIsr *isr)
+{
+    extiEnableIntGpio(pin, EXTI_TRIGGER_BOTH);
+    extiChainIsr(PROX_IRQ, isr);
+    return true;
+}
+
+static bool disableInterrupt(struct Gpio *pin, struct ChainedIsr *isr)
+{
+    extiUnchainIsr(PROX_IRQ, isr);
+    extiDisableIntGpio(pin);
+    return true;
+}
 
 static void i2cCallback(void *cookie, size_t tx, size_t rx, int err)
 {
     if (err == 0)
-        osEnqueuePrivateEvt(EVT_SENSOR_I2C, cookie, NULL, mData.tid);
+        osEnqueuePrivateEvt(EVT_SENSOR_I2C, cookie, NULL, mTask.tid);
     else
-        osLog(LOG_INFO, "ROHM: i2c error (%d)\n", err);
+        INFO_PRINT("i2c error (%d)\n", err);
 }
 
 static void alsTimerCallback(uint32_t timerId, void *cookie)
 {
-    osEnqueuePrivateEvt(EVT_SENSOR_ALS_TIMER, cookie, NULL, mData.tid);
-}
-
-static void proxTimerCallback(uint32_t timerId, void *cookie)
-{
-    osEnqueuePrivateEvt(EVT_SENSOR_PROX_TIMER, cookie, NULL, mData.tid);
+    osEnqueuePrivateEvt(EVT_SENSOR_ALS_TIMER, cookie, NULL, mTask.tid);
 }
 
 static inline float getLuxFromAlsData(uint16_t als0, uint16_t als1)
@@ -237,57 +316,47 @@ static void setMode(bool alsOn, bool proxOn, void *cookie)
 {
     static const uint8_t measurementTime[] = {
         MEASUREMENT_TIME_ALS_STANDBY_PS_STANDBY, /* als disabled, prox disabled */
-        MEASUREMENT_TIME_ALS_100_PS_400,         /* als enabled, prox disabled (unsupported in HW, so keep PS on) */
+        MEASUREMENT_TIME_ALS_100_PS_100,         /* als enabled, prox disabled */
         MEASUREMENT_TIME_ALS_STANDBY_PS_100,     /* als disabled, prox enabled  */
         MEASUREMENT_TIME_ALS_100_PS_100,         /* als enabled, prox enabled */
     };
 
-    mData.txrxBuf.bytes[0] = ROHM_RPR0521_REG_MODE_CONTROL;
-    mData.txrxBuf.bytes[1] = measurementTime[alsOn ? 1 : 0 + proxOn ? 2 : 0] |
-                      (alsOn ? ALS_EN_BIT : 0) |
-                      (proxOn ? PS_EN_BIT : 0);
-    i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mData.txrxBuf.bytes, 2,
-                &i2cCallback, cookie);
+    mTask.txrxBuf[0] = ROHM_RPR0521_REG_MODE_CONTROL;
+    mTask.txrxBuf[1] = measurementTime[alsOn ? 1 : 0 + proxOn ? 2 : 0] | (alsOn ? ALS_EN_BIT : 0) | (proxOn ? PS_EN_BIT : 0);
+    i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 2, &i2cCallback, cookie);
 }
 
 static bool sensorPowerAls(bool on, void *cookie)
 {
-    osLog(LOG_INFO, "ROHM: sensorPowerAls: %d\n", on);
+    DEBUG_PRINT("sensorPowerAls: %d\n", on);
 
-    if (mData.alsTimerHandle) {
-        timTimerCancel(mData.alsTimerHandle);
-        mData.alsTimerHandle = 0;
-        mData.alsReading = false;
+    if (on && !mTask.alsTimerHandle) {
+        mTask.alsTimerHandle = timTimerSet(ROHM_RPR0521_ALS_TIMER_DELAY, 0, 50, alsTimerCallback, NULL, false);
+    } else if (!on && mTask.alsTimerHandle) {
+        timTimerCancel(mTask.alsTimerHandle);
+        mTask.alsTimerHandle = 0;
     }
 
-    mData.lastAlsSample.idata = ROHM_RPR0521_ALS_INVALID;
-    mData.alsOn = on;
-    setMode(on, mData.proxOn, (void *)(on ? SENSOR_STATE_ENABLING_ALS : SENSOR_STATE_DISABLING_ALS));
+    mTask.lastAlsSample.idata = ROHM_RPR0521_ALS_INVALID;
+    mTask.alsOn = on;
 
+    setMode(on, mTask.proxOn, (void *)(on ? SENSOR_STATE_ENABLING_ALS : SENSOR_STATE_DISABLING_ALS));
     return true;
 }
 
 static bool sensorFirmwareAls(void *cookie)
 {
-    sensorSignalInternalEvt(mData.alsHandle, SENSOR_INTERNAL_EVT_FW_STATE_CHG, 1, 0);
-    return true;
+    return sensorSignalInternalEvt(mTask.alsHandle, SENSOR_INTERNAL_EVT_FW_STATE_CHG, 1, 0);
 }
 
 static bool sensorRateAls(uint32_t rate, uint64_t latency, void *cookie)
 {
-    if (rate == SENSOR_RATE_ONCHANGE) {
+    if (rate == SENSOR_RATE_ONCHANGE)
         rate = ROHM_RPR0521_DEFAULT_RATE;
-    }
-    osLog(LOG_INFO, "ROHM: sensorRateAls: rate=%ld Hz latency=%lld ns\n",
-          rate / 1024, latency);
 
-    if (mData.alsTimerHandle)
-        timTimerCancel(mData.alsTimerHandle);
-    mData.alsTimerHandle = timTimerSet(sensorTimerLookupCommon(supportedRates, rateTimerVals, rate), 0, 50, alsTimerCallback, NULL, false);
-    osEnqueuePrivateEvt(EVT_SENSOR_ALS_TIMER, NULL, NULL, mData.tid);
-    sensorSignalInternalEvt(mData.alsHandle, SENSOR_INTERNAL_EVT_RATE_CHG, rate, latency);
+    DEBUG_PRINT("sensorRateAls: rate=%ld Hz latency=%lld ns\n", rate/1024, latency);
 
-    return true;
+    return sensorSignalInternalEvt(mTask.alsHandle, SENSOR_INTERNAL_EVT_RATE_CHG, rate, latency);
 }
 
 static bool sensorFlushAls(void *cookie)
@@ -300,50 +369,44 @@ static bool sendLastSampleAls(void *cookie, uint32_t tid) {
 
     // If we don't end up doing anything here, the expectation is that we are powering up/haven't got the
     // first sample yet, so the client will get a broadcast event soon
-    if (mData.lastAlsSample.idata != ROHM_RPR0521_ALS_INVALID) {
-        result = osEnqueuePrivateEvt(sensorGetMyEventType(SENS_TYPE_ALS), mData.lastAlsSample.vptr, NULL, tid);
+    if (mTask.lastAlsSample.idata != ROHM_RPR0521_ALS_INVALID) {
+        result = osEnqueuePrivateEvt(sensorGetMyEventType(SENS_TYPE_ALS), mTask.lastAlsSample.vptr, NULL, tid);
     }
     return result;
 }
 
 static bool sensorPowerProx(bool on, void *cookie)
 {
-    osLog(LOG_INFO, "ROHM: sensorPowerProx: %d\n", on);
+    DEBUG_PRINT("sensorPowerProx: %d\n", on);
 
-    if (mData.proxTimerHandle) {
-        timTimerCancel(mData.proxTimerHandle);
-        mData.proxTimerHandle = 0;
-        mData.proxReading = false;
+    if (on) {
+        extiClearPendingGpio(mTask.pin);
+        enableInterrupt(mTask.pin, &mTask.isr);
+    } else {
+        disableInterrupt(mTask.pin, &mTask.isr);
+        extiClearPendingGpio(mTask.pin);
     }
 
-    mData.proxState = PROX_STATE_INIT;
-    mData.proxOn = on;
-    setMode(mData.alsOn, on, (void *)(on ? SENSOR_STATE_ENABLING_PROX : SENSOR_STATE_DISABLING_PROX));
+    mTask.proxState = PROX_STATE_INIT;
+    mTask.proxOn = on;
 
+    setMode(mTask.alsOn, on, (void *)(on ? SENSOR_STATE_ENABLING_PROX : SENSOR_STATE_DISABLING_PROX));
     return true;
 }
 
 static bool sensorFirmwareProx(void *cookie)
 {
-    sensorSignalInternalEvt(mData.proxHandle, SENSOR_INTERNAL_EVT_FW_STATE_CHG, 1, 0);
-    return true;
+    return sensorSignalInternalEvt(mTask.proxHandle, SENSOR_INTERNAL_EVT_FW_STATE_CHG, 1, 0);
 }
 
 static bool sensorRateProx(uint32_t rate, uint64_t latency, void *cookie)
 {
-    if (rate == SENSOR_RATE_ONCHANGE) {
+    if (rate == SENSOR_RATE_ONCHANGE)
         rate = ROHM_RPR0521_DEFAULT_RATE;
-    }
-    osLog(LOG_INFO, "ROHM: sensorRateProx: rate=%ld Hz latency=%lld ns\n",
-          rate / 1024, latency);
 
-    if (mData.proxTimerHandle)
-        timTimerCancel(mData.proxTimerHandle);
-    mData.proxTimerHandle = timTimerSet(sensorTimerLookupCommon(supportedRates, rateTimerVals, rate), 0, 50, proxTimerCallback, NULL, false);
-    osEnqueuePrivateEvt(EVT_SENSOR_PROX_TIMER, NULL, NULL, mData.tid);
-    sensorSignalInternalEvt(mData.proxHandle, SENSOR_INTERNAL_EVT_RATE_CHG, rate, latency);
+    DEBUG_PRINT("sensorRateProx: rate=%ld Hz latency=%lld ns\n", rate/1024, latency);
 
-    return true;
+    return sensorSignalInternalEvt(mTask.proxHandle, SENSOR_INTERNAL_EVT_RATE_CHG, rate, latency);
 }
 
 static bool sensorFlushProx(void *cookie)
@@ -356,9 +419,8 @@ static bool sendLastSampleProx(void *cookie, uint32_t tid) {
     bool result = true;
 
     // See note in sendLastSampleAls
-    if (mData.proxState != PROX_STATE_INIT) {
-        sample.fdata = (mData.proxState == PROX_STATE_NEAR) ?
-            ROHM_RPR0521_REPORT_NEAR_VALUE : ROHM_RPR0521_REPORT_FAR_VALUE;
+    if (mTask.proxState != PROX_STATE_INIT) {
+        sample.fdata = (mTask.proxState == PROX_STATE_NEAR) ? ROHM_RPR0521_REPORT_NEAR_VALUE : ROHM_RPR0521_REPORT_FAR_VALUE;
         result = osEnqueuePrivateEvt(sensorGetMyEventType(SENS_TYPE_PROX), sample.vptr, NULL, tid);
     }
     return result;
@@ -421,114 +483,136 @@ static void __attribute__((unused)) sensorProxFree(void *ptr)
 static void handle_i2c_event(int state)
 {
     union EmbeddedDataPoint sample;
-    bool sendData;
+    uint16_t als0, als1, ps;
+    uint8_t lastProxState;
 
     switch (state) {
     case SENSOR_STATE_RESET:
-        mData.txrxBuf.bytes[0] = ROHM_RPR0521_REG_ID;
-        i2cMasterTxRx(I2C_BUS_ID, I2C_ADDR, mData.txrxBuf.bytes, 1,
-                        mData.txrxBuf.bytes, 1, &i2cCallback,
+        mTask.txrxBuf[0] = ROHM_RPR0521_REG_ID;
+        i2cMasterTxRx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 1,
+                        mTask.txrxBuf, 1, &i2cCallback,
                         (void *)SENSOR_STATE_VERIFY_ID);
         break;
+
     case SENSOR_STATE_VERIFY_ID:
         /* Check the sensor ID */
-        if (mData.txrxBuf.bytes[0] != ROHM_RPR0521_ID) {
-            osLog(LOG_INFO, "ROHM: not detected\n");
-            sensorUnregister(mData.alsHandle);
-            sensorUnregister(mData.proxHandle);
+        if (mTask.txrxBuf[0] != ROHM_RPR0521_ID) {
+            INFO_PRINT("not detected\n");
+            sensorUnregister(mTask.alsHandle);
+            sensorUnregister(mTask.proxHandle);
             break;
         }
 
-        mData.txrxBuf.bytes[0] = ROHM_RPR0521_REG_ALS_PS_CONTROL;
-
-        /* ALS gain and LED current */
-        mData.txrxBuf.bytes[1] = (ROHM_RPR0521_GAIN_ALS0 << 4) |
-                          (ROHM_RPR0521_GAIN_ALS1 << 2) |
-                          ROHM_RPR0521_LED_CURRENT_100MA;
-        /* PS gain */
-        mData.txrxBuf.bytes[2] = (ROHM_RPR0521_GAIN_PS << 4) | 0x1;
-
-        i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mData.txrxBuf.bytes, 3,
-                          &i2cCallback, (void *)SENSOR_STATE_INIT);
+        mTask.txrxBuf[0] = ROHM_RPR0521_REG_ALS_PS_CONTROL;
+        mTask.txrxBuf[1] = (ROHM_RPR0521_GAIN_ALS0 << 4) | (ROHM_RPR0521_GAIN_ALS1 << 2) | ROHM_RPR0521_LED_CURRENT;
+        mTask.txrxBuf[2] = (ROHM_RPR0521_GAIN_PS << 4) | PS_PERSISTENCE_ACTIVE_AT_EACH_MEASUREMENT_END;
+        i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 3, &i2cCallback, (void *)SENSOR_STATE_INIT_GAINS);
         break;
 
-    case SENSOR_STATE_INIT:
+    case SENSOR_STATE_INIT_GAINS:
         /* Offset register */
-        mData.txrxBuf.bytes[0] = ROHM_RPR0521_REG_PS_OFFSET_LSB;
-        mData.txrxBuf.bytes[1] = ROHM_RPR0521_CAL_DEFAULT_OFFSET & 0xff;
-        mData.txrxBuf.bytes[2] = (ROHM_RPR0521_CAL_DEFAULT_OFFSET >> 8) & 0x3;
-        i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mData.txrxBuf.bytes, 3,
-                          &i2cCallback, (void *)SENSOR_STATE_IDLE);
+        mTask.txrxBuf[0] = ROHM_RPR0521_REG_PS_OFFSET_LSB;
+        mTask.txrxBuf[1] = ROHM_RPR0521_CAL_DEFAULT_OFFSET & 0xff;
+        mTask.txrxBuf[2] = (ROHM_RPR0521_CAL_DEFAULT_OFFSET >> 8) & 0x3;
+        i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 3, &i2cCallback, (void *)SENSOR_STATE_INIT_OFFSETS);
         break;
 
-    case SENSOR_STATE_IDLE:
-        sensorRegisterInitComplete(mData.alsHandle);
-        sensorRegisterInitComplete(mData.proxHandle);
+    case SENSOR_STATE_INIT_OFFSETS:
+        /* PS Threshold register */
+        mTask.txrxBuf[0] = ROHM_RPR0521_REG_PS_TH_LSB;
+        mTask.txrxBuf[1] = (ROHM_RPR0521_THRESHOLD_ASSERT_NEAR && 0xFF);
+        mTask.txrxBuf[2] = (ROHM_RPR0521_THRESHOLD_ASSERT_NEAR && 0xFF00) >> 8;
+        mTask.txrxBuf[3] = (ROHM_RPR0521_THRESHOLD_DEASSERT_NEAR && 0xFF);
+        mTask.txrxBuf[4] = (ROHM_RPR0521_THRESHOLD_DEASSERT_NEAR && 0xFF00) >> 8;
+        i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 5, &i2cCallback, (void *)SENSOR_STATE_INIT_THRESHOLDS);
+        break;
+
+    case SENSOR_STATE_INIT_THRESHOLDS:
+        /* Interrupt register */
+        mTask.txrxBuf[0] = ROHM_RPR0521_REG_INTERRUPT;
+        mTask.txrxBuf[1] = (INTERRUPT_MODE_PS_HYSTERESIS << 4) | INTERRUPT_LATCH_BIT | INTERRUPT_TRIGGER_PS;
+        i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 2, &i2cCallback, (void *)SENSOR_STATE_FINISH_INIT);
+        break;
+
+    case SENSOR_STATE_FINISH_INIT:
+        sensorRegisterInitComplete(mTask.alsHandle);
+        sensorRegisterInitComplete(mTask.proxHandle);
         break;
 
     case SENSOR_STATE_ENABLING_ALS:
-        sensorSignalInternalEvt(mData.alsHandle, SENSOR_INTERNAL_EVT_POWER_STATE_CHG, true, 0);
+        sensorSignalInternalEvt(mTask.alsHandle, SENSOR_INTERNAL_EVT_POWER_STATE_CHG, true, 0);
         break;
 
     case SENSOR_STATE_ENABLING_PROX:
-        sensorSignalInternalEvt(mData.proxHandle, SENSOR_INTERNAL_EVT_POWER_STATE_CHG, true, 0);
+        sensorSignalInternalEvt(mTask.proxHandle, SENSOR_INTERNAL_EVT_POWER_STATE_CHG, true, 0);
         break;
 
     case SENSOR_STATE_DISABLING_ALS:
-        sensorSignalInternalEvt(mData.alsHandle, SENSOR_INTERNAL_EVT_POWER_STATE_CHG, false, 0);
+        sensorSignalInternalEvt(mTask.alsHandle, SENSOR_INTERNAL_EVT_POWER_STATE_CHG, false, 0);
         break;
 
     case SENSOR_STATE_DISABLING_PROX:
-        sensorSignalInternalEvt(mData.proxHandle, SENSOR_INTERNAL_EVT_POWER_STATE_CHG, false, 0);
+        // Clear persistence setting
+        mTask.txrxBuf[0] = ROHM_RPR0521_REG_PS_CONTROL;
+        mTask.txrxBuf[1] = (ROHM_RPR0521_GAIN_PS << 4) | PS_PERSISTENCE_ACTIVE_AT_EACH_MEASUREMENT_END;
+        i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 2, &i2cCallback, (void *)SENSOR_STATE_DISABLING_PROX_2);
         break;
 
-    case SENSOR_STATE_SAMPLING:
-        /* TEST: log collected data
-        osLog(LOG_INFO, "ROHM: sample ready: prox=%u als0=%u als1=%u\n",
-              data.txrxBuf.sample.prox, data.txrxBuf.sample.als[0], data.txrxBuf.sample.als[1]);
-        */
+    case SENSOR_STATE_DISABLING_PROX_2:
+        // Reset interrupt
+        mTask.txrxBuf[0] = ROHM_RPR0521_REG_SYSTEM_CONTROL;
+        mTask.txrxBuf[1] = INT_RESET_BIT;
+        i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 2, &i2cCallback, (void *)SENSOR_STATE_DISABLING_PROX_3);
+        break;
 
-        if (mData.alsOn && mData.alsReading) {
-            /* Create event */
-            sample.fdata = getLuxFromAlsData(mData.txrxBuf.sample.als[0],
-                                             mData.txrxBuf.sample.als[1]);
-            if (mData.lastAlsSample.idata != sample.idata) {
+    case SENSOR_STATE_DISABLING_PROX_3:
+        sensorSignalInternalEvt(mTask.proxHandle, SENSOR_INTERNAL_EVT_POWER_STATE_CHG, false, 0);
+        break;
+
+    case SENSOR_STATE_ALS_SAMPLING:
+        als0 = *(uint16_t*)(mTask.txrxBuf);
+        als1 = *(uint16_t*)(mTask.txrxBuf+2);
+
+        DEBUG_PRINT("als sample ready: als0=%u als1=%u\n", als0, als1);
+
+        if (mTask.alsOn) {
+            sample.fdata = getLuxFromAlsData(als0, als1);
+            if (mTask.lastAlsSample.idata != sample.idata) {
                 osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_ALS), sample.vptr, NULL);
-                mData.lastAlsSample.fdata = sample.fdata;
+                mTask.lastAlsSample.fdata = sample.fdata;
             }
         }
 
-        if (mData.proxOn && mData.proxReading) {
-            /* Create event */
-            sendData = true;
-            if (mData.proxState == PROX_STATE_INIT) {
-                if (mData.txrxBuf.sample.prox > ROHM_RPR0521_THRESHOLD_ASSERT_NEAR) {
-                    sample.fdata = ROHM_RPR0521_REPORT_NEAR_VALUE;
-                    mData.proxState = PROX_STATE_NEAR;
-                } else {
-                    sample.fdata = ROHM_RPR0521_REPORT_FAR_VALUE;
-                    mData.proxState = PROX_STATE_FAR;
-                }
+        break;
+
+    case SENSOR_STATE_PROX_SAMPLING:
+        ps = *(uint16_t*)(mTask.txrxBuf);
+        lastProxState = mTask.proxState;
+
+        DEBUG_PRINT("prox sample ready: prox=%u\n", ps);
+
+        if (mTask.proxOn) {
+            if (ps > ROHM_RPR0521_THRESHOLD_ASSERT_NEAR) {
+                sample.fdata = ROHM_RPR0521_REPORT_NEAR_VALUE;
+                mTask.proxState = PROX_STATE_NEAR;
             } else {
-                if (mData.proxState == PROX_STATE_NEAR &&
-                    mData.txrxBuf.sample.prox < ROHM_RPR0521_THRESHOLD_DEASSERT_NEAR) {
-                    sample.fdata = ROHM_RPR0521_REPORT_FAR_VALUE;
-                    mData.proxState = PROX_STATE_FAR;
-                } else if (mData.proxState == PROX_STATE_FAR &&
-                    mData.txrxBuf.sample.prox > ROHM_RPR0521_THRESHOLD_ASSERT_NEAR) {
-                    sample.fdata = ROHM_RPR0521_REPORT_NEAR_VALUE;
-                    mData.proxState = PROX_STATE_NEAR;
-                } else {
-                    sendData = false;
-                }
+                sample.fdata = ROHM_RPR0521_REPORT_FAR_VALUE;
+                mTask.proxState = PROX_STATE_FAR;
             }
 
-            if (sendData)
+            if (mTask.proxState != lastProxState)
                 osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_PROX), sample.vptr, NULL);
+
+            // After the first prox sample, change the persistance setting to assert
+            // interrupt on-change, rather than after every sample
+            mTask.txrxBuf[0] = ROHM_RPR0521_REG_PS_CONTROL;
+            mTask.txrxBuf[1] = (ROHM_RPR0521_GAIN_PS << 4) | PS_PERSISTENCE_STATUS_UPDATED_AT_EACH_MEASUREMENT_END;
+            i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 2, &i2cCallback, (void *)SENSOR_STATE_IDLE);
         }
 
-        mData.alsReading = false;
-        mData.proxReading = false;
+        break;
+
+    default:
         break;
     }
 }
@@ -539,20 +623,23 @@ static void handle_i2c_event(int state)
 
 static bool init_app(uint32_t myTid)
 {
-    osLog(LOG_INFO, "ROHM: task starting\n");
+    INFO_PRINT("task starting\n");
 
     /* Set up driver private data */
-    mData.tid = myTid;
-    mData.alsOn = false;
-    mData.alsReading = false;
-    mData.proxOn = false;
-    mData.proxReading = false;
-    mData.lastAlsSample.idata = ROHM_RPR0521_ALS_INVALID;
-    mData.proxState = PROX_STATE_INIT;
+    mTask.tid = myTid;
+    mTask.alsOn = false;
+    mTask.proxOn = false;
+    mTask.lastAlsSample.idata = ROHM_RPR0521_ALS_INVALID;
+    mTask.proxState = PROX_STATE_INIT;
+
+    mTask.pin = gpioRequest(PROX_INT_PIN);
+    gpioConfigInput(mTask.pin, GPIO_SPEED_LOW, GPIO_PULL_NONE);
+    syscfgSetExtiPort(mTask.pin);
+    mTask.isr.func = proxIsr;
 
     /* Register sensors */
-    mData.alsHandle = sensorRegister(&sensorInfoAls, &sensorOpsAls, NULL, false);
-    mData.proxHandle = sensorRegister(&sensorInfoProx, &sensorOpsProx, NULL, false);
+    mTask.alsHandle = sensorRegister(&sensorInfoAls, &sensorOpsAls, NULL, false);
+    mTask.proxHandle = sensorRegister(&sensorInfoProx, &sensorOpsProx, NULL, false);
 
     osEventSubscribe(myTid, EVT_APP_START);
 
@@ -561,8 +648,13 @@ static bool init_app(uint32_t myTid)
 
 static void end_app(void)
 {
-    sensorUnregister(mData.alsHandle);
-    sensorUnregister(mData.proxHandle);
+    disableInterrupt(mTask.pin, &mTask.isr);
+    extiUnchainIsr(PROX_IRQ, &mTask.isr);
+    extiClearPendingGpio(mTask.pin);
+    gpioRelease(mTask.pin);
+
+    sensorUnregister(mTask.alsHandle);
+    sensorUnregister(mTask.proxHandle);
 
     i2cMasterRelease(I2C_BUS_ID);
 }
@@ -574,10 +666,9 @@ static void handle_event(uint32_t evtType, const void* evtData)
         i2cMasterRequest(I2C_BUS_ID, I2C_SPEED);
 
         /* Reset chip */
-        mData.txrxBuf.bytes[0] = ROHM_RPR0521_REG_SYSTEM_CONTROL;
-        mData.txrxBuf.bytes[1] = SW_RESET_BIT;
-        i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mData.txrxBuf.bytes, 2,
-                              &i2cCallback, (void *)SENSOR_STATE_RESET);
+        mTask.txrxBuf[0] = ROHM_RPR0521_REG_SYSTEM_CONTROL;
+        mTask.txrxBuf[1] = SW_RESET_BIT;
+        i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 2, &i2cCallback, (void *)SENSOR_STATE_RESET);
         break;
 
     case EVT_SENSOR_I2C:
@@ -585,20 +676,16 @@ static void handle_event(uint32_t evtType, const void* evtData)
         break;
 
     case EVT_SENSOR_ALS_TIMER:
-    case EVT_SENSOR_PROX_TIMER:
-        /* Start sampling for a value */
-        if (!mData.alsReading && !mData.proxReading) {
-            mData.txrxBuf.bytes[0] = ROHM_RPR0521_REG_PS_DATA_LSB;
-            i2cMasterTxRx(I2C_BUS_ID, I2C_ADDR, mData.txrxBuf.bytes, 1,
-                                mData.txrxBuf.bytes, 6, &i2cCallback,
-                                (void *)SENSOR_STATE_SAMPLING);
-        }
-
-        if (evtType == EVT_SENSOR_ALS_TIMER)
-            mData.alsReading = true;
-        else
-            mData.proxReading = true;
+        mTask.txrxBuf[0] = ROHM_RPR0521_REG_ALS_DATA0_LSB;
+        i2cMasterTxRx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 1, mTask.txrxBuf, 4, &i2cCallback, (void *)SENSOR_STATE_ALS_SAMPLING);
         break;
+
+    case EVT_SENSOR_PROX_INTERRUPT:
+        // Over-read to read the INTERRUPT register to clear the interrupt
+        mTask.txrxBuf[0] = ROHM_RPR0521_REG_PS_DATA_LSB;
+        i2cMasterTxRx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 1, mTask.txrxBuf, 7, &i2cCallback, (void *)SENSOR_STATE_PROX_SAMPLING);
+        break;
+
     }
 }
 
