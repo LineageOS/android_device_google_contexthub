@@ -43,7 +43,7 @@ struct SensorFirstSample
     uint8_t biasCurrent : 1;
     uint8_t biasPresent : 1;
     uint8_t biasSample : 6;
-    uint8_t pad;
+    uint8_t interrupt;
 };
 
 // NUM_AXIS_EMBEDDED data format
