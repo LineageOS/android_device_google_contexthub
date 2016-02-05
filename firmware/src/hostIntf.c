@@ -40,8 +40,9 @@
 #include <heap.h>
 #include <simpleQ.h>
 
-#define MAX_NUM_BLOCKS      350 /* times 252 = 88200 bytes */
-#define SENSOR_INIT_DELAY   500000000 /* ns */
+#define MAX_NUM_BLOCKS      350         /* times 252 = 88200 bytes */
+#define MIN_NUM_BLOCKS      10          /* times 252 = 2520 bytes */
+#define SENSOR_INIT_DELAY   500000000   /* ns */
 
 enum ConfigCmds
 {
@@ -500,6 +501,8 @@ static bool initSensors()
     if (numBlocks > MAX_NUM_BLOCKS) {
         osLog(LOG_INFO, "initSensors: numBlocks of %d exceeds maximum of %d\n", numBlocks, MAX_NUM_BLOCKS);
         numBlocks = MAX_NUM_BLOCKS;
+    } else if (numBlocks < MIN_NUM_BLOCKS) {
+        numBlocks = MIN_NUM_BLOCKS;
     }
 
     mOutputQ = simpleQueueAlloc(numBlocks, sizeof(struct DataBuffer), queueDiscard);
