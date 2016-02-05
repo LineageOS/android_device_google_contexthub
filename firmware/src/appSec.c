@@ -350,14 +350,14 @@ AppSecErr appSecRxData(struct AppSecState *state, const void *dataP, uint32_t le
 
                 ret = appSecBlockRx(state);
                 if (ret != APP_SEC_NO_ERROR)
-                    break;
+                    goto out;
 
                 ret = appSecProcessIncomingHdr(state, &sendToDataHandler);
                 if (ret != APP_SEC_NO_ERROR)
-                    break;
+                    goto out;
                 if (!sendToDataHandler) {
                     state->haveBytes = 0;
-                    break;
+                    goto out;
                 }
                 //fallthrough
             }
@@ -373,13 +373,13 @@ AppSecErr appSecRxData(struct AppSecState *state, const void *dataP, uint32_t le
                 else {
                     ret = appSecBlockRx(state);
                     if (ret != APP_SEC_NO_ERROR)
-                        break;
+                        goto out;
                 }
 
                 ret = appSecProcessIncomingData(state);
                 state->haveBytes = 0;
                 if (ret != APP_SEC_NO_ERROR)
-                    break;
+                    goto out;
             }
             break;
 
@@ -391,7 +391,7 @@ AppSecErr appSecRxData(struct AppSecState *state, const void *dataP, uint32_t le
                 ret = appSecProcessIncomingSigData(state);
                 state->haveBytes = 0;
                 if (ret != APP_SEC_NO_ERROR)
-                    break;
+                    goto out;
             }
             break;
 
@@ -403,6 +403,7 @@ AppSecErr appSecRxData(struct AppSecState *state, const void *dataP, uint32_t le
         }
     }
 
+out:
     *lenUnusedP = len;
 
     if (ret != APP_SEC_NO_ERROR && ret != APP_SEC_NEED_MORE_TIME)
