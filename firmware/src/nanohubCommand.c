@@ -168,7 +168,7 @@ static void resetDownloadState()
     mAppSecStatus = APP_SEC_NO_ERROR;
     if (mDownloadState->appSecState)
         appSecDeinit(mDownloadState->appSecState);
-    mDownloadState->appSecState = appSecInit(writeCbk, pubKeyFindCbk, aesKeyAccessCbk, false);
+    mDownloadState->appSecState = appSecInit(writeCbk, pubKeyFindCbk, aesKeyAccessCbk, true);
     mDownloadState->srcOffset = 0;
     mDownloadState->srcCrc = ~0;
     mDownloadState->dstOffset = 4; // skip over header
