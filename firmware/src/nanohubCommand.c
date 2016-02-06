@@ -320,6 +320,8 @@ static uint8_t firmwareFinish(bool valid)
 
 static void firmwareWrite(void *cookie)
 {
+    uint32_t reply;
+
     if (mDownloadState->type == BL_FLASH_APP_ID) {
         /* XXX: this will need to change for real asynchronicity */
         const uint8_t *data = mDownloadState->data;
@@ -339,12 +341,15 @@ static void firmwareWrite(void *cookie)
 
     if (mAppSecStatus == APP_SEC_NO_ERROR) {
         if (mDownloadState->srcOffset == mDownloadState->size && mDownloadState->crc == ~mDownloadState->srcCrc) {
-            mDownloadState->chunkReply = firmwareFinish(true);
+            reply = firmwareFinish(true);
+            if (mDownloadState)
+                mDownloadState->chunkReply = reply;
         } else {
             mDownloadState->chunkReply = NANOHUB_FIRMWARE_CHUNK_REPLY_ACCEPTED;
         }
     } else {
-        mDownloadState->chunkReply = NANOHUB_FIRMWARE_CHUNK_REPLY_CANCEL;
+        heapFree(mDownloadState);
+        mDownloadState = NULL;
     }
     hostIntfSetBusy(false);
 }
