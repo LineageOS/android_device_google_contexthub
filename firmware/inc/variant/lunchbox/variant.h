@@ -72,6 +72,9 @@ extern "C" {
 #define VSYNC_PIN GPIO_PB(1)
 #define VSYNC_IRQ EXTI1_IRQn
 
+#define PROX_INT_PIN GPIO_PB(10)
+#define PROX_IRQ EXTI15_10_IRQn
+
 //define tap sensor threshould
 #define TAP_THRESHOULD  0x01
 
