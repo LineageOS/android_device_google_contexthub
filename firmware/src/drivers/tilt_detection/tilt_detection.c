@@ -24,7 +24,6 @@
 #include <nanohubPacket.h>
 
 #include <seos.h>
-#include <accelerometer.h>
 
 #include <nanohub_math.h>
 #include <sensors.h>
