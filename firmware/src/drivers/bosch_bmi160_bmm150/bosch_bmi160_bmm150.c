@@ -449,8 +449,6 @@ static void spiQueueWrite(uint8_t addr, uint8_t data, uint32_t delay)
  */
 static void spiQueueRead(uint8_t addr, size_t size, void *buf, uint32_t delay)
 {
-    int i;
-
     if (!buf) {
         osLog(LOG_ERROR, "rx buffer is none\n");
         return;
@@ -460,8 +458,7 @@ static void spiQueueRead(uint8_t addr, size_t size, void *buf, uint32_t delay)
     mTask.packets[mRegCnt].rxBuf = buf;
     mTask.packets[mRegCnt].delay = delay * 1000;
     mTask.txBuffer[mWbufCnt++] = BMI160_SPI_READ | addr;
-    for (i = 0; i < size; i++)
-        mTask.txBuffer[mWbufCnt++] = 0xff;
+    mWbufCnt += size;
     mRegCnt++;
 }
 
