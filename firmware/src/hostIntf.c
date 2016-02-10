@@ -768,6 +768,7 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
 #ifdef DEBUG_LOG_EVT
             osEventSubscribe(mHostIntfTid, DEBUG_LOG_EVT);
 #endif
+            hostIntfSetInterrupt(NANOHUB_INT_BOOT_COMPLETE);
         }
     }
 #ifdef DEBUG_LOG_EVT
