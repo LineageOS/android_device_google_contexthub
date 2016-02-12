@@ -25,7 +25,6 @@
 #include <floatRt.h>
 
 #include <seos.h>
-#include <accelerometer.h>
 
 #include <nanohub_math.h>
 #include <fusion/fusion.h>

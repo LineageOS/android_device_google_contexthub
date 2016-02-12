@@ -35,7 +35,6 @@
 #include <cpu/inc/cpuMath.h>
 
 #include <seos.h>
-#include <accelerometer.h>
 
 #include "mag_cal.h"
 #include "time_sync.h"
