@@ -44,9 +44,6 @@
 #define BMI160_SPI_WRITE         0x00
 #define BMI160_SPI_READ          0x80
 
-#define USE_LOW_POWER                   0
-#define CALCULATE_WATERMARK_LEVEL       1
-
 #define BMI160_SPI_BUS_ID         1
 #define BMI160_SPI_SPEED_HZ       4000000
 #define BMI160_SPI_MODE           3
@@ -195,6 +192,7 @@
 #define RETRY_CNT_MAG 30
 
 #define SPI_PACKET_SIZE 30
+#define FIFO_READ_SIZE 1028
 
 enum SensorIndex {
     ACC = 0,
@@ -215,11 +213,6 @@ enum SensorEvents {
     EVT_SENSOR_INTERRUPT_1,
     EVT_SENSOR_INTERRUPT_2,
     EVT_TIME_SYNC,
-};
-
-enum FifoState {
-    FIFO_READ_DATA,
-    FIFO_DONE
 };
 
 enum InitState {
@@ -245,9 +238,7 @@ enum SensorState {
     SENSOR_INITIALIZING,
     SENSOR_IDLE,
     SENSOR_POWERING_UP,
-    SENSOR_POWERING_UP_DONE,
     SENSOR_POWERING_DOWN,
-    SENSOR_POWERING_DOWN_DONE,
     SENSOR_CONFIG_CHANGING,
     SENSOR_INT_1_HANDLING,
     SENSOR_INT_2_HANDLING,
@@ -289,65 +280,67 @@ struct BMI160Sensor {
     bool powered; // activate status
     bool configed; // configure status
     bool offset_enable;
-    enum SensorIndex idx;
     uint8_t flush;
+    enum SensorIndex idx;
 };
 
 // FIXME: alignment
 struct BMI160Task {
     uint32_t tid;
-    struct SpiMode mode;
+    struct BMI160Sensor sensors[NUM_OF_SENSOR];
+
+    // time keeping.
+    uint64_t last_sensortime;
+    uint64_t frame_sensortime;
+    uint64_t prev_frame_time[3];
+    uint64_t time_delta[3];
+    uint64_t next_delta[3];
+
+    // spi and interrupt
     spi_cs_t cs;
+    struct SpiMode mode;
+    struct SpiPacket packets[SPI_PACKET_SIZE];
     struct SpiDevice *spiDev;
+    struct Gpio *Int1;
+    struct Gpio *Int2;
+    struct ChainedIsr Isr1;
+    struct ChainedIsr Isr2;
+
+    // sensor config
+    struct MagCal moc;
+    float last_charging_bias_x;
+    uint32_t total_step_cnt;
+    uint32_t last_step_cnt;
+    uint8_t active_oneshot_sensor_cnt;
+    uint8_t interrupt_enable_0;
+    uint8_t interrupt_enable_2;
+    uint8_t acc_downsample;
+    uint8_t gyr_downsample;
+    bool magBiasPosted;
+    bool magBiasCurrent;
+    bool fifo_enabled[3];
+
+    // spi buffers
+    int xferCnt;
     uint8_t rxBuffer[1024+4+4];
     uint8_t txBuffer[1024+4+4];
     uint8_t pmuBuffer[2];
     uint8_t errBuffer[2];
     uint8_t stateBuffer[2];
-    struct SpiPacket packets[SPI_PACKET_SIZE];
-    int xferCnt;
-    struct Gpio *Int1;
-    struct Gpio *Int2;
-    struct ChainedIsr Isr1;
-    struct ChainedIsr Isr2;
-    bool Int1_EN;
-    bool Int2_EN;
-    bool pending_int[2];
-    bool pending_config[NUM_OF_SENSOR];
-    bool pending_calibration_save;
-    struct BMI160Sensor sensors[NUM_OF_SENSOR];
-    enum FifoState fifo_state;
+    uint8_t sensorTimeBuffer[4];
+
+    // states
     enum InitState init_state;
     enum MagConfigState mag_state;
     enum SensorState state;
-
-    struct MagCal moc;
-    float last_charging_bias_x;
-    bool magBiasPosted;
-    bool magBiasCurrent;
-
     enum CalibrationState calibration_state;
 
-    uint32_t total_step_cnt;
-    uint32_t last_step_cnt;
-
-    uint8_t interrupt_enable_0;
-    uint8_t interrupt_enable_2;
-
-    uint8_t active_oneshot_sensor_cnt;
-
-    uint8_t acc_downsample;
-    uint8_t gyr_downsample;
-
+    // pending configs
+    bool pending_int[2];
+    bool pending_config[NUM_OF_SENSOR];
+    bool pending_calibration_save;
     bool pending_time_sync;
-    uint8_t sensor_time[4];
-    uint64_t time_delta[3];
-    uint64_t next_delta[3];
     bool pending_delta[3];
-    bool fifo_enabled[3];
-    uint64_t last_sensortime;
-    uint64_t frame_sensortime;
-    uint64_t prev_frame_time[3];
 };
 
 static uint32_t AccRates[] = {
@@ -701,38 +694,6 @@ static void magConfig(void)
     SPI_READ(BMI160_REG_STATUS, 1, mTask.stateBuffer, 1000);
 }
 
-static void configInt1(bool on)
-{
-    enum SensorIndex i;
-    if (on && mTask.Int1_EN == false) {
-        enableInterrupt(mTask.Int1, &mTask.Isr1);
-        mTask.Int1_EN = true;
-    } else if (!on && mTask.Int1_EN == true) {
-        for (i = ACC; i <= MAG; i++) {
-            if (mTask.fifo_enabled[i])
-                return;
-        }
-        disableInterrupt(mTask.Int1, &mTask.Isr1);
-        mTask.Int1_EN = false;
-    }
-}
-
-static void configInt2(bool on)
-{
-    enum SensorIndex i;
-    if (on && mTask.Int2_EN == false) {
-        enableInterrupt(mTask.Int2, &mTask.Isr2);
-        mTask.Int2_EN = true;
-    } else if (!on && mTask.Int2_EN == true) {
-        for (i = MAG + 1; i < NUM_OF_SENSOR; i++) {
-            if (mTask.sensors[i].powered)
-                return;
-        }
-        disableInterrupt(mTask.Int2, &mTask.Isr2);
-        mTask.Int2_EN = false;
-    }
-}
-
 static uint8_t calcWaterMark(void)
 {
     int i;
@@ -790,8 +751,9 @@ static inline bool anyFifoEnabled(void)
 
 static void configFifo(void)
 {
+    int i;
     uint8_t val = 0x12;
-    bool prev_fifo_state = anyFifoEnabled();
+    bool any_fifo_enabled_prev = anyFifoEnabled();
     // if ACC is configed, enable ACC bit in fifo_config reg.
     if (mTask.sensors[ACC].configed && mTask.sensors[ACC].latency != SENSOR_LATENCY_NODATA) {
         val |= 0x40;
@@ -816,24 +778,36 @@ static void configFifo(void)
         mTask.fifo_enabled[MAG] = false;
     }
 
-    if (!prev_fifo_state && anyFifoEnabled()) {
-        // if this is the first data sensor enabled in the fifo, we need to
-        // sync the sensor time and rtc time
+    // if this is the first data sensor fifo to enable, we need to
+    // sync the sensor time and rtc time
+    if (!any_fifo_enabled_prev && anyFifoEnabled()) {
         invalidate_sensortime_to_rtc_time();
         osEnqueuePrivateEvt(EVT_TIME_SYNC, NULL, NULL, mTask.tid);
     }
 
-    // FIXME: should be if (prev_fifo_state), but SENSOR_CONFIG_CHANGING always dispatchData()...
-    // This inceases time-to-first sample latency?
-    {
-        // flush the FIFO
-        mTask.xferCnt = 1028;
+    // if this is not the first fifo enabled or last fifo disabled, flush all fifo data;
+    if (any_fifo_enabled_prev && anyFifoEnabled()) {
+        mTask.xferCnt = FIFO_READ_SIZE;
         SPI_READ(BMI160_REG_FIFO_DATA, mTask.xferCnt, mTask.rxBuffer);
     }
+
     // calculate the new water mark level
-    SPI_WRITE(BMI160_REG_FIFO_CONFIG_0, calcWaterMark());
-    // write the composed byte to fifo_config reg.
+    if (anyFifoEnabled()) {
+        SPI_WRITE(BMI160_REG_FIFO_CONFIG_0, calcWaterMark());
+    }
+
+    // config the fifo register
     SPI_WRITE(BMI160_REG_FIFO_CONFIG_1, val);
+
+    // if no more fifo enabled, we need to cleanup the fifo and invalidate time
+    if (!anyFifoEnabled()) {
+        SPI_WRITE(BMI160_REG_CMD, 0xb0);
+        mTask.frame_sensortime = ULONG_LONG_MAX;
+        for (i = ACC; i <= MAG; i++) {
+            mTask.pending_delta[i] = false;
+            mTask.prev_frame_time[i] = ULONG_LONG_MAX;
+        }
+    }
 }
 
 static bool accPower(bool on, void *cookie)
@@ -853,6 +827,7 @@ static bool accPower(bool on, void *cookie)
             SPI_WRITE(BMI160_REG_CMD, 0x10, 5000);
             mTask.sensors[ACC].configed = false;
             mTask.fifo_enabled[ACC] = false;
+            configFifo();
         }
         mTask.sensors[ACC].powered = on;
         spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[ACC]);
@@ -880,7 +855,13 @@ static bool gyrPower(bool on, void *cookie)
             SPI_WRITE(BMI160_REG_CMD, 0x14, 1000);
             mTask.sensors[GYR].configed = false;
             mTask.fifo_enabled[GYR] = false;
+            configFifo();
         }
+
+        if (anyFifoEnabled() && on != mTask.sensors[GYR].powered) {
+            minimize_sensortime_history();
+        }
+
         mTask.sensors[GYR].powered = on;
         spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[GYR]);
     } else {
@@ -907,6 +888,7 @@ static bool magPower(bool on, void *cookie)
             SPI_WRITE(BMI160_REG_CMD, 0x18, 1000);
             mTask.sensors[MAG].configed = false;
             mTask.fifo_enabled[MAG] = false;
+            configFifo();
         }
         mTask.sensors[MAG].powered = on;
         spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[MAG]);
@@ -1708,21 +1690,18 @@ static void dispatchData(void)
             // regular frame, dispatch data to each sensor's own fifo
             if (fh_param & 4) { // have mag data
                 parseRawData(&mTask.sensors[MAG], i, kScale_mag, tmp_frame_time);
-                //consumed[MAG] = true;
                 mTask.prev_frame_time[MAG] = tmp_frame_time;
                 i += 8;
                 size -= 8;
             }
             if (fh_param & 2) { // have gyro data
                 parseRawData(&mTask.sensors[GYR], i, kScale_gyr, tmp_frame_time);
-                //consumed[GYR] = true;
                 mTask.prev_frame_time[GYR] = tmp_frame_time;
                 i += 6;
                 size -= 6;
             }
             if (fh_param & 1) { // have accel data
                 parseRawData(&mTask.sensors[ACC], i, kScale_acc, tmp_frame_time);
-                //consumed[ACC] = true;
                 mTask.prev_frame_time[ACC] = tmp_frame_time;
                 i += 6;
                 size -= 6;
@@ -1799,28 +1778,14 @@ static void int2Evt(void)
     }
 }
 
-static void int1Handling(void)
-{
-    switch (mTask.fifo_state) {
-    case FIFO_READ_DATA:
-        mTask.fifo_state = FIFO_DONE;
-        mTask.xferCnt = 1028;
-        // read out fifo.
-        SPI_READ(BMI160_REG_FIFO_DATA, mTask.xferCnt, mTask.rxBuffer);
-        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask);
-        break;
-    default:
-        osLog(LOG_ERROR, "Incorrect fifo state\n");
-        break;
-    }
-}
-
 static void int1Evt(void)
 {
     if (mTask.state == SENSOR_IDLE) {
+        // read out fifo.
         mTask.state = SENSOR_INT_1_HANDLING;
-        mTask.fifo_state = FIFO_READ_DATA;
-        int1Handling();
+        mTask.xferCnt = FIFO_READ_SIZE;
+        SPI_READ(BMI160_REG_FIFO_DATA, mTask.xferCnt, mTask.rxBuffer);
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask);
     } else if (mTask.state != SENSOR_INT_1_HANDLING) {
         // If we are not handling Int 1 right now, we need to put it to pending.
         mTask.pending_int[0] = true;
@@ -2094,7 +2059,7 @@ static void timeSyncEvt(void)
         mTask.pending_time_sync = true;
     } else {
         mTask.state = SENSOR_TIME_SYNC;
-        SPI_READ(BMI160_REG_SENSORTIME_0, 3, mTask.sensor_time);
+        SPI_READ(BMI160_REG_SENSORTIME_0, 3, mTask.sensorTimeBuffer);
         spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask);
     }
 }
@@ -2103,19 +2068,16 @@ static void processPendingEvt(void)
 {
     enum SensorIndex i;
     if (mTask.pending_int[0]) {
-        osLog(LOG_INFO, "INT1 PENDING!!\n");
         mTask.pending_int[0] = false;
         int1Evt();
         return;
     }
     if (mTask.pending_int[1]) {
-        osLog(LOG_INFO, "INT2 PENDING!!\n");
         mTask.pending_int[1] = false;
         int2Evt();
         return;
     }
     if (mTask.pending_time_sync) {
-        osLog(LOG_INFO, "Pending Time Sync Evt\n");
         mTask.pending_time_sync = false;
         timeSyncEvt();
         return;
@@ -2141,10 +2103,6 @@ static void processPendingEvt(void)
 
 static void sensorInit(void)
 {
-    // read ERR reg value and Power state reg value for debug purpose.
-    SPI_READ(BMI160_REG_ERR, 1, mTask.errBuffer);
-    SPI_READ(BMI160_REG_PMU_STATUS, 1, mTask.pmuBuffer);
-
     switch (mTask.init_state) {
     case RESET_BMI160:
         osLog(LOG_INFO, "BMI160: Performing soft reset\n");
@@ -2216,7 +2174,7 @@ static void sensorInit(void)
         } else if (mTask.mag_state < MAG_SET_DATA && mTask.stateBuffer[1] & 0x04) {
             SPI_READ(BMI160_REG_STATUS, 1, mTask.stateBuffer, 1000);
             if (--mRetryLeft == 0) {
-                osLog(LOG_ERROR, "Enable MAG failed. Go back to IDLE\n");
+                osLog(LOG_ERROR, "BMI160: Enable MAG failed. Go back to IDLE\n");
                 mTask.state = SENSOR_IDLE;
                 processPendingEvt();
                 break;
@@ -2319,94 +2277,44 @@ static void handleSpiDoneEvt(const void* evtData)
         } else {
             sensorInit();
         }
-        osLog(LOG_INFO, "   ERR: %02x, PMU: %02x\n", mTask.errBuffer[1], mTask.pmuBuffer[1]);
         break;
     case SENSOR_POWERING_UP:
         mSensor = (struct BMI160Sensor *)evtData;
-        if (mSensor->idx <= MAG) {
-            // wait till FIFO is configed to enable interrupt
-            if (mSensor->idx == GYR && anyFifoEnabled()) {
-                minimize_sensortime_history();
-            }
-            configInt1(true);
-        } else {
-            if (++mTask.active_oneshot_sensor_cnt == 1) {
-                // if this is the first one-shot sensor to enable, we need
-                // to request the accel at 50Hz.
-                sensorRequest(mTask.tid, mTask.sensors[ACC].handle, SENSOR_HZ(50), SENSOR_LATENCY_NODATA);
-            }
-            configInt2(true);
+        if (mSensor->idx > MAG && ++mTask.active_oneshot_sensor_cnt == 1) {
+            // if this is the first one-shot sensor to enable, we need
+            // to request the accel at 50Hz.
+            sensorRequest(mTask.tid, mTask.sensors[ACC].handle, SENSOR_HZ(50), SENSOR_LATENCY_NODATA);
         }
-        mTask.state = SENSOR_POWERING_UP_DONE;
-        SPI_READ(BMI160_REG_ERR, 1, mTask.errBuffer);
-        SPI_READ(BMI160_REG_PMU_STATUS, 1, mTask.pmuBuffer);
-        spiBatchTxRx(&mTask.mode, sensorSpiCallback, mSensor);
-        break;
-    case SENSOR_POWERING_UP_DONE:
-        mSensor = (struct BMI160Sensor *)evtData;
-        sensorSignalInternalEvt(mSensor->handle,
-                SENSOR_INTERNAL_EVT_POWER_STATE_CHG, 1, 0);
+        sensorSignalInternalEvt(mSensor->handle, SENSOR_INTERNAL_EVT_POWER_STATE_CHG, 1, 0);
         mTask.state = SENSOR_IDLE;
         osLog(LOG_INFO, "Done powering up for %s\n", mSensorInfo[mSensor->idx].sensorName);
-        osLog(LOG_INFO, "   NEW POWER STATUS: %02x, ERROR: %02x\n", mTask.pmuBuffer[1], mTask.errBuffer[1]);
         processPendingEvt();
         break;
     case SENSOR_POWERING_DOWN:
         mSensor = (struct BMI160Sensor *)evtData;
-        mTask.state = SENSOR_POWERING_DOWN_DONE;
-        if (mSensor->idx <= MAG) {
-            configInt1(false);
-            configFifo();
-            if (!anyFifoEnabled()) {
-                // if this is the last data sensor to disable, we need to flush
-                // the fifo and invalidate time
-                mTask.frame_sensortime = ULONG_LONG_MAX;
-                SPI_WRITE(BMI160_REG_CMD, 0xb0);
-                for (i = ACC; i <= MAG; i++) {
-                    mTask.pending_delta[i] = false;
-                    mTask.prev_frame_time[i] = ULONG_LONG_MAX;
-                }
-            } else if (mSensor->idx == GYR) {
-                minimize_sensortime_history();
-            }
-        } else {
-            configInt2(false);
-            if (--mTask.active_oneshot_sensor_cnt == 0) {
-                // if this is the last one-shot sensor to disable, we need to
-                // release the accel.
-                sensorRelease(mTask.tid, mTask.sensors[ACC].handle);
-            }
+        if (mSensor->idx > MAG && --mTask.active_oneshot_sensor_cnt == 0) {
+            // if this is the last one-shot sensor to disable, we need to
+            // release the accel.
+            sensorRelease(mTask.tid, mTask.sensors[ACC].handle);
         }
-        SPI_READ(BMI160_REG_ERR, 1, mTask.errBuffer);
-        SPI_READ(BMI160_REG_PMU_STATUS, 1, mTask.pmuBuffer);
-        spiBatchTxRx(&mTask.mode, sensorSpiCallback, mSensor);
-        break;
-    case SENSOR_POWERING_DOWN_DONE:
-        mSensor = (struct BMI160Sensor *)evtData;
-        sensorSignalInternalEvt(mSensor->handle,
-                SENSOR_INTERNAL_EVT_POWER_STATE_CHG, 0, 0);
+        sensorSignalInternalEvt(mSensor->handle, SENSOR_INTERNAL_EVT_POWER_STATE_CHG, 0, 0);
         mTask.state = SENSOR_IDLE;
         osLog(LOG_INFO, "Done powering down for %s\n", mSensorInfo[mSensor->idx].sensorName);
-        osLog(LOG_INFO, "   NEW POWER STATUS: %02x, ERROR: %02x\n", mTask.pmuBuffer[1], mTask.errBuffer[1]);
 
         if (anyFifoEnabled())
             dispatchData();
+
         processPendingEvt();
         break;
     case SENSOR_INT_1_HANDLING:
-        if (mTask.fifo_state == FIFO_DONE) {
-
-            dispatchData();
-            sendFlushEvt();
-            mTask.state = SENSOR_IDLE;
-
-            processPendingEvt();
-        } else {
-            int1Handling();
-        }
+        dispatchData();
+        sendFlushEvt();
+        mTask.state = SENSOR_IDLE;
+        processPendingEvt();
         break;
     case SENSOR_INT_2_HANDLING:
         int2Handling();
+        // If it is not step cnt, we are done.
         if (mTask.state == SENSOR_INT_2_HANDLING) {
             mTask.state = SENSOR_IDLE;
             processPendingEvt();
@@ -2418,7 +2326,10 @@ static void handleSpiDoneEvt(const void* evtData)
                 SENSOR_INTERNAL_EVT_RATE_CHG, mSensor->rate, mSensor->latency);
         mTask.state = SENSOR_IDLE;
         osLog(LOG_INFO, "Done changing config for %s\n", mSensorInfo[mSensor->idx].sensorName);
-        dispatchData();
+
+        if (anyFifoEnabled())
+            dispatchData();
+
         processPendingEvt();
         break;
     case SENSOR_CALIBRATING:
@@ -2443,7 +2354,7 @@ static void handleSpiDoneEvt(const void* evtData)
         processPendingEvt();
         break;
     case SENSOR_TIME_SYNC:
-        SensorTime = parseSensortime(mTask.sensor_time[1] | (mTask.sensor_time[2] << 8) | (mTask.sensor_time[3] << 16));
+        SensorTime = parseSensortime(mTask.sensorTimeBuffer[1] | (mTask.sensorTimeBuffer[2] << 8) | (mTask.sensorTimeBuffer[3] << 16));
         map_sensortime_to_rtc_time(SensorTime, rtcGetTime());
 
         if (anyFifoEnabled())
@@ -2532,8 +2443,6 @@ static bool startTask(uint32_t task_id)
     mTask.Isr1.func = bmi160Isr1;
     mTask.Int2 = gpioRequest(BMI160_INT2_PIN);
     mTask.Isr2.func = bmi160Isr2;
-    mTask.Int1_EN = false;
-    mTask.Int2_EN = false;
     mTask.pending_int[0] = false;
     mTask.pending_int[1] = false;
 
@@ -2581,6 +2490,10 @@ static bool startTask(uint32_t task_id)
     mTask.last_sensortime = 0;
     mTask.frame_sensortime = ULONG_LONG_MAX;
 
+    // it's ok to leave interrupt open all the time.
+    enableInterrupt(mTask.Int1, &mTask.Isr1);
+    enableInterrupt(mTask.Int2, &mTask.Isr2);
+
     return true;
 }
 
@@ -2589,6 +2502,10 @@ static void endTask(void)
     destroy_mag_cal(&mTask.moc);
     slabAllocatorDestroy(mDataSlab);
     spiMasterRelease(mTask.spiDev);
+
+    // disable and release interrupt.
+    disableInterrupt(mTask.Int1, &mTask.Isr1);
+    disableInterrupt(mTask.Int2, &mTask.Isr2);
     gpioRelease(mTask.Int1);
     gpioRelease(mTask.Int2);
 }
