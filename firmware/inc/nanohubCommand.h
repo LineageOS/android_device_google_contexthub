@@ -26,4 +26,11 @@ struct NanohubCommand {
 
 const struct NanohubCommand *nanohubFindCommand(uint32_t packetReason);
 
+struct NanohubHalCommand {
+    uint8_t msg;
+    void (*handler)(void *, uint8_t);
+};
+
+const struct NanohubHalCommand *nanohubHalFindCommand(uint8_t msg);
+
 #endif /* __NANOHUBCOMMAND_H */
