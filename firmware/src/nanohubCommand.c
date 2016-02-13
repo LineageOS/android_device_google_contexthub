@@ -43,6 +43,9 @@
         { .reason = _reason, .handler = _handler, \
           .minDataLen = sizeof(_minReqType), .maxDataLen = sizeof(_maxReqType) }
 
+#define NANOHUB_HAL_COMMAND(_msg, _handler) \
+        { .msg = _msg, .handler = _handler }
+
 static struct DownloadState
 {
     struct AppSecState *appSecState;
@@ -487,7 +490,8 @@ struct EvtPacket
 {
     uint8_t sensType;
     uint8_t length;
-    uint16_t pad;
+    uint8_t appToHost;
+    uint8_t pad;
     uint64_t timestamp;
     uint8_t data[NANOHUB_SENSOR_DATA_MAX];
 } __attribute__((packed));
@@ -546,7 +550,7 @@ static uint32_t readEvent(void *rx, uint8_t rx_len, void *tx, uint64_t timestamp
     struct NanohubReadEventRequest *req = rx;
     struct NanohubReadEventResponse *resp = tx;
     struct EvtPacket *packet = tx;
-    int length, sensor;
+    int length, sensor, appToHost;
     static struct TimeSync timeSync = { };
 
     addDelta(&timeSync, req->apBootTime, timestamp);
@@ -554,12 +558,16 @@ static uint32_t readEvent(void *rx, uint8_t rx_len, void *tx, uint64_t timestamp
     if (hostIntfPacketDequeue(packet)) {
         length = packet->length + sizeof(resp->evtType);
         sensor = packet->sensType;
+        appToHost = packet->appToHost;
         // TODO combine messages if multiple can fit in a single packet
         if (sensor == SENS_TYPE_INVALID) {
+            if (appToHost)
+                resp->evtType = EVT_APP_TO_HOST;
+            else
 #ifdef DEBUG_LOG_EVT
-            resp->evtType = htole32(DEBUG_LOG_EVT);
+                resp->evtType = htole32(DEBUG_LOG_EVT);
 #else
-            resp->evtType = 0x00000000;
+                resp->evtType = 0x00000000;
 #endif
         } else {
             resp->evtType = htole32(EVT_NO_FIRST_SENSOR_EVENT + sensor);
@@ -586,11 +594,12 @@ static uint32_t writeEvent(void *rx, uint8_t rx_len, void *tx, uint64_t timestam
     if (le32toh(req->evtType) == EVT_APP_FROM_HOST) {
         rawPacket = (struct HostHubRawPacket *)req->evtData;
         if (rx_len >= sizeof(req->evtType) + sizeof(struct HostHubRawPacket) && rx_len == sizeof(req->evtType) + sizeof(struct HostHubRawPacket) + rawPacket->dataLen && osTidById(rawPacket->appId, &tid)) {
-            packet = heapAlloc(rawPacket->dataLen);
+            packet = heapAlloc(rawPacket->dataLen + 1);
             if (!packet) {
                 resp->accepted = false;
             } else {
-                memcpy(packet, rawPacket + 1, rawPacket->dataLen);
+                packet[0] = rawPacket->dataLen;
+                memcpy(packet + 1, rawPacket + 1, rawPacket->dataLen);
                 resp->accepted = osEnqueuePrivateEvt(EVT_APP_FROM_HOST, packet, heapFree, tid);
                 if (!resp->accepted)
                     heapFree(packet);
@@ -614,50 +623,50 @@ static uint32_t writeEvent(void *rx, uint8_t rx_len, void *tx, uint64_t timestam
 }
 
 const static struct NanohubCommand mBuiltinCommands[] = {
-        NANOHUB_COMMAND(NANOHUB_REASON_GET_OS_HW_VERSIONS,
-                getOsHwVersion,
-                struct NanohubOsHwVersionsRequest,
-                struct NanohubOsHwVersionsRequest),
-        NANOHUB_COMMAND(NANOHUB_REASON_GET_APP_VERSIONS,
-                getAppVersion,
-                struct NanohubAppVersionsRequest,
-                struct NanohubAppVersionsRequest),
-        NANOHUB_COMMAND(NANOHUB_REASON_QUERY_APP_INFO,
-                queryAppInfo,
-                struct NanohubAppInfoRequest,
-                struct NanohubAppInfoRequest),
-        NANOHUB_COMMAND(NANOHUB_REASON_START_FIRMWARE_UPLOAD,
-                startFirmwareUpload,
-                struct NanohubStartFirmwareUploadRequest,
-                struct NanohubStartFirmwareUploadRequest),
-        NANOHUB_COMMAND(NANOHUB_REASON_FIRMWARE_CHUNK,
-                firmwareChunk,
-                __le32,
-                struct NanohubFirmwareChunkRequest),
-        NANOHUB_COMMAND(NANOHUB_REASON_FINISH_FIRMWARE_UPLOAD,
-                finishFirmwareUpload,
-                struct NanohubFinishFirmwareUploadRequest,
-                struct NanohubFinishFirmwareUploadRequest),
-        NANOHUB_COMMAND(NANOHUB_REASON_GET_INTERRUPT,
-                getInterrupt,
-                0,
-                struct NanohubGetInterruptRequest),
-        NANOHUB_COMMAND(NANOHUB_REASON_MASK_INTERRUPT,
-                maskInterrupt,
-                struct NanohubMaskInterruptRequest,
-                struct NanohubMaskInterruptRequest),
-        NANOHUB_COMMAND(NANOHUB_REASON_UNMASK_INTERRUPT,
-                unmaskInterrupt,
-                struct NanohubUnmaskInterruptRequest,
-                struct NanohubUnmaskInterruptRequest),
-        NANOHUB_COMMAND(NANOHUB_REASON_READ_EVENT,
-                readEvent,
-                struct NanohubReadEventRequest,
-                struct NanohubReadEventRequest),
-        NANOHUB_COMMAND(NANOHUB_REASON_WRITE_EVENT,
-                writeEvent,
-                __le32,
-                struct NanohubWriteEventRequest),
+    NANOHUB_COMMAND(NANOHUB_REASON_GET_OS_HW_VERSIONS,
+                    getOsHwVersion,
+                    struct NanohubOsHwVersionsRequest,
+                    struct NanohubOsHwVersionsRequest),
+    NANOHUB_COMMAND(NANOHUB_REASON_GET_APP_VERSIONS,
+                    getAppVersion,
+                    struct NanohubAppVersionsRequest,
+                    struct NanohubAppVersionsRequest),
+    NANOHUB_COMMAND(NANOHUB_REASON_QUERY_APP_INFO,
+                    queryAppInfo,
+                    struct NanohubAppInfoRequest,
+                    struct NanohubAppInfoRequest),
+    NANOHUB_COMMAND(NANOHUB_REASON_START_FIRMWARE_UPLOAD,
+                    startFirmwareUpload,
+                    struct NanohubStartFirmwareUploadRequest,
+                    struct NanohubStartFirmwareUploadRequest),
+    NANOHUB_COMMAND(NANOHUB_REASON_FIRMWARE_CHUNK,
+                    firmwareChunk,
+                    __le32,
+                    struct NanohubFirmwareChunkRequest),
+    NANOHUB_COMMAND(NANOHUB_REASON_FINISH_FIRMWARE_UPLOAD,
+                    finishFirmwareUpload,
+                    struct NanohubFinishFirmwareUploadRequest,
+                    struct NanohubFinishFirmwareUploadRequest),
+    NANOHUB_COMMAND(NANOHUB_REASON_GET_INTERRUPT,
+                    getInterrupt,
+                    0,
+                    struct NanohubGetInterruptRequest),
+    NANOHUB_COMMAND(NANOHUB_REASON_MASK_INTERRUPT,
+                    maskInterrupt,
+                    struct NanohubMaskInterruptRequest,
+                    struct NanohubMaskInterruptRequest),
+    NANOHUB_COMMAND(NANOHUB_REASON_UNMASK_INTERRUPT,
+                    unmaskInterrupt,
+                    struct NanohubUnmaskInterruptRequest,
+                    struct NanohubUnmaskInterruptRequest),
+    NANOHUB_COMMAND(NANOHUB_REASON_READ_EVENT,
+                    readEvent,
+                    struct NanohubReadEventRequest,
+                    struct NanohubReadEventRequest),
+    NANOHUB_COMMAND(NANOHUB_REASON_WRITE_EVENT,
+                    writeEvent,
+                    __le32,
+                    struct NanohubWriteEventRequest),
 };
 
 const struct NanohubCommand *nanohubFindCommand(uint32_t packetReason)
@@ -667,6 +676,275 @@ const struct NanohubCommand *nanohubFindCommand(uint32_t packetReason)
     for (i = 0; i < ARRAY_SIZE(mBuiltinCommands); i++) {
         const struct NanohubCommand *cmd = &mBuiltinCommands[i];
         if (cmd->reason == packetReason)
+            return cmd;
+    }
+    return NULL;
+}
+
+static void halExtAppsOn(void *rx, uint8_t rx_len)
+{
+}
+
+static void halExtAppsOff(void *rx, uint8_t rx_len)
+{
+}
+
+static void halExtAppDelete(void *rx, uint8_t rx_len)
+{
+}
+
+static void halQueryMemInfo(void *rx, uint8_t rx_len)
+{
+}
+
+static void halQueryApps(void *rx, uint8_t rx_len)
+{
+    struct NanohubHalQueryAppsRx *req = rx;
+    struct NanohubHalQueryAppsTx *resp;
+    struct NanohubHalHdr *hdr;
+    uint64_t appId;
+    uint32_t appVer, appSize;
+
+    if (osAppInfoByIndex(le32toh(req->idx), &appId, &appVer, &appSize)) {
+        resp = heapAlloc(sizeof(*resp));
+        resp->hdr.appId = APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 0);
+        resp->hdr.len = sizeof(*resp) - sizeof(struct NanohubHalHdr) + 1;
+        resp->hdr.msg = NANOHUB_HAL_QUERY_APPS;
+        resp->appId = appId;
+        resp->version = appVer;
+        resp->flashUse = appSize;
+        resp->ramUse = 0;
+        osEnqueueEvt(EVT_APP_TO_HOST, resp, heapFree);
+    } else {
+        hdr = heapAlloc(sizeof(*hdr));
+        hdr->appId = APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 0);
+        hdr->len = 1;
+        hdr->msg = NANOHUB_HAL_QUERY_APPS;
+        osEnqueueEvt(EVT_APP_TO_HOST, hdr, heapFree);
+    }
+}
+
+static void halQueryRsaKeys(void *rx, uint8_t rx_len)
+{
+    struct NanohubHalQueryRsaKeysRx *req = rx;
+    struct NanohubHalQueryRsaKeysTx *resp;
+    int len = 0;
+    const uint32_t *ptr;
+    uint32_t numKeys;
+
+    if (!(resp = heapAlloc(sizeof(*resp) + NANOHUB_RSA_KEY_CHUNK_LEN)))
+        return;
+
+    ptr = BL.blGetPubKeysInfo(&numKeys);
+    if (ptr && numKeys * RSA_BYTES > req->offset) {
+        len = numKeys * RSA_BYTES - req->offset;
+        if (len > NANOHUB_RSA_KEY_CHUNK_LEN)
+            len = NANOHUB_RSA_KEY_CHUNK_LEN;
+        memcpy(resp->data, (uint8_t *)ptr + req->offset, len);
+    }
+
+    resp->hdr.appId = APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 0);
+    resp->hdr.len = sizeof(*resp) - sizeof(struct NanohubHalHdr) + 1 + len;
+    resp->hdr.msg = NANOHUB_HAL_QUERY_RSA_KEYS;
+
+    if (!(osEnqueueEvt(EVT_APP_TO_HOST, resp, heapFree)))
+        heapFree(resp);
+}
+
+static void halStartUpload(void *rx, uint8_t rx_len)
+{
+    struct NanohubHalStartUploadRx *req = rx;
+    struct NanohubHalStartUploadTx *resp;
+    uint8_t *shared, *shared_start, *shared_end;
+    int len, total_len;
+    uint32_t sharedSz;
+
+    if (!(resp = heapAlloc(sizeof(*resp))))
+        return;
+
+    resp->hdr.appId = APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 0);
+    resp->hdr.len = sizeof(*resp) - sizeof(struct NanohubHalHdr) + 1;
+    resp->hdr.msg = NANOHUB_HAL_START_UPLOAD;
+
+    shared_start = platGetSharedAreaInfo(&sharedSz);
+    shared_end = shared_start + sharedSz;
+
+    if (!mDownloadState) {
+        mDownloadState = heapAlloc(sizeof(struct DownloadState));
+
+        if (!mDownloadState) {
+            resp->success = false;
+            if (!(osEnqueueEvt(EVT_APP_TO_HOST, resp, heapFree)))
+                heapFree(resp);
+            return;
+        } else {
+            memset(mDownloadState, 0x00, sizeof(struct DownloadState));
+        }
+    }
+
+    mDownloadState->type = req->isOs ? BL_FLASH_KERNEL_ID : BL_FLASH_APP_ID;
+    mDownloadState->size = le32toh(req->length);
+    mDownloadState->crc = le32toh(0x00000000);
+    mDownloadState->chunkReply = NANOHUB_FIRMWARE_CHUNK_REPLY_ACCEPTED;
+
+    for (shared = shared_start;
+         shared < shared_end && shared[0] != 0xFF;
+         shared += total_len) {
+        len = (shared[1] << 16) | (shared[2] << 8) | shared[3];
+        total_len = sizeof(uint32_t) + ((len + 3) & ~3) + sizeof(uint32_t);
+    }
+
+    if (shared + sizeof(uint32_t) + ((mDownloadState->size + 3) & ~3) + sizeof(uint32_t) < shared_end) {
+        mDownloadState->start = shared;
+        mDownloadState->erase = false;
+    } else {
+        mDownloadState->start = shared_start;
+        mDownloadState->erase = true;
+    }
+    resetDownloadState();
+
+    resp->success = true;
+    if (!(osEnqueueEvt(EVT_APP_TO_HOST, resp, heapFree)))
+        heapFree(resp);
+}
+
+static void halContUpload(void *rx, uint8_t rx_len)
+{
+    struct NanohubHalContUploadRx *req = rx;
+    struct NanohubHalContUploadTx *resp;
+    uint32_t offset;
+    uint8_t len;
+
+    if (!(resp = heapAlloc(sizeof(*resp))))
+        return;
+
+    resp->hdr.appId = APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 0);
+    resp->hdr.len = sizeof(*resp) - sizeof(struct NanohubHalHdr) + 1;
+    resp->hdr.msg = NANOHUB_HAL_CONT_UPLOAD;
+
+    offset = le32toh(req->offset);
+    len = rx_len - sizeof(req->offset);
+
+    if (!mDownloadState) {
+        resp->success = NANOHUB_FIRMWARE_CHUNK_REPLY_CANCEL_NO_RETRY;
+    } else if (mDownloadState->erase == true) {
+        resp->success = NANOHUB_FIRMWARE_CHUNK_REPLY_WAIT;
+        firmwareErase(NULL);
+    } else if (offset != mDownloadState->srcOffset) {
+        resp->success = NANOHUB_FIRMWARE_CHUNK_REPLY_RESTART;
+        resetDownloadState();
+    } else if (mDownloadState->srcOffset + len <= mDownloadState->size) {
+        mDownloadState->srcOffset += len;
+        memcpy(mDownloadState->data, req->data, len);
+        mDownloadState->len = len;
+        hostIntfSetBusy(true);
+        firmwareWrite(NULL);
+        if (mDownloadState)
+            resp->success = mDownloadState->chunkReply;
+        else
+            resp->success = NANOHUB_FIRMWARE_CHUNK_REPLY_ACCEPTED;
+    } else {
+        resp->success = NANOHUB_FIRMWARE_CHUNK_REPLY_CANCEL_NO_RETRY;
+    }
+    resp->success = !resp->success;
+
+    if (!(osEnqueueEvt(EVT_APP_TO_HOST, resp, heapFree)))
+        heapFree(resp);
+}
+
+static void halFinishUpload(void *rx, uint8_t rx_len)
+{
+    struct NanohubHalFinishUploadTx *resp;
+
+    if (!(resp = heapAlloc(sizeof(*resp))))
+        return;
+
+    resp->hdr.appId = APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 0);
+    resp->hdr.len = sizeof(*resp) - sizeof(struct NanohubHalHdr) + 1;
+    resp->hdr.msg = NANOHUB_HAL_FINISH_UPLOAD;
+
+    if (!mDownloadState) {
+        switch (mAppSecStatus) {
+        case APP_SEC_NO_ERROR:
+            resp->success = NANOHUB_FIRMWARE_UPLOAD_SUCCESS;
+            break;
+        case APP_SEC_KEY_NOT_FOUND:
+            resp->success = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_KEY_NOT_FOUND;
+            break;
+        case APP_SEC_HEADER_ERROR:
+            resp->success = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_HEADER_ERROR;
+            break;
+        case APP_SEC_TOO_MUCH_DATA:
+            resp->success = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_TOO_MUCH_DATA;
+            break;
+        case APP_SEC_TOO_LITTLE_DATA:
+            resp->success = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_TOO_LITTLE_DATA;
+            break;
+        case APP_SEC_SIG_VERIFY_FAIL:
+            resp->success = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_SIG_VERIFY_FAIL;
+            break;
+        case APP_SEC_SIG_DECODE_FAIL:
+            resp->success = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_SIG_DECODE_FAIL;
+            break;
+        case APP_SEC_SIG_ROOT_UNKNOWN:
+            resp->success = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_SIG_ROOT_UNKNOWN;
+            break;
+        case APP_SEC_MEMORY_ERROR:
+            resp->success = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_MEMORY_ERROR;
+            break;
+        case APP_SEC_INVALID_DATA:
+            resp->success = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_INVALID_DATA;
+            break;
+        default:
+            resp->success = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_BAD;
+            break;
+        }
+    } else if (mDownloadState->srcOffset == mDownloadState->size) {
+        resp->success = NANOHUB_FIRMWARE_UPLOAD_PROCESSING;
+    } else {
+        resp->success = NANOHUB_FIRMWARE_UPLOAD_WAITING_FOR_DATA;
+    }
+    resp->success = !resp->success;
+
+    if (!(osEnqueueEvt(EVT_APP_TO_HOST, resp, heapFree)))
+        heapFree(resp);
+}
+
+static void halReboot(void *rx, uint8_t rx_len)
+{
+    BL.blReboot();
+}
+
+const static struct NanohubHalCommand mBuiltinHalCommands[] = {
+    NANOHUB_HAL_COMMAND(NANOHUB_HAL_EXT_APPS_ON,
+                        halExtAppsOn),
+    NANOHUB_HAL_COMMAND(NANOHUB_HAL_EXT_APPS_OFF,
+                        halExtAppsOff),
+    NANOHUB_HAL_COMMAND(NANOHUB_HAL_EXT_APP_DELETE,
+                        halExtAppDelete),
+    NANOHUB_HAL_COMMAND(NANOHUB_HAL_QUERY_MEMINFO,
+                        halQueryMemInfo),
+    NANOHUB_HAL_COMMAND(NANOHUB_HAL_QUERY_APPS,
+                        halQueryApps),
+    NANOHUB_HAL_COMMAND(NANOHUB_HAL_QUERY_RSA_KEYS,
+                        halQueryRsaKeys),
+    NANOHUB_HAL_COMMAND(NANOHUB_HAL_START_UPLOAD,
+                        halStartUpload),
+    NANOHUB_HAL_COMMAND(NANOHUB_HAL_CONT_UPLOAD,
+                        halContUpload),
+    NANOHUB_HAL_COMMAND(NANOHUB_HAL_FINISH_UPLOAD,
+                        halFinishUpload),
+    NANOHUB_HAL_COMMAND(NANOHUB_HAL_REBOOT,
+                        halReboot),
+};
+
+const struct NanohubHalCommand *nanohubHalFindCommand(uint8_t msg)
+{
+    uint32_t i;
+
+    for (i = 0; i < ARRAY_SIZE(mBuiltinHalCommands); i++) {
+        const struct NanohubHalCommand *cmd = &mBuiltinHalCommands[i];
+        if (cmd->msg == msg)
             return cmd;
     }
     return NULL;

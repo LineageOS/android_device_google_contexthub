@@ -118,7 +118,8 @@ struct LogBuffer
 {
     uint8_t invalidSensor;
     uint8_t offset;
-    uint16_t pad;
+    uint8_t appToHost;
+    uint8_t pad;
     char data[248];
 } __attribute__((packed));
 
@@ -131,6 +132,7 @@ void *platLogAllocUserData()
     if (userData) {
         userData->invalidSensor = SENS_TYPE_INVALID;
         userData->offset = 0;
+        userData->appToHost = 0;
     }
 
     return userData;
@@ -145,8 +147,6 @@ void platLogFlush(void *userData)
     if (userData) {
         if (!osEnqueueEvt(EVENT_TYPE_BIT_DISCARDABLE | DEBUG_LOG_EVT, userData, heapFree))
             heapFree(userData);
-        else
-            hostIntfSetInterrupt(NANOHUB_INT_NONWAKEUP);
     }
 #endif
 }
