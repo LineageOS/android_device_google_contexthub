@@ -41,9 +41,10 @@
 #include <nanohub_math.h>
 
 #define BMI160_APP_ID APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 2)
+#define TIMESTAMP_DBG             0
 
-#define BMI160_SPI_WRITE         0x00
-#define BMI160_SPI_READ          0x80
+#define BMI160_SPI_WRITE          0x00
+#define BMI160_SPI_READ           0x80
 
 #define BMI160_SPI_BUS_ID         1
 #define BMI160_SPI_SPEED_HZ       4000000
@@ -362,6 +363,7 @@ struct BMI160Task {
     bool pending_time_sync;
     bool pending_delta[3];
     bool pending_dispatch;
+    bool frame_sensortime_valid;
 };
 
 static uint32_t AccRates[] = {
@@ -739,14 +741,14 @@ static void magConfig(void)
     SPI_READ(BMI160_REG_STATUS, 1, &mTask.statusBuffer, 1000);
 }
 
-static uint8_t calcWaterMark(void)
+static uint8_t calcWatermark(void)
 {
     int i;
     uint64_t min_latency = ULONG_LONG_MAX;
     uint32_t max_rate = 0;
-    uint8_t min_water_mark = 6;
-    uint8_t max_water_mark = 200;
-    uint8_t water_mark;
+    uint8_t min_watermark = 6;
+    uint8_t max_watermark = 200;
+    uint8_t watermark;
     uint32_t temp_cnt, total_cnt = 0;
     uint32_t header_cnt = ULONG_MAX;
 
@@ -757,15 +759,15 @@ static uint8_t calcWaterMark(void)
         }
     }
 
-    // if max_rate is less than or equal to 50Hz, we lower the minimum water mark level
+    // if max_rate is less than or equal to 50Hz, we lower the minimum watermark level
     if (max_rate <= SENSOR_HZ(50.0f)) {
-        min_water_mark = 3;
+        min_watermark = 3;
     }
 
     // if any sensor request no batching, we set a minimum watermark
     // of 24 bytes (12 bytes if all rates are below 50Hz).
     if (min_latency == 0) {
-        return min_water_mark;
+        return min_watermark;
     }
 
     // each accel and gyro sample are 6 bytes
@@ -782,11 +784,11 @@ static uint8_t calcWaterMark(void)
         }
     }
     total_cnt += header_cnt;
-    water_mark = ((total_cnt / 4) < 0xff) ? (total_cnt / 4) : 0xff; // 4 bytes per count in the water_mark register.
-    water_mark = water_mark < min_water_mark ? min_water_mark : water_mark;
-    water_mark = water_mark > max_water_mark ? max_water_mark : water_mark;
+    watermark = ((total_cnt / 4) < 0xff) ? (total_cnt / 4) : 0xff; // 4 bytes per count in the watermark register.
+    watermark = watermark < min_watermark ? min_watermark : watermark;
+    watermark = watermark > max_watermark ? max_watermark : watermark;
 
-    return water_mark;
+    return watermark;
 }
 
 static inline bool anyFifoEnabled(void)
@@ -837,9 +839,9 @@ static void configFifo(void)
         SPI_READ(BMI160_REG_FIFO_DATA, mTask.xferCnt, &mTask.dataBuffer);
     }
 
-    // calculate the new water mark level
+    // calculate the new watermark level
     if (anyFifoEnabled()) {
-        SPI_WRITE(BMI160_REG_FIFO_CONFIG_0, calcWaterMark());
+        SPI_WRITE(BMI160_REG_FIFO_CONFIG_0, calcWatermark());
     }
 
     // config the fifo register
@@ -848,7 +850,7 @@ static void configFifo(void)
     // if no more fifo enabled, we need to cleanup the fifo and invalidate time
     if (!anyFifoEnabled()) {
         SPI_WRITE(BMI160_REG_CMD, 0xb0);
-        mTask.frame_sensortime = ULONG_LONG_MAX;
+        mTask.frame_sensortime_valid = false;
         for (i = ACC; i <= MAG; i++) {
             mTask.pending_delta[i] = false;
             mTask.prev_frame_time[i] = ULONG_LONG_MAX;
@@ -905,6 +907,9 @@ static bool gyrPower(bool on, void *cookie)
         }
 
         if (anyFifoEnabled() && on != mTask.sensors[GYR].powered) {
+#if TIMESTAMP_DBG
+            osLog(LOG_INFO, "minimize_sensortime_history()\n");
+#endif
             minimize_sensortime_history();
         }
 
@@ -1549,6 +1554,15 @@ static void parseRawData(struct BMI160Sensor *mSensor, uint8_t *buf, float kScal
     }
 
     if (rtc_time < mSensor->prev_rtc_time + kMinTimeIncrementNs) {
+#if TIMESTAMP_DBG
+        osLog(LOG_INFO, "%s prev rtc 0x%08x %08x, curr 0x%08x %08x, delta %d usec\n",
+                mSensorInfo[mSensor->idx].sensorName,
+                (unsigned int)((mSensor->prev_rtc_time >> 32) & 0xffffffff),
+                (unsigned int)(mSensor->prev_rtc_time & 0xffffffff),
+                (unsigned int)((rtc_time >> 32) & 0xffffffff),
+                (unsigned int)(rtc_time & 0xffffffff),
+                (int)(rtc_time - mSensor->prev_rtc_time) / 1000);
+#endif
         rtc_time = mSensor->prev_rtc_time + kMinTimeIncrementNs;
     }
 
@@ -1662,7 +1676,26 @@ static void dispatchData(void)
     uint64_t frame_sensor_time = mTask.frame_sensortime;
     bool observed[3] = {false, false, false};
     uint64_t tmp_frame_time, tmp_time[3];
+    bool frame_sensor_time_valid = mTask.frame_sensortime_valid;
+    bool saved_pending_delta[3];
+    uint64_t saved_time_delta[3];
+#if TIMESTAMP_DBG
+    int frame_num = -1;
+#endif
 
+    if (!mTask.frame_sensortime_valid) {
+        // This is the first FIFO delivery after any sensor is enabled in
+        // bmi160. Sensor time reference is not establised until end of this
+        // FIFO frame. Assume time start from zero and do a dry run to estimate
+        // the time and then go through this FIFO again.
+        frame_sensor_time = 0ull;
+
+        // Save these states for future recovery by the end of dry run.
+        for (j = ACC; j <= MAG; j++) {
+            saved_pending_delta[j] = mTask.pending_delta[j];
+            saved_time_delta[j] = mTask.time_delta[j];
+        }
+    }
 
     while (size > 0) {
         if (buf[i] == 0x80) {
@@ -1671,97 +1704,238 @@ static void dispatchData(void)
         }
 
         fh_mode = buf[i] >> 6;
-        fh_param = (buf[i] & 0x1f) >> 2;
+        fh_param = (buf[i] >> 2) & 0xf;
 
         i++;
         size--;
+#if TIMESTAMP_DBG
+        ++frame_num;
+#endif
 
         if (fh_mode == 1) {
             // control frame.
-            if (fh_param == 1) {
+            if (fh_param == 0) {
+                // skip frame, we skip it
+                if (size >= 1) {
+                    i++;
+                    size--;
+                } else {
+                    size = 0;
+                }
+            } else if (fh_param == 1) {
                 // sensortime frame
-                for (j = ACC; j <= MAG; j++) {
-                    if (mTask.sensors[j].configed && mTask.sensors[j].latency != SENSOR_LATENCY_NODATA) {
-                        min_delta = min_delta < mTask.time_delta[j] ? min_delta : mTask.time_delta[j];
+                if (size >= 3) {
+                    // The active sensor with the highest odr/lowest delta is the one that determines
+                    // the sensor time increments.
+                    for (j = ACC; j <= MAG; j++) {
+                        if (mTask.sensors[j].configed && mTask.sensors[j].latency != SENSOR_LATENCY_NODATA) {
+                            min_delta = min_delta < mTask.time_delta[j] ? min_delta : mTask.time_delta[j];
+                        }
                     }
-                }
-                sensor_time24 = buf[i+2] << 16 | buf[i+1] << 8 | buf[i];
-                sensor_time24 &= ~(min_delta - 1);
+                    sensor_time24 = buf[i + 2] << 16 | buf[i + 1] << 8 | buf[i];
 
-                full_sensor_time = parseSensortime(sensor_time24);
-                mTask.frame_sensortime = full_sensor_time;
+                    // clear lower bits that measure time from taking the sample to reading the FIFO,
+                    // something we're not interested in.
+                    sensor_time24 &= ~(min_delta - 1);
 
-                for (j = ACC; j <= MAG; j++) {
-                    mTask.prev_frame_time[j] = observed[j] ? full_sensor_time : ULONG_LONG_MAX;
-                    if (!mTask.sensors[j].configed || mTask.sensors[j].latency == SENSOR_LATENCY_NODATA) {
-                        mTask.prev_frame_time[j] = ULONG_LONG_MAX;
-                        mTask.pending_delta[j] = false;
+                    full_sensor_time = parseSensortime(sensor_time24);
+
+#if TIMESTAMP_DBG
+                    if (frame_sensor_time == full_sensor_time) {
+                        //osLog(LOG_INFO, "frame %d FrameTime 0x%08x\n",
+                        //        frame_num - 1,
+                        //        (unsigned int)frame_sensor_time);
+                    } else if (frame_sensor_time_valid) {
+                        osLog(LOG_INFO, "frame %d FrameTime 0x%08x != SensorTime 0x%08x, jumped %d msec\n",
+                                frame_num - 1,
+                                (unsigned int)frame_sensor_time,
+                                (unsigned int)full_sensor_time,
+                                (int)(5 * ((int64_t)(full_sensor_time - frame_sensor_time) >> 7)));
                     }
+#endif
+
+
+                    if (frame_sensor_time_valid) {
+                        mTask.frame_sensortime = full_sensor_time;
+                    } else {
+                        // Dry run if frame_sensortime_valid == false,
+                        // no sample is added this round.
+                        // So let's time travel back to beginning of frame.
+                        mTask.frame_sensortime_valid = true;
+                        mTask.frame_sensortime = full_sensor_time - frame_sensor_time;
+
+                        // recover states
+                        for (j = ACC; j <= MAG; j++) {
+                            // reset all prev_frame_time to invalid values
+                            // they should be so anyway at the first FIFO
+                            mTask.prev_frame_time[j] = ULONG_LONG_MAX;
+
+                            // recover saved time_delta and pending_delta values
+                            mTask.pending_delta[j] = saved_pending_delta[j];
+                            mTask.time_delta[j] = saved_time_delta[j];
+                        }
+
+#if TIMESTAMP_DBG
+                        osLog(LOG_INFO, "sensortime invalid: full, frame, task = %llu, %llu, %llu\n",
+                                full_sensor_time,
+                                frame_sensor_time,
+                                mTask.frame_sensortime);
+#endif
+
+                        // Parse again with known valid timing.
+                        // This time the sensor events will be committed into event buffer.
+                        return dispatchData();
+                    }
+
+                    // Invalidate sensor timestamp that didn't get corrected by full_sensor_time,
+                    // so it can't be used as a reference at next FIFO read.
+                    // Use (ULONG_LONG_MAX - 1) to indicate this.
+                    for (j = ACC; j <= MAG; j++) {
+                        mTask.prev_frame_time[j] = observed[j] ? full_sensor_time : (ULONG_LONG_MAX - 1);
+
+                        // sensor can be disabled in the middle of the FIFO,
+                        // but wait till the FIFO end to invalidate prev_frame_time since it's still needed for parsing.
+                        // Also invalidate pending delta just to be safe.
+                        if (!mTask.sensors[j].configed || mTask.sensors[j].latency == SENSOR_LATENCY_NODATA) {
+                            mTask.prev_frame_time[j] = ULONG_LONG_MAX;
+                            mTask.pending_delta[j] = false;
+                        }
+                    }
+                    i += 3;
+                    size -= 3;
+                } else {
+                    size = 0;
                 }
-                i += 3;
-                size -= 3;
             } else if (fh_param == 2) {
                 // fifo_input config frame
-                for (j = ACC; j <= MAG; j++) {
-                    if (buf[i] & (0x01 << (j << 1)) && mTask.pending_delta[j]) {
-                        mTask.pending_delta[j] = false;
-                        mTask.time_delta[j] = mTask.next_delta[j];
+#if TIMESTAMP_DBG
+                osLog(LOG_INFO, "frame %d config change 0x%02x\n", frame_num, buf[i]);
+#endif
+                if (size >= 1) {
+                    for (j = ACC; j <= MAG; j++) {
+                        if (buf[i] & (0x01 << (j << 1)) && mTask.pending_delta[j]) {
+                            mTask.pending_delta[j] = false;
+                            mTask.time_delta[j] = mTask.next_delta[j];
+#if TIMESTAMP_DBG
+                            osLog(LOG_INFO, "%s new delta %u\n", mSensorInfo[j].sensorName, (unsigned int)mTask.time_delta[j]);
+#endif
+                        }
                     }
+                    i++;
+                    size--;
+                } else {
+                    size = 0;
                 }
-                i++;
-                size--;
             } else {
-                // skip frame, we skip it
-                i++;
-                size--;
+                size = 0; // drop this batch
+                osLog(LOG_ERROR, "Invalid fh_param in conttrol frame\n");
             }
         } else if (fh_mode == 2) {
+            // Calcutate candidate frame time (tmp_frame_time):
+            // 1) When sensor is first enabled, reference from other sensors if possible.
+            // Otherwise, add the smallest increment (5msec) to the previous data frame time.
+            // 2) The newly enabled sensor could only underestimate its
+            // frame time without reference from other sensors.
+            // 3) The underestimated frame time of a newly enabled sensor will be corrected
+            // as soon as it shows up in the same frame with another sensor.
+            // 4) (prev_frame_time == ULONG_LONG_MAX) means the sensor wasn't enabled.
+            // 5) (prev_frame_time == ULONG_LONG_MAX -1) means the sensor didn't appear in the
+            // last data frame of the previous fifo read.  So it won't be used as a frame time reference.
+
             tmp_frame_time = 0;
             for (j = ACC; j <= MAG; j++) {
-                observed[j] = (fh_param & (1 << j));
+                observed[j] = false; // reset at each data frame
                 tmp_time[j] = 0;
-                if (mTask.prev_frame_time[j] != ULONG_LONG_MAX && observed[j]) {
+                if ((mTask.prev_frame_time[j] < ULONG_LONG_MAX - 1) && (fh_param & (1 << j))) {
                     tmp_time[j] = mTask.prev_frame_time[j] + mTask.time_delta[j];
                     tmp_frame_time = (tmp_time[j] > tmp_frame_time) ? tmp_time[j] : tmp_frame_time;
                 }
             }
-
-            if (frame_sensor_time == ULONG_LONG_MAX || tmp_frame_time == 0) {
-                if (fh_param & 4) {
-                    i+=8;
-                    size-=8;
-                }
-                if (fh_param & 2) {
-                    i += 6;
-                    size -= 6;
-                }
-                if (fh_param & 1) {
-                    i += 6;
-                    size -= 6;
-                }
-                continue;
-            }
+            tmp_frame_time = (frame_sensor_time + 128 > tmp_frame_time)
+                ? (frame_sensor_time + 128) : tmp_frame_time;
 
             // regular frame, dispatch data to each sensor's own fifo
             if (fh_param & 4) { // have mag data
-                parseRawData(&mTask.sensors[MAG], &buf[i], kScale_mag, tmp_frame_time);
-                mTask.prev_frame_time[MAG] = tmp_frame_time;
-                i += 8;
-                size -= 8;
+                if (size >= 8) {
+                    if (frame_sensor_time_valid) {
+                        parseRawData(&mTask.sensors[MAG], &buf[i], kScale_mag, tmp_frame_time);
+#if TIMESTAMP_DBG
+                        if (mTask.prev_frame_time[MAG] == ULONG_LONG_MAX) {
+                            osLog(LOG_INFO, "mag enabled: frame %d time 0x%08x\n",
+                                    frame_num, (unsigned int)tmp_frame_time);
+                        } else if ((tmp_frame_time != tmp_time[MAG]) && (tmp_time[MAG] != 0)) {
+                            osLog(LOG_INFO, "frame %d mag time: 0x%08x -> 0x%08x, jumped %d msec\n",
+                                    frame_num,
+                                    (unsigned int)tmp_time[MAG],
+                                    (unsigned int)tmp_frame_time,
+                                    (int)(5 * ((int64_t)(tmp_frame_time - tmp_time[MAG]) >> 7)));
+                        }
+#endif
+                    }
+                    mTask.prev_frame_time[MAG] = tmp_frame_time;
+                    i += 8;
+                    size -= 8;
+                    observed[MAG] = true;
+                } else {
+                    size = 0;
+                }
             }
             if (fh_param & 2) { // have gyro data
-                parseRawData(&mTask.sensors[GYR], &buf[i], kScale_gyr, tmp_frame_time);
-                mTask.prev_frame_time[GYR] = tmp_frame_time;
-                i += 6;
-                size -= 6;
+                if (size >= 6) {
+                    if (frame_sensor_time_valid) {
+                        parseRawData(&mTask.sensors[GYR], &buf[i], kScale_gyr, tmp_frame_time);
+#if TIMESTAMP_DBG
+                        if (mTask.prev_frame_time[GYR] == ULONG_LONG_MAX) {
+                            osLog(LOG_INFO, "gyr enabled: frame %d time 0x%08x\n",
+                                    frame_num, (unsigned int)tmp_frame_time);
+                        } else if ((tmp_frame_time != tmp_time[GYR]) && (tmp_time[GYR] != 0)) {
+                            osLog(LOG_INFO, "frame %d gyr time: 0x%08x -> 0x%08x, jumped %d msec\n",
+                                    frame_num,
+                                    (unsigned int)tmp_time[GYR],
+                                    (unsigned int)tmp_frame_time,
+                                    (int)(5 * ((int64_t)(tmp_frame_time - tmp_time[GYR]) >> 7)));
+                        }
+#endif
+                    }
+                    mTask.prev_frame_time[GYR] = tmp_frame_time;
+                    i += 6;
+                    size -= 6;
+                    observed[GYR] = true;
+                } else {
+                    size = 0;
+                }
             }
             if (fh_param & 1) { // have accel data
-                parseRawData(&mTask.sensors[ACC], &buf[i], kScale_acc, tmp_frame_time);
-                mTask.prev_frame_time[ACC] = tmp_frame_time;
-                i += 6;
-                size -= 6;
+                if (size >= 6) {
+                    if (frame_sensor_time_valid) {
+                        parseRawData(&mTask.sensors[ACC], &buf[i], kScale_acc, tmp_frame_time);
+#if TIMESTAMP_DBG
+                        if (mTask.prev_frame_time[ACC] == ULONG_LONG_MAX) {
+                            osLog(LOG_INFO, "acc enabled: frame %d time 0x%08x\n",
+                                    frame_num, (unsigned int)tmp_frame_time);
+                        } else if ((tmp_frame_time != tmp_time[ACC]) && (tmp_time[ACC] != 0)) {
+                            osLog(LOG_INFO, "frame %d gyr time: 0x%08x -> 0x%08x, jumped %d msec\n",
+                                    frame_num,
+                                    (unsigned int)tmp_time[ACC],
+                                    (unsigned int)tmp_frame_time,
+                                    (int)(5 * ((int64_t)(tmp_frame_time - tmp_time[ACC]) >> 7)));
+                        }
+#endif
+                    }
+                    mTask.prev_frame_time[ACC] = tmp_frame_time;
+                    i += 6;
+                    size -= 6;
+                    observed[ACC] = true;
+                } else {
+                    size = 0;
+                }
             }
-            frame_sensor_time = tmp_frame_time;
+
+            if (observed[ACC] || observed[GYR] || observed[MAG])
+                frame_sensor_time = tmp_frame_time;
+        } else {
+            size = 0; // drop this batch
+            osLog(LOG_ERROR, "Invalid fh_mode\n");
         }
     }
 
@@ -2625,6 +2799,7 @@ static bool startTask(uint32_t task_id)
     mTask.pending_int[0] = false;
     mTask.pending_int[1] = false;
     mTask.pending_dispatch = false;
+    mTask.frame_sensortime_valid = false;
 
     mTask.mode.speed = BMI160_SPI_SPEED_HZ;
     mTask.mode.bitsPerWord = 8;
