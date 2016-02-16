@@ -340,6 +340,7 @@ struct BMI160Task {
     bool pending_calibration_save;
     bool pending_time_sync;
     bool pending_delta[3];
+    bool pending_dispatch;
 };
 
 static uint32_t AccRates[] = {
@@ -786,6 +787,7 @@ static void configFifo(void)
 
     // if this is not the first fifo enabled or last fifo disabled, flush all fifo data;
     if (any_fifo_enabled_prev && anyFifoEnabled()) {
+        mTask.pending_dispatch = true;
         mTask.xferCnt = FIFO_READ_SIZE;
         SPI_READ(BMI160_REG_FIFO_DATA, mTask.xferCnt, mTask.rxBuffer);
     }
@@ -823,10 +825,10 @@ static bool accPower(bool on, void *cookie)
             mTask.state = SENSOR_POWERING_DOWN;
 
             // set ACC power mode to SUSPEND
-            SPI_WRITE(BMI160_REG_CMD, 0x10, 5000);
             mTask.sensors[ACC].configed = false;
             mTask.fifo_enabled[ACC] = false;
             configFifo();
+            SPI_WRITE(BMI160_REG_CMD, 0x10, 5000);
         }
         mTask.sensors[ACC].powered = on;
         spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[ACC]);
@@ -851,10 +853,10 @@ static bool gyrPower(bool on, void *cookie)
             mTask.state = SENSOR_POWERING_DOWN;
 
             // set GYR power mode to SUSPEND
-            SPI_WRITE(BMI160_REG_CMD, 0x14, 1000);
             mTask.sensors[GYR].configed = false;
             mTask.fifo_enabled[GYR] = false;
             configFifo();
+            SPI_WRITE(BMI160_REG_CMD, 0x14, 1000);
         }
 
         if (anyFifoEnabled() && on != mTask.sensors[GYR].powered) {
@@ -884,10 +886,10 @@ static bool magPower(bool on, void *cookie)
             mTask.state = SENSOR_POWERING_DOWN;
 
             // set MAG power mode to SUSPEND
-            SPI_WRITE(BMI160_REG_CMD, 0x18, 1000);
             mTask.sensors[MAG].configed = false;
             mTask.fifo_enabled[MAG] = false;
             configFifo();
+            SPI_WRITE(BMI160_REG_CMD, 0x18, 1000);
         }
         mTask.sensors[MAG].powered = on;
         spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[MAG]);
@@ -1218,6 +1220,8 @@ static bool magSetRate(uint32_t rate, uint64_t latency, void *cookie)
 
         // set the rate for MAG
         SPI_WRITE(BMI160_REG_MAG_CONF, odr);
+
+        // flush the data and configure the fifo
         configFifo();
 
         spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[MAG]);
@@ -2084,7 +2088,6 @@ static void processPendingEvt(void)
     for (i = ACC; i < NUM_OF_SENSOR; i++) {
         if (mTask.pending_config[i]) {
             mTask.pending_config[i] = false;
-            osLog(LOG_INFO, "Process pending config event for %s\n", mSensorInfo[i].sensorName);
             configEvent(&mTask.sensors[i], &mTask.sensors[i].pConfig);
             return;
         }
@@ -2286,7 +2289,6 @@ static void handleSpiDoneEvt(const void* evtData)
         }
         sensorSignalInternalEvt(mSensor->handle, SENSOR_INTERNAL_EVT_POWER_STATE_CHG, 1, 0);
         mTask.state = SENSOR_IDLE;
-        osLog(LOG_INFO, "Done powering up for %s\n", mSensorInfo[mSensor->idx].sensorName);
         processPendingEvt();
         break;
     case SENSOR_POWERING_DOWN:
@@ -2298,10 +2300,11 @@ static void handleSpiDoneEvt(const void* evtData)
         }
         sensorSignalInternalEvt(mSensor->handle, SENSOR_INTERNAL_EVT_POWER_STATE_CHG, 0, 0);
         mTask.state = SENSOR_IDLE;
-        osLog(LOG_INFO, "Done powering down for %s\n", mSensorInfo[mSensor->idx].sensorName);
 
-        if (anyFifoEnabled())
+        if (mTask.pending_dispatch) {
+            mTask.pending_dispatch = false;
             dispatchData();
+        }
 
         processPendingEvt();
         break;
@@ -2324,10 +2327,11 @@ static void handleSpiDoneEvt(const void* evtData)
         sensorSignalInternalEvt(mSensor->handle,
                 SENSOR_INTERNAL_EVT_RATE_CHG, mSensor->rate, mSensor->latency);
         mTask.state = SENSOR_IDLE;
-        osLog(LOG_INFO, "Done changing config for %s\n", mSensorInfo[mSensor->idx].sensorName);
 
-        if (anyFifoEnabled())
+        if (mTask.pending_dispatch) {
+            mTask.pending_dispatch = false;
             dispatchData();
+        }
 
         processPendingEvt();
         break;
@@ -2444,6 +2448,7 @@ static bool startTask(uint32_t task_id)
     mTask.Isr2.func = bmi160Isr2;
     mTask.pending_int[0] = false;
     mTask.pending_int[1] = false;
+    mTask.pending_dispatch = false;
 
     mTask.mode.speed = BMI160_SPI_SPEED_HZ;
     mTask.mode.bitsPerWord = 8;
