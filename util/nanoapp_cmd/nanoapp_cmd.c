@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+#include <android/log.h>
 #include <stdio.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -145,12 +146,13 @@ void sig_handle(int sig)
 int main(int argc, char *argv[])
 {
     struct ConfigCmd mConfigCmd;
-    int fd, dev_null;
+    int fd;
     int ret;
+    char c = '1';
 
-    if (argc < 3) {
+    if (argc < 3 && strcmp(argv[1], "download") != 0) {
         printf("usage: %s <action> <sensor> <data> -d\n", argv[0]);
-        printf("       action: config|calibrate|flush\n");
+        printf("       action: config|calibrate|flush|download\n");
         printf("       sensor: accel|(uncal_)gyro|(uncal_)mag|als|prox|baro|temp|orien\n");
         printf("               gravity|geomag|linear_acc|rotation|game\n");
         printf("               win_orien|tilt|step_det|step_cnt|double_tap\n");
@@ -217,6 +219,20 @@ int main(int argc, char *argv[])
             printf("Unsupported sensor: %s For action: %s\n", argv[2], argv[1]);
             return 1;
         }
+    } else if (strcmp(argv[1], "download") == 0) {
+        if (argc != 2) {
+            printf("Wrong arg number\n");
+            return 1;
+        }
+        fd = open("/sys/class/nanohub/nanohub/download_bl", O_WRONLY);
+        if (fd < 0) {
+            __android_log_write(ANDROID_LOG_ERROR, "nanoapp_cmd", "Failed to download nanohub!");
+            printf("Failed to download nanohub!\n");
+            return 1;
+        }
+        write (fd, &c, 1);
+        close(fd);
+        return 0;
     } else {
         printf("Unsupported action: %s\n", argv[1]);
         return 1;
@@ -231,14 +247,10 @@ int main(int argc, char *argv[])
     if (drain) {
         signal(SIGINT, sig_handle);
         fd = open("/dev/nanohub", O_RDONLY);
-        dev_null = open("dev/null", O_WRONLY);
         while (!stop) {
-            if ((nread = read(fd, buf, buf_size)) > 0) {
-                (void) write(dev_null, buf, nread);
-            }
+            (void) read(fd, buf, buf_size);
         }
         close(fd);
-        close(dev_null);
     }
     return 0;
 }
