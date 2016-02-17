@@ -35,6 +35,23 @@ struct HostHubRawPacket {
 } __attribute((packed));
 
 /*
+ * When sensor drivers use EVT_APP_TO_HOST, e.g. for reporting calibration data,
+ * the data segment of struct HostHubRawPacket is strongly recommended to begin
+ * with this header to allow for common parsing. But this is not a requirement,
+ * as these messages are inherently application-specific.
+ */
+struct SensorAppEventHeader {
+    uint8_t msgId;
+    uint8_t sensorType;
+    uint8_t status; // 0 for success, else application-specific error code
+} __attribute__((packed));
+
+#define SENSOR_APP_EVT_STATUS_SUCCESS    0x00
+#define SENSOR_APP_EVT_STATUS_ERROR      0x01 // General failure
+
+#define SENSOR_APP_MSG_ID_CAL_RESULT     0x00 // Status of calibration, with resulting biases
+
+/*
  * These events are in private OS-reserved range, and are sent targettedly
  * to one app. This is OK since real OS-reserved internal events will never
  * go to apps, as that region is reserved for them. We thus achieve succesful

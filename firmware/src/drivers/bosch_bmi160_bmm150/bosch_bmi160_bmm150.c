@@ -40,6 +40,8 @@
 #include "time_sync.h"
 #include <nanohub_math.h>
 
+#define BMI160_APP_ID APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 2)
+
 #define BMI160_SPI_WRITE         0x00
 #define BMI160_SPI_READ          0x80
 
@@ -269,6 +271,14 @@ struct ConfigStat {
     uint32_t rate;
     bool enable;
 };
+
+struct CalibrationData {
+    struct HostHubRawPacket header;
+    struct SensorAppEventHeader data_header;
+    int32_t xBias;
+    int32_t yBias;
+    int32_t zBias;
+} __attribute__((packed));
 
 struct BMI160Sensor {
     struct ConfigStat pConfig; // pending config status request
@@ -1836,6 +1846,28 @@ static void saveCalibration()
     spiBatchTxRx(&mTask.mode, sensorSpiCallback, NULL);
 }
 
+static void sendCalibrationResult(bool success, uint8_t sensorType, int32_t xBias, int32_t yBias, int32_t zBias) {
+    struct CalibrationData *data = heapAlloc(sizeof(struct CalibrationData));
+    if (!data) {
+        osLog(LOG_WARN, "Couldn't alloc cal result pkt");
+        return;
+    }
+
+    data->header.appId = BMI160_APP_ID;
+    data->header.dataLen = (sizeof(struct CalibrationData) - sizeof(struct HostHubRawPacket));
+    data->data_header.msgId = SENSOR_APP_MSG_ID_CAL_RESULT;
+    data->data_header.sensorType = sensorType;
+    data->data_header.status = (success) ? SENSOR_APP_EVT_STATUS_SUCCESS : SENSOR_APP_EVT_STATUS_ERROR;
+
+    data->xBias = xBias;
+    data->yBias = yBias;
+    data->zBias = zBias;
+
+    if (!osEnqueueEvt(EVT_APP_TO_HOST, data, heapFree)) {
+        heapFree(data);
+        osLog(LOG_WARN, "Couldn't send cal result evt");
+    }
+}
 
 static void accCalibrationHandling(void)
 {
@@ -1912,6 +1944,8 @@ static void accCalibrationHandling(void)
                 (unsigned int)mTask.sensors[ACC].offset[0],
                 (unsigned int)mTask.sensors[ACC].offset[1],
                 (unsigned int)mTask.sensors[ACC].offset[2]);
+
+        sendCalibrationResult(true, SENS_TYPE_ACCEL, mTask.sensors[ACC].offset[0], mTask.sensors[ACC].offset[1], mTask.sensors[ACC].offset[2]);
 
         // Enable offset compensation for accel
         uint8_t mode = offset6Mode();
@@ -2039,6 +2073,8 @@ static void gyrCalibrationHandling(void)
                 (unsigned int)mTask.sensors[GYR].offset[0],
                 (unsigned int)mTask.sensors[GYR].offset[1],
                 (unsigned int)mTask.sensors[GYR].offset[2]);
+
+        sendCalibrationResult(true, SENS_TYPE_GYRO, mTask.sensors[GYR].offset[0], mTask.sensors[GYR].offset[1], mTask.sensors[GYR].offset[2]);
 
         // Enable offset compensation for gyro
         uint8_t mode = offset6Mode();
@@ -2443,6 +2479,7 @@ static void handleSpiDoneEvt(const void* evtData)
             processPendingEvt();
         } else if (mTask.calibration_state == CALIBRATION_TIMEOUT) {
             osLog(LOG_INFO, "Calibration TIMED OUT\n");
+            sendCalibrationResult(false, (mSensor->idx == ACC) ? SENS_TYPE_ACCEL : SENS_TYPE_GYRO, 0, 0, 0);
             mTask.state = SENSOR_IDLE;
             processPendingEvt();
         } else if (mSensor->idx == ACC) {
@@ -2614,4 +2651,4 @@ static void endTask(void)
     gpioRelease(mTask.Int2);
 }
 
-INTERNAL_APP_INIT(APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 2), 0, startTask, endTask, handleEvent);
+INTERNAL_APP_INIT(BMI160_APP_ID, 0, startTask, endTask, handleEvent);
