@@ -67,6 +67,9 @@ static inline uint8_t* platGetSharedAreaInfo(uint32_t *areaSzP)
     return __shared_start;
 }
 
+//used for dropbox
+void* platGetPersistentRamStore(uint32_t *bytes);
+
 #define PREPOPULATED_ENCR_KEY(name, keyid, ...) \
     const struct StmPlatEeDataEncrKey __attribute__ ((section (".eedata"))) __EE__ ## name = { { EE_DATA_TYPE_ENCR_KEY, sizeof(struct StmPlatEeDataEncrKey) - sizeof(struct StmPlatEeDataGeneric)}, keyid, {__VA_ARGS__}}
 

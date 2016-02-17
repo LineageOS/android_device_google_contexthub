@@ -614,3 +614,10 @@ void platSleep(void)
     //re-enable interrupts and let the handlers run
     cpuIntsRestore(intState);
 }
+
+void* platGetPersistentRamStore(uint32_t *bytes)
+{
+    *bytes = sizeof(uint32_t[RTC_NUM_BACKUP_REGS]);
+    return rtcGetBackupStorage();
+}
+

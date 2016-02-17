@@ -40,6 +40,10 @@ void rtcInit(void);
 int rtcSetWakeupTimer(uint64_t delay);
 uint64_t rtcGetTime(void);
 
+#define RTC_NUM_BACKUP_REGS     20
+uint32_t* rtcGetBackupStorage(void);
+
+
 #ifdef __cplusplus
 }
 #endif
