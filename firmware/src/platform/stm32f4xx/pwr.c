@@ -147,6 +147,8 @@ uint32_t pwrGetBusSpeed(uint32_t bus)
 
 void pwrEnableAndClockRtc(enum RtcClock rtcClock)
 {
+    uint32_t backupRegs[RTC_NUM_BACKUP_REGS], i, *regs = rtcGetBackupStorage();
+
     /* Enable power clock */
     RCC->APB1ENR |= PERIPH_APB1_PWR;
 
@@ -155,10 +157,18 @@ void pwrEnableAndClockRtc(enum RtcClock rtcClock)
     /* Prevent compiler reordering across this boundary. */
     mem_reorder_barrier();
 
+    /* backup the backup regs (they have valuable data we want to persist) */
+    for (i = 0; i < RTC_NUM_BACKUP_REGS; i++)
+        backupRegs[i] = regs[i];
+
     /* Reset backup domain */
     RCC->BDCR |= RCC_BDCR_BDRST;
     /* Exit reset of backup domain */
     RCC->BDCR &= ~RCC_BDCR_BDRST;
+
+    /* restore the backup regs */
+    for (i = 0; i < RTC_NUM_BACKUP_REGS; i++)
+        regs[i] = backupRegs[i];
 
     if (rtcClock == RTC_CLK_LSE || rtcClock == RTC_CLK_LSE_BYPASS) {
         /* Disable LSI */

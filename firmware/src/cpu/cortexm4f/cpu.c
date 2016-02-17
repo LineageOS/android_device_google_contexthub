@@ -14,12 +14,13 @@
  * limitations under the License.
  */
 
-#include <cpu.h>
 #include <plat/inc/cmsis.h>
-#include <seos.h>
-#include <heap.h>
+#include <plat/inc/plat.h>
 #include <syscall.h>
 #include <string.h>
+#include <seos.h>
+#include <heap.h>
+#include <cpu.h>
 
 
 #define HARD_FAULT_DROPBOX_MAGIC  0x31415926
@@ -29,10 +30,21 @@ struct HardFaultDropbox {
     uint32_t sr, hfsr, cfsr;
 };
 
-static struct HardFaultDropbox __attribute__((section(".neverinit"))) mDropbox;
+/* //if your device persists ram, you can use this instead:
+ * static struct HardFaultDropbox* getDropbox(void)
+ * {
+ *     static struct HardFaultDropbox __attribute__((section(".neverinit"))) dbx;
+ *     return &dbx;
+ * }
+ */
 
+static struct HardFaultDropbox* getDropbox(void)
+{
+    uint32_t bytes = 0;
+    void *loc = platGetPersistentRamStore(&bytes);
 
-
+    return bytes >= sizeof(struct HardFaultDropbox) ? (struct HardFaultDropbox*)loc : NULL;
+}
 
 void cpuInit(void)
 {
@@ -49,17 +61,19 @@ void cpuInit(void)
 
 void cpuInitLate(void)
 {
+    struct HardFaultDropbox *dbx = getDropbox();
+
     /* print and clear dropbox */
-    if (mDropbox.magic == HARD_FAULT_DROPBOX_MAGIC) {
+    if (dbx->magic == HARD_FAULT_DROPBOX_MAGIC) {
         uint32_t i;
 	osLog(LOG_INFO, "Hard Fault Dropbox not empty. Contents:\n");
 	for (i = 0; i < 16; i++)
-		osLog(LOG_INFO, "  R%02lu  = 0x%08lX\n", i, mDropbox.r[i]);
-        osLog(LOG_INFO, "  SR   = %08lX\n", mDropbox.sr);
-        osLog(LOG_INFO, "  HFSR = %08lX\n", mDropbox.hfsr);
-        osLog(LOG_INFO, "  CFSR = %08lX\n", mDropbox.cfsr);
+		osLog(LOG_INFO, "  R%02lu  = 0x%08lX\n", i, dbx->r[i]);
+        osLog(LOG_INFO, "  SR   = %08lX\n", dbx->sr);
+        osLog(LOG_INFO, "  HFSR = %08lX\n", dbx->hfsr);
+        osLog(LOG_INFO, "  CFSR = %08lX\n", dbx->cfsr);
     }
-    mDropbox.magic = 0;
+    dbx->magic = 0;
 }
 
 
@@ -130,19 +144,21 @@ void __attribute__((naked)) SVC_Handler(void)
 
 static void __attribute__((used)) logHardFault(uintptr_t *excRegs, uintptr_t* otherRegs)
 {
+    struct HardFaultDropbox *dbx = getDropbox();
     uint32_t i;
 
     for (i = 0; i < 4; i++)
-        mDropbox.r[i] = excRegs[i];
+        dbx->r[i] = excRegs[i];
     for (i = 0; i < 8; i++)
-        mDropbox.r[i + 4] = otherRegs[i];
-    mDropbox.r[12] = excRegs[4];
-    mDropbox.r[13] = (uint32_t)(excRegs + 8);
-    mDropbox.r[14] = excRegs[5];
-    mDropbox.r[15] = excRegs[6];
-    mDropbox.sr = excRegs[7];
-    mDropbox.hfsr = SCB->HFSR;
-    mDropbox.cfsr = SCB->CFSR;
+        dbx->r[i + 4] = otherRegs[i];
+    dbx->r[12] = excRegs[4];
+    dbx->r[13] = (uint32_t)(excRegs + 8);
+    dbx->r[14] = excRegs[5];
+    dbx->r[15] = excRegs[6];
+    dbx->sr = excRegs[7];
+    dbx->hfsr = SCB->HFSR;
+    dbx->cfsr = SCB->CFSR;
+    dbx->magic = HARD_FAULT_DROPBOX_MAGIC;
 
     osLog(LOG_ERROR, "*HARD FAULT* SR  = %08lX\n", (unsigned long)excRegs[7]);
     osLog(LOG_ERROR, "R0  = %08lX   R8  = %08lX\n", (unsigned long)excRegs[0], (unsigned long)otherRegs[4]);
