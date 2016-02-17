@@ -1843,9 +1843,9 @@ static void accCalibrationHandling(void)
     case CALIBRATION_START:
         mRetryLeft = RETRY_CNT_CALIBRATION;
 
-        //if power is off, turn ACC on to NORMAL mode
-        if (!mTask.sensors[ACC].powered)
-            SPI_WRITE(BMI160_REG_CMD, 0x11);
+        // turn ACC to NORMAL mode
+        SPI_WRITE(BMI160_REG_CMD, 0x11, 50000);
+
         mTask.calibration_state = CALIBRATION_FOC;
         spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[ACC]);
         break;
@@ -1859,10 +1859,10 @@ static void accCalibrationHandling(void)
         SPI_WRITE(BMI160_REG_FOC_CONF, ACC_FOC_CONFIG);
 
         // start calibration
-        SPI_WRITE(BMI160_REG_CMD, 0x03, 100);
+        SPI_WRITE(BMI160_REG_CMD, 0x03, 100000);
 
-        // poll the status reg untill the calibration finishes.
-        SPI_READ(BMI160_REG_STATUS, 1, &mTask.statusBuffer, 100000);
+        // poll the status reg until the calibration finishes.
+        SPI_READ(BMI160_REG_STATUS, 1, &mTask.statusBuffer, 50000);
 
         mTask.calibration_state = CALIBRATION_WAIT_FOC_DONE;
         spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[ACC]);
@@ -1899,6 +1899,14 @@ static void accCalibrationHandling(void)
         mTask.sensors[ACC].offset[0] = mTask.dataBuffer[1];
         mTask.sensors[ACC].offset[1] = mTask.dataBuffer[2];
         mTask.sensors[ACC].offset[2] = mTask.dataBuffer[3];
+        // sign extend values
+        if (mTask.sensors[ACC].offset[0] & 0x80)
+            mTask.sensors[ACC].offset[0] |= 0xFFFFFF00;
+        if (mTask.sensors[ACC].offset[1] & 0x80)
+            mTask.sensors[ACC].offset[1] |= 0xFFFFFF00;
+        if (mTask.sensors[ACC].offset[2] & 0x80)
+            mTask.sensors[ACC].offset[2] |= 0xFFFFFF00;
+
         mTask.sensors[ACC].offset_enable = true;
         osLog(LOG_INFO, "ACCELERATION OFFSET is %02x  %02x  %02x\n",
                 (unsigned int)mTask.sensors[ACC].offset[0],
@@ -1909,9 +1917,9 @@ static void accCalibrationHandling(void)
         uint8_t mode = offset6Mode();
         SPI_WRITE(BMI160_REG_OFFSET_6, mode);
 
-        // if ACC was previous off, turn ACC to SUSPEND
-        if (!mTask.sensors[ACC].powered)
-            SPI_WRITE(BMI160_REG_CMD, 0x12);
+        // turn ACC to SUSPEND mode
+        SPI_WRITE(BMI160_REG_CMD, 0x10, 5000);
+
         mTask.calibration_state = CALIBRATION_DONE;
         spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[ACC]);
         break;
@@ -1959,13 +1967,102 @@ static bool accCfgData(void *data, void *cookie)
 
 static void gyrCalibrationHandling(void)
 {
-    // gyro calibration not implemented yet. Seems unnecessary.
-    return;
+    switch (mTask.calibration_state) {
+    case CALIBRATION_START:
+        mRetryLeft = RETRY_CNT_CALIBRATION;
+
+        // turn GYR to NORMAL mode
+        SPI_WRITE(BMI160_REG_CMD, 0x15, 50000);
+
+        mTask.calibration_state = CALIBRATION_FOC;
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[GYR]);
+        break;
+    case CALIBRATION_FOC:
+
+        // set gyro range to +-2000 deg/sec
+        SPI_WRITE(BMI160_REG_GYR_RANGE, 0x00);
+
+        // enable gyro fast offset compensation
+        SPI_WRITE(BMI160_REG_FOC_CONF, 0x40);
+
+        // start FOC
+        SPI_WRITE(BMI160_REG_CMD, 0x03, 100000);
+
+        // poll the status reg until the calibration finishes.
+        SPI_READ(BMI160_REG_STATUS, 1, &mTask.statusBuffer, 50000);
+
+        mTask.calibration_state = CALIBRATION_WAIT_FOC_DONE;
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[GYR]);
+        break;
+    case CALIBRATION_WAIT_FOC_DONE:
+
+        // if the STATUS REG has bit 3 set, it means calbration is done.
+        // otherwise, check back in 50ms later.
+        if (mTask.statusBuffer[1] & 0x08) {
+
+            // disable gyro fast offset compensation
+            SPI_WRITE(BMI160_REG_FOC_CONF, 0x00);
+
+            //read the offset value for gyro
+            SPI_READ(BMI160_REG_OFFSET_3, 4, &mTask.dataBuffer);
+            mTask.calibration_state = CALIBRATION_SET_OFFSET;
+            osLog(LOG_INFO, "FOC set FINISHED!\n");
+        } else {
+
+            // calibration hasn't finished yet, go back to wait for 50ms.
+            SPI_READ(BMI160_REG_STATUS, 1, &mTask.statusBuffer, 50000);
+            mTask.calibration_state = CALIBRATION_WAIT_FOC_DONE;
+            mRetryLeft--;
+        }
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[GYR]);
+
+        // if calbration hasn't finished after 10 polling on the STATUS reg,
+        // declare timeout.
+        if (mRetryLeft == 0) {
+            mTask.calibration_state = CALIBRATION_TIMEOUT;
+        }
+        break;
+    case CALIBRATION_SET_OFFSET:
+        mTask.sensors[GYR].offset[0] = ((mTask.dataBuffer[4] & 0x03) << 8) | mTask.dataBuffer[1];
+        mTask.sensors[GYR].offset[1] = ((mTask.dataBuffer[4] & 0x0C) << 6) | mTask.dataBuffer[2];
+        mTask.sensors[GYR].offset[2] = ((mTask.dataBuffer[4] & 0x30) << 4) | mTask.dataBuffer[3];
+        // sign extend values
+        if (mTask.sensors[GYR].offset[0] & 0x200)
+            mTask.sensors[GYR].offset[0] |= 0xFFFFFC00;
+        if (mTask.sensors[GYR].offset[1] & 0x200)
+            mTask.sensors[GYR].offset[1] |= 0xFFFFFC00;
+        if (mTask.sensors[GYR].offset[2] & 0x200)
+            mTask.sensors[GYR].offset[2] |= 0xFFFFFC00;
+
+        mTask.sensors[GYR].offset_enable = true;
+        osLog(LOG_INFO, "GYRO OFFSET is %02x  %02x  %02x\n",
+                (unsigned int)mTask.sensors[GYR].offset[0],
+                (unsigned int)mTask.sensors[GYR].offset[1],
+                (unsigned int)mTask.sensors[GYR].offset[2]);
+
+        // Enable offset compensation for gyro
+        uint8_t mode = offset6Mode();
+        SPI_WRITE(BMI160_REG_OFFSET_6, mode);
+
+        // turn GYR to SUSPEND mode
+        SPI_WRITE(BMI160_REG_CMD, 0x14, 1000);
+
+        mTask.calibration_state = CALIBRATION_DONE;
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[GYR]);
+        break;
+    default:
+        osLog(LOG_ERROR, "Invalid calibration state\n");
+        break;
+    }
 }
 
 static bool gyrCalibration(void *cookie)
 {
     if (mTask.state == SENSOR_IDLE) {
+        if (mTask.sensors[GYR].powered) {
+            osLog(LOG_ERROR, "No calibration allowed when sensor is powered\n");
+            return false;
+        }
         mTask.state = SENSOR_CALIBRATING;
         mTask.calibration_state = CALIBRATION_START;
         gyrCalibrationHandling();
