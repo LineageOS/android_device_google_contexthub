@@ -295,3 +295,8 @@ void EXTI22_RTC_WKUP_IRQHandler(void)
     extiClearPendingLine(EXTI_LINE_RTC_WKUP);
     timIntHandler();
 }
+
+uint32_t* rtcGetBackupStorage(void)
+{
+    return (uint32_t*)RTC->BKPR;
+}
