@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+#include <plat/inc/eeData.h>
 #include <plat/inc/plat.h>
 #include <plat/inc/bl.h>
 #include <platform.h>

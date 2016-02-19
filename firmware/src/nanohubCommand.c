@@ -26,6 +26,7 @@
 #include <hostIntf_priv.h>
 #include <nanohubCommand.h>
 #include <nanohubPacket.h>
+#include <eeData.h>
 #include <seos.h>
 #include <util.h>
 #include <mpu.h>
@@ -141,23 +142,19 @@ static AppSecErr pubKeyFindCbk(const uint32_t *gotKey, bool *foundP)
 
 static AppSecErr aesKeyAccessCbk(uint64_t keyIdx, void *keyBuf)
 {
-    extern const struct StmPlatEeDataGeneric __eedata_start;
-    extern char __eedata_end[];
-    const struct StmPlatEeDataGeneric *hdr;
-    const struct StmPlatEeDataEncrKey *key;
+    struct SeosEedataEncrKeyData kd;
+    void *state = NULL;
 
-    hdr = &__eedata_start;
-    while (((uintptr_t)&__eedata_end) - ((uintptr_t)hdr) >= sizeof(struct StmPlatEeDataGeneric) && hdr->eeDataType != 0xFFFFF) {
-        switch (hdr->eeDataType) {
-        case EE_DATA_TYPE_ENCR_KEY:
-            key = (const struct StmPlatEeDataEncrKey *)hdr;
-            if (key->keyID == keyIdx) {
-                memcpy(keyBuf, key->key, sizeof(key->key));
-                return APP_SEC_NO_ERROR;
-            }
+    while(1) {
+        uint32_t sz = sizeof(struct SeosEedataEncrKeyData);
+
+        if (!eeDataGetAllVersions(EE_DATA_NAME_ENCR_KEY, &kd, &sz, &state))
             break;
+
+        if (sz == sizeof(struct SeosEedataEncrKeyData) && kd.keyID == keyIdx) {
+            memcpy(keyBuf, kd.key, sizeof(kd.key));
+            return APP_SEC_NO_ERROR;
         }
-        hdr = (const struct StmPlatEeDataGeneric*)(((((uintptr_t)hdr) + sizeof(struct StmPlatEeDataGeneric) + hdr->eeDataLen) + 3) &~ 3);
     }
 
     return APP_SEC_KEY_NOT_FOUND;
