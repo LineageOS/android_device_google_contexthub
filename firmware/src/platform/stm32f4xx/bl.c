@@ -506,7 +506,7 @@ static bool blProgramFlash(uint8_t *dst, const uint8_t *src, uint32_t length, ui
 }
 
 BOOTLOADER
-static bool blExtApiProgramSharedArea(uint8_t *dst, const uint8_t *src, uint32_t length, uint32_t key1, uint32_t key2)
+static bool blExtApiProgramTypedArea(uint8_t *dst, const uint8_t *src, uint32_t length, uint32_t key1, uint32_t key2, uint32_t type)
 {
     const uint32_t sector_cnt = sizeof(mBlFlashTable) / sizeof(struct blFlashTable);
     uint32_t i;
@@ -517,12 +517,24 @@ static bool blExtApiProgramSharedArea(uint8_t *dst, const uint8_t *src, uint32_t
              dst < (mBlFlashTable[i].address + mBlFlashTable[i].length)) ||
             (dst < mBlFlashTable[i].address &&
              (dst + length > mBlFlashTable[i].address))) {
-            if (mBlFlashTable[i].type != BL_FLASH_SHARED)
+            if (mBlFlashTable[i].type != type)
                 return false;
         }
     }
 
     return blProgramFlash(dst, src, length, key1, key2);
+}
+
+BOOTLOADER
+static bool blExtApiProgramSharedArea(uint8_t *dst, const uint8_t *src, uint32_t length, uint32_t key1, uint32_t key2)
+{
+    return blExtApiProgramTypedArea(dst, src, length, key1, key2, BL_FLASH_SHARED);
+}
+
+BOOTLOADER
+static bool blExtApiProgramEe(uint8_t *dst, const uint8_t *src, uint32_t length, uint32_t key1, uint32_t key2)
+{
+    return blExtApiProgramTypedArea(dst, src, length, key1, key2, BL_FLASH_EEDATA);
 }
 
 BOOTLOADER
@@ -650,6 +662,7 @@ const struct BlVecTable __attribute__((section(".blvec"))) __BL_VECTORS =
     .blGetSnum = &blExtApiGetSnum,
     .blProgramShared = &blExtApiProgramSharedArea,
     .blEraseShared = &blExtApiEraseSharedArea,
+    .blProgramEe = &blExtApiProgramEe,
     .blGetPubKeysInfo = &blExtApiGetRsaKeyInfo,
     .blRsaPubOpIterative = &_rsaPubOpIterative,
     .blSha2init = &_sha2init,
