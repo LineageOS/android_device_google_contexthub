@@ -80,6 +80,7 @@ struct BlVecTable {
     //flash
     bool            (*blProgramShared)(uint8_t *dst, const uint8_t *src, uint32_t length, uint32_t key1, uint32_t key2);
     bool            (*blEraseShared)(uint32_t key1, uint32_t key2);
+    bool            (*blProgramEe)(uint8_t *dst, const uint8_t *src, uint32_t length, uint32_t key1, uint32_t key2);
 
     //security data
     const uint32_t* (*blGetPubKeysInfo)(uint32_t *numKeys);

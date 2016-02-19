@@ -41,8 +41,6 @@ extern "C" {
 
 #define OS_VER                           0x0000
 
-#define EE_DATA_TYPE_ENCR_KEY            1
-
 #define ENCR_KEY_GOOGLE_PREPOPULATED     1 // our key ID is 1
 
 #define FIRST_VALID_TID                  0x00000001
@@ -104,6 +102,11 @@ struct AppEventFreeData { //goes with EVT_APP_FREE_EVT_DATA
 typedef void (*OsDeferCbkF)(void *);
 
 typedef void (*EventFreeF)(void* event);
+
+struct SeosEedataEncrKeyData {
+    uint64_t keyID;
+    uint8_t key[32];
+} __attribute__((packed));
 
 /* ==== ABOUT THE "urgent" FLAG ====
  *
