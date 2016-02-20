@@ -20,7 +20,9 @@ ifneq ($(CPU),cortexm4f)
         $(error "stm32f4xx cplatform only supports Cortex-M4F CPUs")
 endif
 
-DELIVERABLES = $(APP).full.bin $(APP).update.bin
+DELIVERABLES = os.checked.bin bl.unchecked.bin full.bin
+BL_FILE = bl.unchecked.bin
+OS_FILE = os.checked.bin
 
 FLAGS += -I. -fno-unwind-tables -fstack-reuse=all -ffunction-sections -fdata-sections
 FLAGS += -Wl,--gc-sections
@@ -29,13 +31,13 @@ FLAGS += -Iinc/platform/$(PLATFORM)/cmsis
 APPFLAGS += -msingle-pic-base -mpic-register=r9 -nostartfiles -fpic -shared
 
 #platform bootloader
-SRCS += src/platform/$(PLATFORM)/bl.c
+SRCS_bl += src/platform/$(PLATFORM)/bl.c
 
 #platform runtime
-SRCS +=  src/platform/$(PLATFORM)/crt_$(PLATFORM).c
+SRCS_os +=  src/platform/$(PLATFORM)/crt_$(PLATFORM).c
 
 #platform drivers
-SRCS += src/platform/$(PLATFORM)/platform.c \
+SRCS_os += src/platform/$(PLATFORM)/platform.c \
 	src/platform/$(PLATFORM)/usart.c \
 	src/platform/$(PLATFORM)/gpio.c \
 	src/platform/$(PLATFORM)/pwr.c \
@@ -60,12 +62,13 @@ PLATFORM_HAS_HARDWARE_CRC = true
 FLAGS += -DPLATFORM_HW_VER=0
 
 #platform-specific rules
+OBJCOPY_PARAMS = -I elf32-littlearm -O binary
 
-%.full.bin : %.elf
-	$(OBJCOPY) -j.bl -j .data -j .text -j .eedata -I elf32-littlearm -O binary $< $@
+bl.%.bin : bl.%.elf
+	$(OBJCOPY) -j .bl -j .blrodata -j .eedata $(OBJCOPY_PARAMS) $< $@
 
-%.update.bin : %.elf
-	$(OBJCOPY) -j .data -j .text -I elf32-littlearm -O binary $< $@
+os.%.bin : os.%.elf
+	$(OBJCOPY) -j .data -j .text $(OBJCOPY_PARAMS) $< $@
 
-flash: $(APP).full.bin
-	echo -e "attach\nscript misc/platform/$(PLATFORM)/m3debug.script\nflash $(APP).full.bin 08000000\n" | $(M3DEBUG)
+
+

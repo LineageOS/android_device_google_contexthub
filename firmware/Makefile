@@ -20,8 +20,6 @@ CPU ?= cortexm4f
 VARIANT ?= lunchbox
 DEBUG ?= -DDEBUG
 
-APP = nanohub
-
 #bad words
 BADWORDS += strcpy strcat atoi
 BADWORDS += "rsaPrivOp=RSA private ops should never be compiled into firmware. You *ARE* doing something wrong! Stop!"
@@ -45,7 +43,8 @@ endif
 MAKE_VAR = $(LINK_PATH_MISC)/Makefile
 
 #top make target
-SRCS :=
+SRCS_os :=
+SRCS_bl :=
 DELIVERABLES :=
 real: all
 
@@ -64,13 +63,16 @@ APPFLAGS += -Os
 #debug mode
 FLAGS += $(DEBUG)
 
+#bootloader pieces
+SRCS_bl += src/sha2.c src/rsa.c src/aes.c src/seos.c
+
 #frameworks
-SRCS += src/printf.c src/timer.c src/seos.c src/heap.c src/slab.c src/spi.c src/trylock.c
-SRCS += src/hostIntf.c src/hostIntfI2c.c src/hostIntfSpi.c src/nanohubCommand.c src/sensors.c src/syscall.c
-SRCS += src/eventQ.c src/sha2.c src/rsa.c src/aes.c src/osApi.c src/appSec.c src/simpleQ.c src/floatRt.c
+SRCS_os += src/printf.c src/timer.c src/seos.c src/heap.c src/slab.c src/spi.c src/trylock.c
+SRCS_os += src/hostIntf.c src/hostIntfI2c.c src/hostIntfSpi.c src/nanohubCommand.c src/sensors.c src/syscall.c
+SRCS_os += src/eventQ.c src/osApi.c src/appSec.c src/simpleQ.c src/floatRt.c
 
 ifndef PLATFORM_HAS_HARDWARE_CRC
-SRCS += src/softcrc.c
+SRCS_os += src/softcrc.c
 endif
 
 #app code
@@ -110,12 +112,15 @@ links/v_$(VARIANT):
 	ln -s ../../$(LINK_PATH_INC) links/variant/inc
 	touch links/v_$(VARIANT)
 
-$(APP).unchecked.elf: symlinks $(SRCS) $(DEPS)
-	$(GCC) -o $(APP).unchecked.elf $(SRCS) $(OSFLAGS) $(FLAGS) -lm -lc -lgcc
+%.unchecked.elf: symlinks $(SRCS_$*) $(DEPS)
+	$(GCC) -o $@ $(SRCS_$*) $(OSFLAGS) $(OSFLAGS_$*) $(FLAGS) -lm -lc -lgcc
 
-$(APP).elf: $(APP).unchecked.elf symcheck.sh
-	./symcheck.sh $(APP).unchecked.elf $(APP).elf $(BADWORDS)
+%.checked.elf : %.unchecked.elf  symcheck.sh
+	./symcheck.sh $< $@ $(BADWORDS)
+
+full.bin: $(BL_FILE) $(OS_FILE)
+	cat $(BL_FILE) $(OS_FILE) > $@
 
 clean:
-	rm -rf $(DELIVERABLES) $(APP).elf $(APP).unchecked.elf links $(CLEANFILES)
+	rm -rf $(DELIVERABLES) os.elf bootloader.elf links $(CLEANFILES)
 

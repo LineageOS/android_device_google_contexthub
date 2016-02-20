@@ -26,45 +26,48 @@ FLAGS += -DPLATFORM_HW_TYPE=0x4E75   #'Nu' ->nucleo
 FLAGS += -DDEBUG_SWD
 
 #board configuration shims
-SRCS += src/variant/$(VARIANT)/i2c.c
-SRCS += src/variant/$(VARIANT)/spi.c
+SRCS_os += src/variant/$(VARIANT)/i2c.c
+SRCS_os += src/variant/$(VARIANT)/spi.c
 
 #keys
 
 #drivers
 # AMS ALS/prox
-SRCS += src/drivers/ams_tmd2772/ams_tmd2772.c
+SRCS_os += src/drivers/ams_tmd2772/ams_tmd2772.c
 
 # ROHM ALS/prox
-SRCS += src/drivers/rohm_rpr0521/rohm_rpr0521.c
+SRCS_os += src/drivers/rohm_rpr0521/rohm_rpr0521.c
 
 # Fusion algorithm
-SRCS += src/fusion/fusion.c src/fusion/mat.c src/fusion/quat.c src/fusion/vec.c
+SRCS_os += src/fusion/fusion.c src/fusion/mat.c src/fusion/quat.c src/fusion/vec.c
 
 # BMI160 accel and gyro, BMM150 mag drivers
-SRCS += src/drivers/bosch_bmi160_bmm150/bosch_bmi160_bmm150.c \
+SRCS_os += src/drivers/bosch_bmi160_bmm150/bosch_bmi160_bmm150.c \
 		src/drivers/bosch_bmi160_bmm150/mag_cal.c \
 		src/drivers/bosch_bmi160_bmm150/time_sync.c
 
 # Orientation sensor driver
-SRCS += src/drivers/orientation/orientation.c
+SRCS_os += src/drivers/orientation/orientation.c
 
 # Window orientation sensor driver
-SRCS += src/drivers/window_orientation/window_orientation.c
+SRCS_os += src/drivers/window_orientation/window_orientation.c
 
 # Bosch BMP280 Barometer/Temperature
-SRCS += src/drivers/bosch_bmp280/bosch_bmp280.c
+SRCS_os += src/drivers/bosch_bmp280/bosch_bmp280.c
 
 # Hall effect sensor driver
-SRCS += src/drivers/hall/hall.c
+SRCS_os += src/drivers/hall/hall.c
 
 # Camera Vsync driver
-SRCS += src/drivers/vsync/vsync.c
+SRCS_os += src/drivers/vsync/vsync.c
 
 # Tilt detection
-SRCS += src/drivers/tilt_detection/tilt_detection.c
+SRCS_os += src/drivers/tilt_detection/tilt_detection.c
 
 #linker script
-LKR = misc/variant/common/stm32f411.lkr
-OSFLAGS += -Wl,-T $(LKR)
+LKR_os = misc/variant/common/stm32f411.os.lkr
+LKR_bl = misc/variant/common/stm32f411.bl.lkr
+OSFLAGS_os += -Wl,-T $(LKR_os)
+OSFLAGS_bl += -Wl,-T $(LKR_bl)
+DEPS += $(LKR_os) $(LKR_bl)
 DEPS += $(LKR)
