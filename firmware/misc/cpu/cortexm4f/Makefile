@@ -21,14 +21,14 @@ FLAGS += -mthumb -mcpu=cortex-m4 -march=armv7e-m -mfloat-abi=softfp -mfpu=fpv4-s
 APPFLAGS += -Wl,-T misc/cpu/$(CPU)/app.lkr -mno-pic-data-is-text-relative
 
 #cpu runtime
-SRCS += src/cpu/$(CPU)/atomicBitset.c src/cpu/$(CPU)/cpu.c src/cpu/$(CPU)/pendsv.c src/cpu/$(CPU)/atomic.c src/cpu/$(CPU)/appSupport.c src/cpu/$(CPU)/cpuMath.c
+SRCS_os += src/cpu/$(CPU)/atomicBitset.c src/cpu/$(CPU)/cpu.c src/cpu/$(CPU)/pendsv.c src/cpu/$(CPU)/atomic.c src/cpu/$(CPU)/appSupport.c src/cpu/$(CPU)/cpuMath.c
 
 #floating point runtime (ARM)
-SRCS += external/arm/arm_cos_f32.c external/arm/arm_sin_f32.c external/arm/arm_common_tables.c
+SRCS_os += external/arm/arm_cos_f32.c external/arm/arm_sin_f32.c external/arm/arm_common_tables.c
 FLAGS += -DARM_MATH_CM4 -D__FPU_PRESENT
 
 #floating point runtime (FreeBSD)
-SRCS += external/freebsd/lib/msun/src/e_atan2f.c external/freebsd/lib/msun/src/e_expf.c external/freebsd/lib/msun/src/s_atanf.c
+SRCS_os += external/freebsd/lib/msun/src/e_atan2f.c external/freebsd/lib/msun/src/e_expf.c external/freebsd/lib/msun/src/s_atanf.c
 FLAGS += -DFLT_EVAL_METHOD
 
 #extra deps
