@@ -30,7 +30,7 @@ typedef bool (*SimpleQueueForciblyDiscardCbkF)(void *data, bool onDelete); //ret
 
 struct SimpleQueue* simpleQueueAlloc(uint32_t numEntries, uint32_t entrySz, SimpleQueueForciblyDiscardCbkF forceDiscardCbk);
 void simpleQueueDestroy(struct SimpleQueue* sq); //will call discard, but in no particular order!
-bool simpleQueueEnqueue(struct SimpleQueue* sq, const void *data, bool possiblyDiscardable);
+bool simpleQueueEnqueue(struct SimpleQueue* sq, const void *data, int length, bool possiblyDiscardable);
 bool simpleQueueDequeue(struct SimpleQueue* sq, void *dataVal);
 
 

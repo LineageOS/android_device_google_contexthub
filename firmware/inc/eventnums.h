@@ -26,6 +26,8 @@
 #define EVT_APP_START                    0x00000400    //sent when an app can actually start
 #define EVT_APP_TO_HOST                  0x00000401    //app data to host. Type is struct HostHubRawPacket
 
+#define HOST_HUB_RAW_PACKET_MAX_LEN      128
+
 struct HostHubRawPacket {
     uint64_t appId;
     uint8_t dataLen; //not incl this header, 128 bytes max
