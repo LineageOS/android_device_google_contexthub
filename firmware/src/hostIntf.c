@@ -18,6 +18,7 @@
 #include <stdint.h>
 #include <sys/endian.h>
 #include <string.h>
+#include <alloca.h>
 
 #include <plat/inc/pwr.h>
 #include <variant/inc/variant.h>
@@ -66,7 +67,8 @@ struct DataBuffer
 {
     uint8_t sensType;
     uint8_t length;
-    uint16_t pad;
+    uint8_t appToHost;
+    uint8_t pad;
     uint64_t referenceTime;
     union
     {
@@ -560,7 +562,7 @@ static void copySingleSamples(struct ActiveSensor *sensor, const struct SingleAx
 
     for (i = 0; i < single->samples[0].firstSample.numSamples; i++) {
         if (sensor->buffer.firstSample.numSamples == sensor->packetSamples) {
-            simpleQueueEnqueue(mOutputQ, &sensor->buffer, sensor->discard);
+            simpleQueueEnqueue(mOutputQ, &sensor->buffer, sizeof(uint32_t) + sensor->buffer.length, sensor->discard);
             resetBuffer(sensor);
         }
 
@@ -580,11 +582,11 @@ static void copySingleSamples(struct ActiveSensor *sensor, const struct SingleAx
             if (i == 0) {
                 if (sensor->lastTime > single->referenceTime) {
                     // shouldn't happen. flush current packet
-                    simpleQueueEnqueue(mOutputQ, &sensor->buffer, sensor->discard);
+                    simpleQueueEnqueue(mOutputQ, &sensor->buffer, sizeof(uint32_t) + sensor->buffer.length, sensor->discard);
                     resetBuffer(sensor);
                     i --;
                 } else if (single->referenceTime - sensor->lastTime > UINT32_MAX) {
-                    simpleQueueEnqueue(mOutputQ, &sensor->buffer, sensor->discard);
+                    simpleQueueEnqueue(mOutputQ, &sensor->buffer, sizeof(uint32_t) + sensor->buffer.length, sensor->discard);
                     resetBuffer(sensor);
                     i --;
                 } else {
@@ -621,7 +623,7 @@ static void copyTripleSamples(struct ActiveSensor *sensor, const struct TripleAx
 
     for (i = 0; i < triple->samples[0].firstSample.numSamples; i++) {
         if (sensor->buffer.firstSample.numSamples == sensor->packetSamples) {
-            simpleQueueEnqueue(mOutputQ, &sensor->buffer, sensor->discard);
+            simpleQueueEnqueue(mOutputQ, &sensor->buffer, sizeof(uint32_t) + sensor->buffer.length, sensor->discard);
             resetBuffer(sensor);
         }
 
@@ -649,7 +651,7 @@ static void copyTripleSamples(struct ActiveSensor *sensor, const struct TripleAx
             if (i == 0) {
                 if (sensor->lastTime > triple->referenceTime) {
                     // shouldn't happen. flush current packet
-                    simpleQueueEnqueue(mOutputQ, &sensor->buffer, sensor->discard);
+                    simpleQueueEnqueue(mOutputQ, &sensor->buffer, sizeof(uint32_t) + sensor->buffer.length, sensor->discard);
                     resetBuffer(sensor);
                     i --;
                 } else {
@@ -702,7 +704,7 @@ static void copyWifiSamples(struct ActiveSensor *sensor, const struct WifiScanEv
 
     for (i = 0; i < wifiScanEvent->results[0].firstSample.numSamples; i++) {
         if (sensor->buffer.firstSample.numSamples == sensor->packetSamples) {
-            simpleQueueEnqueue(mOutputQ, &sensor->buffer, sensor->discard);
+            simpleQueueEnqueue(mOutputQ, &sensor->buffer, sizeof(uint32_t) + sensor->buffer.length, sensor->discard);
             resetBuffer(sensor);
         }
 
@@ -722,7 +724,7 @@ static void copyWifiSamples(struct ActiveSensor *sensor, const struct WifiScanEv
             if (i == 0) {
                 if (sensor->lastTime > wifiScanEvent->referenceTime) {
                     // shouldn't happen. flush current packet
-                    simpleQueueEnqueue(mOutputQ, &sensor->buffer, sensor->discard);
+                    simpleQueueEnqueue(mOutputQ, &sensor->buffer, sizeof(uint32_t) + sensor->buffer.length, sensor->discard);
                     resetBuffer(sensor);
                     i --;
                 } else {
@@ -757,25 +759,44 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
     struct ActiveSensor *sensor;
     const struct SensorInfo *si;
     uint32_t tempSensorHandle;
-#ifdef DEBUG_LOG_EVT
+    const struct HostHubRawPacket *hostMsg;
     struct DataBuffer *data;
-#endif
+    const struct NanohubHalCommand *halCmd;
+    const uint8_t *halMsg;
 
     if (evtType == EVT_APP_START) {
         if (initSensors()) {
             osEventUnsubscribe(mHostIntfTid, EVT_APP_START);
             osEventSubscribe(mHostIntfTid, EVT_NO_SENSOR_CONFIG_EVENT);
+            osEventSubscribe(mHostIntfTid, EVT_APP_TO_HOST);
 #ifdef DEBUG_LOG_EVT
             osEventSubscribe(mHostIntfTid, DEBUG_LOG_EVT);
 #endif
             hostIntfSetInterrupt(NANOHUB_INT_BOOT_COMPLETE);
         }
+    } else if (evtType == EVT_APP_TO_HOST) {
+        hostMsg = evtData;
+        if (hostMsg->dataLen <= HOST_HUB_RAW_PACKET_MAX_LEN) {
+            data = alloca(sizeof(uint32_t) + sizeof(*hostMsg) + hostMsg->dataLen);
+            data->sensType = SENS_TYPE_INVALID;
+            data->length = sizeof(*hostMsg) + hostMsg->dataLen;
+            data->appToHost = 1; // differentiate from log messages
+            memcpy((void *)&data->referenceTime, evtData, data->length);
+            simpleQueueEnqueue(mOutputQ, data, sizeof(uint32_t) + data->length, false);
+            hostIntfSetInterrupt(NANOHUB_INT_WAKEUP);
+        }
+    } else if (evtType == EVT_APP_FROM_HOST) {
+        halMsg = evtData;
+        if ((halCmd = nanohubHalFindCommand(halMsg[1])))
+            halCmd->handler((void *)&halMsg[2], halMsg[0] - 1);
     }
 #ifdef DEBUG_LOG_EVT
     else if (evtType == DEBUG_LOG_EVT) {
         data = (struct DataBuffer *)evtData;
-        data->sensType = SENS_TYPE_INVALID;
-        simpleQueueEnqueue(mOutputQ, evtData, true);
+        if (data->sensType == SENS_TYPE_INVALID && !data->appToHost) {
+            simpleQueueEnqueue(mOutputQ, evtData, sizeof(uint32_t) + data->length, true);
+            hostIntfSetInterrupt(NANOHUB_INT_NONWAKEUP);
+        }
     } else
 #endif
     if (evtType == EVT_NO_SENSOR_CONFIG_EVENT) { // config
@@ -799,7 +820,7 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
                     osEventUnsubscribe(mHostIntfTid, sensorGetMyEventType(cmd->sensType));
                     sensor->sensorHandle = 0;
                     if (sensor->buffer.length) {
-                        simpleQueueEnqueue(mOutputQ, &sensor->buffer, sensor->discard);
+                        simpleQueueEnqueue(mOutputQ, &sensor->buffer, sizeof(uint32_t) + sensor->buffer.length, sensor->discard);
                         hostIntfSetInterrupt(sensor->interrupt);
                         resetBuffer(sensor);
                     }
@@ -848,12 +869,12 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
             } else {
                 if (sensor->buffer.length > 0) {
                     if (sensor->buffer.firstSample.numFlushes > 0) {
-                        if (!(simpleQueueEnqueue(mOutputQ, &sensor->buffer, sensor->discard)))
+                        if (!(simpleQueueEnqueue(mOutputQ, &sensor->buffer, sizeof(uint32_t) + sensor->buffer.length, sensor->discard)))
                             return; // flushes more important than samples
                         else
                             resetBuffer(sensor);
                     } else if (sensor->buffer.firstSample.numSamples == sensor->packetSamples) {
-                        simpleQueueEnqueue(mOutputQ, &sensor->buffer, sensor->discard);
+                        simpleQueueEnqueue(mOutputQ, &sensor->buffer, sizeof(uint32_t) + sensor->buffer.length, sensor->discard);
                         resetBuffer(sensor);
                     }
                 }
@@ -862,7 +883,7 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
                 case NUM_AXIS_EMBEDDED:
                     rtcTime = rtcGetTime();
                     if (sensor->buffer.length > 0 && rtcTime - sensor->lastTime > UINT32_MAX) {
-                        simpleQueueEnqueue(mOutputQ, &sensor->buffer, sensor->discard);
+                        simpleQueueEnqueue(mOutputQ, &sensor->buffer, sizeof(uint32_t) + sensor->buffer.length, sensor->discard);
                         resetBuffer(sensor);
                     }
                     if (sensor->buffer.length == 0) {

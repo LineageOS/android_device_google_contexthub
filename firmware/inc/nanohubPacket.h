@@ -65,6 +65,7 @@ static inline struct NanohubPacketFooter *nanohubGetPacketFooter(struct NanohubP
 #define NANOHUB_PREAMBLE_BYTE         0xFF
 #define NANOHUB_ACK_PREAMBLE_LEN      16
 #define NANOHUB_PAYLOAD_PREAMBLE_LEN  512
+#define NANOHUB_RSA_KEY_CHUNK_LEN     64
 
 #define NANOHUB_INT_BOOT_COMPLETE     0
 #define NANOHUB_INT_WAKE_COMPLETE     0
@@ -222,6 +223,79 @@ struct NanohubWriteEventRequest {
 
 struct NanohubWriteEventResponse {
     uint8_t accepted;
+} __attribute__ ((packed));
+
+struct NanohubHalHdr {
+    uint64_t appId;
+    uint8_t len;
+    uint8_t msg;
+} __attribute__ ((packed));
+
+#define NANOHUB_HAL_EXT_APPS_ON     0
+#define NANOHUB_HAL_EXT_APPS_OFF    1
+#define NANOHUB_HAL_EXT_APP_DELETE  2
+#define NANOHUB_HAL_QUERY_MEMINFO   3
+#define NANOHUB_HAL_QUERY_APPS      4
+
+struct NanohubHalQueryAppsRx {
+    __le32 idx;
+} __attribute__ ((packed));
+
+struct NanohubHalQueryAppsTx {
+    struct NanohubHalHdr hdr;
+    __le64 appId;
+    __le32 version;
+    __le32 flashUse;
+    __le32 ramUse;
+} __attribute__ ((packed));
+
+#define NANOHUB_HAL_QUERY_RSA_KEYS  5
+
+struct NanohubHalQueryRsaKeysRx {
+    __le32 offset;
+} __attribute__ ((packed));
+
+struct NanohubHalQueryRsaKeysTx {
+    struct NanohubHalHdr hdr;
+    uint8_t data[];
+} __attribute__ ((packed));
+
+#define NANOHUB_HAL_START_UPLOAD    6
+
+struct NanohubHalStartUploadRx {
+    uint8_t isOs;
+    __le32 length;
+} __attribute__ ((packed));
+
+struct NanohubHalStartUploadTx {
+    struct NanohubHalHdr hdr;
+    uint8_t success;
+} __attribute__ ((packed));
+
+#define NANOHUB_HAL_CONT_UPLOAD     7
+
+struct NanohubHalContUploadRx {
+    __le32 offset;
+    uint8_t data[];
+} __attribute__ ((packed));
+
+struct NanohubHalContUploadTx {
+    struct NanohubHalHdr hdr;
+    uint8_t success;
+} __attribute__ ((packed));
+
+#define NANOHUB_HAL_FINISH_UPLOAD   8
+
+struct NanohubHalFinishUploadTx {
+    struct NanohubHalHdr hdr;
+    uint8_t success;
+} __attribute__ ((packed));
+
+#define NANOHUB_HAL_REBOOT          9
+
+struct NanohubHalRebootTx {
+    struct NanohubHalHdr hdr;
+    uint8_t success;
 } __attribute__ ((packed));
 
 #endif /* __NANOHUBPACKET_H */

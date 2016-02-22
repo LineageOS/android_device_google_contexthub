@@ -143,9 +143,12 @@ static struct SimpleQueueEntry* simpleQueueAllocWithDiscard(struct SimpleQueue* 
     return NULL;
 }
 
-bool simpleQueueEnqueue(struct SimpleQueue* sq, const void *data, bool possiblyDiscardable)
+bool simpleQueueEnqueue(struct SimpleQueue* sq, const void *data, int length, bool possiblyDiscardable)
 {
     struct SimpleQueueEntry *e = NULL;
+
+    if (length > sq->entrySz - sizeof(struct SimpleQueueEntry))
+        return false;
 
     //first try a simple alloc
     if (sq->freeHead != SIMPLE_QUEUE_IDX_NONE) {
@@ -170,7 +173,7 @@ bool simpleQueueEnqueue(struct SimpleQueue* sq, const void *data, bool possiblyD
     sq->tail = simpleQueueGetIdx(sq, e);
 
     //fill in the data
-    memcpy(e->data, data, sq->entrySz - sizeof(struct SimpleQueueEntry));
+    memcpy(e->data, data, length);
     e->discardable = possiblyDiscardable ? 1 : 0;
 
     return true;

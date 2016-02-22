@@ -24,6 +24,13 @@
 static uint32_t mMyTid;
 static int cnt;
 
+struct ExtMsg
+{
+    struct HostHubRawPacket hdr;
+    uint8_t msg;
+    uint32_t val;
+} __attribute__((packed));
+
 static bool start_task(uint32_t myTid)
 {
     mMyTid = myTid;
@@ -40,7 +47,9 @@ static void end_task(void)
 static void handle_event(uint32_t evtType, const void* evtData)
 {
     const struct TimerEvent *te;
+    const struct AppEventFreeData *aefd;
     uint32_t timerId;
+    struct ExtMsg *extMsg;
 
     if (evtType == EVT_APP_START) {
         timerId = eOsTimTimerSet(1000000000ULL, 50, 50, mMyTid, (void *)&cnt, false);
@@ -48,8 +57,19 @@ static void handle_event(uint32_t evtType, const void* evtData)
     } else if (evtType == EVT_APP_TIMER) {
         te = evtData;
         eOsLog(LOG_INFO, "App 0 received timer %u callback: %d\n", te->timerId, *(int *)te->data);
+        extMsg = eOsHeapAlloc(sizeof(*extMsg));
+        extMsg->hdr.appId = APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 0x548000);
+        extMsg->hdr.dataLen = 5;
+        extMsg->msg = 0x01;
+        extMsg->val = *(int *)te->data;
+        if (!(eOsEnqueueEvt(EVT_APP_TO_HOST, extMsg, mMyTid)))
+            eOsHeapFree(extMsg);
         if (cnt-- <= 0)
             eOsTimTimerCancel(te->timerId);
+    } else if (evtType == EVT_APP_FREE_EVT_DATA) {
+        aefd = evtData;
+        if (aefd->evtType == EVT_APP_TO_HOST)
+            eOsHeapFree(aefd->evtData);
     }
 }
 
