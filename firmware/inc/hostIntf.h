@@ -33,7 +33,7 @@ void hostIntfClearInterrupt(uint32_t bit);
 void hostIntfSetInterruptMask(uint32_t bit);
 void hostIntfClearInterruptMask(uint32_t bit);
 void hostIntfPacketFree(void *ptr);
-bool hostIntfPacketDequeue(void *ptr);
+bool hostIntfPacketDequeue(void *ptr, uint32_t *wakeup, uint32_t *nonwakeup);
 void hostIntfSetBusy(bool busy);
 void hostIntfRxPacket();
 
