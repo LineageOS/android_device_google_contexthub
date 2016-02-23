@@ -27,6 +27,8 @@
 #include <seos.h>
 #include <timer.h>
 
+#define BMP280_APP_ID APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 5)
+
 #define I2C_BUS_ID                      0
 #define I2C_SPEED                       400000
 #define I2C_ADDR                        0x76
@@ -39,6 +41,11 @@
 #define BOSCH_BMP280_REG_CTRL_MEAS      0xf4
 #define BOSCH_BMP280_REG_CONFIG         0xf5
 #define BOSCH_BMP280_REG_PRES_MSB       0xf7
+
+// temp: 2x oversampling, baro: 16x oversampling, power: normal
+#define CTRL_ON    ((2 << 5) | (5 << 2) | 3)
+// temp: 2x oversampling, baro: 16x oversampling, power: sleep
+#define CTRL_SLEEP ((2 << 5) | (5 << 2))
 
 enum BMP280SensorEvents
 {
@@ -53,6 +60,7 @@ enum BMP280TaskState
     STATE_VERIFY_ID,
     STATE_AWAITING_COMP_PARAMS,
     STATE_CONFIG,
+    STATE_FINISH_INIT,
     STATE_IDLE,
     STATE_ENABLING_BARO,
     STATE_ENABLING_TEMP,
@@ -79,13 +87,22 @@ static struct BMP280Task
     uint32_t baroTimerHandle;
     uint32_t tempTimerHandle;
 
+    float offset;
+
     uint8_t txrxBuf[24];
 
     bool baroOn;
     bool tempOn;
     bool baroReading;
+    bool baroCalibrating;
     bool tempReading;
 } mTask;
+
+struct CalibrationData {
+    struct HostHubRawPacket header;
+    struct SensorAppEventHeader data_header;
+    float value;
+} __attribute__((packed));
 
 static const uint32_t tempSupportedRates[] =
 {
@@ -146,13 +163,7 @@ static void tempTimerCallback(uint32_t timerId, void *cookie)
 static void setMode(bool on, void *cookie)
 {
     mTask.txrxBuf[0] = BOSCH_BMP280_REG_CTRL_MEAS;
-    if (on) {
-        // temp: 2x oversampling, baro: 16x oversampling, power: normal
-        mTask.txrxBuf[1] = (2 << 5) | (5 << 2) | 3;
-    } else {
-        // temp: 2x oversampling, baro: 16x oversampling, power: sleep
-        mTask.txrxBuf[1] = (2 << 5) | (5 << 2);
-    }
+    mTask.txrxBuf[1] = (on) ? CTRL_ON : CTRL_SLEEP;
     i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 2, &i2cCallback,
                 cookie);
 }
@@ -195,6 +206,34 @@ static bool sensorRateBaro(uint32_t rate, uint64_t latency, void *cookie)
 static bool sensorFlushBaro(void *cookie)
 {
     return osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_BARO), SENSOR_DATA_EVENT_FLUSH, NULL);
+}
+
+static bool sensorCalibrateBaro(void *cookie)
+{
+    if (mTask.baroOn || mTask.tempOn) {
+        osLog(LOG_ERROR, "BMP280: cannot calibrate while baro or temp are active\n");
+        return false;
+    }
+
+    if (mTask.baroTimerHandle)
+        timTimerCancel(mTask.baroTimerHandle);
+    mTask.baroTimerHandle = timTimerSet(100000000ull, 0, 50, baroTimerCallback, NULL, false);
+
+    mTask.offset = 0.0f;
+    mTask.baroOn = true;
+    mTask.baroCalibrating = true;
+
+    mTask.txrxBuf[0] = BOSCH_BMP280_REG_CTRL_MEAS;
+    mTask.txrxBuf[1] = CTRL_ON;
+    i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 2, &i2cCallback, (void*)STATE_IDLE);
+
+    return true;
+}
+
+static bool sensorCfgDataBaro(void *data, void *cookie)
+{
+    mTask.offset = *((float*)data) * 100.0f; // offset is given in hPa, but used as Pa in compensation
+    return true;
 }
 
 static bool sensorPowerTemp(bool on, void *cookie)
@@ -254,6 +293,8 @@ static const struct SensorOps sensorOpsBaro =
     .sensorFirmwareUpload = sensorFirmwareBaro,
     .sensorSetRate = sensorRateBaro,
     .sensorFlush = sensorFlushBaro,
+    .sensorCalibrate = sensorCalibrateBaro,
+    .sensorCfgData = sensorCfgDataBaro,
 };
 
 static const struct SensorInfo sensorInfoTemp =
@@ -307,8 +348,7 @@ static float compensateBaro(int32_t t_fine, int32_t adc_P)
     return pSqr * mTask.comp.dig_P9 * (1.0f/(1ULL << 59)) + p * (mTask.comp.dig_P8 * (1.0f/(1ULL << 19)) + 1) * (1.0f/(1ULL << 8)) + 16.0f * mTask.comp.dig_P7;
 }
 
-static void getTempAndBaro(const uint8_t *tmp, float *pressure_Pa,
-                           float *temp_centigrade)
+static void getTempAndBaro(const uint8_t *tmp, float *pressure_Pa, float *temp_centigrade)
 {
     int32_t pres_adc = ((int32_t)tmp[0] << 12) | ((int32_t)tmp[1] << 4) | (tmp[2] >> 4);
     int32_t temp_adc = ((int32_t)tmp[3] << 12) | ((int32_t)tmp[4] << 4) | (tmp[5] >> 4);
@@ -318,7 +358,28 @@ static void getTempAndBaro(const uint8_t *tmp, float *pressure_Pa,
     float pres = compensateBaro(T_fine, pres_adc);
 
     *temp_centigrade = (float)temp * 0.01f;
-    *pressure_Pa = pres * (1.0f / 256.0f);
+    *pressure_Pa = pres * (1.0f / 256.0f) + mTask.offset;
+}
+
+static void sendCalibrationResult(float value) {
+    struct CalibrationData *data = heapAlloc(sizeof(struct CalibrationData));
+    if (!data) {
+        osLog(LOG_WARN, "Couldn't alloc cal result pkt");
+        return;
+    }
+
+    data->header.appId = BMP280_APP_ID;
+    data->header.dataLen = (sizeof(struct CalibrationData) - sizeof(struct HostHubRawPacket));
+    data->data_header.msgId = SENSOR_APP_MSG_ID_CAL_RESULT;
+    data->data_header.sensorType = SENS_TYPE_BARO;
+    data->data_header.status = SENSOR_APP_EVT_STATUS_SUCCESS;
+
+    data->value = value;
+
+    if (!osEnqueueEvt(EVT_APP_TO_HOST, data, heapFree)) {
+        heapFree(data);
+        osLog(LOG_WARN, "Couldn't send cal result evt");
+    }
 }
 
 static void handleI2cEvent(enum BMP280TaskState state)
@@ -352,8 +413,7 @@ static void handleI2cEvent(enum BMP280TaskState state)
 
         case STATE_AWAITING_COMP_PARAMS: {
             mTask.txrxBuf[0] = BOSCH_BMP280_REG_CTRL_MEAS;
-            // temp: 2x oversampling, baro: 16x oversampling, power: sleep
-            mTask.txrxBuf[1] = (2 << 5) | (5 << 2);
+            mTask.txrxBuf[1] = CTRL_SLEEP;
             i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 2,
                               &i2cCallback, (void*)STATE_CONFIG);
             break;
@@ -364,7 +424,7 @@ static void handleI2cEvent(enum BMP280TaskState state)
             // standby time: 62.5ms, IIR filter coefficient: 4
             mTask.txrxBuf[1] = (1 << 5) | (2 << 2);
             i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 2,
-                              &i2cCallback, (void*)STATE_IDLE);
+                              &i2cCallback, (void*)STATE_FINISH_INIT);
         }
 
         case STATE_ENABLING_BARO: {
@@ -387,7 +447,7 @@ static void handleI2cEvent(enum BMP280TaskState state)
             break;
         }
 
-        case STATE_IDLE: {
+        case STATE_FINISH_INIT: {
             sensorRegisterInitComplete(mTask.baroHandle);
             sensorRegisterInitComplete(mTask.tempHandle);
             osLog(LOG_INFO, "BMP280: idle\n");
@@ -399,8 +459,22 @@ static void handleI2cEvent(enum BMP280TaskState state)
             getTempAndBaro(mTask.txrxBuf, &pressure_Pa, &temp_centigrade);
 
             if (mTask.baroOn && mTask.baroReading) {
-                sample.fdata = pressure_Pa * 0.01f;
-                osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_BARO), sample.vptr, NULL);
+                if (mTask.baroCalibrating) {
+                    sendCalibrationResult(pressure_Pa * 0.01f);
+
+                    if (mTask.baroTimerHandle)
+                        timTimerCancel(mTask.baroTimerHandle);
+
+                    mTask.baroOn = false;
+                    mTask.baroCalibrating = false;
+
+                    mTask.txrxBuf[0] = BOSCH_BMP280_REG_CTRL_MEAS;
+                    mTask.txrxBuf[1] = CTRL_SLEEP;
+                    i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 2, &i2cCallback, (void*)STATE_IDLE);
+                } else {
+                    sample.fdata = pressure_Pa * 0.01f;
+                    osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_BARO), sample.vptr, NULL);
+                }
             }
 
             if (mTask.tempOn && mTask.tempReading) {
@@ -413,6 +487,9 @@ static void handleI2cEvent(enum BMP280TaskState state)
 
             break;
         }
+
+        default:
+            break;
     }
 }
 
@@ -474,6 +551,7 @@ static bool startTask(uint32_t taskId)
     osLog(LOG_INFO, "BMP280: task starting\n");
 
     mTask.id = taskId;
+    mTask.offset = 0.0f;
 
     /* Register sensors */
     mTask.baroHandle = sensorRegister(&sensorInfoBaro, &sensorOpsBaro, NULL, false);
@@ -489,4 +567,4 @@ static void endTask(void)
 
 }
 
-INTERNAL_APP_INIT(APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 5), 0, startTask, endTask, handleEvent);
+INTERNAL_APP_INIT(BMP280_APP_ID, 0, startTask, endTask, handleEvent);
