@@ -52,7 +52,8 @@ static struct SensorTask
 {
     struct Gpio *sPin;
     struct Gpio *nPin;
-    struct ChainedIsr isr;
+    struct ChainedIsr sIsr;
+    struct ChainedIsr nIsr;
 
     uint32_t id;
     uint32_t sensorHandle;
@@ -60,31 +61,29 @@ static struct SensorTask
     bool on;
 } mTask;
 
-static void hallReportState(bool sPinState, bool nPinState)
+static void hallReportState(bool on, bool sPinState, bool nPinState)
 {
     union EmbeddedDataPoint sample;
-    sample.idata = (sPinState ? HALL_REPORT_OPENED_VALUE : HALL_REPORT_CLOSED_VALUE) +
-        ((nPinState ? HALL_REPORT_OPENED_VALUE : HALL_REPORT_CLOSED_VALUE) << 1);
-    osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_HALL), sample.vptr, NULL);
+    if (on) {
+        sample.idata = (sPinState ? HALL_REPORT_OPENED_VALUE : HALL_REPORT_CLOSED_VALUE) +
+            ((nPinState ? HALL_REPORT_OPENED_VALUE : HALL_REPORT_CLOSED_VALUE) << 1);
+        osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_HALL), sample.vptr, NULL);
+    }
 }
 
-static bool hallCommonIsr(struct ChainedIsr *localIsr)
+static bool hallSouthIsr(struct ChainedIsr *localIsr)
 {
-    bool sPinPending = extiIsPendingGpio(data->sPin);
-    bool nPinPending = extiIsPendingGpio(data->nPin);
+    struct SensorTask *data = container_of(localIsr, struct SensorTask, sIsr);
+    hallReportState(data->on, gpioGet(data->sPin), gpioGet(data->nPin));
+    extiClearPendingGpio(data->sPin);
+    return true;
+}
 
-    struct SensorTask *data = container_of(localIsr, struct SensorTask, isr);
-
-    if (!sPinPending && !nPinPending)
-        return false;
-
-    if (data->on)
-        hallReportState(gpioGet(data->sPin), gpioGet(data->nPin));
-
-    if (sPinPending)
-        extiClearPendingGpio(data->sPin);
-    if (nPinPending)
-        extiClearPendingGpio(data->nPin);
+static bool hallNorthIsr(struct ChainedIsr *localIsr)
+{
+    struct SensorTask *data = container_of(localIsr, struct SensorTask, nIsr);
+    hallReportState(data->on, gpioGet(data->sPin), gpioGet(data->nPin));
+    extiClearPendingGpio(data->nPin);
     return true;
 }
 
@@ -118,11 +117,11 @@ static bool hallPower(bool on, void *cookie)
     if (on) {
         extiClearPendingGpio(mTask.sPin);
         extiClearPendingGpio(mTask.nPin);
-        enableInterrupt(mTask.sPin, &mTask.isr, HALL_S_IRQ);
-        enableInterrupt(mTask.nPin, &mTask.isr, HALL_N_IRQ);
+        enableInterrupt(mTask.sPin, &mTask.sIsr, HALL_S_IRQ);
+        enableInterrupt(mTask.nPin, &mTask.nIsr, HALL_N_IRQ);
     } else {
-        disableInterrupt(mTask.sPin, &mTask.isr, HALL_S_IRQ);
-        disableInterrupt(mTask.nPin, &mTask.isr, HALL_N_IRQ);
+        disableInterrupt(mTask.sPin, &mTask.sIsr, HALL_S_IRQ);
+        disableInterrupt(mTask.nPin, &mTask.nIsr, HALL_N_IRQ);
         extiClearPendingGpio(mTask.sPin);
         extiClearPendingGpio(mTask.nPin);
     }
@@ -131,8 +130,7 @@ static bool hallPower(bool on, void *cookie)
     sensorSignalInternalEvt(mTask.sensorHandle, SENSOR_INTERNAL_EVT_POWER_STATE_CHG, on, 0);
 
     // report initial state of hall interrupt pin
-    if (on)
-        hallReportState(gpioGet(mTask.sPin), gpioGet(mTask.nPin));
+    hallReportState(mTask.on, gpioGet(mTask.sPin), gpioGet(mTask.nPin));
 
     return true;
 }
@@ -172,7 +170,8 @@ static bool startTask(uint32_t taskId)
     mTask.sensorHandle = sensorRegister(&mSensorInfo, &mSensorOps, NULL, true);
     mTask.sPin = gpioRequest(HALL_S_PIN);
     mTask.nPin = gpioRequest(HALL_N_PIN);
-    mTask.isr.func = hallCommonIsr;
+    mTask.sIsr.func = hallSouthIsr;
+    mTask.nIsr.func = hallNorthIsr;
 
     return true;
 }
