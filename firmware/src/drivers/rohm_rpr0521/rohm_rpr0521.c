@@ -85,8 +85,6 @@ enum {
 };
 #define ROHM_RPR0521_LED_CURRENT        LED_CURRENT_100MA
 
-#define ROHM_RPR0521_CAL_DEFAULT_OFFSET         20
-
 /* ROHM_RPR0521_REG_SYSTEM_CONTROL */
 #define SW_RESET_BIT                            (1 << 7)
 #define INT_RESET_BIT                           (1 << 6)
@@ -414,6 +412,21 @@ static bool sensorFlushProx(void *cookie)
     return osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_PROX), SENSOR_DATA_EVENT_FLUSH, NULL);
 }
 
+static bool sensorCfgDataProx(void *data, void *cookie)
+{
+    DEBUG_PRINT("sensorCfgDataProx");
+
+    int32_t offset = *(int32_t*)data;
+
+    INFO_PRINT("Received cfg data: %d\n", (int)offset);
+
+    mTask.txrxBuf[0] = ROHM_RPR0521_REG_PS_OFFSET_LSB;
+    mTask.txrxBuf[1] = offset & 0xFF;
+    mTask.txrxBuf[2] = (offset >> 8) & 0x3;
+    i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 3, &i2cCallback, (void *)SENSOR_STATE_IDLE);
+    return true;
+}
+
 static bool sendLastSampleProx(void *cookie, uint32_t tid) {
     union EmbeddedDataPoint sample;
     bool result = true;
@@ -465,6 +478,7 @@ static const struct SensorOps sensorOpsProx =
     .sensorFlush = sensorFlushProx,
     .sensorTriggerOndemand = NULL,
     .sensorCalibrate = NULL,
+    .sensorCfgData = sensorCfgDataProx,
     .sensorSendOneDirectEvt = sendLastSampleProx
 };
 
@@ -512,8 +526,8 @@ static void handle_i2c_event(int state)
     case SENSOR_STATE_INIT_GAINS:
         /* Offset register */
         mTask.txrxBuf[0] = ROHM_RPR0521_REG_PS_OFFSET_LSB;
-        mTask.txrxBuf[1] = ROHM_RPR0521_CAL_DEFAULT_OFFSET & 0xff;
-        mTask.txrxBuf[2] = (ROHM_RPR0521_CAL_DEFAULT_OFFSET >> 8) & 0x3;
+        mTask.txrxBuf[1] = 0;
+        mTask.txrxBuf[2] = 0;
         i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 3, &i2cCallback, (void *)SENSOR_STATE_INIT_OFFSETS);
         break;
 
