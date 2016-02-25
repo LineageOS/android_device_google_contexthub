@@ -26,7 +26,7 @@
 namespace android {
 
 struct RingBuffer {
-    RingBuffer(size_t size);
+    explicit RingBuffer(size_t size);
     ~RingBuffer();
 
     ssize_t write(const sensors_event_t *ev, size_t size);
