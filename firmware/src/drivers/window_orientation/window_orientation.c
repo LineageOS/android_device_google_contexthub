@@ -478,7 +478,6 @@ static bool add_samples(struct TripleAxisDataEvent *ev)
                 && (proposed_rotation >= 0)) {
             mTask.current_rotation = proposed_rotation;
 
-            change_detected = true;
             change_detected = (proposed_rotation != mTask.prev_valid_rotation);
             mTask.prev_valid_rotation = proposed_rotation;
 
