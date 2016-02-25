@@ -91,6 +91,7 @@ static struct EvtQueue *mEvtsInternal;
 static struct SlabAllocator* mMiscInternalThingsSlab;
 static struct Task mTasks[MAX_TASKS];
 static uint32_t mNextTidInfo = FIRST_VALID_TID;
+static TaggedPtr *mCurEvtEventFreeingInfo = NULL; //used as flag for retaining. NULL when none or already retained
 
 static struct Task* osTaskFindByTid(uint32_t tid)
 {
@@ -341,6 +342,21 @@ void abort(void)
     while(1);
 }
 
+bool osRetainCurrentEvent(TaggedPtr *evtFreeingInfoP)
+{
+    if (!mCurEvtEventFreeingInfo)
+        return false;
+
+    *evtFreeingInfoP = *mCurEvtEventFreeingInfo;
+    mCurEvtEventFreeingInfo = NULL;
+    return true;
+}
+
+void osFreeRetainedEvent(uint32_t evtType, void *evtData, TaggedPtr *evtFreeingInfoP)
+{
+    handleEventFreeing(evtType, evtData, *evtFreeingInfoP);
+}
+
 void __attribute__((noreturn)) osMain(void)
 {
     TaggedPtr evtFreeingInfo;
@@ -366,12 +382,15 @@ void __attribute__((noreturn)) osMain(void)
         if (!evtQueueDequeue(mEvtsInternal, &evtType, &evtData, &evtFreeingInfo, true))
             continue;
 
+        /* by defautl we free them when we're done with them */
+        mCurEvtEventFreeingInfo = &evtFreeingInfo;
+
         if (evtType < EVT_NO_FIRST_USER_EVENT) { /* no need for discardable check. all internal events arent discardable */
             /* handle deferred actions and other reserved events here */
             osInternalEvtHandle(evtType, evtData);
         }
         else {
-            /* send this event to all tasks who want it (decimation could happen here) */
+            /* send this event to all tasks who want it */
             for (i = 0; i < MAX_TASKS; i++) {
                 if (!mTasks[i].subbedEvents) /* only check real tasks */
                     continue;
@@ -385,7 +404,11 @@ void __attribute__((noreturn)) osMain(void)
         }
 
         /* free it */
-        handleEventFreeing(evtType, evtData, evtFreeingInfo);
+        if (mCurEvtEventFreeingInfo)
+            handleEventFreeing(evtType, evtData, evtFreeingInfo);
+
+        /* avoid some possible errors */
+        mCurEvtEventFreeingInfo = NULL;
     }
 }
 
