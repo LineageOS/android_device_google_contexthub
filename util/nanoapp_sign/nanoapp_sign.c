@@ -256,7 +256,7 @@ int main(int argc, char **argv)
         //verify middle padding bytes
         for (i = 9; i < RSA_LIMBS - 1; i++) {
             if (!(rsaResult[i] & 0xff000000) || !(rsaResult[i] & 0xff0000) || !(rsaResult[i] & 0xff00) || !(rsaResult[i] & 0xff)) {
-                fprintf(stderr, "Padding word %u invalid\n", i);
+                fprintf(stderr, "Padding word %d invalid\n", i);
                 goto out;
             }
         }
