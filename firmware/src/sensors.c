@@ -56,6 +56,7 @@ struct SensorsInternalEvent {
         struct SensorSetRateEvent externalSetRateEvt;
         struct SensorCfgDataEvent externalCfgDataEvt;
         struct SensorSendDirectEventEvent externalSendDirectEvt;
+        struct SensorMarshallUserEventEvent externalMarshallEvt;
     };
 };
 
@@ -273,6 +274,28 @@ static bool sensorCallFuncCfgData(struct Sensor* s, void* cfgData)
         evt->externalCfgDataEvt.data = cfgData;
         evt->externalCfgDataEvt.callData = s->callData;
         if (osEnqueuePrivateEvt(EVT_APP_SENSOR_CFG_DATA, &evt->externalCfgDataEvt, sensorCallFuncExternalEvtFreeF, taggedPtrToUint(s->callInfo)))
+            return true;
+
+        slabAllocatorFree(mInternalEvents, evt);
+        return false;
+    }
+}
+
+static bool sensorCallFuncMarshall(struct Sensor* s, uint32_t evtType, void *evtData, TaggedPtr *evtFreeingInfoP)
+{
+    if (taggedPtrIsPtr(s->callInfo) && ((const struct SensorOps*)taggedPtrToPtr(s->callInfo))->sensorCfgData)
+        return ((const struct SensorOps*)taggedPtrToPtr(s->callInfo))->sensorMarshallData(evtType, evtData, evtFreeingInfoP, s->callData);
+    else {
+        struct SensorsInternalEvent *evt = (struct SensorsInternalEvent*)slabAllocatorAlloc(mInternalEvents);
+
+        if (!evt)
+            return false;
+
+        evt->externalMarshallEvt.origEvtType = evtType;
+        evt->externalMarshallEvt.origEvtData = evtData;
+        evt->externalMarshallEvt.evtFreeingInfo = *evtFreeingInfoP;
+        evt->externalMarshallEvt.callData = s->callData;
+        if (osEnqueuePrivateEvt(EVT_APP_SENSOR_MARSHALL, &evt->externalMarshallEvt, sensorCallFuncExternalEvtFreeF, taggedPtrToUint(s->callInfo)))
             return true;
 
         slabAllocatorFree(mInternalEvents, evt);
@@ -740,4 +763,14 @@ bool sensorGetInitComplete(uint32_t sensorHandle)
     struct Sensor* s = sensorFindByHandle(sensorHandle);
 
     return s ? s->initComplete : false;
+}
+
+bool sensorMarshallEvent(uint32_t sensorHandle, uint32_t evtType, void *evtData, TaggedPtr *evtFreeingInfoP)
+{
+    struct Sensor* s = sensorFindByHandle(sensorHandle);
+
+    if (!s)
+        return false;
+
+    return sensorCallFuncMarshall(s, evtType, evtData, evtFreeingInfoP);
 }

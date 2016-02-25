@@ -25,6 +25,7 @@
 #define EVT_NO_SENSOR_CONFIG_EVENT       0x00000300    //event to configure sensors
 #define EVT_APP_START                    0x00000400    //sent when an app can actually start
 #define EVT_APP_TO_HOST                  0x00000401    //app data to host. Type is struct HostHubRawPacket
+#define EVT_MARSHALLED_SENSOR_DATA       0x00000402    //marshalled event data. Type is MarshalledUserEventData
 
 #define HOST_HUB_RAW_PACKET_MAX_LEN      128
 
@@ -33,6 +34,17 @@ struct HostHubRawPacket {
     uint8_t dataLen; //not incl this header, 128 bytes max
     //raw data in unspecified format here
 } __attribute((packed));
+
+struct MarshalledUserEventData {
+    //for matching
+    uint32_t origEvtType;
+
+    int32_t dataLen;  //use negative here to indicate marshalling error.
+    //raw data in unspecified format here
+
+} __attribute((packed));
+
+
 
 /*
  * When sensor drivers use EVT_APP_TO_HOST, e.g. for reporting calibration data,
@@ -76,6 +88,7 @@ struct SensorAppEventHeader {
 #define EVT_APP_SENSOR_CALIBRATE         0x000000EA
 #define EVT_APP_SENSOR_CFG_DATA          0x000000E9
 #define EVT_APP_SENSOR_SEND_ONE_DIR_EVT  0x000000E8
+#define EVT_APP_SENSOR_MARSHALL          0x000000E7    // for external sensors that send events of "user type"
 
 //for timers
 #define EVT_APP_TIMER                    0x000000DF
