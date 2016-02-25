@@ -225,7 +225,7 @@ int main(int argc, char **argv)
         }
 
         //do rsa op
-        rsaResult = _rsaPubOp(&rsaState, rsanum, modulus);
+        rsaResult = rsaPubOp(&rsaState, rsanum, modulus);
 
         //update the user
         if (verbose) {
@@ -294,17 +294,17 @@ int main(int argc, char **argv)
         }
 
         //hash input
-        _sha2init(&shaState);
+        sha2init(&shaState);
         fprintf(stderr, "Reading data to sign...");
         while ((c = getchar()) != EOF) {  //this is slow but our data is small, so deal with it!
             uint8_t byte = c;
-            _sha2processBytes(&shaState, &byte, 1);
+            sha2processBytes(&shaState, &byte, 1);
             fileSz++;
         }
         fprintf(stderr, " read %llu bytes\n", (unsigned long long)fileSz);
 
         //update the user on the progress
-        hash = _sha2finish(&shaState);
+        hash = sha2finish(&shaState);
         if (verbose) {
             fprintf(stderr, "SHA2 hash: 0x");
             for (i = 0; i < 8; i++)
@@ -332,7 +332,7 @@ int main(int argc, char **argv)
 
         //do the RSA thing
         fprintf(stderr, "Retriculating splines...");
-        rsaResult = _rsaPrivOp(&rsaState, rsanum, exponent, modulus);
+        rsaResult = rsaPrivOp(&rsaState, rsanum, exponent, modulus);
         fprintf(stderr, "DONE\n");
 
         //update the user
