@@ -412,6 +412,8 @@ bool hostIntfPacketDequeue(void *data, uint32_t *wakeup, uint32_t *nonwakeup)
             } else {
                 break;
             }
+        } else {
+            break;
         }
     }
 
