@@ -14,17 +14,18 @@
  * limitations under the License.
  */
 
+#include <plat/inc/taggedPtr.h>
 #include <syscall.h>
 #include <sensors.h>
 #include <errno.h>
 #include <osApi.h>
+#include <timer.h>
 #include <gpio.h>
 #include <util.h>
 #include <seos.h>
 #include <slab.h>
 #include <heap.h>
 #include <i2c.h>
-#include <timer.h>
 
 static struct SlabAllocator *mSlabAllocator;
 
@@ -55,6 +56,22 @@ static void osExpApiEvtqEnqueue(uintptr_t *retValP, va_list args)
 }
 
 static void osExpApiEvtqEnqueuePrivate(uintptr_t *retValP, va_list args)
+{
+    TaggedPtr *evtFreeingInfoP = va_arg(args, TaggedPtr*);
+
+    *retValP = osRetainCurrentEvent(evtFreeingInfoP);
+}
+
+static void osExpApiEvtqRetainEvt(uintptr_t *retValP, va_list args)
+{
+    uint32_t evtType = va_arg(args, uint32_t);
+    void *evtData = va_arg(args, void*);
+    TaggedPtr *evtFreeingInfoP = va_arg(args, TaggedPtr*);
+
+    osFreeRetainedEvent(evtType, evtData, evtFreeingInfoP);
+}
+
+static void osExpApiEvtqFreeRetained(uintptr_t *retValP, va_list args)
 {
     uint32_t evtType = va_arg(args, uint32_t);
     void *evtData = va_arg(args, void*);
@@ -447,6 +464,8 @@ void osApiExport(struct SlabAllocator *mainSlubAllocator)
             [SYSCALL_OS_MAIN_EVTQ_UNSUBCRIBE]      = { .func = osExpApiEvtqUnsubscribe, },
             [SYSCALL_OS_MAIN_EVTQ_ENQUEUE]         = { .func = osExpApiEvtqEnqueue,     },
             [SYSCALL_OS_MAIN_EVTQ_ENQUEUE_PRIVATE] = { .func = osExpApiEvtqEnqueuePrivate, },
+            [SYSCALL_OS_MAIN_EVTQ_RETAIN_EVT]      = { .func = osExpApiEvtqRetainEvt,      },
+            [SYSCALL_OS_MAIN_EVTQ_FREE_RETAINED]   = { .func = osExpApiEvtqFreeRetained,   },
         },
     };
 
