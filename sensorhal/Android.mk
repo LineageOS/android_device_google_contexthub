@@ -86,21 +86,6 @@ LOCAL_C_INCLUDES +=                     \
 	device/google/contexthub/firmware/inc \
 	device/google/contexthub/util/common
 
-ifneq ($(filter angler,$(TARGET_DEVICE)),)
-LOCAL_C_INCLUDES += \
-	vendor/huawei/angler/nanohub
-endif
-
-ifneq ($(filter bullhead,$(TARGET_DEVICE)),)
-LOCAL_C_INCLUDES += \
-	vendor/lge/bullhead/nanohub
-endif
-
-ifneq ($(filter marlin sailfish,$(TARGET_DEVICE)),)
-LOCAL_C_INCLUDES += \
-	vendor/google_devices/marlin/nanohub
-endif
-
 LOCAL_MODULE_TAGS := optional
 LOCAL_MODULE_OWNER := google
 LOCAL_PROPRIETARY_MODULE := true
