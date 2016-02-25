@@ -548,11 +548,12 @@ static uint32_t readEvent(void *rx, uint8_t rx_len, void *tx, uint64_t timestamp
     struct NanohubReadEventResponse *resp = tx;
     struct EvtPacket *packet = tx;
     int length, sensor, appToHost;
+    uint32_t wakeup, nonwakeup;
     static struct TimeSync timeSync = { };
 
     addDelta(&timeSync, req->apBootTime, timestamp);
 
-    if (hostIntfPacketDequeue(packet)) {
+    if (hostIntfPacketDequeue(packet, &wakeup, &nonwakeup)) {
         length = packet->length + sizeof(resp->evtType);
         sensor = packet->sensType;
         appToHost = packet->appToHost;
@@ -570,6 +571,10 @@ static uint32_t readEvent(void *rx, uint8_t rx_len, void *tx, uint64_t timestamp
             resp->evtType = htole32(EVT_NO_FIRST_SENSOR_EVENT + sensor);
             if (packet->timestamp)
                 packet->timestamp += getAvgDelta(&timeSync);
+            if (!wakeup)
+                hostIntfClearInterrupt(NANOHUB_INT_WAKEUP);
+            if (!nonwakeup)
+                hostIntfClearInterrupt(NANOHUB_INT_NONWAKEUP);
         }
     } else {
         hostIntfClearInterrupt(NANOHUB_INT_WAKEUP);

@@ -119,7 +119,7 @@ struct LogBuffer
     uint8_t invalidSensor;
     uint8_t offset;
     uint8_t appToHost;
-    uint8_t pad;
+    uint8_t interrupt;
     char data[248];
 } __attribute__((packed));
 
@@ -133,6 +133,7 @@ void *platLogAllocUserData()
         userData->invalidSensor = SENS_TYPE_INVALID;
         userData->offset = 0;
         userData->appToHost = 0;
+        userData->interrupt = NANOHUB_INT_NONWAKEUP;
     }
 
     return userData;
