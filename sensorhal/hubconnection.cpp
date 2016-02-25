@@ -17,7 +17,6 @@
 #include "hubconnection.h"
 #include "eventnums.h"
 #include "sensType.h"
-#include "inc/sensType.h"
 
 #define LOG_TAG "nanohub"
 #include <utils/Log.h>
