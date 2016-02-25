@@ -212,7 +212,7 @@ int main(int argc, char *argv[])
             return -1;
         }
 
-        printf("Writing %jd bytes from %s to 0x%08x\n", length,
+        printf("Writing %zd bytes from %s to 0x%08x\n", length,
                write_filename, address);
 
         if (do_crc) {
@@ -259,7 +259,7 @@ int main(int argc, char *argv[])
                 if (fwrite(buffer, 1, length, file) < (size_t)length)
                     perror("Failed to write all read bytes to file");
 
-                printf("Read %jd bytes from %s @ 0x%08x\n",
+                printf("Read %zd bytes from %s @ 0x%08x\n",
                        length, read_filename, address);
             } else {
                 printf("Read failed\n");
@@ -284,7 +284,7 @@ int main(int argc, char *argv[])
                         if (fwrite(buffer, 1, tot_len(length), file) < tot_len(length))
                             perror("Failed to write all read bytes to file");
 
-                        printf("Read %jd bytes from %s @ 0x%08x (type %02x, crc %s)\n",
+                        printf("Read %zd bytes from %s @ 0x%08x (type %02x, crc %s)\n",
                                length, read_filename, address, type,
                                crc == STM32F4_CRC_RESIDUE ? "good" : "bad");
                     } else {
