@@ -135,6 +135,11 @@ bool osTidById(uint64_t appId, uint32_t *tid);
 bool osAppInfoById(uint64_t appId, uint32_t *appIdx, uint32_t *appVer, uint32_t *appSize);
 bool osAppInfoByIndex(uint32_t appIdx, uint64_t *appId, uint32_t *appVer, uint32_t *appSize);
 
+//event retaining support
+bool osRetainCurrentEvent(TaggedPtr *evtFreeingInfoP); //called from any apps' event handling to retain current event. Only valid for first app that tries. evtFreeingInfoP filled by call and used to free evt later
+void osFreeRetainedEvent(uint32_t evtType, void *evtData, TaggedPtr *evtFreeingInfoP);
+
+
 /* Logging */
 enum LogLevel {
     LOG_ERROR = 'E',
