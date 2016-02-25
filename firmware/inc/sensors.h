@@ -20,11 +20,12 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-#include <stdbool.h>
-#include <stdint.h>
+#include <plat/inc/taggedPtr.h>
 #include <eventnums.h>
 #include <sensType.h>
+#include <stdbool.h>
+#include <stdint.h>
+
 
 #define MAX_REGISTERED_SENSORS  32 /* this may need to be revisted later */
 #define MAX_MIN_SAMPLES         3000
@@ -131,6 +132,9 @@ struct WifiScanEvent {
     struct WifiScanResult results[];
 };
 
+struct UserSensorEventHdr {  //all user sensor events start with this struct
+    TaggedPtr marshallCbk;
+};
 
 #define SENSOR_DATA_EVENT_FLUSH (void *)0xFFFFFFFF // flush for all data
 
@@ -141,8 +145,8 @@ struct SensorPowerEvent {
 
 struct SensorSetRateEvent {
     void *callData;
-    uint64_t latency;
     uint32_t rate;
+    uint64_t latency;
 };
 
 struct SensorCfgDataEvent {
@@ -154,6 +158,14 @@ struct SensorSendDirectEventEvent {
     void *callData;
     uint32_t tid;
 };
+
+struct SensorMarshallUserEventEvent {
+    void *callData;
+    uint32_t origEvtType;
+    void *origEvtData;
+    TaggedPtr evtFreeingInfo;
+};
+
 
 
 
@@ -168,6 +180,8 @@ struct SensorOps {
     bool (*sensorCfgData)(void *cfgData, void *);
 
     bool (*sensorSendOneDirectEvt)(void *, uint32_t tid); //resend last state (if known), only for onchange-supporting sensors, to bring on a new client
+
+    bool (*sensorMarshallData)(uint32_t yourEvtType, const void *yourEvtData, TaggedPtr *evtFreeingInfoP, void *); //marshall yourEvt for sending to host. Send a EVT_MARSHALLED_SENSOR_DATA event with marshalled data. Always send event, even on error, free the passed-in event using osFreeRetainedEvent
 };
 
 struct SensorInfo {
@@ -254,6 +268,7 @@ bool sensorCfgData(uint32_t sensorHandle, void* cfgData);
 uint32_t sensorGetCurRate(uint32_t sensorHandle);
 uint64_t sensorGetCurLatency(uint32_t sensorHandle);
 bool sensorGetInitComplete(uint32_t sensorHandle); // DO NOT poll on this value
+bool sensorMarshallEvent(uint32_t sensorHandle, uint32_t evtType, void *evtData, TaggedPtr *evtFreeingInfoP);
 
 
 /*

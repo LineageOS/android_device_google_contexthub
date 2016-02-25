@@ -54,8 +54,8 @@ extern "C" {
 #define SENS_TYPE_ACTIVITY        30
 #define SENS_TYPE_VSYNC           31
 #define SENS_TYPE_WIFI_SCAN       32 // event type is WifiScanEvent
-#define SENS_TYPE_FIRST_USER      64
-#define SENS_TYPE_LAST_USER      128
+#define SENS_TYPE_FIRST_USER      64 // event type necessarily begins with UserSensorEventHdr
+#define SENS_TYPE_LAST_USER       128
 
 #ifdef __cplusplus
 }
