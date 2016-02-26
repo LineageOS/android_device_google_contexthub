@@ -19,9 +19,59 @@
 
 #include "contexthub.h"
 #include "nanomessage.h"
-#include "sensors.h" // Included directly from nanohub
 
 namespace android {
+
+// Copied from sensors.h in nanohub firmware/inc
+struct SensorFirstSample
+{
+    uint8_t numSamples;
+    uint8_t numFlushes;
+    uint8_t biasCurrent : 1;
+    uint8_t biasPresent : 1;
+    uint8_t biasSample : 6;
+    uint8_t interrupt;
+};
+
+struct SingleAxisDataPoint {
+    union {
+        uint32_t deltaTime; //delta since last sample, for 0th sample this is firstSample
+        struct SensorFirstSample firstSample;
+    };
+    union {
+        float fdata;
+        int32_t idata;
+    };
+} __attribute__((packed));
+
+struct SingleAxisDataEvent {
+    uint64_t referenceTime;
+    struct SingleAxisDataPoint samples[];
+};
+
+struct TripleAxisDataPoint {
+    union {
+        uint32_t deltaTime; //delta since last sample, for 0th sample this is firstSample
+        struct SensorFirstSample firstSample;
+    };
+    union {
+        float x;
+        int32_t ix;
+    };
+    union {
+        float y;
+        int32_t iy;
+    };
+    union {
+        float z;
+        int32_t iz;
+    };
+} __attribute__((packed));
+
+struct TripleAxisDataEvent {
+    uint64_t referenceTime;
+    struct TripleAxisDataPoint samples[];
+};
 
 /*
  * Common timestamped sensor event structure is SensorEventHeader followed by
