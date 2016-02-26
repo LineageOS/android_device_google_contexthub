@@ -17,6 +17,7 @@
 #include "contexthub.h"
 
 #include <cstring>
+#include <errno.h>
 #include <vector>
 
 #include "apptohostevent.h"
@@ -103,6 +104,29 @@ std::string ContextHub::ListAllSensorAbbrevNames() {
     }
 
     return sensor_list;
+}
+
+bool ContextHub::Flash(const std::string& filename) {
+    FILE *firmware_file = fopen(filename.c_str(), "r");
+    if (!firmware_file) {
+        LOGE("Failed to open firmware image: %d (%s)", errno, strerror(errno));
+        return false;
+    }
+
+    int file_size = fseek(firmware_file, 0, SEEK_END);
+    fseek(firmware_file, 0, SEEK_SET);
+
+    auto firmware_data = std::vector<uint8_t>(file_size);
+    size_t bytes_read = fread(firmware_data.data(), sizeof(uint8_t),
+        file_size, firmware_file);
+    if (bytes_read != static_cast<size_t>(file_size)) {
+        LOGE("Read of firmware file returned %zu, expected %d",
+            bytes_read, file_size);
+        return false;
+    }
+
+    fclose(firmware_file);
+    return FlashSensorHub(firmware_data);
 }
 
 bool ContextHub::CalibrateSensors(const std::vector<SensorSpec>& sensors) {

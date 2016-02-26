@@ -146,7 +146,7 @@ bool AndroidContextHub::Initialize() {
 
 void AndroidContextHub::SetLoggingEnabled(bool logging_enabled) {
     if (logging_enabled) {
-        LOGE("Logging is not supported on this platform. Stay tuned.");
+        LOGE("Logging is not supported on this platform");
     }
 }
 
@@ -211,6 +211,12 @@ ContextHub::TransportResult AndroidContextHub::ReadEvent(
     }
 
     return result;
+}
+
+bool AndroidContextHub::FlashSensorHub(const std::vector<uint8_t>& bytes) {
+    (void)bytes;
+    LOGE("Flashing is not supported on this platform");
+    return false;
 }
 
 bool AndroidContextHub::LoadCalibration() {
