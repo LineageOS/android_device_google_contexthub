@@ -19,9 +19,15 @@
 
 #include "contexthub.h"
 #include "nanomessage.h"
-#include "eventnums.h" // From nanohub, for struct HostHubRawPacket
 
 namespace android {
+
+// Copied from nanohub eventnums.h
+struct HostHubRawPacket {
+    uint64_t appId;
+    uint8_t dataLen; //not incl this header, 128 bytes max
+    //raw data in unspecified format here
+} __attribute((packed));
 
 // The u64 appId used in nanohub is 40 bits vendor ID + 24 bits app ID (see seos.h)
 constexpr uint64_t MakeAppId(uint64_t vendorId, uint32_t appId) {

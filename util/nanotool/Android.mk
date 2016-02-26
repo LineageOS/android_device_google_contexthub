@@ -38,7 +38,6 @@ LOCAL_SRC_FILES += \
     $(COMMON_UTILS_DIR)/JSONObject.cpp
 
 LOCAL_C_INCLUDES := \
-    $(LOCAL_PATH)/../../firmware/inc \
     $(LOCAL_PATH)/$(COMMON_UTILS_DIR)
 
 LOCAL_SHARED_LIBRARIES := \
