@@ -57,28 +57,28 @@ static void osExpApiEvtqEnqueue(uintptr_t *retValP, va_list args)
 
 static void osExpApiEvtqEnqueuePrivate(uintptr_t *retValP, va_list args)
 {
-    TaggedPtr *evtFreeingInfoP = va_arg(args, TaggedPtr*);
-
-    *retValP = osRetainCurrentEvent(evtFreeingInfoP);
-}
-
-static void osExpApiEvtqRetainEvt(uintptr_t *retValP, va_list args)
-{
-    uint32_t evtType = va_arg(args, uint32_t);
-    void *evtData = va_arg(args, void*);
-    TaggedPtr *evtFreeingInfoP = va_arg(args, TaggedPtr*);
-
-    osFreeRetainedEvent(evtType, evtData, evtFreeingInfoP);
-}
-
-static void osExpApiEvtqFreeRetained(uintptr_t *retValP, va_list args)
-{
     uint32_t evtType = va_arg(args, uint32_t);
     void *evtData = va_arg(args, void*);
     uint32_t freeTid = va_arg(args, uint32_t);
     uint32_t toTid = va_arg(args, uint32_t);
 
     *retValP = osEnqueuePrivateEvtAsApp(evtType, evtData, freeTid, toTid);
+}
+
+static void osExpApiEvtqRetainEvt(uintptr_t *retValP, va_list args)
+{
+    TaggedPtr *evtFreeingInfoP = va_arg(args, TaggedPtr*);
+
+    *retValP = osRetainCurrentEvent(evtFreeingInfoP);
+}
+
+static void osExpApiEvtqFreeRetained(uintptr_t *retValP, va_list args)
+{
+    uint32_t evtType = va_arg(args, uint32_t);
+    void *evtData = va_arg(args, void*);
+    TaggedPtr *evtFreeingInfoP = va_arg(args, TaggedPtr*);
+
+    osFreeRetainedEvent(evtType, evtData, evtFreeingInfoP);
 }
 
 static void osExpApiLogLogv(uintptr_t *retValP, va_list args)

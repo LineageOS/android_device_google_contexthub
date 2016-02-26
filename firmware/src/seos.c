@@ -327,7 +327,13 @@ static void osInternalEvtHandle(uint32_t evtType, void *evtData)
     case EVT_PRIVATE_EVT:
         task = osTaskFindByTid(da->privateEvt.toTid);
         if (task) {
+            //private events cannot be retained
+            TaggedPtr *tmp = mCurEvtEventFreeingInfo;
+            mCurEvtEventFreeingInfo = NULL;
+
             cpuAppHandle(task->appHdr, &task->platInfo, da->privateEvt.evtType, da->privateEvt.evtData);
+
+            mCurEvtEventFreeingInfo = tmp;
         }
 
         handleEventFreeing(da->privateEvt.evtType, da->privateEvt.evtData, da->privateEvt.evtFreeInfo);
@@ -382,7 +388,7 @@ void __attribute__((noreturn)) osMain(void)
         if (!evtQueueDequeue(mEvtsInternal, &evtType, &evtData, &evtFreeingInfo, true))
             continue;
 
-        /* by defautl we free them when we're done with them */
+        /* by default we free them when we're done with them */
         mCurEvtEventFreeingInfo = &evtFreeingInfo;
 
         if (evtType < EVT_NO_FIRST_USER_EVENT) { /* no need for discardable check. all internal events arent discardable */
