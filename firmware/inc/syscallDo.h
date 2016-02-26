@@ -114,12 +114,12 @@ static inline bool eOsEnqueuePrivateEvt(uint32_t evtType, void *evtData, uint32_
 
 static inline bool eOsRetainCurrentEvent(TaggedPtr *evtFreeingInfoP)
 {
-    return syscallDo1P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_MAIN, SYSCALL_OS_MAIN_EVENTQ, SYSCALL_OS_MAIN_EVTQ_ENQUEUE_PRIVATE), evtFreeingInfoP);
+    return syscallDo1P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_MAIN, SYSCALL_OS_MAIN_EVENTQ, SYSCALL_OS_MAIN_EVTQ_RETAIN_EVT), evtFreeingInfoP);
 }
 
 static inline bool eOsFreeRetainedEvent(uint32_t evtType, void *evtData, TaggedPtr *evtFreeingInfoP)
 {
-    return syscallDo3P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_MAIN, SYSCALL_OS_MAIN_EVENTQ, SYSCALL_OS_MAIN_EVTQ_ENQUEUE_PRIVATE), evtType, evtData, evtFreeingInfoP);
+    return syscallDo3P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_MAIN, SYSCALL_OS_MAIN_EVENTQ, SYSCALL_OS_MAIN_EVTQ_FREE_RETAINED), evtType, evtData, evtFreeingInfoP);
 }
 
 static inline void eOsLogvInternal(enum LogLevel level, const char *str, uintptr_t args_list)
