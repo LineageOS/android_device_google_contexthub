@@ -16,8 +16,7 @@
 
 LOCAL_PATH := $(call my-dir)
 
-nanotool_version := g$(shell git -C $(LOCAL_PATH) rev-parse --short HEAD 2>/dev/null)-android
-nanotool_build_time := $(shell date -u)
+NANOTOOL_VERSION := 1.0.0
 
 include $(CLEAR_VARS)
 
@@ -47,7 +46,7 @@ LOCAL_SHARED_LIBRARIES := \
 
 LOCAL_CFLAGS += -Wall
 LOCAL_CFLAGS += -std=c++11
-LOCAL_CFLAGS += -DNANOTOOL_VERSION_STR='"version $(nanotool_version) built $(nanotool_build_time)"'
+LOCAL_CFLAGS += -DNANOTOOL_VERSION_STR='"version $(NANOTOOL_VERSION)"'
 
 LOCAL_MODULE := nanotool
 
