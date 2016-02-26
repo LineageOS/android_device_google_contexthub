@@ -157,7 +157,7 @@ ContextHub::TransportResult AndroidContextHub::WriteEvent(
     LOGD("Writing %zu bytes", message.size());
     LOGD_BUF(message.data(), message.size());
     int ret = write(sensor_fd_, message.data(), message.size());
-    if (ret != (int) message.size()) {
+    if (ret == -1) {
         LOGE("Couldn't write %zu bytes to device file: %s", message.size(),
              strerror(errno));
         result = TransportResult::GeneralFailure;
