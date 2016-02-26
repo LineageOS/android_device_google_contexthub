@@ -119,6 +119,12 @@ class ContextHub : public NonCopyable {
     virtual void SetLoggingEnabled(bool logging_enabled) = 0;
 
     /*
+     * Loads a new firmware image to the ContextHub. The firmware image is
+     * specified by filename. Returns false if an error occurs.
+     */
+    bool Flash(const std::string& filename);
+
+    /*
      * Performs the sensor calibration routine and writes the resulting data to
      * a file.
      */
@@ -225,6 +231,10 @@ class ContextHub : public NonCopyable {
      */
     virtual TransportResult ReadEvent(std::vector<uint8_t>& response) = 0;
     virtual TransportResult WriteEvent(const std::vector<uint8_t>& request) = 0;
+
+    // Implements the firmware loading functionality for the sensor hub. Returns
+    // false if an error occurs while writing the firmware to the device.
+    virtual bool FlashSensorHub(const std::vector<uint8_t>& bytes) = 0;
 
     // Convenience functions that build on top of the more generic byte-level
     // interface

@@ -39,13 +39,13 @@ using namespace android;
 
 enum class NanotoolCommand {
     Invalid,
-    Enable,
     Disable,
     DisableAll,
     Calibrate,
     Read,
     Poll,
     LoadCalibration,
+    Flash,
 };
 
 struct ParsedArgs {
@@ -53,11 +53,11 @@ struct ParsedArgs {
     std::vector<SensorSpec> sensors;
     int count = 0;
     bool logging_enabled = false;
+    std::string filename;
 };
 
 static NanotoolCommand StrToCommand(const char *command_name) {
     static const std::vector<std::tuple<std::string, NanotoolCommand>> cmds = {
-        std::make_tuple("enable",      NanotoolCommand::Enable),
         std::make_tuple("disable",     NanotoolCommand::Disable),
         std::make_tuple("disable_all", NanotoolCommand::DisableAll),
         std::make_tuple("calibrate",   NanotoolCommand::Calibrate),
@@ -65,6 +65,7 @@ static NanotoolCommand StrToCommand(const char *command_name) {
         std::make_tuple("read",        NanotoolCommand::Read),
         std::make_tuple("poll",        NanotoolCommand::Poll),
         std::make_tuple("load_cal",    NanotoolCommand::LoadCalibration),
+        std::make_tuple("flash",       NanotoolCommand::Flash),
     };
 
     if (!command_name) {
@@ -88,9 +89,6 @@ static void PrintUsage(const char *name) {
     const char *help_text =
         "options:\n"
         "  -x, --cmd          Argument must be one of:\n"
-        // TODO(bduddie): Commented out options aren't supported (yet)
-        //"                        enable: configure/enable the sensor, and leave it on"
-        //"                           after the program exits\n"
         "                        disable: send a disable request for one sensor\n"
         "                        disable_all: send a disable request for all sensors\n"
         "                        calibrate: disable the sensor, then perform the sensor\n"
@@ -100,6 +98,7 @@ static void PrintUsage(const char *name) {
         "                           if no sensor specified\n"
         "                        poll (default): enable the sensor, output received\n"
         "                           events, then disable the sensor before exiting\n"
+        "                        flash: Load a new firmware image to the hub\n"
         "\n"
         "  -s, --sensor       Specify sensor type, and parameters for the command.\n"
         "                     Format is sensor_type[:rate[:latency_ms]][=cal_ref].\n"
@@ -116,6 +115,9 @@ static void PrintUsage(const char *name) {
         "\n"
         "  -c, --count        Number of samples to read before exiting, or set to 0 to\n"
         "                     read indefinitely (the default behavior)\n"
+        "\n"
+        "  -f, --file\n"
+        "                     Specifies the file to be used with flash.\n"
         "\n"
         "  -l, --log          Outputs logs from the sensor hub as they become available.\n"
         "                     The logs will be printed inline with sensor samples.\n"
@@ -142,8 +144,7 @@ static void PrintUsage(const char *name) {
  */
 static bool ValidateArgs(std::unique_ptr<ParsedArgs>& args, const char *name) {
     if (!args->sensors.size()
-          && (args->command == NanotoolCommand::Enable
-                || args->command == NanotoolCommand::Disable
+          && (args->command == NanotoolCommand::Disable
                 || args->command == NanotoolCommand::Calibrate
                 || args->command == NanotoolCommand::Poll)) {
         fprintf(stderr, "%s: At least 1 sensor must be specified for this "
@@ -152,8 +153,15 @@ static bool ValidateArgs(std::unique_ptr<ParsedArgs>& args, const char *name) {
         return false;
     }
 
-    if (args->command == NanotoolCommand::Poll
-          || args->command == NanotoolCommand::Enable) {
+    if (args->command == NanotoolCommand::Flash
+            && args->filename.empty()) {
+        fprintf(stderr, "%s: A filename must be specified for this command "
+                        "(use -f)\n",
+                name);
+        return false;
+    }
+
+    if (args->command == NanotoolCommand::Poll) {
         for (unsigned int i = 0; i < args->sensors.size(); i++) {
             if (args->sensors[i].special_rate == SensorSpecialRate::None
                   && args->sensors[i].rate_hz < 0) {
@@ -273,13 +281,14 @@ static std::unique_ptr<ParsedArgs> ParseArgs(int argc, char **argv) {
         {"cmd",     required_argument, nullptr, 'x'},
         {"sensor",  required_argument, nullptr, 's'},
         {"count",   required_argument, nullptr, 'c'},
+        {"flash",   required_argument, nullptr, 'f'},
         {"log",     no_argument,       nullptr, 'l'},
     };
 
     auto args = std::unique_ptr<ParsedArgs>(new ParsedArgs());
     int index = 0;
     while (42) {
-        int c = getopt_long(argc, argv, "x:s:c:v::l", long_opts, &index);
+        int c = getopt_long(argc, argv, "x:s:c:f:v::l", long_opts, &index);
         if (c == -1) {
             break;
         }
@@ -318,6 +327,15 @@ static std::unique_ptr<ParsedArgs> ParseArgs(int argc, char **argv) {
           }
           case 'l': {
             args->logging_enabled = true;
+            break;
+          }
+          case 'f': {
+            if (optarg) {
+                args->filename = std::string(optarg);
+            } else {
+                fprintf(stderr, "File requires a filename\n");
+                return nullptr;
+            }
             break;
           }
           default:
@@ -373,6 +391,7 @@ int main(int argc, char **argv) {
 #ifdef __ANDROID__
     SetSignalHandler();
 #endif
+
     std::unique_ptr<ContextHub> hub = GetContextHub();
     if (!hub || !hub->Initialize()) {
         LOGE("Error initializing ContextHub");
@@ -411,6 +430,10 @@ int main(int argc, char **argv) {
       }
       case NanotoolCommand::LoadCalibration: {
         success = hub->LoadCalibration();
+        break;
+      }
+      case NanotoolCommand::Flash: {
+        success = hub->Flash(args->filename);
         break;
       }
       default:
