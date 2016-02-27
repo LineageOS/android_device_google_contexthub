@@ -52,6 +52,5 @@ LOCAL_MODULE := nanotool
 
 LOCAL_MODULE_TAGS := optional
 LOCAL_MODULE_OWNER := google
-LOCAL_PROPRIETARY_MODULE := true
 
 include $(BUILD_EXECUTABLE)
