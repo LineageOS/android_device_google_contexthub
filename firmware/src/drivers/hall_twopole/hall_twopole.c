@@ -127,12 +127,7 @@ static bool hallPower(bool on, void *cookie)
     }
 
     mTask.on = on;
-    sensorSignalInternalEvt(mTask.sensorHandle, SENSOR_INTERNAL_EVT_POWER_STATE_CHG, on, 0);
-
-    // report initial state of hall interrupt pin
-    hallReportState(mTask.on, gpioGet(mTask.sPin), gpioGet(mTask.nPin));
-
-    return true;
+    return sensorSignalInternalEvt(mTask.sensorHandle, SENSOR_INTERNAL_EVT_POWER_STATE_CHG, on, 0);
 }
 
 static bool hallFirmwareUpload(void *cookie)
@@ -142,6 +137,9 @@ static bool hallFirmwareUpload(void *cookie)
 
 static bool hallSetRate(uint32_t rate, uint64_t latency, void *cookie)
 {
+    // report initial state of hall interrupt pin
+    hallReportState(mTask.on, gpioGet(mTask.sPin), gpioGet(mTask.nPin));
+
     return sensorSignalInternalEvt(mTask.sensorHandle, SENSOR_INTERNAL_EVT_RATE_CHG, rate, latency);
 }
 
