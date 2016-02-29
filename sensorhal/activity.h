@@ -29,7 +29,7 @@
 struct ActivityContext {
     activity_recognition_device_t device;
 
-    ActivityContext(const struct hw_module_t *module);
+    explicit ActivityContext(const struct hw_module_t *module);
 
     void onActivityEvent(
             uint64_t when_us, bool is_flush, float x, float y, float z);
