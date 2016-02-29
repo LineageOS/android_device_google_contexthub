@@ -167,7 +167,6 @@
 #define GET_SPI_READ_MACRO(_1,_2,_3,_4,NAME,...) NAME
 #define SPI_READ(...) GET_SPI_READ_MACRO(__VA_ARGS__, SPI_READ_1, SPI_READ_0)(__VA_ARGS__)
 
-
 #define EVT_SENSOR_ACC_DATA_RDY sensorGetMyEventType(SENS_TYPE_ACCEL)
 #define EVT_SENSOR_GYR_DATA_RDY sensorGetMyEventType(SENS_TYPE_GYRO)
 #define EVT_SENSOR_MAG_DATA_RDY sensorGetMyEventType(SENS_TYPE_MAG)
@@ -307,7 +306,6 @@ struct BMI160Sensor {
     enum SensorIndex idx;
 };
 
-// FIXME: alignment
 struct BMI160Task {
     uint32_t tid;
     struct BMI160Sensor sensors[NUM_OF_SENSOR];
@@ -334,6 +332,8 @@ struct BMI160Task {
     float last_charging_bias_x;
     uint32_t total_step_cnt;
     uint32_t last_step_cnt;
+    uint32_t poll_generation;
+    uint32_t active_poll_generation;
     uint8_t active_oneshot_sensor_cnt;
     uint8_t interrupt_enable_0;
     uint8_t interrupt_enable_2;
@@ -419,7 +419,6 @@ static struct SlabAllocator *mDataSlab;
     .numAxis = axis, \
     .interrupt = inter, \
     .minSamples = samples
-
 
 #define DEC_INFO_RATE(name, rates, type, axis, inter, samples) \
     DEC_INFO(name, type, axis, inter, samples), \
@@ -825,11 +824,18 @@ static void configFifo(void)
         mTask.fifo_enabled[MAG] = false;
     }
 
-    // if this is the first data sensor fifo to enable, we need to
+    // if this is the first data sensor fifo to enable, start to
     // sync the sensor time and rtc time
     if (!any_fifo_enabled_prev && anyFifoEnabled()) {
         invalidate_sensortime_to_rtc_time();
-        osEnqueuePrivateEvt(EVT_TIME_SYNC, NULL, NULL, mTask.tid);
+
+        // start a new poll generation and attach the generation number to event
+        osEnqueuePrivateEvt(EVT_TIME_SYNC, (void *)mTask.poll_generation, NULL, mTask.tid);
+    }
+
+    // cancel current poll generation
+    if (any_fifo_enabled_prev && !anyFifoEnabled()) {
+        ++mTask.poll_generation;
     }
 
     // if this is not the first fifo enabled or last fifo disabled, flush all fifo data;
@@ -873,7 +879,6 @@ static bool accPower(bool on, void *cookie)
 
             // set ACC power mode to SUSPEND
             mTask.sensors[ACC].configed = false;
-            mTask.fifo_enabled[ACC] = false;
             configFifo();
             SPI_WRITE(BMI160_REG_CMD, 0x10, 5000);
         }
@@ -901,7 +906,6 @@ static bool gyrPower(bool on, void *cookie)
 
             // set GYR power mode to SUSPEND
             mTask.sensors[GYR].configed = false;
-            mTask.fifo_enabled[GYR] = false;
             configFifo();
             SPI_WRITE(BMI160_REG_CMD, 0x14, 1000);
         }
@@ -937,7 +941,6 @@ static bool magPower(bool on, void *cookie)
 
             // set MAG power mode to SUSPEND
             mTask.sensors[MAG].configed = false;
-            mTask.fifo_enabled[MAG] = false;
             configFifo();
             SPI_WRITE(BMI160_REG_CMD, 0x18, 1000);
         }
@@ -2402,12 +2405,18 @@ static void configEvent(struct BMI160Sensor *mSensor, struct ConfigStat *ConfigD
         mSensorOps[i].sensorSetRate(ConfigData->rate, ConfigData->latency, (void *)i);
 }
 
-static void timeSyncEvt(void)
+static void timeSyncEvt(uint32_t evtGeneration, bool evtDataValid)
 {
-    if (!anyFifoEnabled()) {
-        // if fifo is not enabled, no time sync is needed.
-        return;
-    } else if (mTask.state != SENSOR_IDLE) {
+    // not processing pending events
+    if (evtDataValid) {
+        // stale event
+        if (evtGeneration != mTask.poll_generation)
+            return;
+
+        mTask.active_poll_generation = mTask.poll_generation;
+    }
+
+    if (mTask.state != SENSOR_IDLE) {
         mTask.pending_time_sync = true;
     } else {
         mTask.state = SENSOR_TIME_SYNC;
@@ -2431,7 +2440,7 @@ static void processPendingEvt(void)
     }
     if (mTask.pending_time_sync) {
         mTask.pending_time_sync = false;
-        timeSyncEvt();
+        timeSyncEvt(0, false);
         return;
     }
     for (i = ACC; i < NUM_OF_SENSOR; i++) {
@@ -2710,8 +2719,10 @@ static void handleSpiDoneEvt(const void* evtData)
         SensorTime = parseSensortime(mTask.sensorTimeBuffer[1] | (mTask.sensorTimeBuffer[2] << 8) | (mTask.sensorTimeBuffer[3] << 16));
         map_sensortime_to_rtc_time(SensorTime, rtcGetTime());
 
-        if (anyFifoEnabled())
-            timTimerSet(kTimeSyncPeriodNs, 100, 100, timeSyncCallback, NULL, true);
+        if (mTask.active_poll_generation == mTask.poll_generation) {
+            // attach the generation number to event
+            timTimerSet(kTimeSyncPeriodNs, 100, 100, timeSyncCallback, (void *)mTask.poll_generation, true);
+        }
 
         mTask.state = SENSOR_IDLE;
         processPendingEvt();
@@ -2760,7 +2771,7 @@ static void handleEvent(uint32_t evtType, const void* evtData)
         int2Evt();
         break;
     case EVT_TIME_SYNC:
-        timeSyncEvt();
+        timeSyncEvt((uint32_t)evtData, true);
     default:
         break;
     }
@@ -2800,6 +2811,7 @@ static bool startTask(uint32_t task_id)
     mTask.pending_int[1] = false;
     mTask.pending_dispatch = false;
     mTask.frame_sensortime_valid = false;
+    mTask.poll_generation = 0;
 
     mTask.mode.speed = BMI160_SPI_SPEED_HZ;
     mTask.mode.bitsPerWord = 8;
