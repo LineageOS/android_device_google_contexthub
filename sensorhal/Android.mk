@@ -26,7 +26,6 @@ LOCAL_MODULE_RELATIVE_PATH := hw
 
 LOCAL_MODULE_TAGS := optional
 LOCAL_MODULE_OWNER := google
-LOCAL_PROPRIETARY_MODULE := true
 
 LOCAL_CFLAGS += $(MY_CFLAGS)
 
@@ -57,7 +56,6 @@ LOCAL_CFLAGS += $(MY_CFLAGS)
 
 LOCAL_MODULE_TAGS := optional
 LOCAL_MODULE_OWNER := google
-LOCAL_PROPRIETARY_MODULE := true
 
 LOCAL_C_INCLUDES +=                     \
 	device/google/contexthub/firmware/inc \
@@ -88,7 +86,6 @@ LOCAL_C_INCLUDES +=                     \
 
 LOCAL_MODULE_TAGS := optional
 LOCAL_MODULE_OWNER := google
-LOCAL_PROPRIETARY_MODULE := true
 
 LOCAL_SRC_FILES :=                          \
 	hubconnection.cpp                   \
