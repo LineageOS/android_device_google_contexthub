@@ -25,7 +25,6 @@ LOCAL_MODULE:= nanoapp_cmd
 
 LOCAL_MODULE_TAGS:= optional
 LOCAL_MODULE_OWNER := google
-LOCAL_PROPRIETARY_MODULE := true
 
 LOCAL_LDLIBS := \
 	-L$(SYSROOT)/usr/lib -llog
