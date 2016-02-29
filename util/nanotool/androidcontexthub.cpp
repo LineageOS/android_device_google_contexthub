@@ -38,7 +38,7 @@ constexpr char kCommsDeviceFile[] = "/dev/nanohub_comms";
 constexpr int kDeviceFileCount = 2;
 constexpr int kPollNoTimeout = -1;
 
-static const std::vector<std::tuple<std::string, SensorType>> kCalibrationKeys = {
+static const std::vector<std::tuple<const char *, SensorType>> kCalibrationKeys = {
     std::make_tuple("accel",     SensorType::Accel),
     std::make_tuple("gyro",      SensorType::Gyro),
     std::make_tuple("proximity", SensorType::Proximity),
@@ -339,12 +339,12 @@ int AndroidContextHub::ResetPollFds(struct pollfd *pfds, size_t count) {
 
 const char *AndroidContextHub::SensorTypeToCalibrationKey(SensorType sensor_type) {
     for (size_t i = 0; i < kCalibrationKeys.size(); i++) {
-        std::string key;
+        const char *key;
         SensorType sensor_type_for_key;
 
         std::tie(key, sensor_type_for_key) = kCalibrationKeys[i];
         if (sensor_type == sensor_type_for_key) {
-            return key.c_str();
+            return key;
         }
     }
 
