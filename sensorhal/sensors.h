@@ -27,7 +27,7 @@
 struct SensorContext {
     struct sensors_poll_device_1 device;
 
-    SensorContext(const struct hw_module_t *module);
+    explicit SensorContext(const struct hw_module_t *module);
 
     bool getHubAlive();
 
