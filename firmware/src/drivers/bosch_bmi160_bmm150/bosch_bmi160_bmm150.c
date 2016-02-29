@@ -2730,6 +2730,8 @@ static void handleEvent(uint32_t evtType, const void* evtData)
 {
     uint64_t currTime;
     float bias_delta_x;
+    uint8_t *packet;
+    float newMagBias;
 
     switch (evtType) {
     case EVT_APP_START:
@@ -2743,16 +2745,21 @@ static void handleEvent(uint32_t evtType, const void* evtData)
             break;
         }
         /* We have already been powered on long enough - fall through */
-    case EVT_APP_FROM_HOST:
-        bias_delta_x = mTask.last_charging_bias_x - *(const float *)evtData;
-        mTask.last_charging_bias_x = *(const float *)evtData;
-        magCalAddBias(&mTask.moc, bias_delta_x, 0.0, 0.0);
-        mTask.magBiasPosted = false;
-        break;
-
     case EVT_SPI_DONE:
         handleSpiDoneEvt(evtData);
         break;
+
+    case EVT_APP_FROM_HOST:
+        packet = (uint8_t*)evtData;
+        if (packet[0] == sizeof(float)) {
+            memcpy(&newMagBias, packet+1, sizeof(float));
+            bias_delta_x = mTask.last_charging_bias_x - newMagBias;
+            mTask.last_charging_bias_x = newMagBias;
+            magCalAddBias(&mTask.moc, bias_delta_x, 0.0, 0.0);
+            mTask.magBiasPosted = false;
+        }
+        break;
+
     case EVT_SENSOR_INTERRUPT_1:
         int1Evt();
         break;
