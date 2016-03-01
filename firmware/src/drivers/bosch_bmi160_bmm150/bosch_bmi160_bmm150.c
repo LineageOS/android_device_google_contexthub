@@ -958,11 +958,8 @@ static bool stepPower(bool on, void *cookie)
     if (mTask.state == SENSOR_IDLE) {
         // if step counter is powered, no need to change actual config of step
         // detector.
-        if (mTask.sensors[STEPCNT].powered) {
-            mTask.sensors[STEP].powered = on;
-            mTask.active_oneshot_sensor_cnt += on ? 1 : -1;
-            return true;
-        }
+        // But we choose to perform one SPI_WRITE anyway to go down the code path
+        // to state SENSOR_POWERING_UP/DOWN to update sensor manager.
         if (on) {
             mTask.state = SENSOR_POWERING_UP;
             mTask.interrupt_enable_2 |= 0x08;
