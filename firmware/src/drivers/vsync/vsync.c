@@ -155,7 +155,6 @@ static void endTask(void)
     extiClearPendingGpio(mTask.pin);
     gpioRelease(mTask.pin);
     sensorUnregister(mTask.sensorHandle);
-    memset(&mTask, 0, sizeof(struct SensorTask));
 }
 
 INTERNAL_APP_INIT(APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 7), 0, startTask, endTask, handleEvent);
