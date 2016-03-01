@@ -68,7 +68,7 @@ static struct TiltDetectionTask {
 
 static void algoInit()
 {
-    memset(&mTask.algoState, 0, sizeof(struct TiltAlgoState));
+    // nothing here
 }
 
 static bool algoUpdate(struct TripleAxisDataEvent *ev)

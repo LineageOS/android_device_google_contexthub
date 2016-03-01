@@ -132,9 +132,6 @@ static void osInit(void)
     osLog(LOG_INFO, "SEOS Initializing\n");
     cpuInitLate();
 
-    /* init task list */
-    memset(mTasks, 0, sizeof(mTasks));
-
     /* create the queues */
     if (!(mEvtsInternal = evtQueueAlloc(512, handleEventFreeing))) {
         osLog(LOG_INFO, "events failed to init\n");
