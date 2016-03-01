@@ -119,13 +119,13 @@ bool ContextHub::Flash(const std::string& filename) {
     auto firmware_data = std::vector<uint8_t>(file_size);
     size_t bytes_read = fread(firmware_data.data(), sizeof(uint8_t),
         file_size, firmware_file);
+    fclose(firmware_file);
+
     if (bytes_read != static_cast<size_t>(file_size)) {
         LOGE("Read of firmware file returned %zu, expected %d",
             bytes_read, file_size);
         return false;
     }
-
-    fclose(firmware_file);
     return FlashSensorHub(firmware_data);
 }
 
