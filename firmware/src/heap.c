@@ -16,6 +16,7 @@
 
 #include <trylock.h>
 #include <atomic.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <heap.h>
 
@@ -29,7 +30,25 @@ struct HeapNode {
     uint8_t  data[];
 };
 
-static uint8_t __attribute__ ((aligned (8))) gHeap[HEAP_SIZE];
+#ifdef FORCE_HEAP_IN_DOT_DATA
+
+    static uint8_t __attribute__ ((aligned (8))) gHeap[HEAP_SIZE];
+
+    #define REAL_HEAP_SIZE     ((HEAP_SIZE) &~ 7)
+    #define ALIGNED_HEAP_START (&gHeap)
+
+#else
+
+    extern uint8_t __heap_end[], __heap_start[];
+    #define ALIGNED_HEAP_START  (uint8_t*)((((uintptr_t)&__heap_start) + 7) &~ 7)
+    #define ALIGNED_HEAP_END    (uint8_t*)(((uintptr_t)&__heap_end) &~ 7)
+
+    #define REAL_HEAP_SIZE      (ALIGNED_HEAP_END - ALIGNED_HEAP_START)
+
+
+#endif
+
+static struct HeapNode* gHeapHead;
 static TRYLOCK_DECL_STATIC(gHeapLock) = TRYLOCK_INIT_STATIC();
 static volatile uint8_t gNeedFreeMerge = false; /* cannot be bool since its size is ill defined */
 static struct HeapNode *gHeapTail;
@@ -41,10 +60,10 @@ static inline struct HeapNode* heapPrvGetNext(struct HeapNode* node)
 
 bool heapInit(void)
 {
-    uint32_t size = sizeof(gHeap);
+    uint32_t size = REAL_HEAP_SIZE;
     struct HeapNode* node;
 
-    node = (struct HeapNode*)gHeap;
+    node = gHeapHead = (struct HeapNode*)ALIGNED_HEAP_START;
 
     if (size < sizeof(struct HeapNode))
         return false;
@@ -62,7 +81,7 @@ bool heapInit(void)
 static void heapMergeFreeChunks(void)
 {
     while (atomicXchgByte(&gNeedFreeMerge, false)) {
-        struct HeapNode *node = (struct HeapNode*)gHeap, *next;
+        struct HeapNode *node = gHeapHead, *next;
 
         while (node) {
             next = heapPrvGetNext(node);
@@ -94,7 +113,7 @@ void* heapAlloc(uint32_t sz)
     heapMergeFreeChunks();
 
     sz = (sz + 3) &~ 3;
-    node = (struct HeapNode*)gHeap;
+    node = gHeapHead;
 
     while (node) {
         if (!node->used && node->size >= sz && (!best || best->size > node->size)) {
