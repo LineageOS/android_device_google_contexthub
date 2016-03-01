@@ -374,7 +374,6 @@ void HubConnection::processSample(uint64_t timestamp, uint32_t type, uint32_t se
     uncalibrated_event_t *ue;
     sensors_event_t *ev;
     sensors_event_t nev[2];
-    const float RATIO_SCALE = 32000.f;
     static const float heading_accuracy = M_PI / 6.0f;
     float w;
     int cnt = 0;
@@ -497,8 +496,7 @@ bool HubConnection::threadLoop() {
     ssize_t ret;
     uint8_t recv[256];
     struct nAxisEvent *data = (struct nAxisEvent *)recv;
-    uint32_t type, sensor, bias, uncal, currSensor;
-    int64_t sampleTime;
+    uint32_t type, sensor, bias, currSensor;
     int i, numSamples;
     bool one, three;
     sensors_event_t ev;
@@ -551,7 +549,6 @@ bool HubConnection::threadLoop() {
             if (ret >= 4) {
                 one = three = false;
                 bias = 0;
-                uncal = 0;
                 switch (data->evtType) {
                 case SENS_TYPE_TO_EVENT(SENS_TYPE_ACCEL):
                     type = SENSOR_TYPE_ACCELEROMETER;
