@@ -20,7 +20,7 @@ ifneq ($(CPU),cortexm4f)
         $(error "stm32f4xx cplatform only supports Cortex-M4F CPUs")
 endif
 
-DELIVERABLES = os.checked.bin bl.unchecked.bin full.bin
+DELIVERABLES = os.checked.bin bl.unchecked.bin full.bin showsizes
 BL_FILE = bl.unchecked.bin
 OS_FILE = os.checked.bin
 
@@ -70,5 +70,6 @@ bl.%.bin : bl.%.elf
 os.%.bin : os.%.elf
 	$(OBJCOPY) -j .data -j .text $(OBJCOPY_PARAMS) $< $@
 
-
+showsizes: os.unchecked.elf
+	misc/platform/$(PLATFORM)/showsizes.sh $<
 

@@ -21,7 +21,6 @@ ifneq ($(PLATFORM),stm32f4xx)
         $(error "NUCLEO variant cannot be build on a platform that is not stm32f411")
 endif
 
-FLAGS += -DHEAP_SIZE=102400           #100K heap
 FLAGS += -DPLATFORM_HW_TYPE=0x4E75   #'Nu' ->nucleo
 FLAGS += -DDEBUG_SWD
 

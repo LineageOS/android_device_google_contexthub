@@ -211,6 +211,9 @@ BL_FLASH_TABLE;
 
 static const char mOsUpdateMagic[] = OS_UPDT_MAGIC;
 
+//BL stack
+uint8_t __attribute__ ((section (".stack"))) _STACK[BL_STACK_SIZE];
+
 
 
 static inline uint32_t blDisableInts(void)

@@ -142,7 +142,7 @@ void __attribute__((naked)) SVC_Handler(void)
     );
 }
 
-static void __attribute__((used)) logHardFault(uintptr_t *excRegs, uintptr_t* otherRegs)
+static void __attribute__((used)) logHardFault(uintptr_t *excRegs, uintptr_t* otherRegs, bool tinyStack)
 {
     struct HardFaultDropbox *dbx = getDropbox();
     uint32_t i;
@@ -160,16 +160,18 @@ static void __attribute__((used)) logHardFault(uintptr_t *excRegs, uintptr_t* ot
     dbx->cfsr = SCB->CFSR;
     dbx->magic = HARD_FAULT_DROPBOX_MAGIC;
 
-    osLog(LOG_ERROR, "*HARD FAULT* SR  = %08lX\n", (unsigned long)excRegs[7]);
-    osLog(LOG_ERROR, "R0  = %08lX   R8  = %08lX\n", (unsigned long)excRegs[0], (unsigned long)otherRegs[4]);
-    osLog(LOG_ERROR, "R1  = %08lX   R9  = %08lX\n", (unsigned long)excRegs[1], (unsigned long)otherRegs[5]);
-    osLog(LOG_ERROR, "R2  = %08lX   R10 = %08lX\n", (unsigned long)excRegs[2], (unsigned long)otherRegs[6]);
-    osLog(LOG_ERROR, "R3  = %08lX   R11 = %08lX\n", (unsigned long)excRegs[3], (unsigned long)otherRegs[7]);
-    osLog(LOG_ERROR, "R4  = %08lX   R12 = %08lX\n", (unsigned long)otherRegs[0], (unsigned long)excRegs[4]);
-    osLog(LOG_ERROR, "R5  = %08lX   SP  = %08lX\n", (unsigned long)otherRegs[1], (unsigned long)(excRegs + 8));
-    osLog(LOG_ERROR, "R6  = %08lX   LR  = %08lX\n", (unsigned long)otherRegs[2], (unsigned long)excRegs[5]);
-    osLog(LOG_ERROR, "R7  = %08lX   PC  = %08lX\n", (unsigned long)otherRegs[3], (unsigned long)excRegs[6]);
-    osLog(LOG_ERROR, "HFSR= %08lX   CFSR= %08lX\n", (unsigned long)SCB->HFSR, (unsigned long)SCB->CFSR);
+    if (!tinyStack) {
+        osLog(LOG_ERROR, "*HARD FAULT* SR  = %08lX\n", (unsigned long)excRegs[7]);
+        osLog(LOG_ERROR, "R0  = %08lX   R8  = %08lX\n", (unsigned long)excRegs[0], (unsigned long)otherRegs[4]);
+        osLog(LOG_ERROR, "R1  = %08lX   R9  = %08lX\n", (unsigned long)excRegs[1], (unsigned long)otherRegs[5]);
+        osLog(LOG_ERROR, "R2  = %08lX   R10 = %08lX\n", (unsigned long)excRegs[2], (unsigned long)otherRegs[6]);
+        osLog(LOG_ERROR, "R3  = %08lX   R11 = %08lX\n", (unsigned long)excRegs[3], (unsigned long)otherRegs[7]);
+        osLog(LOG_ERROR, "R4  = %08lX   R12 = %08lX\n", (unsigned long)otherRegs[0], (unsigned long)excRegs[4]);
+        osLog(LOG_ERROR, "R5  = %08lX   SP  = %08lX\n", (unsigned long)otherRegs[1], (unsigned long)(excRegs + 8));
+        osLog(LOG_ERROR, "R6  = %08lX   LR  = %08lX\n", (unsigned long)otherRegs[2], (unsigned long)excRegs[5]);
+        osLog(LOG_ERROR, "R7  = %08lX   PC  = %08lX\n", (unsigned long)otherRegs[3], (unsigned long)excRegs[6]);
+        osLog(LOG_ERROR, "HFSR= %08lX   CFSR= %08lX\n", (unsigned long)SCB->HFSR, (unsigned long)SCB->CFSR);
+    }
 
     //reset
     SCB->AIRCR = 0x05FA0004;
@@ -179,16 +181,24 @@ static void __attribute__((used)) logHardFault(uintptr_t *excRegs, uintptr_t* ot
 }
 
 void HardFault_Handler(void);
+static uint32_t  __attribute__((used)) hfStack[16];
+
 void __attribute__((naked)) HardFault_Handler(void)
 {
     asm volatile(
-        "tst lr, #4         \n"
-        "ite eq             \n"
-        "mrseq r0, msp      \n"
-        "mrsne r0, psp      \n"
-        "push  {r4-r11}     \n"
-        "mov   r1, sp       \n"
-        "b     logHardFault \n"
+        "ldr r3, =__stack_bottom   \n"
+        "cmp sp, r3                \n"
+        "itte le                   \n"
+        "ldrle sp, =hfStack + 64   \n"
+        "movle r2, #1              \n"
+        "movgt r2, #0              \n"
+        "tst lr, #4                \n"
+        "ite eq                    \n"
+        "mrseq r0, msp             \n"
+        "mrsne r0, psp             \n"
+        "push  {r4-r11}            \n"
+        "mov   r1, sp              \n"
+        "b     logHardFault        \n"
     );
 }
 

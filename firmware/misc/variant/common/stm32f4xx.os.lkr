@@ -27,7 +27,17 @@ SECTIONS
 		KEEP (*(.internal_app_init) ) ;
 		__internal_app_end = ABSOLUTE(.);
 		. = ALIGN(4);
+		__text_end = ABSOLUTE(.);
 	} > code = 0xff
+
+	.stack : {
+		. = ALIGN(4);
+		__stack_bottom = ABSOLUTE(.);
+		KEEP ( *(.stack) );
+		KEEP ( *(.stack.*) );
+		. = ALIGN(4);
+		__stack_top = ABSOLUTE(.);
+	 } > ram
 
 	.data : {
 		. = ALIGN(4);
@@ -50,6 +60,7 @@ SECTIONS
 		. = ALIGN(4);
 		*(.neverinit) *(.neverinit.*) ;
 		. = ALIGN(4);
+		__heap_start = ABSOLUTE(.);
 	} > ram
 
 	__data_data = LOADADDR(.data);
@@ -57,6 +68,7 @@ SECTIONS
 
 BL = ORIGIN(bl);
 __app_start = __data_data + __data_end - __data_start;
+__heap_end = ORIGIN(ram) + LENGTH(ram);
 ENTRY(__VECTORS)
 
 
