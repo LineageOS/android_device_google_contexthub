@@ -23,27 +23,45 @@
 #include <cpu.h>
 
 
-#define HARD_FAULT_DROPBOX_MAGIC  0x31415926
-struct HardFaultDropbox {
-    uint32_t magic;
+#define HARD_FAULT_DROPBOX_MAGIC_MASK       0xFFFFC000
+#define HARD_FAULT_DROPBOX_MAGIC_VAL        0x31414000
+#define HARD_FAULT_DROPBOX_MAGIC_HAVE_DROP  0x00002000
+#define HARD_FAULT_DROPBOX_MAGIC_DATA_MASK  0x00001FFF
+
+struct RamPersistedDataAndDropbox {
+    uint32_t magic; // and part of dropbox
     uint32_t r[16];
-    uint32_t sr, hfsr, cfsr;
+    uint32_t sr_hfsr_cfsr_lo;
+    uint32_t bits;
+    uint32_t RFU;
 };
 
 /* //if your device persists ram, you can use this instead:
- * static struct HardFaultDropbox* getDropbox(void)
+ * static struct RamPersistedDataAndDropbox* getPersistedData(void)
  * {
- *     static struct HardFaultDropbox __attribute__((section(".neverinit"))) dbx;
+ *     static struct RamPersistedDataAndDropbox __attribute__((section(".neverinit"))) dbx;
  *     return &dbx;
  * }
  */
 
-static struct HardFaultDropbox* getDropbox(void)
+static struct RamPersistedDataAndDropbox* getPersistedData(void)
 {
     uint32_t bytes = 0;
     void *loc = platGetPersistentRamStore(&bytes);
 
-    return bytes >= sizeof(struct HardFaultDropbox) ? (struct HardFaultDropbox*)loc : NULL;
+    return bytes >= sizeof(struct RamPersistedDataAndDropbox) ? (struct RamPersistedDataAndDropbox*)loc : NULL;
+}
+
+static struct RamPersistedDataAndDropbox* getInitedPersistedData(void)
+{
+    struct RamPersistedDataAndDropbox* dbx = getPersistedData();
+
+    if ((dbx->magic & HARD_FAULT_DROPBOX_MAGIC_MASK) != HARD_FAULT_DROPBOX_MAGIC_VAL) {
+        dbx->bits = 0;
+        dbx->magic = HARD_FAULT_DROPBOX_MAGIC_VAL;
+    }
+
+    return dbx;
 }
 
 void cpuInit(void)
@@ -58,24 +76,69 @@ void cpuInit(void)
     SCB->CPACR |= 0x00F00000;
 }
 
+//pack all our SR regs into 45 bits
+static void cpuPackSrBits(uint32_t *dstLo, uint32_t *dstHi, uint32_t sr, uint32_t hfsr, uint32_t cfsr)
+{
+    //mask of useful bits:
+    // SR:   11111111 00000000 11111101 11111111 (total of 23 bits)
+    // HFSR: 01000000 00000000 00000000 00000010 (total of  2 bits)
+    // CFSR: 00000011 00001111 10111111 10111111 (total of 20 bits)
+    // so our total is 45 bits. we pack this into 2 longs (for now)
+
+    sr   &= 0xFF00FDFF;
+    hfsr &= 0x40000002;
+    cfsr &= 0x030FBFBF;
+
+    *dstLo = sr | ((cfsr << 4) & 0x00FF0000) | (hfsr >> 12) | (hfsr << 8);
+    *dstHi = ((cfsr & 0x01000000) >> 18) | ((cfsr & 0x02000000) >> 13) | (cfsr & 0x00000fff);
+}
+
+//unpack the SR bits
+static void cpuUnpackSrBits(uint32_t srcLo, uint32_t srcHi, uint32_t *srP, uint32_t *hfsrP, uint32_t *cfsrP)
+{
+    *srP = srcLo & 0xFF00FDFF;
+    *hfsrP = ((srcLo << 12) & 0x40000000) | ((srcLo >> 8) & 0x00000002);
+    *cfsrP = ((srcLo & 0x00FB0000) >> 4) | (srcHi & 0x0FBF) | ((srcHi << 13) & 0x02000000) | ((srcHi << 18) & 0x01000000);
+}
 
 void cpuInitLate(void)
 {
-    struct HardFaultDropbox *dbx = getDropbox();
+    struct RamPersistedDataAndDropbox *dbx = getInitedPersistedData();
 
     /* print and clear dropbox */
-    if (dbx->magic == HARD_FAULT_DROPBOX_MAGIC) {
-        uint32_t i;
+    if (dbx->magic & HARD_FAULT_DROPBOX_MAGIC_HAVE_DROP) {
+        uint32_t i, hfsr, cfsr, sr;
+
+        cpuUnpackSrBits(dbx->sr_hfsr_cfsr_lo, dbx->magic & HARD_FAULT_DROPBOX_MAGIC_DATA_MASK, &sr, &hfsr, &cfsr);
+
 	osLog(LOG_INFO, "Hard Fault Dropbox not empty. Contents:\n");
 	for (i = 0; i < 16; i++)
 		osLog(LOG_INFO, "  R%02lu  = 0x%08lX\n", i, dbx->r[i]);
-        osLog(LOG_INFO, "  SR   = %08lX\n", dbx->sr);
-        osLog(LOG_INFO, "  HFSR = %08lX\n", dbx->hfsr);
-        osLog(LOG_INFO, "  CFSR = %08lX\n", dbx->cfsr);
+        osLog(LOG_INFO, "  SR   = %08lX\n", sr);
+        osLog(LOG_INFO, "  HFSR = %08lX\n", hfsr);
+        osLog(LOG_INFO, "  CFSR = %08lX\n", cfsr);
     }
-    dbx->magic = 0;
+    dbx->magic &=~ HARD_FAULT_DROPBOX_MAGIC_HAVE_DROP;
 }
 
+bool cpuRamPersistentBitGet(uint32_t which)
+{
+    struct RamPersistedDataAndDropbox *dbx = getInitedPersistedData();
+
+    return (which < CPU_NUM_PERSISTENT_RAM_BITS) && ((dbx->bits >> which) & 1);
+}
+
+void cpuRamPersistentBitSet(uint32_t which, bool on)
+{
+    struct RamPersistedDataAndDropbox *dbx = getInitedPersistedData();
+
+    if (which < CPU_NUM_PERSISTENT_RAM_BITS) {
+        if (on)
+            dbx->bits |= (1ULL << which);
+        else
+            dbx->bits &=~ (1ULL << which);
+    }
+}
 
 uint64_t cpuIntsOff(void)
 {
@@ -144,8 +207,8 @@ void __attribute__((naked)) SVC_Handler(void)
 
 static void __attribute__((used)) logHardFault(uintptr_t *excRegs, uintptr_t* otherRegs, bool tinyStack)
 {
-    struct HardFaultDropbox *dbx = getDropbox();
-    uint32_t i;
+    struct RamPersistedDataAndDropbox *dbx = getInitedPersistedData();
+    uint32_t i, hi;
 
     for (i = 0; i < 4; i++)
         dbx->r[i] = excRegs[i];
@@ -155,10 +218,9 @@ static void __attribute__((used)) logHardFault(uintptr_t *excRegs, uintptr_t* ot
     dbx->r[13] = (uint32_t)(excRegs + 8);
     dbx->r[14] = excRegs[5];
     dbx->r[15] = excRegs[6];
-    dbx->sr = excRegs[7];
-    dbx->hfsr = SCB->HFSR;
-    dbx->cfsr = SCB->CFSR;
-    dbx->magic = HARD_FAULT_DROPBOX_MAGIC;
+
+    cpuPackSrBits(&dbx->sr_hfsr_cfsr_lo, &hi, excRegs[7], SCB->HFSR, SCB->CFSR);
+    dbx->magic |= HARD_FAULT_DROPBOX_MAGIC_HAVE_DROP | (hi & HARD_FAULT_DROPBOX_MAGIC_DATA_MASK);
 
     if (!tinyStack) {
         osLog(LOG_ERROR, "*HARD FAULT* SR  = %08lX\n", (unsigned long)excRegs[7]);

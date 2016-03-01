@@ -20,6 +20,9 @@ OBJCOPY = $(CROSS_COMPILE)objcopy
 FLAGS += -mthumb -mcpu=cortex-m4 -march=armv7e-m -mfloat-abi=softfp -mfpu=fpv4-sp-d16 -mno-thumb-interwork -ffast-math -fsingle-precision-constant -DARM -DMY_FLOAT_RUNTIME_SUCKS
 APPFLAGS += -Wl,-T misc/cpu/$(CPU)/app.lkr -mno-pic-data-is-text-relative
 
+#defines
+FLAGS += -DCPU_NUM_PERSISTENT_RAM_BITS=32
+
 #cpu runtime
 SRCS_os += src/cpu/$(CPU)/atomicBitset.c src/cpu/$(CPU)/cpu.c src/cpu/$(CPU)/pendsv.c src/cpu/$(CPU)/atomic.c src/cpu/$(CPU)/appSupport.c src/cpu/$(CPU)/cpuMath.c
 
