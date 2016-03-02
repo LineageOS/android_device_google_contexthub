@@ -46,6 +46,16 @@ SECTIONS
 		BYTE (0xff) ;
 
 	} > code
+
+
+	.stack : {
+		. = ALIGN(4);
+		__stack_bottom = ABSOLUTE(.);
+		KEEP ( *(.stack) );
+		KEEP ( *(.stack.*) );
+		. = ALIGN(4);
+		__stack_top = ABSOLUTE(.);
+	 } > ram
 }
 
 

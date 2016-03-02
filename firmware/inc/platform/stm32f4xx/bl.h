@@ -96,6 +96,11 @@ struct BlVecTable {
     const uint32_t* (*blSigPaddingVerify)(const uint32_t *rsaResult); //return pointer to hash inside the rsaResult or NULL on error
 };
 
+#ifndef BL_STACK_SIZE
+#define BL_STACK_SIZE 4096
+#endif
+
+
 //for using outside of bootloader
 extern struct BlVecTable BL;
 

@@ -22,6 +22,11 @@
 #define VECI(nm)    VEC_(nm, _IRQHandler)
 
 
+
+#ifndef OS_STACK_SIZE
+#define OS_STACK_SIZE 2048
+#endif
+
 void __attribute__ ((weak)) IntDefaultHandler(void);
 VEC(NMI);
 VEC(HardFault);
@@ -102,6 +107,9 @@ extern uint32_t __bss_end[];
 
 
 
+
+//OS stack
+uint8_t __attribute__ ((section (".stack"))) _STACK[OS_STACK_SIZE];
 
 void __attribute__((noreturn)) IntDefaultHandler(void)
 {

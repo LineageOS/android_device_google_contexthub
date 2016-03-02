@@ -20,7 +20,6 @@ ifneq ($(PLATFORM),stm32f4xx)
         $(error "LUNCHBOX variant cannot be build on a platform that is not stm32f411")
 endif
 
-FLAGS += -DHEAP_SIZE=112640          #110K heap
 FLAGS += -DPLATFORM_HW_TYPE=0x4C75   #'Lu' -> lunchbox
 FLAGS += -DDEBUG_UART_PIN=0          #GPIOA0 is debug uart at 2MBps
 
