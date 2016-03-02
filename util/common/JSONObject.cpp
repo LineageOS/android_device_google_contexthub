@@ -28,16 +28,27 @@
 
 namespace android {
 
-static int32_t parseInt32(const char *data, size_t numDigits) {
+// Returns ERROR_MALFORMED if the value overflows a signed int, returns
+//     0 otherwise.
+// This method will assert if it is asked to parse a character which is not
+//     a digit.
+static ssize_t parseInt32(const char *data, size_t numDigits, int32_t *out) {
     int32_t x = 0;
     for (size_t i = 0; i < numDigits; ++i) {
+        int32_t old_x = x;
         x *= 10;
         x += data[i] - '0';
 
-        CHECK_GE(x, 0);
+        CHECK(isdigit(data[i]));
+
+        if (x < old_x) {
+            // We've overflowed.
+            return ERROR_MALFORMED;
+        }
     }
 
-    return x;
+    *out = x;
+    return 0;
 }
 
 // static
@@ -295,17 +306,27 @@ ssize_t JSONValue::Parse(const char *data, size_t size, JSONValue *out) {
         }
 
         if (numFracDigits == 0 && numExpDigits == 0) {
-            int32_t x = parseInt32(&data[firstDigitOffset], numDigits);
+            int32_t x;
+            if (parseInt32(&data[firstDigitOffset], numDigits, &x) != 0) {
+                return ERROR_MALFORMED;
+            }
 
             out->setInt32(negate ? -x : x);
         } else {
-            int32_t mantissa = parseInt32(&data[firstDigitOffset], numDigits);
+            int32_t mantissa;
+            if (parseInt32(&data[firstDigitOffset], numDigits, &mantissa) != 0) {
+                return ERROR_MALFORMED;
+            }
 
-            int32_t fraction =
-                parseInt32(&data[firstFracDigitOffset], numFracDigits);
+            int32_t fraction;
+            if (parseInt32(&data[firstFracDigitOffset], numFracDigits, &fraction) != 0) {
+                return ERROR_MALFORMED;
+            }
 
-            int32_t exponent =
-                parseInt32(&data[firstExpDigitOffset], numExpDigits);
+            int32_t exponent;
+            if (parseInt32(&data[firstExpDigitOffset], numExpDigits, &exponent) != 0) {
+                return ERROR_MALFORMED;
+            }
 
             if (negateExponent) {
                 exponent = -exponent;
