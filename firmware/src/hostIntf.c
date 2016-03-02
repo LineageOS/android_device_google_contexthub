@@ -830,7 +830,6 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
     uint32_t i, cnt;
     uint64_t currentTime, rtcTime;
     struct ActiveSensor *sensor;
-    const struct SensorInfo *si;
     uint32_t tempSensorHandle;
     const struct HostHubRawPacket *hostMsg;
     struct DataBuffer *data;
@@ -938,7 +937,7 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
                     }
                 }
             } else if (cmd->cmd == CONFIG_CMD_ENABLE) {
-                for (i = 0; (si = sensorFind(cmd->sensType, i, &sensor->sensorHandle)) != NULL; i++) {
+                for (i = 0; sensorFind(cmd->sensType, i, &sensor->sensorHandle) != NULL; i++) {
                     if (cmd->rate == SENSOR_RATE_ONESHOT) {
                         cmd->rate = SENSOR_RATE_ONCHANGE;
                         sensor->oneshot = true;
