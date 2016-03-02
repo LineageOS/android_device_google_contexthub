@@ -113,7 +113,8 @@ bool ContextHub::Flash(const std::string& filename) {
         return false;
     }
 
-    int file_size = fseek(firmware_file, 0, SEEK_END);
+    fseek(firmware_file, 0, SEEK_END);
+    long file_size = ftell(firmware_file);
     fseek(firmware_file, 0, SEEK_SET);
 
     auto firmware_data = std::vector<uint8_t>(file_size);
@@ -122,7 +123,7 @@ bool ContextHub::Flash(const std::string& filename) {
     fclose(firmware_file);
 
     if (bytes_read != static_cast<size_t>(file_size)) {
-        LOGE("Read of firmware file returned %zu, expected %d",
+        LOGE("Read of firmware file returned %zu, expected %ld",
             bytes_read, file_size);
         return false;
     }
