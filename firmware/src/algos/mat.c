@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#include <fusion/mat.h>
+#include <algos/mat.h>
 
 #include <assert.h>
 #include <nanohub_math.h>
