@@ -40,14 +40,6 @@ struct MagCal {
     float c00, c01, c02, c10, c11, c12, c20, c21, c22;
 
     size_t nsamples;
-
-    uint16_t dig_z1;
-    int16_t dig_z2, dig_z3, dig_z4;
-    uint16_t dig_xyz1;
-    uint8_t raw_dig_data[24];
-    int8_t dig_x1, dig_y1, dig_x2, dig_y2;
-    uint8_t dig_xy1;
-    int8_t dig_xy2;
 };
 
 void initMagCal(struct MagCal *moc,
@@ -75,15 +67,6 @@ void magCalSetSoftiron(struct MagCal *moc,
 
 void magCalRemoveSoftiron(struct MagCal *moc, float xi, float yi, float zi,
                              float *xo, float *yo, float *zo);
-
-int32_t bmm150TempCompensateX(struct MagCal *moc, int16_t mag_x, uint16_t rhall);
-int32_t bmm150TempCompensateY(struct MagCal *moc, int16_t mag_y, uint16_t rhall);
-int32_t bmm150TempCompensateZ(struct MagCal *moc, int16_t mag_z, uint16_t rhall);
-
-uint16_t U16_AT(uint8_t *ptr);
-int16_t S16_AT(uint8_t *ptr);
-
-void saveDigData(struct MagCal *moc, uint8_t *data, size_t offset);
 
 #ifdef __cplusplus
 }
