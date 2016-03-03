@@ -113,7 +113,12 @@ static bool mBusy;
 static uint64_t mRxTimestamp;
 static uint8_t mRxBuf[NANOHUB_PACKET_SIZE_MAX];
 static size_t mRxSize;
-static bool mTxRetrans;
+static struct
+{
+    const struct NanohubCommand *cmd;
+    uint32_t seq;
+    bool seqMatch;
+} mTxRetrans;
 static struct
 {
     uint8_t pad; // packet header is 10 bytes. + 2 to word align
@@ -123,9 +128,7 @@ static struct
 } mTxBuf;
 static size_t mTxSize;
 static uint8_t *mTxBufPtr;
-static uint32_t mSeq;
 static const struct NanohubCommand *mRxCmd;
-static uint8_t mRxIdle;
 ATOMIC_BITSET_DECL(mInterrupt, HOSTINTF_MAX_INTERRUPTS, static);
 ATOMIC_BITSET_DECL(mInterruptMask, HOSTINTF_MAX_INTERRUPTS, static);
 static uint32_t mInterruptCntWkup, mInterruptCntNonWkup;
@@ -133,6 +136,11 @@ static uint32_t mWakeupBlocks, mNonWakeupBlocks, mTotalBlocks;
 static uint32_t mHostIntfTid;
 static uint32_t mLatencyTimer;
 static uint8_t mLatencyCnt;
+
+static uint8_t mRxIdle;
+static uint8_t mWakeActive;
+static uint8_t mActiveWrite;
+static uint8_t mRestartRx;
 
 static void hostIntfTxPacket(uint32_t reason, uint8_t len, uint32_t seq,
         HostIntfCommCallbackF callback);
@@ -197,11 +205,11 @@ static inline const struct NanohubCommand *hostIntfFindHandler(uint8_t *buf, siz
         return NULL;
     }
 
-    if (mSeq == packet->seq) {
-        mTxRetrans = true;
-        return mRxCmd;
+    if (mTxRetrans.seq == packet->seq) {
+        mTxRetrans.seqMatch = true;
+        return mTxRetrans.cmd;
     } else {
-        mTxRetrans = false;
+        mTxRetrans.seqMatch = false;
     }
 
     *seq = packet->seq;
@@ -277,8 +285,7 @@ static bool hostIntfRequest(uint32_t tid)
     if (mComm) {
         int err = mComm->request();
         if (!err) {
-            atomicXchgByte(&mRxIdle, 1);
-            hostIntfRxPacket();
+            mComm->rxPacket(mRxBuf, sizeof(mRxBuf), hostIntfRxDone);
             osEventSubscribe(mHostIntfTid, EVT_APP_START);
             return true;
         }
@@ -287,10 +294,27 @@ static bool hostIntfRequest(uint32_t tid)
     return false;
 }
 
-void hostIntfRxPacket()
+void hostIntfRxPacket(bool wakeupActive)
 {
-    if (atomicXchgByte(&mRxIdle, 0))
-        mComm->rxPacket(mRxBuf, sizeof(mRxBuf), hostIntfRxDone);
+    if (mWakeActive) {
+        if (atomicXchgByte(&mRxIdle, false)) {
+            if (!wakeupActive)
+                hostIntfClearInterrupt(NANOHUB_INT_WAKE_COMPLETE);
+            mComm->rxPacket(mRxBuf, sizeof(mRxBuf), hostIntfRxDone);
+            if (wakeupActive)
+                hostIntfSetInterrupt(NANOHUB_INT_WAKE_COMPLETE);
+        } else if (atomicReadByte(&mActiveWrite)) {
+            atomicWriteByte(&mRestartRx, true);
+        } else {
+            if (!wakeupActive)
+                hostIntfClearInterrupt(NANOHUB_INT_WAKE_COMPLETE);
+            else
+                hostIntfSetInterrupt(NANOHUB_INT_WAKE_COMPLETE);
+        }
+    } else if (wakeupActive && !atomicReadByte(&mActiveWrite))
+        hostIntfSetInterrupt(NANOHUB_INT_WAKE_COMPLETE);
+
+    mWakeActive = wakeupActive;
 }
 
 static void hostIntfRxDone(size_t rx, int err)
@@ -311,13 +335,16 @@ static void hostIntfGenerateAck(void *cookie)
     uint32_t seq = 0;
     void *txPayload = hostIntfGetPayload(mTxBuf.buf);
 
+    atomicWriteByte(&mActiveWrite, true);
+    hostIntfSetInterrupt(NANOHUB_INT_WAKE_COMPLETE);
     mRxCmd = hostIntfFindHandler(mRxBuf, mRxSize, &seq);
 
     if (mRxCmd) {
-        if (mTxRetrans) {
+        if (mTxRetrans.seqMatch) {
             hostIntfTxBuf(mTxSize, &mTxBuf.prePreamble, hostIntfTxPayloadDone);
         } else {
-            mSeq = seq;
+            mTxRetrans.seq = seq;
+            mTxRetrans.cmd = mRxCmd;
             hostIntfCopyInterrupts(txPayload, HOSTINTF_MAX_INTERRUPTS);
             hostIntfTxPacket(NANOHUB_REASON_ACK, 32, seq, hostIntfTxAckDone);
         }
@@ -329,25 +356,43 @@ static void hostIntfGenerateAck(void *cookie)
     }
 }
 
+static void hostIntfTxComplete(bool restart)
+{
+    hostIntfClearInterrupt(NANOHUB_INT_WAKE_COMPLETE);
+    atomicWriteByte(&mActiveWrite, false);
+    atomicWriteByte(&mRestartRx, false);
+    if (restart) {
+        mComm->rxPacket(mRxBuf, sizeof(mRxBuf), hostIntfRxDone);
+        hostIntfSetInterrupt(NANOHUB_INT_WAKE_COMPLETE);
+    } else {
+        atomicWriteByte(&mRxIdle, true);
+    }
+}
+
 static void hostIntfTxAckDone(size_t tx, int err)
 {
     hostIntfTxPacketDone(err, tx, hostIntfTxAckDone);
 
     if (err) {
         osLog(LOG_ERROR, "%s: failed to ACK request: %d\n", __func__, err);
-        atomicXchgByte(&mRxIdle, 1);
-        hostIntfClearInterrupt(NANOHUB_INT_WAKE_COMPLETE);
-        return;
-    }
-    if (!mRxCmd) {
-        if (!mBusy)
-            osLog(LOG_DEBUG, "%s: NACKed invalid request\n", __func__);
-        atomicXchgByte(&mRxIdle, 1);
-        hostIntfClearInterrupt(NANOHUB_INT_WAKE_COMPLETE);
+        hostIntfTxComplete(false);
         return;
     }
 
-    osDefer(hostIntfGenerateResponse, NULL, true);
+    if (!mRxCmd) {
+        if (!mBusy)
+            osLog(LOG_DEBUG, "%s: NACKed invalid request\n", __func__);
+        if (atomicReadByte(&mRestartRx))
+            hostIntfTxComplete(true);
+        else
+            hostIntfTxComplete(false);
+        return;
+    } else if (atomicReadByte(&mRestartRx)) {
+        hostIntfTxComplete(true);
+    } else {
+        if (!osDefer(hostIntfGenerateResponse, NULL, true))
+            hostIntfTxComplete(false);
+    }
 }
 
 static void hostIntfGenerateResponse(void *cookie)
@@ -357,7 +402,7 @@ static void hostIntfGenerateResponse(void *cookie)
     void *txPayload = hostIntfGetPayload(mTxBuf.buf);
     uint8_t respLen = mRxCmd->handler(rxPayload, rx_len, txPayload, mRxTimestamp);
 
-    hostIntfTxPacket(mRxCmd->reason, respLen, mSeq, hostIntfTxPayloadDone);
+    hostIntfTxPacket(mRxCmd->reason, respLen, mTxRetrans.seq, hostIntfTxPayloadDone);
 }
 
 static void hostIntfTxPayloadDone(size_t tx, int err)
@@ -368,8 +413,10 @@ static void hostIntfTxPayloadDone(size_t tx, int err)
         osLog(LOG_ERROR, "%s: failed to send response: %d\n", __func__, err);
 
     if (done) {
-        atomicXchgByte(&mRxIdle, 1);
-        hostIntfClearInterrupt(NANOHUB_INT_WAKE_COMPLETE);
+        if (atomicReadByte(&mRestartRx))
+            hostIntfTxComplete(true);
+        else
+            hostIntfTxComplete(false);
     }
 }
 
@@ -887,7 +934,7 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
         for (i = 0, cnt = 0; i < mNumSensors && cnt < mLatencyCnt; i++) {
             if (mActiveSensorTable[i].latency > 0) {
                 cnt++;
-                if (currentTime >= mActiveSensorTable[i].lastInterrupt + mActiveSensorTable[i].latency) {
+                if (mActiveSensorTable[i].curSamples && currentTime >= mActiveSensorTable[i].lastInterrupt + mActiveSensorTable[i].latency) {
                     hostIntfSetInterrupt(mActiveSensorTable[i].interrupt);
                     mActiveSensorTable[i].lastInterrupt += mActiveSensorTable[i].latency;
                 }
