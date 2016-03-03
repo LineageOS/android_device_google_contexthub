@@ -18,17 +18,38 @@
 
 #define TIME_H_
 
+#include <stdio.h>
+#include <stdint.h>
+#include <stdbool.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-void time_init();
+#define NUM_TIME_SYNC_DATAPOINTS    16
 
-bool sensortime_to_rtc_time(uint64_t sensor_time, uint64_t *rtc_time_ns);
+typedef struct {
+    uint64_t time1[NUM_TIME_SYNC_DATAPOINTS];
+    uint64_t time2[NUM_TIME_SYNC_DATAPOINTS];
+    size_t n;
+    size_t i;
 
-void map_sensortime_to_rtc_time(uint64_t sensor_time, uint64_t rtc_time_ns);
-void invalidate_sensortime_to_rtc_time();
-void minimize_sensortime_history();
+    uint64_t time1_base;
+    uint64_t time2_base;
+
+    bool estimate_valid;
+    float n1, n2, alpha;
+
+    uint8_t hold_count;
+
+} time_sync_t;
+
+void time_sync_reset(time_sync_t *sync);
+bool time_sync_init(time_sync_t *sync);
+void time_sync_truncate(time_sync_t *sync, size_t window_size);
+bool time_sync_add(time_sync_t *sync, uint64_t time1, uint64_t time2);
+bool time_sync_estimate_time1(time_sync_t *sync, uint64_t time2, uint64_t *time1);
+void time_sync_hold(time_sync_t *sync, uint8_t count);
 
 #ifdef __cplusplus
 }

@@ -27,7 +27,6 @@
 #include <seos.h>
 
 #include <nanohub_math.h>
-#include <fusion/fusion.h>
 #include <sensors.h>
 #include <limits.h>
 

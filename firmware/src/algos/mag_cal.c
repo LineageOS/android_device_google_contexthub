@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-#include "mag_cal.h"
-#include <fusion/mat.h>
+#include <algos/mag_cal.h>
+#include <algos/mat.h>
 
 #include <errno.h>
 #include <nanohub_math.h>
@@ -31,31 +31,6 @@
 #define MIN_BATCH_WINDOW    1000000UL   // 1 sec
 #define MAX_BATCH_WINDOW    15000000UL  // 15 sec
 #define MIN_BATCH_SIZE      25      // samples
-
-#define BMM150_REG_REPXY          0x51
-#define BMM150_REG_REPZ           0x52
-#define BMM150_REG_DIG_X1         0x5d
-#define BMM150_REG_DIG_Y1         0x5e
-#define BMM150_REG_DIG_Z4_LSB     0x62
-#define BMM150_REG_DIG_Z4_MSB     0x63
-#define BMM150_REG_DIG_X2         0x64
-#define BMM150_REG_DIG_Y2         0x65
-#define BMM150_REG_DIG_Z2_LSB     0x68
-#define BMM150_REG_DIG_Z2_MSB     0x69
-#define BMM150_REG_DIG_Z1_LSB     0x6a
-#define BMM150_REG_DIG_Z1_MSB     0x6b
-#define BMM150_REG_DIG_XYZ1_LSB   0x6c
-#define BMM150_REG_DIG_XYZ1_MSB   0x6d
-#define BMM150_REG_DIG_Z3_LSB     0x6e
-#define BMM150_REG_DIG_Z3_MSB     0x6f
-#define BMM150_REG_DIG_XY2        0x70
-#define BMM150_REG_DIG_XY1        0x71
-
-#define BMI160_MAG_FLIP_OVERFLOW_ADCVAL     ((int16_t)-4096)
-#define BMI160_MAG_HALL_OVERFLOW_ADCVAL     ((int16_t)-16384)
-#define BMI160_MAG_OVERFLOW_OUTPUT          ((int16_t)-32768)
-#define BMM150_CALIB_HEX_LACKS              0x100000
-#define BMI160_MAG_OVERFLOW_OUTPUT_S32      ((int32_t)(-2147483647-1))
 
 // eigen value magnitude and ratio test
 static int moc_eigen_test(struct MagCal *moc)
@@ -302,122 +277,5 @@ void magCalRemoveSoftiron(struct MagCal *moc, float xi, float yi, float zi,
     *xo = moc->c00 * xi + moc->c01 * yi + moc->c02 * zi;
     *yo = moc->c10 * xi + moc->c11 * yi + moc->c12 * zi;
     *zo = moc->c20 * xi + moc->c21 * yi + moc->c22 * zi;
-}
-
-int32_t bmm150TempCompensateX(
-       struct MagCal *moc, int16_t mag_x, uint16_t rhall)
-{
-    int32_t inter_retval = 0;
-
-    // some temp var to made the long calculation easier to read
-    int32_t temp_1, temp_2, temp_3, temp_4;
-
-    // no overflow
-    if (mag_x != BMI160_MAG_FLIP_OVERFLOW_ADCVAL) {
-        if ((rhall != 0) && (moc->dig_xyz1 != 0)) {
-
-            inter_retval = ((int32_t)(((uint16_t) ((((int32_t)moc->dig_xyz1) << 14)
-                / (rhall != 0 ?  rhall : moc->dig_xyz1))) - ((uint16_t)0x4000)));
-
-        } else {
-            inter_retval = BMI160_MAG_OVERFLOW_OUTPUT;
-            return inter_retval;
-        }
-
-        temp_1 = ((int32_t)moc->dig_xy2) * ((((int32_t)inter_retval) * ((int32_t)inter_retval)) >> 7);
-        temp_2 = ((int32_t)inter_retval) * ((int32_t)(((int16_t)moc->dig_xy1) << 7));
-        temp_3 = ((temp_1 + temp_2) >> 9) + ((int32_t)BMM150_CALIB_HEX_LACKS);
-        temp_4 = ((int32_t)mag_x) * ((temp_3 * ((int32_t)(((int16_t)moc->dig_x2) + ((int16_t)0xa0)))) >> 12);
-
-        inter_retval = ((int32_t)(temp_4 >> 13)) + (((int16_t)moc->dig_x1) << 3);
-
-        // check the overflow output
-        if (inter_retval == (int32_t)BMI160_MAG_OVERFLOW_OUTPUT)
-            inter_retval = BMI160_MAG_OVERFLOW_OUTPUT_S32;
-    } else {
-        // overflow
-        inter_retval = BMI160_MAG_OVERFLOW_OUTPUT;
-    }
-    return inter_retval;
-}
-
-int32_t bmm150TempCompensateY(struct MagCal *moc, int16_t mag_y, uint16_t rhall)
-{
-    int32_t inter_retval = 0;
-
-    // some temp var to made the long calculation easier to read
-    int32_t temp_1, temp_2, temp_3, temp_4;
-
-    // no overflow
-    if (mag_y != BMI160_MAG_FLIP_OVERFLOW_ADCVAL) {
-        if ((rhall != 0) && (moc->dig_xyz1 != 0)) {
-
-            inter_retval = ((int32_t)(((uint16_t)((( (int32_t)moc->dig_xyz1) << 14)
-                / (rhall != 0 ?  rhall : moc->dig_xyz1))) - ((uint16_t)0x4000)));
-
-        } else {
-            inter_retval = BMI160_MAG_OVERFLOW_OUTPUT;
-            return inter_retval;
-        }
-
-        temp_1 = ((int32_t)moc->dig_xy2) * ((((int32_t) inter_retval) * ((int32_t)inter_retval)) >> 7);
-        temp_2 = ((int32_t)inter_retval) * ((int32_t)(((int16_t)moc->dig_xy1) << 7));
-        temp_3 = ((temp_1 + temp_2) >> 9) + ((int32_t)BMM150_CALIB_HEX_LACKS);
-        temp_4 = ((int32_t)mag_y) * ((temp_3 * ((int32_t)(((int16_t)moc->dig_y2) + ((int16_t)0xa0)))) >> 12);
-
-        inter_retval = ((int32_t)(temp_4 >> 13)) + (((int16_t)moc->dig_y1) << 3);
-
-        // check the overflow output
-        if (inter_retval == (int32_t)BMI160_MAG_OVERFLOW_OUTPUT)
-            inter_retval = BMI160_MAG_OVERFLOW_OUTPUT_S32;
-    } else {
-        // overflow
-        inter_retval = BMI160_MAG_OVERFLOW_OUTPUT;
-    }
-    return inter_retval;
-}
-
-int32_t bmm150TempCompensateZ(struct MagCal *moc, int16_t mag_z, uint16_t rhall)
-{
-    int32_t retval = 0;
-    if (mag_z != BMI160_MAG_HALL_OVERFLOW_ADCVAL) {
-        if ((rhall != 0) && (moc->dig_z2 != 0) && (moc->dig_z1 != 0)) {
-
-            retval = ((((int32_t)(mag_z - moc->dig_z4)) << 15)
-                    - ((((int32_t)moc->dig_z3) * ((int32_t)(((int16_t)rhall) - ((int16_t)moc->dig_xyz1)))) >> 2));
-
-            retval /= (moc->dig_z2
-                    + ((int16_t)(((((int32_t)moc->dig_z1) * ((((int16_t)rhall) << 1))) + (1 << 15)) >> 16)));
-        }
-    } else {
-        retval = BMI160_MAG_OVERFLOW_OUTPUT;
-    }
-    return retval;
-}
-
-void saveDigData(struct MagCal *moc, uint8_t *data, size_t offset)
-{
-    // magnetometer temperature calibration data is read in 3 bursts of 8 byte
-    // length each.
-    memcpy(&moc->raw_dig_data[offset], data, 8);
-
-    if (offset == 16) {
-        // we have all the raw data.
-
-        static const size_t first_reg = BMM150_REG_DIG_X1;
-        moc->dig_x1 = moc->raw_dig_data[BMM150_REG_DIG_X1 - first_reg];
-        moc->dig_y1 = moc->raw_dig_data[BMM150_REG_DIG_Y1 - first_reg];
-        moc->dig_x2 = moc->raw_dig_data[BMM150_REG_DIG_X2 - first_reg];
-        moc->dig_y2 = moc->raw_dig_data[BMM150_REG_DIG_Y2 - first_reg];
-        moc->dig_xy2 = moc->raw_dig_data[BMM150_REG_DIG_XY2 - first_reg];
-        moc->dig_xy1 = moc->raw_dig_data[BMM150_REG_DIG_XY1 - first_reg];
-
-        moc->dig_z1 = *(uint16_t *)(&moc->raw_dig_data[BMM150_REG_DIG_Z1_LSB - first_reg]);
-        moc->dig_z2 = *(int16_t *)(&moc->raw_dig_data[BMM150_REG_DIG_Z2_LSB - first_reg]);
-        moc->dig_z3 = *(int16_t *)(&moc->raw_dig_data[BMM150_REG_DIG_Z3_LSB - first_reg]);
-        moc->dig_z4 = *(int16_t *)(&moc->raw_dig_data[BMM150_REG_DIG_Z4_LSB - first_reg]);
-
-        moc->dig_xyz1 = *(uint16_t *)(&moc->raw_dig_data[BMM150_REG_DIG_XYZ1_LSB - first_reg]);
-    }
 }
 

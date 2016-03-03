@@ -14,8 +14,7 @@
  * limitations under the License.
  */
 
-#include <fusion/vec.h>
-
+#include <algos/vec.h>
 #include <nanohub_math.h>
 
 
