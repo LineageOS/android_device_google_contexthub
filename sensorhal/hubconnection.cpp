@@ -149,7 +149,9 @@ HubConnection::HubConnection()
     }
 
     // enable hall sensor for folio
-    queueActivate(COMMS_SENSOR_HALL, true /* enable */);
+    if (mFd >= 0) {
+        queueActivate(COMMS_SENSOR_HALL, true /* enable */);
+    }
 }
 
 HubConnection::~HubConnection()
@@ -164,7 +166,7 @@ void HubConnection::onFirstRef()
 
 status_t HubConnection::initCheck() const
 {
-    return OK;
+    return mFd < 0 ? UNKNOWN_ERROR : OK;
 }
 
 status_t HubConnection::getAliveCheck()
@@ -507,6 +509,11 @@ bool HubConnection::threadLoop() {
     float barometer, mag[3];
 
     ALOGI("threadLoop: starting");
+
+    if (mFd < 0) {
+        ALOGE("threadLoop: exiting prematurely: nanohub is unavailable");
+        return false;
+    }
 
     loadSensorSettings(&settings, &saved_settings);
 
