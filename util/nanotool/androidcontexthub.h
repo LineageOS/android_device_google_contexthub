@@ -38,8 +38,8 @@ class AndroidContextHub : public ContextHub {
   protected:
     ContextHub::TransportResult WriteEvent(
         const std::vector<uint8_t>& request) override;
-    ContextHub::TransportResult ReadEvent(std::vector<uint8_t>& response)
-        override;
+    ContextHub::TransportResult ReadEvent(std::vector<uint8_t>& response,
+        int timeout_ms) override;
     bool FlashSensorHub(const std::vector<uint8_t>& bytes) override;
 
     bool SetCalibration(SensorType sensor_type, int32_t data) override;

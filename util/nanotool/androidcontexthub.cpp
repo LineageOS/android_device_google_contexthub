@@ -173,21 +173,22 @@ ContextHub::TransportResult AndroidContextHub::WriteEvent(
 }
 
 ContextHub::TransportResult AndroidContextHub::ReadEvent(
-        std::vector<uint8_t>& message) {
+        std::vector<uint8_t>& message, int timeout_ms) {
     ContextHub::TransportResult result = TransportResult::GeneralFailure;
 
     struct pollfd pollfds[kDeviceFileCount];
     int fd_count = ResetPollFds(pollfds, kDeviceFileCount);
 
-    int ret = poll(pollfds, fd_count, kPollNoTimeout);
+    int timeout = timeout_ms > 0 ? timeout_ms : kPollNoTimeout;
+    int ret = poll(pollfds, fd_count, timeout);
     if (ret < 0) {
         LOGE("Polling failed: %s", strerror(errno));
         if (errno == EINTR) {
             result = TransportResult::Canceled;
         }
     } else if (ret == 0) {
-        // We don't specify a timeout, so this isn't expected
-        LOGE("Select unexpectedly returned 0");
+        LOGD("Poll timed out");
+        result = TransportResult::Timeout;
     } else {
         int read_fd = -1;
         for (int i = 0; i < kDeviceFileCount; i++) {
