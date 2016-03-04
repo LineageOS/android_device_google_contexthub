@@ -14,8 +14,7 @@
  * limitations under the License.
  */
 
-#include <fusion/quat.h>
-
+#include <algos/quat.h>
 #include <nanohub_math.h>
 
 static float clamp(float x) {

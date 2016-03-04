@@ -15,34 +15,10 @@
  */
 
 #include <math.h>
-#include <stdio.h>
-#include <string.h>
-#include <stdint.h>
-#include <stdbool.h>
 #include <floatRt.h>
-#include "time_sync.h"
+#include <algos/time_sync.h>
 
-#define NUM_TIME_SYNC_DATAPOINTS    16
-
-typedef struct {
-    uint64_t time1[NUM_TIME_SYNC_DATAPOINTS];
-    uint64_t time2[NUM_TIME_SYNC_DATAPOINTS];
-    size_t n;
-    size_t i;
-
-    uint64_t time1_base;
-    uint64_t time2_base;
-
-    bool estimate_valid;
-    float n1, n2, alpha;
-
-    uint8_t hold_count;
-
-} time_sync_t;
-
-static time_sync_t gSensorTime2RTC;
-
-static void time_sync_reset(time_sync_t *sync) {
+void time_sync_reset(time_sync_t *sync) {
     sync->n = 0;
     sync->i = 0;
     sync->estimate_valid = false;
@@ -50,13 +26,13 @@ static void time_sync_reset(time_sync_t *sync) {
     sync->hold_count = 0;
 }
 
-static bool time_sync_init(time_sync_t *sync) {
+bool time_sync_init(time_sync_t *sync) {
     time_sync_reset(sync);
 
     return true;
 }
 
-static void time_sync_truncate(time_sync_t *sync, size_t window_size) {
+void time_sync_truncate(time_sync_t *sync, size_t window_size) {
     size_t k, m;
     sync->n = (window_size < sync->n) ? window_size : sync->n;
     sync->estimate_valid = false;
@@ -81,7 +57,7 @@ static void time_sync_truncate(time_sync_t *sync, size_t window_size) {
     sync->i = (sync->n < NUM_TIME_SYNC_DATAPOINTS) ? sync->n : 0;
 }
 
-static bool time_sync_add(time_sync_t *sync, uint64_t time1, uint64_t time2) {
+bool time_sync_add(time_sync_t *sync, uint64_t time1, uint64_t time2) {
     size_t i = sync->i;
 
     sync->time1[i] = time1;
@@ -108,7 +84,7 @@ static bool time_sync_add(time_sync_t *sync, uint64_t time1, uint64_t time2) {
     return true;
 }
 
-static bool time_sync_estimate_time1(time_sync_t *sync, uint64_t time2, uint64_t *time1)
+bool time_sync_estimate_time1(time_sync_t *sync, uint64_t time2, uint64_t *time1)
 {
     size_t j;
 
@@ -199,33 +175,8 @@ static bool time_sync_estimate_time1(time_sync_t *sync, uint64_t time2, uint64_t
     return true;
 }
 
-static void time_sync_hold(time_sync_t *sync, uint8_t count) {
+void time_sync_hold(time_sync_t *sync, uint8_t count) {
     sync->hold_count = count;
 }
 
-void time_init() {
-    time_sync_init(&gSensorTime2RTC);
-}
 
-bool sensortime_to_rtc_time(uint64_t sensor_time, uint64_t *rtc_time_ns) {
-    return time_sync_estimate_time1(
-            &gSensorTime2RTC, sensor_time * 39ull, rtc_time_ns);
-}
-
-void map_sensortime_to_rtc_time(uint64_t sensor_time, uint64_t rtc_time_ns) {
-    time_sync_add(&gSensorTime2RTC, rtc_time_ns, sensor_time * 39ull);
-}
-
-void invalidate_sensortime_to_rtc_time() {
-    time_sync_reset(&gSensorTime2RTC);
-}
-
-void minimize_sensortime_history() {
-    // truncate datapoints to the latest two to maintain valid sensortime to rtc
-    // mapping and minimize the inflence of the past mapping
-    time_sync_truncate(&gSensorTime2RTC, 2);
-
-    // drop the oldest datapoint when a new one arrives for two times to
-    // completely shift out the influence of the past mapping
-    time_sync_hold(&gSensorTime2RTC, 2);
-}
