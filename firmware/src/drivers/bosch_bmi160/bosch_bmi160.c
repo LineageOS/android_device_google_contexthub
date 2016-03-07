@@ -40,8 +40,16 @@
 #include <algos/time_sync.h>
 #include <nanohub_math.h>
 
-#define BMI160_APP_ID APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 2)
 #define TIMESTAMP_DBG             0
+
+// fixme: to list required definitions for a slave mag
+#ifdef USE_BMM150
+#include "bosch_bmm150_slave.h"
+#elif USE_AK09915
+#include "akm_ak09915_slave.h"
+#endif
+
+#define BMI160_APP_ID APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 2)
 
 #define BMI160_SPI_WRITE          0x00
 #define BMI160_SPI_READ           0x80
@@ -111,40 +119,6 @@
 #define BMI160_REG_CMD            0x7e
 #define BMI160_REG_MAGIC          0x7f
 
-#define BMM150_REG_DATA           0x42
-#define BMM150_REG_CTRL_1         0x4b
-#define BMM150_REG_CTRL_2         0x4c
-#define BMM150_REG_REPXY          0x51
-#define BMM150_REG_REPZ           0x52
-#define BMM150_REG_DIG_X1         0x5d
-#define BMM150_REG_DIG_Y1         0x5e
-#define BMM150_REG_DIG_Z4_LSB     0x62
-#define BMM150_REG_DIG_Z4_MSB     0x63
-#define BMM150_REG_DIG_X2         0x64
-#define BMM150_REG_DIG_Y2         0x65
-#define BMM150_REG_DIG_Z2_LSB     0x68
-#define BMM150_REG_DIG_Z2_MSB     0x69
-#define BMM150_REG_DIG_Z1_LSB     0x6a
-#define BMM150_REG_DIG_Z1_MSB     0x6b
-#define BMM150_REG_DIG_XYZ1_LSB   0x6c
-#define BMM150_REG_DIG_XYZ1_MSB   0x6d
-#define BMM150_REG_DIG_Z3_LSB     0x6e
-#define BMM150_REG_DIG_Z3_MSB     0x6f
-#define BMM150_REG_DIG_XY2        0x70
-#define BMM150_REG_DIG_XY1        0x71
-
-#define BMM150_MAG_FLIP_OVERFLOW_ADCVAL     ((int16_t)-4096)
-#define BMM150_MAG_HALL_OVERFLOW_ADCVAL     ((int16_t)-16384)
-#define BMM150_MAG_OVERFLOW_OUTPUT          ((int16_t)-32768)
-#define BMM150_CALIB_HEX_LACKS              0x100000
-#define BMM150_MAG_OVERFLOW_OUTPUT_S32      ((int32_t)(-2147483647-1))
-
-#define AKM_AK09915_DEVICE_ID     0x1048
-#define AKM_AK09915_REG_WIA1      0x00
-#define AKM_AK09915_REG_DATA      0x11
-#define AKM_AK09915_REG_CNTL1     0x30
-#define AKM_AK09915_REG_CNTL2     0x31
-
 #define INT_STEP        0x01
 #define INT_ANY_MOTION  0x04
 #define INT_DOUBLE_TAP  0x10
@@ -187,11 +161,7 @@
 
 #define kScale_acc 0.00239501953f  // ACC_range * 9.81f / 32768.0f;
 #define kScale_gyr 0.00106472439f  // GYR_range * M_PI / (180.0f * 32768.0f);
-#ifdef USE_AK09915
-#define kScale_mag 0.15f
-#else
-#define kScale_mag 0.0625f         // 1.0f / 16.0f;
-#endif
+
 #define kTimeSyncPeriodNs   100000000ull // sync sensor and RTC time every 100ms
 #define kMinTimeIncrementNs 2500000ull // min time increment set to 2.5ms
 #define kSensorTimerIntervalUs 39ull   // bmi160 clock increaments every 39000ns
@@ -238,7 +208,7 @@ enum SensorEvents {
 enum InitState {
     RESET_BMI160,
     INIT_BMI160,
-    INIT_BMM150,
+    INIT_MAG,
     INIT_ON_CHANGE_SENSORS,
     INIT_DONE,
 };
@@ -271,16 +241,21 @@ enum SensorState {
 enum MagConfigState {
     MAG_SET_START,
     MAG_SET_IF,
+
+    // BMM150 only
     MAG_SET_REPXY,
     MAG_SET_REPZ,
-    MAG_SET_DIG_X,
-    MAG_SET_DIG_Y,
-    MAG_SET_DIG_Z,
+    MAG_GET_DIG_X,
+    MAG_GET_DIG_Y,
+    MAG_GET_DIG_Z,
     MAG_SET_SAVE_DIG,
-    MAG_SET_ADDR,
+
     MAG_SET_FORCE,
+    MAG_SET_ADDR,
     MAG_SET_DATA,
-    MAG_SET_DONE
+    MAG_SET_DONE,
+
+    MAG_INIT_FAILED
 };
 
 struct ConfigStat {
@@ -332,11 +307,10 @@ struct BMI160Task {
     struct Gpio *Int2;
     struct ChainedIsr Isr1;
     struct ChainedIsr Isr2;
+    struct MagCal moc;
 
     time_sync_t gSensorTime2RTC;
 
-    // sensor config
-    struct MagCal moc;
     float last_charging_bias_x;
     uint32_t total_step_cnt;
     uint32_t last_step_cnt;
@@ -373,14 +347,6 @@ struct BMI160Task {
     bool pending_dispatch;
     bool frame_sensortime_valid;
 
-    // BMM150
-    uint16_t dig_z1;
-    int16_t dig_z2, dig_z3, dig_z4;
-    uint16_t dig_xyz1;
-    uint8_t raw_dig_data[24];
-    int8_t dig_x1, dig_y1, dig_x2, dig_y2;
-    uint8_t dig_xy1;
-    int8_t dig_xy2;
 };
 
 static uint32_t AccRates[] = {
@@ -430,6 +396,22 @@ static uint8_t mRetryLeft;
 
 static struct SlabAllocator *mDataSlab;
 
+#ifdef MAG_I2C_ADDR
+static MagTask_t magTask;
+#endif
+
+#define MAG_WRITE(addr, data)                                   \
+    do {                                                        \
+        SPI_WRITE(BMI160_REG_MAG_IF_4, data);                   \
+        SPI_WRITE(BMI160_REG_MAG_IF_3, addr);                   \
+    } while (0)
+
+#define MAG_READ(addr, size)                                    \
+    do {                                                        \
+        SPI_WRITE(BMI160_REG_MAG_IF_2, addr, 5000);             \
+        SPI_READ(BMI160_REG_DATA_0, size, &mTask.dataBuffer);   \
+    } while (0)
+
 #define DEC_INFO(name, type, axis, inter, samples) \
     .sensorName = name, \
     .sensorType = type, \
@@ -459,24 +441,26 @@ static const struct SensorInfo mSensorInfo[NUM_OF_SENSOR] =
     { DEC_INFO_RATE("Step Counter", StepCntRates, SENS_TYPE_STEP_COUNT, NUM_AXIS_EMBEDDED, NANOHUB_INT_NONWAKEUP, 20) },
 };
 
-static void time_init() {
+static void time_init(void) {
     time_sync_init(&mTask.gSensorTime2RTC);
 }
 
 static bool sensortime_to_rtc_time(uint64_t sensor_time, uint64_t *rtc_time_ns) {
+// fixme: nsec?
     return time_sync_estimate_time1(
             &mTask.gSensorTime2RTC, sensor_time * 39ull, rtc_time_ns);
 }
 
 static void map_sensortime_to_rtc_time(uint64_t sensor_time, uint64_t rtc_time_ns) {
+// fixme: nsec?
     time_sync_add(&mTask.gSensorTime2RTC, rtc_time_ns, sensor_time * 39ull);
 }
 
-static void invalidate_sensortime_to_rtc_time() {
+static void invalidate_sensortime_to_rtc_time(void) {
     time_sync_reset(&mTask.gSensorTime2RTC);
 }
 
-static void minimize_sensortime_history() {
+static void minimize_sensortime_history(void) {
     // truncate datapoints to the latest two to maintain valid sensortime to rtc
     // mapping and minimize the inflence of the past mapping
     time_sync_truncate(&mTask.gSensorTime2RTC, 2);
@@ -484,123 +468,6 @@ static void minimize_sensortime_history() {
     // drop the oldest datapoint when a new one arrives for two times to
     // completely shift out the influence of the past mapping
     time_sync_hold(&mTask.gSensorTime2RTC, 2);
-}
-
-static int32_t bmm150TempCompensateX(
-       struct BMI160Task *mtask, int16_t mag_x, uint16_t rhall)
-{
-    int32_t inter_retval = 0;
-
-    // some temp var to made the long calculation easier to read
-    int32_t temp_1, temp_2, temp_3, temp_4;
-
-    // no overflow
-    if (mag_x != BMM150_MAG_FLIP_OVERFLOW_ADCVAL) {
-        if ((rhall != 0) && (mtask->dig_xyz1 != 0)) {
-
-            inter_retval = ((int32_t)(((uint16_t) ((((int32_t)mtask->dig_xyz1) << 14)
-                / (rhall != 0 ?  rhall : mtask->dig_xyz1))) - ((uint16_t)0x4000)));
-
-        } else {
-            inter_retval = BMM150_MAG_OVERFLOW_OUTPUT;
-            return inter_retval;
-        }
-
-        temp_1 = ((int32_t)mtask->dig_xy2) * ((((int32_t)inter_retval) * ((int32_t)inter_retval)) >> 7);
-        temp_2 = ((int32_t)inter_retval) * ((int32_t)(((int16_t)mtask->dig_xy1) << 7));
-        temp_3 = ((temp_1 + temp_2) >> 9) + ((int32_t)BMM150_CALIB_HEX_LACKS);
-        temp_4 = ((int32_t)mag_x) * ((temp_3 * ((int32_t)(((int16_t)mtask->dig_x2) + ((int16_t)0xa0)))) >> 12);
-
-        inter_retval = ((int32_t)(temp_4 >> 13)) + (((int16_t)mtask->dig_x1) << 3);
-
-        // check the overflow output
-        if (inter_retval == (int32_t)BMM150_MAG_OVERFLOW_OUTPUT)
-            inter_retval = BMM150_MAG_OVERFLOW_OUTPUT_S32;
-    } else {
-        // overflow
-        inter_retval = BMM150_MAG_OVERFLOW_OUTPUT;
-    }
-    return inter_retval;
-}
-
-static int32_t bmm150TempCompensateY(struct BMI160Task *mtask, int16_t mag_y, uint16_t rhall)
-{
-    int32_t inter_retval = 0;
-
-    // some temp var to made the long calculation easier to read
-    int32_t temp_1, temp_2, temp_3, temp_4;
-
-    // no overflow
-    if (mag_y != BMM150_MAG_FLIP_OVERFLOW_ADCVAL) {
-        if ((rhall != 0) && (mtask->dig_xyz1 != 0)) {
-
-            inter_retval = ((int32_t)(((uint16_t)((( (int32_t)mtask->dig_xyz1) << 14)
-                / (rhall != 0 ?  rhall : mtask->dig_xyz1))) - ((uint16_t)0x4000)));
-
-        } else {
-            inter_retval = BMM150_MAG_OVERFLOW_OUTPUT;
-            return inter_retval;
-        }
-
-        temp_1 = ((int32_t)mtask->dig_xy2) * ((((int32_t) inter_retval) * ((int32_t)inter_retval)) >> 7);
-        temp_2 = ((int32_t)inter_retval) * ((int32_t)(((int16_t)mtask->dig_xy1) << 7));
-        temp_3 = ((temp_1 + temp_2) >> 9) + ((int32_t)BMM150_CALIB_HEX_LACKS);
-        temp_4 = ((int32_t)mag_y) * ((temp_3 * ((int32_t)(((int16_t)mtask->dig_y2) + ((int16_t)0xa0)))) >> 12);
-
-        inter_retval = ((int32_t)(temp_4 >> 13)) + (((int16_t)mtask->dig_y1) << 3);
-
-        // check the overflow output
-        if (inter_retval == (int32_t)BMM150_MAG_OVERFLOW_OUTPUT)
-            inter_retval = BMM150_MAG_OVERFLOW_OUTPUT_S32;
-    } else {
-        // overflow
-        inter_retval = BMM150_MAG_OVERFLOW_OUTPUT;
-    }
-    return inter_retval;
-}
-
-static int32_t bmm150TempCompensateZ(struct BMI160Task *mtask, int16_t mag_z, uint16_t rhall)
-{
-    int32_t retval = 0;
-    if (mag_z != BMM150_MAG_HALL_OVERFLOW_ADCVAL) {
-        if ((rhall != 0) && (mtask->dig_z2 != 0) && (mtask->dig_z1 != 0)) {
-
-            retval = ((((int32_t)(mag_z - mtask->dig_z4)) << 15)
-                    - ((((int32_t)mtask->dig_z3) * ((int32_t)(((int16_t)rhall) - ((int16_t)mtask->dig_xyz1)))) >> 2));
-
-            retval /= (mtask->dig_z2
-                    + ((int16_t)(((((int32_t)mtask->dig_z1) * ((((int16_t)rhall) << 1))) + (1 << 15)) >> 16)));
-        }
-    } else {
-        retval = BMM150_MAG_OVERFLOW_OUTPUT;
-    }
-    return retval;
-}
-
-static void saveDigData(struct BMI160Task *mtask, uint8_t *data, size_t offset)
-{
-    // magnetometer temperature calibration data is read in 3 bursts of 8 byte
-    // length each.
-    memcpy(&mtask->raw_dig_data[offset], data, 8);
-
-    if (offset == 16) {
-        // we have all the raw data.
-
-        static const size_t first_reg = BMM150_REG_DIG_X1;
-        mtask->dig_x1 = mtask->raw_dig_data[BMM150_REG_DIG_X1 - first_reg];
-        mtask->dig_y1 = mtask->raw_dig_data[BMM150_REG_DIG_Y1 - first_reg];
-        mtask->dig_x2 = mtask->raw_dig_data[BMM150_REG_DIG_X2 - first_reg];
-        mtask->dig_y2 = mtask->raw_dig_data[BMM150_REG_DIG_Y2 - first_reg];
-        mtask->dig_xy2 = mtask->raw_dig_data[BMM150_REG_DIG_XY2 - first_reg];
-        mtask->dig_xy1 = mtask->raw_dig_data[BMM150_REG_DIG_XY1 - first_reg];
-
-        mtask->dig_z1 = *(uint16_t *)(&mtask->raw_dig_data[BMM150_REG_DIG_Z1_LSB - first_reg]);
-        mtask->dig_z2 = *(int16_t *)(&mtask->raw_dig_data[BMM150_REG_DIG_Z2_LSB - first_reg]);
-        mtask->dig_z3 = *(int16_t *)(&mtask->raw_dig_data[BMM150_REG_DIG_Z3_LSB - first_reg]);
-        mtask->dig_z4 = *(int16_t *)(&mtask->raw_dig_data[BMM150_REG_DIG_Z4_LSB - first_reg]);
-
-        mtask->dig_xyz1 = *(uint16_t *)(&mtask->raw_dig_data[BMM150_REG_DIG_XYZ1_LSB - first_reg]);
-    }
 }
 
 static void dataEvtFree(void *ptr)
@@ -786,7 +653,7 @@ static void magConfigMagic(void)
     SPI_READ(BMI160_REG_DATA_1, 1, &mTask.dataBuffer);
 }
 
-static void magIfConfig(void)
+static void magConfigIf(void)
 {
     // Set the on-chip I2C pull-up register settings and shift the register
     // table back down (magic)
@@ -794,10 +661,8 @@ static void magIfConfig(void)
     SPI_WRITE(BMI160_REG_MAGIC, 0x80);
 
     // Config the MAG I2C device address
-#ifdef USE_AK09915
-    SPI_WRITE(BMI160_REG_MAG_IF_0, 0x18);
-#else
-    SPI_WRITE(BMI160_REG_MAG_IF_0, 0x20);
+#ifdef MAG_I2C_ADDR
+    SPI_WRITE(BMI160_REG_MAG_IF_0, (MAG_I2C_ADDR << 1));
 #endif
 
     // set mag_manual_enable, mag_offset=0, mag_rd_burst='8 bytes'
@@ -806,17 +671,19 @@ static void magIfConfig(void)
     // primary interface: autoconfig, secondary: magnetometer.
     SPI_WRITE(BMI160_REG_IF_CONF, 0x20);
 
-#ifdef USE_AK09915
+    // fixme: move to mag-specific function
+#ifdef USE_BMM150
+    // set mag to SLEEP mode
+    MAG_WRITE(BMM150_REG_CTRL_1, 0x01);
+#elif USE_AK09915
     // set "low" Noise Suppression Filter (NSF) settings
-    SPI_WRITE(BMI160_REG_MAG_IF_4, 0x20);
-    SPI_WRITE(BMI160_REG_MAG_IF_3, AKM_AK09915_REG_CNTL1);
-#else
-    // set mag power control bit.
-    SPI_WRITE(BMI160_REG_MAG_IF_4, 0x01);
-    SPI_WRITE(BMI160_REG_MAG_IF_3, BMM150_REG_CTRL_1);
+    MAG_WRITE(AKM_AK09915_REG_CNTL1, 0x20);
 #endif
 }
 
+// fixme: break this up to master/slave-specific, so it'll be eventually slave-agnostic,
+// and slave provides its own stateless config function
+// fixme: not all async_elem_t is supported
 static void magConfig(void)
 {
     switch (mTask.mag_state) {
@@ -825,65 +692,60 @@ static void magConfig(void)
         mTask.mag_state = MAG_SET_IF;
         break;
     case MAG_SET_IF:
-        magIfConfig();
+        magConfigIf();
 #ifdef USE_AK09915
         mTask.mag_state = MAG_SET_FORCE;
-#else
+#elif USE_BMM150
         mTask.mag_state = MAG_SET_REPXY;
 #endif
         break;
+
+#ifdef USE_BMM150
     case MAG_SET_REPXY:
         // MAG_SET_REPXY and MAG_SET_REPZ case set:
         // regular preset, f_max,ODR ~ 102 Hz
-        SPI_WRITE(BMI160_REG_MAG_IF_4, 9);
-        SPI_WRITE(BMI160_REG_MAG_IF_3, BMM150_REG_REPXY);
+        MAG_WRITE(BMM150_REG_REPXY, 9);
         mTask.mag_state = MAG_SET_REPZ;
         break;
     case MAG_SET_REPZ:
-        SPI_WRITE(BMI160_REG_MAG_IF_4, 15);
-        SPI_WRITE(BMI160_REG_MAG_IF_3, BMM150_REG_REPZ);
-        mTask.mag_state = MAG_SET_DIG_X;
+        MAG_WRITE(BMM150_REG_REPZ, 15);
+        mTask.mag_state = MAG_GET_DIG_X;
         break;
-    case MAG_SET_DIG_X:
-        // MAG_SET_DIG_X, MAG_SET_DIG_Y and MAG_SET_DIG_Z cases:
-        // save the raw offset for MAG data compensation.
-        SPI_WRITE(BMI160_REG_MAG_IF_2, BMM150_REG_DIG_X1, 5000);
-        SPI_READ(BMI160_REG_DATA_0, 8, &mTask.dataBuffer);
-        mTask.mag_state = MAG_SET_DIG_Y;
+    case MAG_GET_DIG_X:
+        // MAG_GET_DIG_X, MAG_GET_DIG_Y and MAG_GET_DIG_Z cases:
+        // save parameters for temperature compensation.
+        MAG_READ(BMM150_REG_DIG_X1, 8);
+        mTask.mag_state = MAG_GET_DIG_Y;
         break;
-    case MAG_SET_DIG_Y:
-        saveDigData(&mTask, &mTask.dataBuffer[1], 0);
-        SPI_WRITE(BMI160_REG_MAG_IF_2, BMM150_REG_DIG_X1 + 8, 5000);
-        SPI_READ(BMI160_REG_DATA_0, 8, &mTask.dataBuffer);
-        mTask.mag_state = MAG_SET_DIG_Z;
+    case MAG_GET_DIG_Y:
+        bmm150SaveDigData(&magTask, &mTask.dataBuffer[1], 0);
+        MAG_READ(BMM150_REG_DIG_X1 + 8, 8);
+        mTask.mag_state = MAG_GET_DIG_Z;
         break;
-    case MAG_SET_DIG_Z:
-        saveDigData(&mTask, &mTask.dataBuffer[1], 8);
-        SPI_WRITE(BMI160_REG_MAG_IF_2, BMM150_REG_DIG_X1 + 16, 5000);
-        SPI_READ(BMI160_REG_DATA_0, 8, &mTask.dataBuffer);
+    case MAG_GET_DIG_Z:
+        bmm150SaveDigData(&magTask, &mTask.dataBuffer[1], 8);
+        MAG_READ(BMM150_REG_DIG_X1 + 16, 8);
         mTask.mag_state = MAG_SET_SAVE_DIG;
         break;
     case MAG_SET_SAVE_DIG:
-        saveDigData(&mTask, &mTask.dataBuffer[1], 16);
+        bmm150SaveDigData(&magTask, &mTask.dataBuffer[1], 16);
         // fall through, no break;
         mTask.mag_state = MAG_SET_FORCE;
+#endif
+
     case MAG_SET_FORCE:
         // set MAG mode to "forced". ready to pull data
 #ifdef USE_AK09915
-        SPI_WRITE(BMI160_REG_MAG_IF_4, 0x01);
-        SPI_WRITE(BMI160_REG_MAG_IF_3, AKM_AK09915_REG_CNTL2);
-#else
-        SPI_WRITE(BMI160_REG_MAG_IF_4, 0x02);
-        SPI_WRITE(BMI160_REG_MAG_IF_3, BMM150_REG_CTRL_2);
+        MAG_WRITE(AKM_AK09915_REG_CNTL2, 0x01);
+#elif USE_BMM150
+        MAG_WRITE(BMM150_REG_CTRL_2, 0x02);
 #endif
         mTask.mag_state = MAG_SET_ADDR;
         break;
     case MAG_SET_ADDR:
         // config MAG read data address to the first data register
-#ifdef USE_AK09915
-        SPI_WRITE(BMI160_REG_MAG_IF_2, AKM_AK09915_REG_DATA);
-#else
-        SPI_WRITE(BMI160_REG_MAG_IF_2, BMM150_REG_DATA);
+#ifdef MAG_I2C_ADDR
+        SPI_WRITE(BMI160_REG_MAG_IF_2, MAG_REG_DATA);
 #endif
         mTask.mag_state = MAG_SET_DATA;
         break;
@@ -1610,7 +1472,7 @@ static void sendStepCnt()
         osEnqueueEvt(EVT_SENSOR_STEP_COUNTER, step_cnt.vptr, NULL);
     }
 
-    while(mTask.sensors[STEPCNT].flush) {
+    while (mTask.sensors[STEPCNT].flush) {
         osEnqueueEvt(EVT_SENSOR_STEP_COUNTER, SENSOR_DATA_EVENT_FLUSH, NULL);
         mTask.sensors[STEPCNT].flush--;
     }
@@ -1727,33 +1589,16 @@ static void parseRawData(struct BMI160Sensor *mSensor, uint8_t *buf, float kScal
         rtc_time = mSensor->prev_rtc_time + kMinTimeIncrementNs;
     }
 
-    raw_x = (buf[0] | buf[1] << 8);
-    raw_y = (buf[2] | buf[3] << 8);
-    raw_z = (buf[4] | buf[5] << 8);
-
     if (mSensor->idx == MAG) {
-#ifdef USE_AK09915
-        int32_t mag_x = (*(int16_t *)&buf[0]);
-        int32_t mag_y = (*(int16_t *)&buf[2]);
-        int32_t mag_z = (*(int16_t *)&buf[4]);
-#else
-        int32_t mag_x = (*(int16_t *)&buf[0]) >> 3;
-        int32_t mag_y = (*(int16_t *)&buf[2]) >> 3;
-        int32_t mag_z = (*(int16_t *)&buf[4]) >> 1;
-        uint32_t mag_rhall = (*(uint16_t *)&buf[6]) >> 2;
-
-        mag_x = bmm150TempCompensateX(&mTask, mag_x, mag_rhall);
-        mag_y = bmm150TempCompensateY(&mTask, mag_y, mag_rhall);
-        mag_z = bmm150TempCompensateZ(&mTask, mag_z, mag_rhall);
+#ifdef MAG_I2C_ADDR
+        parseMagData(&magTask, &buf[0], &x, &y, &z);
 #endif
 
-        BMM150_TO_ANDROID_COORDINATE(mag_x, mag_y, mag_z);
+        BMM150_TO_ANDROID_COORDINATE(x, y, z);
 
         float xi, yi, zi;
         magCalRemoveSoftiron(&mTask.moc,
-                (float)mag_x * kScale,
-                (float)mag_y * kScale,
-                (float)mag_z * kScale,
+                x, y, z,
                 &xi, &yi, &zi);
 
         newMagBias |= magCalUpdate(&mTask.moc,
@@ -1761,12 +1606,15 @@ static void parseRawData(struct BMI160Sensor *mSensor, uint8_t *buf, float kScal
 
         magCalRemoveBias(&mTask.moc, xi, yi, zi, &x, &y, &z);
     } else {
-
-        BMI160_TO_ANDROID_COORDINATE(raw_x, raw_y, raw_z);
+        raw_x = (buf[0] | buf[1] << 8);
+        raw_y = (buf[2] | buf[3] << 8);
+        raw_z = (buf[4] | buf[5] << 8);
 
         x = (float)raw_x * kScale;
         y = (float)raw_y * kScale;
         z = (float)raw_z * kScale;
+
+        BMI160_TO_ANDROID_COORDINATE(x, y, z);
     }
 
     if (mSensor->data_evt == NULL) {
@@ -2019,7 +1867,7 @@ static void dispatchData(void)
             if (fh_param & 4) { // have mag data
                 if (size >= 8) {
                     if (frame_sensor_time_valid) {
-                        parseRawData(&mTask.sensors[MAG], &buf[i], kScale_mag, tmp_frame_time);
+                        parseRawData(&mTask.sensors[MAG], &buf[i], 0, tmp_frame_time); // scale nor used
 #if TIMESTAMP_DBG
                         if (mTask.prev_frame_time[MAG] == ULONG_LONG_MAX) {
                             osLog(LOG_INFO, "mag enabled: frame %d time 0x%08x\n",
@@ -2274,7 +2122,6 @@ static void accCalibrationHandling(void)
         spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[ACC]);
         break;
     case CALIBRATION_WAIT_FOC_DONE:
-
         // if the STATUS REG has bit 3 set, it means calbration is done.
         // otherwise, check back in 50ms later.
         if (mTask.statusBuffer[1] & 0x08) {
@@ -2679,23 +2526,30 @@ static void sensorInit(void)
         // Reset fifo
         SPI_WRITE(BMI160_REG_CMD, 0xB0, 10000);
 
-        mTask.init_state = INIT_BMM150;
+#ifdef MAG_I2C_ADDR
+        mTask.init_state = INIT_MAG;
         mTask.mag_state = MAG_SET_START;
+#else
+        // no mag connected to secondary interface
+        mTask.init_state = INIT_ON_CHANGE_SENSORS;
+#endif
         spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask);
         break;
 
-    case INIT_BMM150:
+    case INIT_MAG:
         // Don't check statusBuffer if we are just starting mag config
         if (mTask.mag_state == MAG_SET_START) {
             mRetryLeft = RETRY_CNT_MAG;
             magConfig();
         } else if (mTask.mag_state < MAG_SET_DATA && mTask.statusBuffer[1] & 0x04) {
+            // fixme: poll_until to reduce states
+            // fixme: check should be done before SPI_READ in MAG_READ
             SPI_READ(BMI160_REG_STATUS, 1, &mTask.statusBuffer, 1000);
             if (--mRetryLeft == 0) {
-                osLog(LOG_ERROR, "BMI160: Enable MAG failed. Go back to IDLE\n");
-                mTask.state = SENSOR_IDLE;
-                processPendingEvt();
-                break;
+                osLog(LOG_ERROR, "BMI160: INIT_MAG failed\n");
+                // fixme: duplicate suspend mag here
+                mTask.mag_state = MAG_INIT_FAILED;
+                mTask.init_state = INIT_ON_CHANGE_SENSORS;
             }
         } else {
             mRetryLeft = RETRY_CNT_MAG;
