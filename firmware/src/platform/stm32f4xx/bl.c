@@ -212,7 +212,7 @@ BL_FLASH_TABLE;
 static const char mOsUpdateMagic[] = OS_UPDT_MAGIC;
 
 //BL stack
-uint8_t __attribute__ ((section (".stack"))) _STACK[BL_STACK_SIZE];
+uint64_t __attribute__ ((section (".stack"))) _STACK[BL_STACK_SIZE / sizeof(uint64_t)];
 
 
 

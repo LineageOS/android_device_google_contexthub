@@ -109,7 +109,7 @@ extern uint32_t __bss_end[];
 
 
 //OS stack
-uint8_t __attribute__ ((section (".stack"))) _STACK[OS_STACK_SIZE];
+uint64_t __attribute__ ((section (".stack"))) _STACK[OS_STACK_SIZE / sizeof(uint64_t)];
 
 void __attribute__((noreturn)) IntDefaultHandler(void)
 {
