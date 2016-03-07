@@ -30,8 +30,9 @@ struct CortexMpu {
 
 #define MPU ((struct CortexMpu*)0xE000ED94UL)
 
-#define MPU_REG_ROM    0
-#define MPU_REG_RAM    1
+#define MPU_REG_ROM          0
+#define MPU_REG_RAM          1
+#define MPU_REG_NULL_PAGE    2
 
 
 /* region type */
@@ -41,7 +42,7 @@ struct CortexMpu {
 /* region execute priviledges */
 #define MPU_BIT_XN      (1UL << 28) /* no execute */
 
-/* regaion access priviledges */
+/* region access priviledges */
 #define MPU_NA          (0UL << 24) /* S: no access   U: no access */
 #define MPU_U_NA_S_RW   (1UL << 24) /* S: RW          U: no access */
 #define MPU_U_RO_S_RW   (2UL << 24) /* S: RW          U: RO        */
@@ -93,21 +94,22 @@ static void mpuRegionCfg(uint32_t regionNo, uint32_t start, uint32_t len, uint32
 
 static void mpuCfgRom(bool allowSvcWrite)
 {
-    mpuRegionCfg(MPU_REG_ROM, (uint32_t)&BL, __shared_end - (uint8_t*)&BL, MPU_SRD_BITS | MPU_TYPE_MEMORY | (allowSvcWrite ? MPU_U_RO_S_RW : MPU_U_RO_S_RO));
+    mpuRegionCfg(MPU_REG_ROM, (uint32_t)&BL, __shared_end - (uint8_t*)&BL, MPU_TYPE_MEMORY | (allowSvcWrite ? MPU_U_RO_S_RW : MPU_U_RO_S_RO));
 }
 
 static void mpuCfgRam(bool allowSvcExecute)
 {
-    mpuRegionCfg(MPU_REG_RAM, (uint32_t)&__ram_start, __ram_end - __ram_start, MPU_SRD_BITS | MPU_TYPE_MEMORY | MPU_RW | (allowSvcExecute ? 0 : MPU_BIT_XN));
+    mpuRegionCfg(MPU_REG_RAM, (uint32_t)&__ram_start, __ram_end - __ram_start, MPU_TYPE_MEMORY | MPU_RW | (allowSvcExecute ? 0 : MPU_BIT_XN));
 }
 
 
 void mpuStart(void)
 {
-    MPU->CTRL = 0x07; //MPU on, even during faults, supervisor deault: allow, user default: default deny
+    MPU->CTRL = 0x07; //MPU on, even during faults, supervisor default: allow, user default: default deny
 
     mpuCfgRom(false);
     mpuCfgRam(false);
+    mpuRegionCfg(MPU_REG_NULL_PAGE, 0, 4096, MPU_TYPE_MEMORY | MPU_NA | MPU_BIT_XN);
 }
 
 void mpuAllowRamExecution(bool allowSvcExecute)
