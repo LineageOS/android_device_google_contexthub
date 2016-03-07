@@ -208,7 +208,8 @@ class ContextHub : public NonCopyable {
      * Same as ReadSensorEvents, but filters on AppToHostEvent instead of
      * SensorEvent.
      */
-    void ReadAppEvents(std::function<bool(const AppToHostEvent&)> callback);
+    TransportResult ReadAppEvents(std::function<bool(const AppToHostEvent&)> callback,
+        int timeout_ms = 0);
 
     /*
      * Calls ReadEvent in a loop, handling errors and ignoring events that
@@ -229,7 +230,8 @@ class ContextHub : public NonCopyable {
      * read, no event traffic is generated for the timeout period, or an error
      * occurs, such as a CRC check failure.
      */
-    virtual TransportResult ReadEvent(std::vector<uint8_t>& response) = 0;
+    virtual TransportResult ReadEvent(std::vector<uint8_t>& response,
+        int timeout_ms) = 0;
     virtual TransportResult WriteEvent(const std::vector<uint8_t>& request) = 0;
 
     // Implements the firmware loading functionality for the sensor hub. Returns
@@ -238,7 +240,8 @@ class ContextHub : public NonCopyable {
 
     // Convenience functions that build on top of the more generic byte-level
     // interface
-    TransportResult ReadEvent(std::unique_ptr<ReadEventResponse>* response);
+    TransportResult ReadEvent(std::unique_ptr<ReadEventResponse>* response,
+        int timeout_ms = 0);
     TransportResult WriteEvent(const WriteEventRequest& request);
 
     // Override these if saving calibration data to persistent storage is

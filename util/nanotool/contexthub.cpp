@@ -23,10 +23,13 @@
 #include "apptohostevent.h"
 #include "log.h"
 #include "sensorevent.h"
+#include "util.h"
 
 namespace android {
 
 #define UNUSED_PARAM(param) (void) (param)
+
+constexpr int kCalibrationTimeoutMs(10000);
 
 struct SensorTypeNames {
     SensorType sensor_type;
@@ -292,9 +295,14 @@ bool ContextHub::CalibrateSingleSensor(const SensorSpec& sensor) {
         }
         return true;
     };
-    ReadAppEvents(calEventHandler);
 
-    return success;
+    result = ReadAppEvents(calEventHandler, kCalibrationTimeoutMs);
+    if (result != TransportResult::Success) {
+      LOGE("Error reading calibration response %d", static_cast<int>(result));
+      return false;
+    }
+
+    return true;
 }
 
 bool ContextHub::ForEachSensor(const std::vector<SensorSpec>& sensors,
@@ -356,28 +364,42 @@ bool ContextHub::HandleCalibrationResult(const SensorSpec& sensor,
     return success;
 }
 
-void ContextHub::ReadAppEvents(std::function<bool(const AppToHostEvent&)> callback) {
+ContextHub::TransportResult ContextHub::ReadAppEvents(
+        std::function<bool(const AppToHostEvent&)> callback, int timeout_ms) {
+    using Milliseconds = std::chrono::milliseconds;
+
     TransportResult result;
+    bool timeout_required = timeout_ms > 0;
     bool keep_going = true;
 
     while (keep_going) {
+        if (timeout_required && timeout_ms <= 0) {
+            return TransportResult::Timeout;
+        }
+
         std::unique_ptr<ReadEventResponse> event;
-        result = ReadEvent(&event);
-        if (result == TransportResult::Success && event->IsAppToHostEvent()) {
-            AppToHostEvent *app_event = reinterpret_cast<AppToHostEvent*>(
-                event.get());
+
+        SteadyClock start_time = std::chrono::steady_clock::now();
+        result = ReadEvent(&event, timeout_ms);
+        SteadyClock end_time = std::chrono::steady_clock::now();
+
+        auto delta = end_time - start_time;
+        timeout_ms -= std::chrono::duration_cast<Milliseconds>(delta).count();
+
+        if (result != TransportResult::Success) {
+            return result;
+        }
+
+        if (event->IsAppToHostEvent()) {
+            AppToHostEvent *app_event =
+                reinterpret_cast<AppToHostEvent*>(event.get());
             keep_going = callback(*app_event);
         } else {
-            if (result != TransportResult::Success) {
-                LOGE("Error %d while reading", static_cast<int>(result));
-                if (result != TransportResult::ParseFailure) {
-                    break;
-                }
-            } else {
-                LOGD("Ignoring non-app-to-host event");
-            }
+            LOGD("Ignoring non-app-to-host event");
         }
     }
+
+    return TransportResult::Success;
 }
 
 void ContextHub::ReadSensorEvents(std::function<bool(const SensorEvent&)> callback) {
@@ -424,9 +446,9 @@ ContextHub::TransportResult ContextHub::WriteEvent(
 }
 
 ContextHub::TransportResult ContextHub::ReadEvent(
-        std::unique_ptr<ReadEventResponse>* response) {
+        std::unique_ptr<ReadEventResponse>* response, int timeout_ms) {
     std::vector<uint8_t> responseBuf(256);
-    ContextHub::TransportResult result = ReadEvent(responseBuf);
+    ContextHub::TransportResult result = ReadEvent(responseBuf, timeout_ms);
     if (result == TransportResult::Success) {
         *response = ReadEventResponse::FromBytes(responseBuf);
         if (*response == nullptr) {
