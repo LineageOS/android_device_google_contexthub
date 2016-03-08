@@ -47,7 +47,6 @@ SECTIONS
 
 	} > code
 
-
 	.stack : {
 		. = ALIGN(4);
 		__stack_bottom = ABSOLUTE(.);
@@ -56,6 +55,23 @@ SECTIONS
 		. = ALIGN(4);
 		__stack_top = ABSOLUTE(.);
 	 } > ram
+
+	.data : {
+		. = ALIGN(4);
+		__data_start = ABSOLUTE(.);
+		*(.data);
+		*(.data.*);
+		. = ALIGN(4);
+		__data_end = ABSOLUTE(.);
+	 } > ram AT > code
+
+	.bss : {
+		. = ALIGN(4);
+		__bss_start = ABSOLUTE(.);
+		*(.bss) *(.bss.*) *(COMMON);
+		. = ALIGN(4);
+		__bss_end = ABSOLUTE(.);
+	} > ram
 }
 
 
