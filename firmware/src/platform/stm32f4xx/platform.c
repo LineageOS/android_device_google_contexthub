@@ -38,6 +38,7 @@
 #include <cpu.h>
 #include <hostIntf.h>
 #include <atomic.h>
+#include <hostIntf.h>
 #include <nanohubPacket.h>
 #include <sensType.h>
 #include <variant/inc/variant.h>
@@ -113,25 +114,16 @@ void platUninitialize(void)
 #endif
 }
 
-struct LogBuffer
-{
-    uint8_t invalidSensor;
-    uint8_t offset;
-    uint8_t appToHost;
-    uint8_t interrupt;
-    char data[248];
-} __attribute__((packed));
-
 void *platLogAllocUserData()
 {
 #if defined(DEBUG_LOG_EVT)
-    struct LogBuffer *userData;
+    struct HostIntfDataBuffer *userData;
 
-    userData = heapAlloc(sizeof(struct LogBuffer));
+    userData = heapAlloc(sizeof(struct HostIntfDataBuffer));
     if (userData) {
-        userData->invalidSensor = SENS_TYPE_INVALID;
-        userData->offset = 0;
-        userData->appToHost = 0;
+        userData->sensType = SENS_TYPE_INVALID;
+        userData->length = 0;
+        userData->dataType = HOSTINTF_DATA_TYPE_LOG;
         userData->interrupt = NANOHUB_INT_NONWAKEUP;
     }
 
@@ -161,11 +153,11 @@ bool platLogPutcharF(void *userData, char ch)
 #ifdef DEBUG_UART_UNITNO
     usartPutchat(&mDbgUart, ch);
 #elif defined(DEBUG_LOG_EVT)
-    struct LogBuffer *buffer;
+    struct HostIntfDataBuffer *buffer;
 
     if (userData) {
         buffer = userData;
-        buffer->data[buffer->offset++] = ch;
+        buffer->buffer[buffer->length++] = ch;
     }
 #endif
     return true;

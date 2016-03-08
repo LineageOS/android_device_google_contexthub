@@ -26,6 +26,7 @@
 #define EVT_APP_START                    0x00000400    //sent when an app can actually start
 #define EVT_APP_TO_HOST                  0x00000401    //app data to host. Type is struct HostHubRawPacket
 #define EVT_MARSHALLED_SENSOR_DATA       0x00000402    //marshalled event data. Type is MarshalledUserEventData
+#define EVT_RESET_REASON                 0x00000403    //reset reason to host.
 
 #define HOST_HUB_RAW_PACKET_MAX_LEN      128
 

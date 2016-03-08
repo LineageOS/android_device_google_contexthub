@@ -65,30 +65,13 @@ struct ConfigCmd
     uint16_t flags;
 } __attribute__((packed));
 
-struct DataBuffer
-{
-    uint8_t sensType;
-    uint8_t length;
-    uint8_t appToHost;
-    uint8_t interrupt;
-    uint64_t referenceTime;
-    union
-    {
-        struct SensorFirstSample firstSample;
-        struct SingleAxisDataPoint single[NANOHUB_SENSOR_DATA_MAX / sizeof(struct SingleAxisDataPoint)];
-        struct TripleAxisDataPoint triple[NANOHUB_SENSOR_DATA_MAX / sizeof(struct TripleAxisDataPoint)];
-        struct WifiScanResult wifiScanResults[NANOHUB_SENSOR_DATA_MAX / sizeof(struct WifiScanResult)];
-        uint8_t buffer[NANOHUB_SENSOR_DATA_MAX];
-    };
-} __attribute__((packed));
-
 struct ActiveSensor
 {
     uint64_t lastInterrupt;
     uint64_t lastTimestamp;
     uint64_t latency;
     uint64_t lastTime;
-    struct DataBuffer buffer;
+    struct HostIntfDataBuffer buffer;
     uint32_t rate;
     uint32_t sensorHandle;
     uint16_t minSamples;
@@ -439,7 +422,7 @@ void hostIntfSetBusy(bool busy)
 
 bool hostIntfPacketDequeue(void *data, uint32_t *wakeup, uint32_t *nonwakeup)
 {
-    struct DataBuffer *buffer = data;
+    struct HostIntfDataBuffer *buffer = data;
     bool ret;
     struct ActiveSensor *sensor;
     uint32_t i, count = 0;
@@ -471,7 +454,7 @@ bool hostIntfPacketDequeue(void *data, uint32_t *wakeup, uint32_t *nonwakeup)
         // nothing in queue. look for partial buffers to flush
         for (i = 0; i < mNumSensors; i++, mLastSensor = (mLastSensor + 1) % mNumSensors) {
             if (mActiveSensorTable[mLastSensor].buffer.length > 0) {
-                memcpy(data, &mActiveSensorTable[mLastSensor].buffer, sizeof(struct DataBuffer));
+                memcpy(data, &mActiveSensorTable[mLastSensor].buffer, sizeof(struct HostIntfDataBuffer));
                 resetBuffer(mActiveSensorTable + mLastSensor);
                 ret = true;
                 mLastSensor = (mLastSensor + 1) % mNumSensors;
@@ -509,7 +492,7 @@ static void initCompleteCallback(uint32_t timerId, void *data)
 
 static bool queueDiscard(void *data, bool onDelete)
 {
-    struct DataBuffer *buffer = data;
+    struct HostIntfDataBuffer *buffer = data;
     struct ActiveSensor *sensor;
 
     if (buffer->sensType > SENS_TYPE_INVALID && buffer->sensType <= SENS_TYPE_LAST_USER && mSensorList[buffer->sensType - 1] < MAX_REGISTERED_SENSORS) { // data
@@ -563,13 +546,13 @@ static bool initSensors()
                     switch (si->numAxis) {
                     case NUM_AXIS_EMBEDDED:
                     case NUM_AXIS_ONE:
-                        packetSamples = NANOHUB_SENSOR_DATA_MAX / sizeof(struct SingleAxisDataPoint);
+                        packetSamples = HOSTINTF_SENSOR_DATA_MAX / sizeof(struct SingleAxisDataPoint);
                         break;
                     case NUM_AXIS_THREE:
-                        packetSamples = NANOHUB_SENSOR_DATA_MAX / sizeof(struct TripleAxisDataPoint);
+                        packetSamples = HOSTINTF_SENSOR_DATA_MAX / sizeof(struct TripleAxisDataPoint);
                         break;
                     case NUM_AXIS_WIFI:
-                        packetSamples = NANOHUB_SENSOR_DATA_MAX / sizeof(struct WifiScanResult);
+                        packetSamples = HOSTINTF_SENSOR_DATA_MAX / sizeof(struct WifiScanResult);
                         break;
                     default:
                         packetSamples = 1;
@@ -607,7 +590,7 @@ static bool initSensors()
         mTotalBlocks = MIN_NUM_BLOCKS;
     }
 
-    mOutputQ = simpleQueueAlloc(mTotalBlocks, sizeof(struct DataBuffer), queueDiscard);
+    mOutputQ = simpleQueueAlloc(mTotalBlocks, sizeof(struct HostIntfDataBuffer), queueDiscard);
     mActiveSensorTable = heapAlloc(mNumSensors * sizeof(struct ActiveSensor));
     memset(mActiveSensorTable, 0x00, mNumSensors * sizeof(struct ActiveSensor));
 
@@ -636,13 +619,13 @@ static bool initSensors()
             switch (si->numAxis) {
             case NUM_AXIS_EMBEDDED:
             case NUM_AXIS_ONE:
-                mActiveSensorTable[j].packetSamples = NANOHUB_SENSOR_DATA_MAX / sizeof(struct SingleAxisDataPoint);
+                mActiveSensorTable[j].packetSamples = HOSTINTF_SENSOR_DATA_MAX / sizeof(struct SingleAxisDataPoint);
                 break;
             case NUM_AXIS_THREE:
-                mActiveSensorTable[j].packetSamples = NANOHUB_SENSOR_DATA_MAX / sizeof(struct TripleAxisDataPoint);
+                mActiveSensorTable[j].packetSamples = HOSTINTF_SENSOR_DATA_MAX / sizeof(struct TripleAxisDataPoint);
                 break;
             case NUM_AXIS_WIFI:
-                mActiveSensorTable[j].packetSamples = NANOHUB_SENSOR_DATA_MAX / sizeof(struct WifiScanResult);
+                mActiveSensorTable[j].packetSamples = HOSTINTF_SENSOR_DATA_MAX / sizeof(struct WifiScanResult);
                 break;
             }
             j++;
@@ -871,6 +854,15 @@ static void copyWifiSamples(struct ActiveSensor *sensor, const struct WifiScanEv
     }
 }
 
+static void hostIntfAddBlock(struct HostIntfDataBuffer *data)
+{
+    if (data->interrupt == NANOHUB_INT_WAKEUP)
+        mWakeupBlocks++;
+    else if (data->interrupt == NANOHUB_INT_NONWAKEUP)
+        mNonWakeupBlocks++;
+    hostIntfSetInterrupt(data->interrupt);
+}
+
 static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
 {
     struct ConfigCmd *cmd;
@@ -880,9 +872,10 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
     const struct SensorInfo *si;
     uint32_t tempSensorHandle;
     const struct HostHubRawPacket *hostMsg;
-    struct DataBuffer *data;
+    struct HostIntfDataBuffer *data;
     const struct NanohubHalCommand *halCmd;
     const uint8_t *halMsg;
+    uint32_t reason;
 
     if (evtType == EVT_APP_START) {
         if (initSensors()) {
@@ -892,7 +885,15 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
 #ifdef DEBUG_LOG_EVT
             osEventSubscribe(mHostIntfTid, DEBUG_LOG_EVT);
 #endif
-            hostIntfSetInterrupt(NANOHUB_INT_BOOT_COMPLETE);
+            reason = pwrResetReason();
+            data = alloca(sizeof(uint32_t) + sizeof(reason));
+            data->sensType = SENS_TYPE_INVALID;
+            data->length = sizeof(reason);
+            data->dataType = HOSTINTF_DATA_TYPE_RESET_REASON;
+            data->interrupt = NANOHUB_INT_WAKEUP;
+            memcpy(data->buffer, &reason, sizeof(reason));
+            simpleQueueEnqueue(mOutputQ, data, sizeof(uint32_t) + data->length, false);
+            hostIntfAddBlock(data);
         }
     } else if (evtType == EVT_APP_TO_HOST) {
         hostMsg = evtData;
@@ -900,15 +901,11 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
             data = alloca(sizeof(uint32_t) + sizeof(*hostMsg) + hostMsg->dataLen);
             data->sensType = SENS_TYPE_INVALID;
             data->length = sizeof(*hostMsg) + hostMsg->dataLen;
-            data->appToHost = 1; // differentiate from log messages
+            data->dataType = HOSTINTF_DATA_TYPE_APP_TO_HOST;
             data->interrupt = NANOHUB_INT_WAKEUP;
-            memcpy((void *)&data->referenceTime, evtData, data->length);
+            memcpy(data->buffer, evtData, data->length);
             simpleQueueEnqueue(mOutputQ, data, sizeof(uint32_t) + data->length, false);
-            if (data->interrupt == NANOHUB_INT_WAKEUP)
-                mWakeupBlocks++;
-            else if (data->interrupt == NANOHUB_INT_NONWAKEUP)
-                mNonWakeupBlocks++;
-            hostIntfSetInterrupt(data->interrupt);
+            hostIntfAddBlock(data);
         }
     } else if (evtType == EVT_APP_FROM_HOST) {
         halMsg = evtData;
@@ -917,14 +914,10 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
     }
 #ifdef DEBUG_LOG_EVT
     else if (evtType == DEBUG_LOG_EVT) {
-        data = (struct DataBuffer *)evtData;
-        if (data->sensType == SENS_TYPE_INVALID && !data->appToHost) {
+        data = (struct HostIntfDataBuffer *)evtData;
+        if (data->sensType == SENS_TYPE_INVALID && data->dataType == HOSTINTF_DATA_TYPE_LOG) {
             simpleQueueEnqueue(mOutputQ, evtData, sizeof(uint32_t) + data->length, true);
-            if (data->interrupt == NANOHUB_INT_WAKEUP)
-                mWakeupBlocks++;
-            else if (data->interrupt == NANOHUB_INT_NONWAKEUP)
-                mNonWakeupBlocks++;
-            hostIntfSetInterrupt(data->interrupt);
+            hostIntfAddBlock(data);
         }
     }
 #endif

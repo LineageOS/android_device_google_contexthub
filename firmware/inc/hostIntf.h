@@ -19,12 +19,44 @@
 
 #include <stdint.h>
 #include <atomicBitset.h>
+#include <sensors.h>
 
 /**
  * System-facing hostIntf API
  */
 
 #define HOSTINTF_MAX_INTERRUPTS     256
+#define HOSTINTF_SENSOR_DATA_MAX    240
+
+enum HostIntfDataType
+{
+    HOSTINTF_DATA_TYPE_LOG,
+    HOSTINTF_DATA_TYPE_APP_TO_HOST,
+    HOSTINTF_DATA_TYPE_RESET_REASON,
+};
+
+struct HostIntfDataBuffer
+{
+    uint8_t sensType;
+    uint8_t length;
+    uint8_t dataType;
+    uint8_t interrupt;
+    union
+    {
+        struct
+        {
+            uint64_t referenceTime;
+            union
+            {
+                struct SensorFirstSample firstSample;
+                struct SingleAxisDataPoint single[HOSTINTF_SENSOR_DATA_MAX / sizeof(struct SingleAxisDataPoint)];
+                struct TripleAxisDataPoint triple[HOSTINTF_SENSOR_DATA_MAX / sizeof(struct TripleAxisDataPoint)];
+                struct WifiScanResult wifiScanResults[HOSTINTF_SENSOR_DATA_MAX / sizeof(struct WifiScanResult)];
+            };
+        };
+        uint8_t buffer[sizeof(uint64_t) + HOSTINTF_SENSOR_DATA_MAX];
+    };
+} __attribute__((packed));
 
 void hostIntfCopyInterrupts(void *dst, uint32_t numBits);
 void hostIntfClearInterrupts();

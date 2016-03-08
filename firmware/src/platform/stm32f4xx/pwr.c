@@ -18,6 +18,7 @@
 #include <plat/inc/cmsis.h>
 #include <plat/inc/pwr.h>
 #include <plat/inc/rtc.h>
+#include <reset.h>
 #include <stddef.h>
 
 struct StmRcc {
@@ -74,6 +75,14 @@ struct StmPwr {
 
 #define RCC_CSR_LSION       0x00000001UL
 #define RCC_CSR_LSIRDY      0x00000002UL
+#define RCC_CSR_RMVF        0x01000000UL
+#define RCC_CSR_BORRSTF     0x02000000UL
+#define RCC_CSR_PINRSTF     0x04000000UL
+#define RCC_CSR_PORRSTF     0x08000000UL
+#define RCC_CSR_SFTRSTF     0x10000000UL
+#define RCC_CSR_IWDGRSTF    0x20000000UL
+#define RCC_CSR_WWDGRSTF    0x40000000UL
+#define RCC_CSR_LPWRRSTF    0x80000000UL
 
 /* PWR bit definitions */
 #define PWR_CR_MRVLDS       0x00000800UL
@@ -84,7 +93,8 @@ struct StmPwr {
 #define PWR_CR_LPDS         0x00000001UL
 
 
-static uint32_t gSysClk = 16000000UL;
+static uint32_t mResetReason;
+static uint32_t mSysClk = 16000000UL;
 
 #define RCC_REG(_bus, _type) ({                                 \
         static const uint32_t clockRegOfsts[] = {               \
@@ -128,7 +138,7 @@ uint32_t pwrGetBusSpeed(uint32_t bus)
     apb1Div = (cfg >> 10) & 0x07;
     apb2Div = (cfg >> 13) & 0x07;
 
-    ahbSpeed = (ahbDiv & 0x08) ? (gSysClk >> ahbSpeedShifts[ahbDiv & 0x07]) : gSysClk;
+    ahbSpeed = (ahbDiv & 0x08) ? (mSysClk >> ahbSpeedShifts[ahbDiv & 0x07]) : mSysClk;
     apb1Speed = (apb1Div & 0x04) ? (ahbSpeed >> ((apb1Div & 0x03) + 1)) : ahbSpeed;
     apb2Speed = (apb2Div & 0x04) ? (ahbSpeed >> ((apb2Div & 0x03) + 1)) : ahbSpeed;
 
@@ -143,6 +153,28 @@ uint32_t pwrGetBusSpeed(uint32_t bus)
 
     /* WTF...? */
     return 0;
+}
+
+static uint32_t pwrParseCsr(uint32_t csr)
+{
+    uint32_t reason = 0;
+
+    if (csr & RCC_CSR_LPWRRSTF)
+        reason |= RESET_POWER_MANAGEMENT;
+    if (csr & RCC_CSR_WWDGRSTF)
+        reason |= RESET_WINDOW_WATCHDOG;
+    if (csr & RCC_CSR_IWDGRSTF)
+        reason |= RESET_INDEPENDENT_WATCHDOG;
+    if (csr & RCC_CSR_SFTRSTF)
+        reason |= RESET_SOFTWARE;
+    if (csr & RCC_CSR_PORRSTF)
+        reason |= RESET_POWER_ON;
+    if (csr & RCC_CSR_PINRSTF)
+        reason |= RESET_HARDWARE;
+    if (csr & RCC_CSR_BORRSTF)
+        reason |= RESET_BROWN_OUT;
+
+    return reason;
 }
 
 void pwrEnableAndClockRtc(enum RtcClock rtcClock)
@@ -160,6 +192,10 @@ void pwrEnableAndClockRtc(enum RtcClock rtcClock)
     /* backup the backup regs (they have valuable data we want to persist) */
     for (i = 0; i < RTC_NUM_BACKUP_REGS; i++)
         backupRegs[i] = regs[i];
+
+    /* save and reset reset flags */
+    mResetReason = pwrParseCsr(RCC->CSR);
+    RCC->CSR |= RCC_CSR_RMVF;
 
     /* Reset backup domain */
     RCC->BDCR |= RCC_BDCR_BDRST;
@@ -235,4 +271,9 @@ void pwrSystemInit(void)
     while (!(RCC->CR & 2));                    //wait for HSI
     RCC->CFGR = 0x00000000;                   //all busses at HSI speed
     RCC->CR &= 0x0000FFF1;                    //HSI on, all else off
+}
+
+uint32_t pwrResetReason(void)
+{
+    return mResetReason;
 }
