@@ -32,8 +32,11 @@
 #include <plat/inc/syscfg.h>
 #include <variant/inc/variant.h>
 
+#define APP_VERSION 1
+
 #define HALL_REPORT_OPENED_VALUE  0
 #define HALL_REPORT_CLOSED_VALUE  1
+#define HALL_DEBOUNCE_TIMER_DELAY 10000000ULL // 10 milliseconds
 
 #ifndef HALL_PIN
 #error "HALL_PIN is not defined; please define in variant.h"
@@ -43,6 +46,7 @@
 #error "HALL_IRQ is not defined; please define in variant.h"
 #endif
 
+
 static struct SensorTask
 {
     struct Gpio *pin;
@@ -50,25 +54,48 @@ static struct SensorTask
 
     uint32_t id;
     uint32_t sensorHandle;
+    uint32_t debounceTimerHandle;
+
+    int32_t prevReportedValue;
 
     bool on;
 } mTask;
 
+static void debounceTimerCallback(uint32_t timerId, void *cookie)
+{
+    union EmbeddedDataPoint sample;
+    bool prevPinState = (bool)cookie;
+    bool pinState = gpioGet(mTask.pin);
+
+    if (mTask.on) {
+        if (pinState == prevPinState) {
+            sample.idata = pinState ? HALL_REPORT_OPENED_VALUE :
+                HALL_REPORT_CLOSED_VALUE;
+
+            if (sample.idata != mTask.prevReportedValue) {
+                mTask.prevReportedValue = sample.idata;
+                osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_HALL), sample.vptr, NULL);
+            }
+        }
+    }
+}
+
 static bool hallIsr(struct ChainedIsr *localIsr)
 {
     struct SensorTask *data = container_of(localIsr, struct SensorTask, isr);
+    bool pinState = gpioGet(data->pin);
 
     if (!extiIsPendingGpio(data->pin)) {
         return false;
     }
 
     if (data->on) {
-        union EmbeddedDataPoint sample;
-        bool pinState = gpioGet(data->pin);
-        sample.idata = pinState ? HALL_REPORT_OPENED_VALUE :
-            HALL_REPORT_CLOSED_VALUE;
-        osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_HALL), sample.vptr, NULL);
+        if (mTask.debounceTimerHandle)
+            timTimerCancel(mTask.debounceTimerHandle);
+
+        mTask.debounceTimerHandle = timTimerSet(HALL_DEBOUNCE_TIMER_DELAY, 0, 50, debounceTimerCallback, (void*)pinState, true /* oneShot */);
     }
+
 
     extiClearPendingGpio(data->pin);
     return true;
@@ -110,6 +137,13 @@ static bool hallPower(bool on, void *cookie)
     }
 
     mTask.on = on;
+    mTask.prevReportedValue = -1;
+
+    if (mTask.debounceTimerHandle) {
+        timTimerCancel(mTask.debounceTimerHandle);
+        mTask.debounceTimerHandle = 0;
+    }
+
     return sensorSignalInternalEvt(mTask.sensorHandle, SENSOR_INTERNAL_EVT_POWER_STATE_CHG, on, 0);
 }
 
@@ -155,6 +189,7 @@ static bool startTask(uint32_t taskId)
 
     mTask.id = taskId;
     mTask.sensorHandle = sensorRegister(&mSensorInfo, &mSensorOps, NULL, true);
+    mTask.prevReportedValue = -1;
     mTask.pin = gpioRequest(HALL_PIN);
     mTask.isr.func = hallIsr;
 
@@ -170,4 +205,4 @@ static void endTask(void)
     sensorUnregister(mTask.sensorHandle);
 }
 
-INTERNAL_APP_INIT(APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 6), 0, startTask, endTask, handleEvent);
+INTERNAL_APP_INIT(APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 6), APP_VERSION, startTask, endTask, handleEvent);
