@@ -75,6 +75,12 @@ bool AppToHostEvent::IsCalibrationEventForSensor(SensorType sensor_type) const {
         }
         break;
 
+      case SensorType::AmbientLightSensor:
+        if (GetAppId() != kAppIdAmsTmd4903) {
+            return false;
+        }
+        break;
+
       default:
         return false;
     }
