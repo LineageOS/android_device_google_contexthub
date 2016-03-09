@@ -174,6 +174,7 @@ enum Stm32F4xxSleepType {       //current       power          wkup way       wk
 
 /* funcs */
 void pwrSystemInit(void);
+uint32_t pwrResetReason(void);
 void pwrUnitClock(uint32_t bus, uint32_t unit, bool on);
 void pwrUnitReset(uint32_t bus, uint32_t unit, bool on);
 uint32_t pwrGetBusSpeed(uint32_t bus);

@@ -483,16 +483,6 @@ static uint32_t unmaskInterrupt(void *rx, uint8_t rx_len, void *tx, uint64_t tim
     return sizeof(*resp);
 }
 
-struct EvtPacket
-{
-    uint8_t sensType;
-    uint8_t length;
-    uint8_t appToHost;
-    uint8_t pad;
-    uint64_t timestamp;
-    uint8_t data[NANOHUB_SENSOR_DATA_MAX];
-} __attribute__((packed));
-
 #define SYNC_DATAPOINTS 16
 #define SYNC_RESET      10000000000ULL /* 10 seconds, ~100us drift */
 
@@ -546,31 +536,36 @@ static uint32_t readEvent(void *rx, uint8_t rx_len, void *tx, uint64_t timestamp
 {
     struct NanohubReadEventRequest *req = rx;
     struct NanohubReadEventResponse *resp = tx;
-    struct EvtPacket *packet = tx;
-    int length, sensor, appToHost;
-    uint32_t wakeup, nonwakeup;
+    struct HostIntfDataBuffer *packet = tx;
+    uint32_t length, wakeup, nonwakeup;
     static struct TimeSync timeSync = { };
 
     addDelta(&timeSync, req->apBootTime, timestamp);
 
     if (hostIntfPacketDequeue(packet, &wakeup, &nonwakeup)) {
         length = packet->length + sizeof(resp->evtType);
-        sensor = packet->sensType;
-        appToHost = packet->appToHost;
         // TODO combine messages if multiple can fit in a single packet
-        if (sensor == SENS_TYPE_INVALID) {
-            if (appToHost)
-                resp->evtType = EVT_APP_TO_HOST;
-            else
+        if (packet->sensType == SENS_TYPE_INVALID) {
+            switch (packet->dataType) {
+            case HOSTINTF_DATA_TYPE_APP_TO_HOST:
+                resp->evtType = htole32(EVT_APP_TO_HOST);
+                break;
+            case HOSTINTF_DATA_TYPE_RESET_REASON:
+                resp->evtType = htole32(EVT_RESET_REASON);
+                break;
 #ifdef DEBUG_LOG_EVT
+            case HOSTINTF_DATA_TYPE_LOG:
                 resp->evtType = htole32(DEBUG_LOG_EVT);
-#else
-                resp->evtType = 0x00000000;
+                break;
 #endif
+            default:
+                resp->evtType = htole32(0x00000000);
+                break;
+            }
         } else {
-            resp->evtType = htole32(EVT_NO_FIRST_SENSOR_EVENT + sensor);
-            if (packet->timestamp)
-                packet->timestamp += getAvgDelta(&timeSync);
+            resp->evtType = htole32(EVT_NO_FIRST_SENSOR_EVENT + packet->sensType);
+            if (packet->referenceTime)
+                packet->referenceTime += getAvgDelta(&timeSync);
             if (!wakeup)
                 hostIntfClearInterrupt(NANOHUB_INT_WAKEUP);
             if (!nonwakeup)
