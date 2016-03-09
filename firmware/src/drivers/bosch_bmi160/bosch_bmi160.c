@@ -1045,6 +1045,8 @@ static bool doubleTapPower(bool on, void *cookie)
 
 static bool anyMotionPower(bool on, void *cookie)
 {
+    //osLog(LOG_INFO, "BMI160: anyMotionPower: on=%d, oneshot_cnt %d, state=%d\n", on, mTask.active_oneshot_sensor_cnt, mTask.state);
+
     if (mTask.state == SENSOR_IDLE) {
         if (on) {
             mTask.state = SENSOR_POWERING_UP;
@@ -1066,6 +1068,8 @@ static bool anyMotionPower(bool on, void *cookie)
 
 static bool noMotionPower(bool on, void *cookie)
 {
+    //osLog(LOG_INFO, "BMI160: noMotionPower: on=%d, oneshot_cnt %d, state=%d\n", on, mTask.active_oneshot_sensor_cnt, mTask.state);
+
     if (mTask.state == SENSOR_IDLE) {
         if (on) {
             mTask.state = SENSOR_POWERING_UP;
@@ -1975,27 +1979,27 @@ static void int2Handling(void)
             spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[STEPCNT]);
         }
     }
-    if (int_status_0 & INT_ANY_MOTION) {
+    if ((int_status_0 & INT_ANY_MOTION) && mTask.sensors[ANYMO].powered) {
         // bit [0:2] of INT_STATUS[2] is set when anymo is triggered by x, y or
         // z axies respectively. bit [3] indicates the slope.
         trigger_axies.idata = (mTask.statusBuffer[3] & 0x0f);
         osLog(LOG_INFO, "BMI160: Detected any motion\n");
         osEnqueueEvt(EVT_SENSOR_ANY_MOTION, trigger_axies.vptr, NULL);
     }
-    if (int_status_0 & INT_DOUBLE_TAP) {
+    if ((int_status_0 & INT_DOUBLE_TAP) && mTask.sensors[DTAP].powered) {
         // bit [4:6] of INT_STATUS[2] is set when double tap is triggered by
         // x, y or z axies respectively. bit [7] indicates the slope.
         trigger_axies.idata = ((mTask.statusBuffer[3] & 0xf0) >> 4);
         osLog(LOG_INFO, "BMI160: Detected double tap\n");
         osEnqueueEvt(EVT_SENSOR_DOUBLE_TAP, trigger_axies.vptr, NULL);
     }
-    if (int_status_0 & INT_FLAT) {
+    if ((int_status_0 & INT_FLAT) && mTask.sensors[FLAT].powered) {
         // bit [7] of INT_STATUS[3] indicates flat/non-flat position
         trigger_axies.idata = ((mTask.statusBuffer[4] & 0x80) >> 7);
         osLog(LOG_INFO, "BMI160: Detected flat\n");
         osEnqueueEvt(EVT_SENSOR_FLAT, trigger_axies.vptr, NULL);
     }
-    if (int_status_1 & INT_NO_MOTION) {
+    if ((int_status_1 & INT_NO_MOTION) && mTask.sensors[NOMO].powered) {
         osLog(LOG_INFO, "BMI160: Detected no motion\n");
         osEnqueueEvt(EVT_SENSOR_NO_MOTION, NULL, NULL);
     }
@@ -2654,6 +2658,7 @@ static void handleSpiDoneEvt(const void* evtData)
             // if this is the first one-shot sensor to enable, we need
             // to request the accel at 50Hz.
             sensorRequest(mTask.tid, mTask.sensors[ACC].handle, SENSOR_HZ(50), SENSOR_LATENCY_NODATA);
+            //osLog(LOG_INFO, "oneshot on\n");
         }
         sensorSignalInternalEvt(mSensor->handle, SENSOR_INTERNAL_EVT_POWER_STATE_CHG, 1, 0);
         mTask.state = SENSOR_IDLE;
@@ -2665,6 +2670,7 @@ static void handleSpiDoneEvt(const void* evtData)
             // if this is the last one-shot sensor to disable, we need to
             // release the accel.
             sensorRelease(mTask.tid, mTask.sensors[ACC].handle);
+            //osLog(LOG_INFO, "oneshot off\n");
         }
         sensorSignalInternalEvt(mSensor->handle, SENSOR_INTERNAL_EVT_POWER_STATE_CHG, 0, 0);
         mTask.state = SENSOR_IDLE;
