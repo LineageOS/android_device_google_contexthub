@@ -14,15 +14,18 @@
  * limitations under the License.
  */
 
+
 #include <variant/inc/variant.h>
 #include <plat/inc/cmsis.h>
 #include <plat/inc/gpio.h>
 #include <plat/inc/pwr.h>
 #include <plat/inc/bl.h>
+#include <printf.h>
 #include <string.h>
 #include <alloca.h>
-#include <aes.h>
+#include <gpio.h>
 #include <sha2.h>
+#include <aes.h>
 #include <rsa.h>
 
 
@@ -215,6 +218,32 @@ static const char mOsUpdateMagic[] = OS_UPDT_MAGIC;
 uint64_t __attribute__ ((section (".stack"))) _STACK[BL_STACK_SIZE / sizeof(uint64_t)];
 
 
+#ifdef DEBUG_UART_PIN
+
+static bool blLogPutcharF(void *userData, char ch)
+{
+    if (ch == '\n')
+        gpioBitbangedUartOut('\r');
+
+    gpioBitbangedUartOut(ch);
+
+    return true;
+}
+
+void blLog(const char *str, ...)
+{
+    va_list vl;
+
+    va_start(vl, str);
+    cvprintf(blLogPutcharF, NULL, str, vl);
+    va_end(vl);
+}
+
+#else
+
+#define blLog(...)
+
+#endif
 
 static inline uint32_t blDisableInts(void)
 {
@@ -1055,11 +1084,19 @@ out:
 
 void __blEntry(void)
 {
+    extern char __bss_end[], __bss_start[], __data_end[], __data_start[], __data_data[];
     uint32_t appBase = ((uint32_t)&__code_start) & ~1;
 
     //make sure we're the vector table and no ints happen (BL does not use them)
     blDisableInts();
     SCB->VTOR = (uint32_t)&BL;
+
+    //init things a little for the higher levels
+    memset(__bss_start, 0, __bss_end - __bss_start);
+    memcpy(__data_start, __data_data, __data_end - __data_start);
+
+    //say hello
+    blLog("NanohubOS bootloader up @ %p\n", &__blEntry);
 
     //enter SPI loader if requested
     blSpiLoader();

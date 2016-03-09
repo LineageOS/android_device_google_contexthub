@@ -53,6 +53,10 @@ SRCS_os += src/platform/$(PLATFORM)/platform.c \
 	src/platform/$(PLATFORM)/apInt.c \
 	src/platform/$(PLATFORM)/eeData.c
 
+
+#platform drivers for bootloader
+SRCS_bl += src/platform/$(PLATFORM)/pwr.c src/platform/$(PLATFORM)/gpio.c
+
 #extra deps
 DEPS += $(wildcard inc/platform/$(PLATFORM)/*.h)
 DEPS += $(wildcard inc/platform/$(PLATFORM)/cmsis/*.h)

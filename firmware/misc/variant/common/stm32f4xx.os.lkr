@@ -62,8 +62,6 @@ SECTIONS
 		. = ALIGN(4);
 		__heap_start = ABSOLUTE(.);
 	} > ram
-
-	__data_data = LOADADDR(.data);
 }
 
 BL = ORIGIN(bl);
