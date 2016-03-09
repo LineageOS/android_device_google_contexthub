@@ -35,6 +35,6 @@ void hostIntfClearInterruptMask(uint32_t bit);
 void hostIntfPacketFree(void *ptr);
 bool hostIntfPacketDequeue(void *ptr, uint32_t *wakeup, uint32_t *nonwakeup);
 void hostIntfSetBusy(bool busy);
-void hostIntfRxPacket();
+void hostIntfRxPacket(bool wakeupActive);
 
 #endif /* __HOSTINTF_H */
