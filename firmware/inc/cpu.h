@@ -42,6 +42,11 @@ bool cpuAppInit(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo, uint3
 void cpuAppEnd(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo);
 void cpuAppHandle(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo, uint32_t evtType, const void* evtData);
 
+/* these default to false, there is CPU_NUM_PERSISTENT_RAM_BITS of them */
+bool cpuRamPersistentBitGet(uint32_t which);
+void cpuRamPersistentBitSet(uint32_t which, bool on);
+
+
 #ifdef __cplusplus
 }
 #endif
