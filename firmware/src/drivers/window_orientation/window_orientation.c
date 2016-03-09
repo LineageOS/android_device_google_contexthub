@@ -510,7 +510,6 @@ static bool windowOrientationSetRate(uint32_t rate, uint64_t latency, void *cook
 {
     int i;
 
-    osLog(LOG_INFO, "WO: SENDING TO ACCEL TO ACTIVATE\n");
     if (mTask.accelHandle == 0) {
         for (i = 0; sensorFind(SENS_TYPE_ACCEL, i, &mTask.accelHandle) != NULL; i++) {
             if (sensorRequest(mTask.tid, mTask.accelHandle, ACCEL_MIN_RATE_HZ, ACCEL_MAX_LATENCY_NS)) {
@@ -557,7 +556,7 @@ static void windowOrientationHandleEvent(uint32_t evtType, const void* evtData)
         rotation_changed = add_samples(ev);
 
         if (rotation_changed) {
-            osLog(LOG_INFO, "WO:     ********** rotation changed to ********: %d\n", (int)mTask.proposed_rotation);
+            //osLog(LOG_INFO, "WO:     ********** rotation changed to ********: %d\n", (int)mTask.proposed_rotation);
 
             // send a single int32 here so no memory alloc/free needed.
             sample.idata = mTask.proposed_rotation;
