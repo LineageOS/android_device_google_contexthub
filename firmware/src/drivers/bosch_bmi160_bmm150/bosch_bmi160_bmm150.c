@@ -111,6 +111,7 @@
 #define BMI160_REG_CMD            0x7e
 #define BMI160_REG_MAGIC          0x7f
 
+#define BMM150_REG_DATA           0x42
 #define BMM150_REG_CTRL_1         0x4b
 #define BMM150_REG_CTRL_2         0x4c
 #define BMM150_REG_REPXY          0x51
@@ -131,6 +132,12 @@
 #define BMM150_REG_DIG_Z3_MSB     0x6f
 #define BMM150_REG_DIG_XY2        0x70
 #define BMM150_REG_DIG_XY1        0x71
+
+#define AKM_AK09915_DEVICE_ID     0x1048
+#define AKM_AK09915_REG_WIA1      0x00
+#define AKM_AK09915_REG_DATA      0x11
+#define AKM_AK09915_REG_CNTL1     0x30
+#define AKM_AK09915_REG_CNTL2     0x31
 
 #define INT_STEP        0x01
 #define INT_ANY_MOTION  0x04
@@ -175,7 +182,11 @@
 
 #define kScale_acc 0.00239501953f  // ACC_range * 9.81f / 32768.0f;
 #define kScale_gyr 0.00106472439f  // GYR_range * M_PI / (180.0f * 32768.0f);
+#ifdef USE_AK09915
+#define kScale_mag 0.15f
+#else
 #define kScale_mag 0.0625f         // 1.0f / 16.0f;
+#endif
 #define kTimeSyncPeriodNs   100000000ull // sync sensor and RTC time every 100ms
 #define kMinTimeIncrementNs 2500000ull // min time increment set to 2.5ms
 #define kSensorTimerIntervalUs 39ull   // bmi160 clock increaments every 39000ns
@@ -623,7 +634,11 @@ static void magIfConfig(void)
     SPI_WRITE(BMI160_REG_MAGIC, 0x80);
 
     // Config the MAG I2C device address
+#ifdef USE_AK09915
+    SPI_WRITE(BMI160_REG_MAG_IF_0, 0x18);
+#else
     SPI_WRITE(BMI160_REG_MAG_IF_0, 0x20);
+#endif
 
     // set mag_manual_enable, mag_offset=0, mag_rd_burst='8 bytes'
     SPI_WRITE(BMI160_REG_MAG_IF_1, 0x83);
@@ -631,9 +646,15 @@ static void magIfConfig(void)
     // primary interface: autoconfig, secondary: magnetometer.
     SPI_WRITE(BMI160_REG_IF_CONF, 0x20);
 
+#ifdef USE_AK09915
+    // set "low" Noise Suppression Filter (NSF) settings
+    SPI_WRITE(BMI160_REG_MAG_IF_4, 0x20);
+    SPI_WRITE(BMI160_REG_MAG_IF_3, AKM_AK09915_REG_CNTL1);
+#else
     // set mag power control bit.
     SPI_WRITE(BMI160_REG_MAG_IF_4, 0x01);
     SPI_WRITE(BMI160_REG_MAG_IF_3, BMM150_REG_CTRL_1);
+#endif
 }
 
 static void magConfig(void)
@@ -645,9 +666,12 @@ static void magConfig(void)
         break;
     case MAG_SET_IF:
         magIfConfig();
+#ifdef USE_AK09915
+        mTask.mag_state = MAG_SET_FORCE;
+#else
         mTask.mag_state = MAG_SET_REPXY;
+#endif
         break;
-    // TODO: Check for BMM150 ID
     case MAG_SET_REPXY:
         // MAG_SET_REPXY and MAG_SET_REPZ case set:
         // regular preset, f_max,ODR ~ 102 Hz
@@ -685,13 +709,22 @@ static void magConfig(void)
         mTask.mag_state = MAG_SET_FORCE;
     case MAG_SET_FORCE:
         // set MAG mode to "forced". ready to pull data
+#ifdef USE_AK09915
+        SPI_WRITE(BMI160_REG_MAG_IF_4, 0x01);
+        SPI_WRITE(BMI160_REG_MAG_IF_3, AKM_AK09915_REG_CNTL2);
+#else
         SPI_WRITE(BMI160_REG_MAG_IF_4, 0x02);
         SPI_WRITE(BMI160_REG_MAG_IF_3, BMM150_REG_CTRL_2);
+#endif
         mTask.mag_state = MAG_SET_ADDR;
         break;
     case MAG_SET_ADDR:
-        // config MAG read data address to the first BMM150 reg at 0x42
-        SPI_WRITE(BMI160_REG_MAG_IF_2, 0x42);
+        // config MAG read data address to the first data register
+#ifdef USE_AK09915
+        SPI_WRITE(BMI160_REG_MAG_IF_2, AKM_AK09915_REG_DATA);
+#else
+        SPI_WRITE(BMI160_REG_MAG_IF_2, BMM150_REG_DATA);
+#endif
         mTask.mag_state = MAG_SET_DATA;
         break;
     case MAG_SET_DATA:
@@ -1538,6 +1571,11 @@ static void parseRawData(struct BMI160Sensor *mSensor, uint8_t *buf, float kScal
     raw_z = (buf[4] | buf[5] << 8);
 
     if (mSensor->idx == MAG) {
+#ifdef USE_AK09915
+        int32_t mag_x = (*(int16_t *)&buf[0]);
+        int32_t mag_y = (*(int16_t *)&buf[2]);
+        int32_t mag_z = (*(int16_t *)&buf[4]);
+#else
         int32_t mag_x = (*(int16_t *)&buf[0]) >> 3;
         int32_t mag_y = (*(int16_t *)&buf[2]) >> 3;
         int32_t mag_z = (*(int16_t *)&buf[4]) >> 1;
@@ -1546,6 +1584,7 @@ static void parseRawData(struct BMI160Sensor *mSensor, uint8_t *buf, float kScal
         mag_x = bmm150TempCompensateX(&mTask.moc, mag_x, mag_rhall);
         mag_y = bmm150TempCompensateY(&mTask.moc, mag_y, mag_rhall);
         mag_z = bmm150TempCompensateZ(&mTask.moc, mag_z, mag_rhall);
+#endif
 
         BMM150_TO_ANDROID_COORDINATE(mag_x, mag_y, mag_z);
 
