@@ -35,7 +35,8 @@
 #include <plat/inc/syscfg.h>
 #include <variant/inc/variant.h>
 
-#define AMS_TMD4903_APP_ID APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 12)
+#define AMS_TMD4903_APP_ID      APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 12)
+#define AMS_TMD4903_APP_VERSION 1
 
 #ifndef PROX_INT_PIN
 #error "PROX_INT_PIN is not defined; please define in variant.h"
@@ -105,6 +106,7 @@
 
 /* AMS_TMD4903_REG_ENABLE */
 #define PROX_INT_ENABLE_BIT                    (1 << 5)
+#define ALS_INT_ENABLE_BIT                     (1 << 4)
 #define PROX_ENABLE_BIT                        (1 << 2)
 #define ALS_ENABLE_BIT                         (1 << 1)
 #define POWER_ON_BIT                           (1 << 0)
@@ -143,6 +145,7 @@ enum SensorEvents
 {
     EVT_SENSOR_I2C = EVT_APP_START + 1,
     EVT_SENSOR_ALS_TIMER,
+    EVT_SENSOR_ALS_INTERRUPT,
     EVT_SENSOR_PROX_INTERRUPT,
 };
 
@@ -154,10 +157,10 @@ enum SensorState
     SENSOR_STATE_INIT_1,
     SENSOR_STATE_INIT_2,
     SENSOR_STATE_FINISH_INIT,
-    SENSOR_STATE_START_CALIBRATION_0,
-    SENSOR_STATE_START_CALIBRATION_1,
-    SENSOR_STATE_FINISH_CALIBRATION_0,
-    SENSOR_STATE_FINISH_CALIBRATION_1,
+    SENSOR_STATE_START_PROX_CALIBRATION_0,
+    SENSOR_STATE_START_PROX_CALIBRATION_1,
+    SENSOR_STATE_FINISH_PROX_CALIBRATION_0,
+    SENSOR_STATE_FINISH_PROX_CALIBRATION_1,
     SENSOR_STATE_POLL_STATUS,
     SENSOR_STATE_ENABLING_ALS,
     SENSOR_STATE_ENABLING_PROX,
@@ -198,18 +201,27 @@ struct SensorData
     uint32_t proxHandle;
     uint32_t alsTimerHandle;
 
+    float alsOffset;
+
     union EmbeddedDataPoint lastAlsSample;
 
     uint8_t proxState; // enum ProxState
 
     bool alsOn;
     bool proxOn;
+    bool alsCalibrating;
     bool proxCalibrating;
 };
 
 static struct SensorData mTask;
 
-struct CalibrationData {
+struct AlsCalibrationData {
+    struct HostHubRawPacket header;
+    struct SensorAppEventHeader data_header;
+    float offset;
+} __attribute__((packed));
+
+struct ProxCalibrationData {
     struct HostHubRawPacket header;
     struct SensorAppEventHeader data_header;
     int32_t offsets[4];
@@ -230,16 +242,16 @@ static bool proxIsr(struct ChainedIsr *localIsr)
     struct SensorData *data = container_of(localIsr, struct SensorData, isr);
     bool firstProxSample = (data->proxState == PROX_STATE_INIT);
     uint8_t lastProxState = data->proxState;
-    bool pinState;
     union EmbeddedDataPoint sample;
+    bool pinState;
 
     if (!extiIsPendingGpio(data->pin)) {
         return false;
     }
 
-    if (data->proxOn) {
-        pinState = gpioGet(data->pin);
+    pinState = gpioGet(data->pin);
 
+    if (data->proxOn) {
 #if PROX_STREAMING
         (void)sample;
         (void)pinState;
@@ -257,6 +269,8 @@ static bool proxIsr(struct ChainedIsr *localIsr)
                 osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_PROX), sample.vptr, NULL);
         }
 #endif
+    } else if (data->alsOn && data->alsCalibrating && !pinState) {
+        osEnqueuePrivateEvt(EVT_SENSOR_ALS_INTERRUPT, NULL, NULL, mTask.tid);
     }
 
     extiClearPendingGpio(data->pin);
@@ -315,7 +329,7 @@ static inline float getLuxFromAlsData(uint16_t c, uint16_t r, uint16_t g, uint16
     float g_2p = R_COEFF * r_p + G_COEFF * g_p + B_COEFF * b_p;
 
     // Calculate lux
-    return (g_2p * LUX_PER_COUNTS);
+    return (g_2p * LUX_PER_COUNTS) + mTask.alsOffset;
 }
 
 static void setMode(bool alsOn, bool proxOn, void *cookie)
@@ -361,6 +375,41 @@ static bool sensorRateAls(uint32_t rate, uint64_t latency, void *cookie)
 static bool sensorFlushAls(void *cookie)
 {
     return osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_ALS), SENSOR_DATA_EVENT_FLUSH, NULL);
+}
+
+static bool sensorCalibrateAls(void *cookie)
+{
+    DEBUG_PRINT("sensorCalibrateAls");
+
+    if (mTask.alsOn || mTask.proxOn) {
+        INFO_PRINT("cannot calibrate while als or prox are active\n");
+        return false;
+    }
+
+    mTask.alsOn = true;
+    mTask.lastAlsSample.idata = AMS_TMD4903_ALS_INVALID;
+    mTask.alsCalibrating = true;
+    mTask.alsOffset = 0.0f;
+
+    extiClearPendingGpio(mTask.pin);
+    enableInterrupt(mTask.pin, &mTask.isr);
+
+    mTask.txrxBuf[0] = AMS_TMD4903_REG_ENABLE;
+    mTask.txrxBuf[1] = POWER_ON_BIT | ALS_ENABLE_BIT | ALS_INT_ENABLE_BIT;
+    i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 2, &i2cCallback, (void*)SENSOR_STATE_IDLE);
+
+    return true;
+}
+
+static bool sensorCfgDataAls(void *data, void *cookie)
+{
+    DEBUG_PRINT("sensorCfgDataAls");
+
+    mTask.alsOffset = *(float*)data;
+
+    INFO_PRINT("Received als cfg data: %d\n", (int)mTask.alsOffset);
+
+    return true;
 }
 
 static bool sendLastSampleAls(void *cookie, uint32_t tid) {
@@ -431,7 +480,7 @@ static bool sensorCalibrateProx(void *cookie)
 
     mTask.txrxBuf[0] = AMS_TMD4903_REG_ENABLE;
     mTask.txrxBuf[1] = POWER_ON_BIT; // REG_ENABLE
-    i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 2, &i2cCallback, (void*)SENSOR_STATE_START_CALIBRATION_0);
+    i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 2, &i2cCallback, (void*)SENSOR_STATE_START_PROX_CALIBRATION_0);
 
     return true;
 }
@@ -483,7 +532,8 @@ static const struct SensorOps sensorOpsAls =
     .sensorSetRate = sensorRateAls,
     .sensorFlush = sensorFlushAls,
     .sensorTriggerOndemand = NULL,
-    .sensorCalibrate = NULL,
+    .sensorCalibrate = sensorCalibrateAls,
+    .sensorCfgData = sensorCfgDataAls,
     .sensorSendOneDirectEvt = sendLastSampleAls
 };
 
@@ -513,17 +563,37 @@ static const struct SensorOps sensorOpsProx =
  * Sensor i2c state machine
  */
 
-static void sendCalibrationResult(int16_t *offsets) {
-    int i;
-
-    struct CalibrationData *data = heapAlloc(sizeof(struct CalibrationData));
+static void sendCalibrationResultAls(float offset) {
+    struct AlsCalibrationData *data = heapAlloc(sizeof(struct AlsCalibrationData));
     if (!data) {
-        osLog(LOG_WARN, "Couldn't alloc cal result pkt");
+        osLog(LOG_WARN, "Couldn't alloc als cal result pkt");
         return;
     }
 
     data->header.appId = AMS_TMD4903_APP_ID;
-    data->header.dataLen = (sizeof(struct CalibrationData) - sizeof(struct HostHubRawPacket));
+    data->header.dataLen = (sizeof(struct AlsCalibrationData) - sizeof(struct HostHubRawPacket));
+    data->data_header.msgId = SENSOR_APP_MSG_ID_CAL_RESULT;
+    data->data_header.sensorType = SENS_TYPE_ALS;
+    data->data_header.status = SENSOR_APP_EVT_STATUS_SUCCESS;
+    data->offset = offset;
+
+    if (!osEnqueueEvt(EVT_APP_TO_HOST, data, heapFree)) {
+        heapFree(data);
+        osLog(LOG_WARN, "Couldn't send als cal result evt");
+    }
+}
+
+static void sendCalibrationResultProx(int16_t *offsets) {
+    int i;
+
+    struct ProxCalibrationData *data = heapAlloc(sizeof(struct ProxCalibrationData));
+    if (!data) {
+        osLog(LOG_WARN, "Couldn't alloc prox cal result pkt");
+        return;
+    }
+
+    data->header.appId = AMS_TMD4903_APP_ID;
+    data->header.dataLen = (sizeof(struct ProxCalibrationData) - sizeof(struct HostHubRawPacket));
     data->data_header.msgId = SENSOR_APP_MSG_ID_CAL_RESULT;
     data->data_header.sensorType = SENS_TYPE_PROX;
     data->data_header.status = SENSOR_APP_EVT_STATUS_SUCCESS;
@@ -534,7 +604,7 @@ static void sendCalibrationResult(int16_t *offsets) {
 
     if (!osEnqueueEvt(EVT_APP_TO_HOST, data, heapFree)) {
         heapFree(data);
-        osLog(LOG_WARN, "Couldn't send cal result evt");
+        osLog(LOG_WARN, "Couldn't send prox cal result evt");
     }
 }
 
@@ -603,19 +673,19 @@ static void handle_i2c_event(int state)
         sensorRegisterInitComplete(mTask.proxHandle);
         break;
 
-    case SENSOR_STATE_START_CALIBRATION_0:
+    case SENSOR_STATE_START_PROX_CALIBRATION_0:
         mTask.txrxBuf[0] = AMS_TMD4903_REG_INTENAB;
         mTask.txrxBuf[1] = CAL_INT_ENABLE_BIT; // REG_INTENAB - enable calibration interrupt
-        i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 2, &i2cCallback, (void*)SENSOR_STATE_START_CALIBRATION_1);
+        i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 2, &i2cCallback, (void*)SENSOR_STATE_START_PROX_CALIBRATION_1);
         break;
 
-    case SENSOR_STATE_START_CALIBRATION_1:
+    case SENSOR_STATE_START_PROX_CALIBRATION_1:
         mTask.txrxBuf[0] = AMS_TMD4903_REG_CALIB;
         mTask.txrxBuf[1] = 0x01; // REG_CALIB - start calibration
         i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 2, &i2cCallback, (void *)SENSOR_STATE_IDLE);
         break;
 
-    case SENSOR_STATE_FINISH_CALIBRATION_0:
+    case SENSOR_STATE_FINISH_PROX_CALIBRATION_0:
         disableInterrupt(mTask.pin, &mTask.isr);
         extiClearPendingGpio(mTask.pin);
 
@@ -627,14 +697,14 @@ static void handle_i2c_event(int state)
                     *((int16_t*)&mTask.txrxBuf[6]));
 
         // Send calibration result
-        sendCalibrationResult((int16_t*)mTask.txrxBuf);
+        sendCalibrationResultProx((int16_t*)mTask.txrxBuf);
 
         mTask.txrxBuf[0] = AMS_TMD4903_REG_INTENAB;
         mTask.txrxBuf[1] = 0x00; //  REG_INTENAB - disable all interrupts
-        i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 2, &i2cCallback, (void*)SENSOR_STATE_FINISH_CALIBRATION_1);
+        i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 2, &i2cCallback, (void*)SENSOR_STATE_FINISH_PROX_CALIBRATION_1);
         break;
 
-    case SENSOR_STATE_FINISH_CALIBRATION_1:
+    case SENSOR_STATE_FINISH_PROX_CALIBRATION_1:
         mTask.txrxBuf[0] = AMS_TMD4903_REG_ENABLE;
         mTask.txrxBuf[1] = 0x00; //  REG_ENABLE
         i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 2, &i2cCallback, (void*)SENSOR_STATE_IDLE);
@@ -680,7 +750,18 @@ static void handle_i2c_event(int state)
 
         if (mTask.alsOn) {
             sample.fdata = getLuxFromAlsData(c, r, g, b);
-            if (mTask.lastAlsSample.idata != sample.idata) {
+
+            if (mTask.alsCalibrating) {
+                sendCalibrationResultAls(sample.fdata);
+
+                mTask.alsOn = false;
+                mTask.alsCalibrating = false;
+                mTask.alsOffset = sample.fdata;
+
+                mTask.txrxBuf[0] = AMS_TMD4903_REG_ENABLE;
+                mTask.txrxBuf[1] = 0; // REG_ENABLE
+                i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 2, &i2cCallback, (void*)SENSOR_STATE_IDLE);
+            } else if (mTask.lastAlsSample.idata != sample.idata) {
                 osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_ALS), sample.vptr, NULL);
                 mTask.lastAlsSample.fdata = sample.fdata;
             }
@@ -789,6 +870,11 @@ static void handle_event(uint32_t evtType, const void* evtData)
         handle_i2c_event((int)evtData);
         break;
 
+    case EVT_SENSOR_ALS_INTERRUPT:
+        disableInterrupt(mTask.pin, &mTask.isr);
+        extiClearPendingGpio(mTask.pin);
+        // NOTE: fall-through to initiate read of ALS data registers
+
     case EVT_SENSOR_ALS_TIMER:
         mTask.txrxBuf[0] = AMS_TMD4903_REG_CDATAL;
         i2cMasterTxRx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 1, mTask.txrxBuf, 8, &i2cCallback, (void *)SENSOR_STATE_ALS_SAMPLING);
@@ -797,7 +883,7 @@ static void handle_event(uint32_t evtType, const void* evtData)
     case EVT_SENSOR_PROX_INTERRUPT:
         if (mTask.proxCalibrating) {
             mTask.txrxBuf[0] = AMS_TMD4903_REG_OFFSETNL;
-            i2cMasterTxRx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 1, mTask.txrxBuf, 8, &i2cCallback, (void *)SENSOR_STATE_FINISH_CALIBRATION_0);
+            i2cMasterTxRx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 1, mTask.txrxBuf, 8, &i2cCallback, (void *)SENSOR_STATE_FINISH_PROX_CALIBRATION_0);
         } else {
             mTask.txrxBuf[0] = AMS_TMD4903_REG_PDATAL;
             i2cMasterTxRx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 1, mTask.txrxBuf, 2, &i2cCallback, (void *)SENSOR_STATE_PROX_SAMPLING);
@@ -807,5 +893,5 @@ static void handle_event(uint32_t evtType, const void* evtData)
     }
 }
 
-INTERNAL_APP_INIT(AMS_TMD4903_APP_ID, 0, init_app, end_app, handle_event);
+INTERNAL_APP_INIT(AMS_TMD4903_APP_ID, AMS_TMD4903_APP_VERSION, init_app, end_app, handle_event);
 
