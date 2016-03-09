@@ -71,6 +71,9 @@ SRCS_os += src/printf.c src/timer.c src/seos.c src/heap.c src/slab.c src/spi.c s
 SRCS_os += src/hostIntf.c src/hostIntfI2c.c src/hostIntfSpi.c src/nanohubCommand.c src/sensors.c src/syscall.c
 SRCS_os += src/eventQ.c src/osApi.c src/appSec.c src/simpleQ.c src/floatRt.c
 
+#some help for bootloader
+SRCS_bl += src/printf.c 
+
 ifndef PLATFORM_HAS_HARDWARE_CRC
 SRCS_os += src/softcrc.c
 endif

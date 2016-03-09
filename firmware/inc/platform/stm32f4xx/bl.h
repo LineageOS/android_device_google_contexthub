@@ -22,6 +22,7 @@
 #endif
 
 #include <stdbool.h>
+#include <stdarg.h>
 #include <stdint.h>
 
 struct Sha2state;
@@ -103,6 +104,11 @@ struct BlVecTable {
 
 //for using outside of bootloader
 extern struct BlVecTable BL;
+
+
+
+//for code in bootloader to log things
+void blLog(const char *str, ...);
 
 #ifdef __cplusplus
 }

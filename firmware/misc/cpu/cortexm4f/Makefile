@@ -26,6 +26,9 @@ FLAGS += -DCPU_NUM_PERSISTENT_RAM_BITS=32
 #cpu runtime
 SRCS_os += src/cpu/$(CPU)/atomicBitset.c src/cpu/$(CPU)/cpu.c src/cpu/$(CPU)/pendsv.c src/cpu/$(CPU)/atomic.c src/cpu/$(CPU)/appSupport.c src/cpu/$(CPU)/cpuMath.c
 
+#cpu runtime for bootloader
+SRCS_bl += src/cpu/$(CPU)/cpu.c
+
 #floating point runtime (ARM)
 SRCS_os += external/arm/arm_cos_f32.c external/arm/arm_sin_f32.c external/arm/arm_common_tables.c
 FLAGS += -DARM_MATH_CM4 -D__FPU_PRESENT
