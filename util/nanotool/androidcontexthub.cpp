@@ -43,6 +43,7 @@ static const std::vector<std::tuple<const char *, SensorType>> kCalibrationKeys 
     std::make_tuple("gyro",      SensorType::Gyro),
     std::make_tuple("proximity", SensorType::Proximity),
     std::make_tuple("barometer", SensorType::Barometer),
+    std::make_tuple("light",     SensorType::AmbientLightSensor),
 };
 
 static void AppendBytes(const void *data, size_t length, std::vector<uint8_t>& buffer) {
