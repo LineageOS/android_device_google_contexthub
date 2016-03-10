@@ -33,7 +33,7 @@
 #include <variant/inc/variant.h>
 
 #define APP_ID      APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 11)
-#define APP_VERSION 1
+#define APP_VERSION 2
 
 #define HALL_REPORT_OPENED_VALUE  0
 #define HALL_REPORT_CLOSED_VALUE  1
@@ -134,9 +134,16 @@ static bool disableInterrupt(struct Gpio *pin, struct ChainedIsr *isr, IRQn_Type
     return true;
 }
 
+static const uint32_t supportedRates[] =
+{
+    SENSOR_RATE_ONCHANGE,
+    0
+};
+
 static const struct SensorInfo mSensorInfo =
 {
     .sensorName = "Hall",
+    .supportedRates = supportedRates,
     .sensorType = SENS_TYPE_HALL,
     .numAxis = NUM_AXIS_EMBEDDED,
     .interrupt = NANOHUB_INT_WAKEUP,
@@ -187,12 +194,26 @@ static bool hallFlush(void *cookie)
     return osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_HALL), SENSOR_DATA_EVENT_FLUSH, NULL);
 }
 
+static bool hallSendLastSample(void *cookie, uint32_t tid)
+{
+    union EmbeddedDataPoint sample;
+    bool result = true;
+
+    if (mTask.prevReportedState != -1) {
+        sample.idata = mTask.prevReportedState;
+        result = osEnqueuePrivateEvt(sensorGetMyEventType(SENS_TYPE_HALL), sample.vptr, NULL, tid);
+    }
+
+    return result;
+}
+
 static const struct SensorOps mSensorOps =
 {
     .sensorPower = hallPower,
     .sensorFirmwareUpload = hallFirmwareUpload,
     .sensorSetRate = hallSetRate,
     .sensorFlush = hallFlush,
+    .sensorSendOneDirectEvt = hallSendLastSample
 };
 
 static void handleEvent(uint32_t evtType, const void* evtData)
