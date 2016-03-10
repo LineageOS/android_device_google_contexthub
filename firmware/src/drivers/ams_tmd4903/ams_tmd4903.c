@@ -332,6 +332,51 @@ static inline float getLuxFromAlsData(uint16_t c, uint16_t r, uint16_t g, uint16
     return (g_2p * LUX_PER_COUNTS) + mTask.alsOffset;
 }
 
+static void sendCalibrationResultAls(uint8_t status, float offset) {
+    struct AlsCalibrationData *data = heapAlloc(sizeof(struct AlsCalibrationData));
+    if (!data) {
+        osLog(LOG_WARN, "Couldn't alloc als cal result pkt");
+        return;
+    }
+
+    data->header.appId = AMS_TMD4903_APP_ID;
+    data->header.dataLen = (sizeof(struct AlsCalibrationData) - sizeof(struct HostHubRawPacket));
+    data->data_header.msgId = SENSOR_APP_MSG_ID_CAL_RESULT;
+    data->data_header.sensorType = SENS_TYPE_ALS;
+    data->data_header.status = status;
+    data->offset = offset;
+
+    if (!osEnqueueEvt(EVT_APP_TO_HOST, data, heapFree)) {
+        heapFree(data);
+        osLog(LOG_WARN, "Couldn't send als cal result evt");
+    }
+}
+
+static void sendCalibrationResultProx(uint8_t status, int16_t *offsets) {
+    int i;
+
+    struct ProxCalibrationData *data = heapAlloc(sizeof(struct ProxCalibrationData));
+    if (!data) {
+        osLog(LOG_WARN, "Couldn't alloc prox cal result pkt");
+        return;
+    }
+
+    data->header.appId = AMS_TMD4903_APP_ID;
+    data->header.dataLen = (sizeof(struct ProxCalibrationData) - sizeof(struct HostHubRawPacket));
+    data->data_header.msgId = SENSOR_APP_MSG_ID_CAL_RESULT;
+    data->data_header.sensorType = SENS_TYPE_PROX;
+    data->data_header.status = status;
+
+    // The offsets are cast from int16_t to int32_t, so I can't use memcpy
+    for (i = 0; i < 4; i++)
+        data->offsets[i] = offsets[i];
+
+    if (!osEnqueueEvt(EVT_APP_TO_HOST, data, heapFree)) {
+        heapFree(data);
+        osLog(LOG_WARN, "Couldn't send prox cal result evt");
+    }
+}
+
 static void setMode(bool alsOn, bool proxOn, void *cookie)
 {
     mTask.txrxBuf[0] = AMS_TMD4903_REG_ENABLE;
@@ -383,6 +428,7 @@ static bool sensorCalibrateAls(void *cookie)
 
     if (mTask.alsOn || mTask.proxOn) {
         INFO_PRINT("cannot calibrate while als or prox are active\n");
+        sendCalibrationResultAls(SENSOR_APP_EVT_STATUS_BUSY, 0.0f);
         return false;
     }
 
@@ -464,10 +510,12 @@ static bool sensorFlushProx(void *cookie)
 
 static bool sensorCalibrateProx(void *cookie)
 {
+    int16_t failOffsets[4] = {0, 0, 0, 0};
     DEBUG_PRINT("sensorCalibrateProx");
 
     if (mTask.alsOn || mTask.proxOn) {
         INFO_PRINT("cannot calibrate while als or prox are active\n");
+        sendCalibrationResultProx(SENSOR_APP_EVT_STATUS_BUSY, failOffsets);
         return false;
     }
 
@@ -563,51 +611,6 @@ static const struct SensorOps sensorOpsProx =
  * Sensor i2c state machine
  */
 
-static void sendCalibrationResultAls(float offset) {
-    struct AlsCalibrationData *data = heapAlloc(sizeof(struct AlsCalibrationData));
-    if (!data) {
-        osLog(LOG_WARN, "Couldn't alloc als cal result pkt");
-        return;
-    }
-
-    data->header.appId = AMS_TMD4903_APP_ID;
-    data->header.dataLen = (sizeof(struct AlsCalibrationData) - sizeof(struct HostHubRawPacket));
-    data->data_header.msgId = SENSOR_APP_MSG_ID_CAL_RESULT;
-    data->data_header.sensorType = SENS_TYPE_ALS;
-    data->data_header.status = SENSOR_APP_EVT_STATUS_SUCCESS;
-    data->offset = offset;
-
-    if (!osEnqueueEvt(EVT_APP_TO_HOST, data, heapFree)) {
-        heapFree(data);
-        osLog(LOG_WARN, "Couldn't send als cal result evt");
-    }
-}
-
-static void sendCalibrationResultProx(int16_t *offsets) {
-    int i;
-
-    struct ProxCalibrationData *data = heapAlloc(sizeof(struct ProxCalibrationData));
-    if (!data) {
-        osLog(LOG_WARN, "Couldn't alloc prox cal result pkt");
-        return;
-    }
-
-    data->header.appId = AMS_TMD4903_APP_ID;
-    data->header.dataLen = (sizeof(struct ProxCalibrationData) - sizeof(struct HostHubRawPacket));
-    data->data_header.msgId = SENSOR_APP_MSG_ID_CAL_RESULT;
-    data->data_header.sensorType = SENS_TYPE_PROX;
-    data->data_header.status = SENSOR_APP_EVT_STATUS_SUCCESS;
-
-    // The offsets are cast from int16_t to int32_t, so I can't use memcpy
-    for (i = 0; i < 4; i++)
-        data->offsets[i] = offsets[i];
-
-    if (!osEnqueueEvt(EVT_APP_TO_HOST, data, heapFree)) {
-        heapFree(data);
-        osLog(LOG_WARN, "Couldn't send prox cal result evt");
-    }
-}
-
 static void handle_i2c_event(int state)
 {
     union EmbeddedDataPoint sample;
@@ -697,7 +700,7 @@ static void handle_i2c_event(int state)
                     *((int16_t*)&mTask.txrxBuf[6]));
 
         // Send calibration result
-        sendCalibrationResultProx((int16_t*)mTask.txrxBuf);
+        sendCalibrationResultProx(SENSOR_APP_EVT_STATUS_SUCCESS, (int16_t*)mTask.txrxBuf);
 
         mTask.txrxBuf[0] = AMS_TMD4903_REG_INTENAB;
         mTask.txrxBuf[1] = 0x00; //  REG_INTENAB - disable all interrupts
@@ -752,7 +755,7 @@ static void handle_i2c_event(int state)
             sample.fdata = getLuxFromAlsData(c, r, g, b);
 
             if (mTask.alsCalibrating) {
-                sendCalibrationResultAls(sample.fdata);
+                sendCalibrationResultAls(SENSOR_APP_EVT_STATUS_SUCCESS, sample.fdata);
 
                 mTask.alsOn = false;
                 mTask.alsCalibrating = false;
