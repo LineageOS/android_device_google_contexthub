@@ -61,6 +61,7 @@ struct SensorAppEventHeader {
 
 #define SENSOR_APP_EVT_STATUS_SUCCESS    0x00
 #define SENSOR_APP_EVT_STATUS_ERROR      0x01 // General failure
+#define SENSOR_APP_EVT_STATUS_BUSY       0x02
 
 #define SENSOR_APP_MSG_ID_CAL_RESULT     0x00 // Status of calibration, with resulting biases
 
