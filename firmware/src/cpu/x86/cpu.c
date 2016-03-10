@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#include <inc/cpu.h>
+#include <cpu.h>
 
 
 void cpuInit(void)

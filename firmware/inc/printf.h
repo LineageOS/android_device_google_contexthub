@@ -18,7 +18,7 @@
 #define _PRINTF_H_
 
 #ifdef __cplusplus
-}
+extern "C" {
 #endif
 
 #include <stdbool.h>
@@ -34,4 +34,3 @@ uint32_t cvprintf(printf_write_c writeF, void* writeD, const char* fmtStr, va_li
 #endif
 
 #endif
-

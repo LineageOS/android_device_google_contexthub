@@ -16,8 +16,8 @@
 
 #include <cpu/inc/barrier.h>
 #include <plat/inc/rtc.h>
-#include <inc/timer.h>
-#include <inc/platform.h>
+#include <timer.h>
+#include <platform.h>
 
 
 void rtcInit(void)

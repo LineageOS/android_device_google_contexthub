@@ -18,7 +18,7 @@
 #define _BOOTLOADER_H_
 
 #ifdef __cplusplus
-}
+extern "C" {
 #endif
 
 #include <stdbool.h>

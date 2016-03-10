@@ -22,7 +22,7 @@ extern "C" {
 #endif
 
 #include <stdint.h>
-#include <inc/seos.h>
+#include <seos.h>
 
 #define RTC_ERR_TOO_BIG         -1
 #define RTC_ERR_TOO_SMALL       -2
