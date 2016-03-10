@@ -21,6 +21,7 @@
 
 #include "apptohostevent.h"
 #include "log.h"
+#include "resetreasonevent.h"
 #include "sensorevent.h"
 
 namespace android {
@@ -116,8 +117,10 @@ std::unique_ptr<ReadEventResponse> ReadEventResponse::FromBytes(
         return SensorEvent::FromBytes(buffer);
     } else if (ReadEventResponse::IsAppToHostEvent(event_type)) {
         return AppToHostEvent::FromBytes(buffer);
+    } else if (ReadEventResponse::IsResetReasonEvent(event_type)) {
+        return ResetReasonEvent::FromBytes(buffer);
     } else {
-        LOGW("Received unexpected/unsuppored event type %u", event_type);
+        LOGW("Received unexpected/unsupported event type %u", event_type);
         return nullptr;
     }
 }
@@ -140,6 +143,10 @@ bool ReadEventResponse::IsSensorEvent() const {
     return ReadEventResponse::IsSensorEvent(GetEventType());
 }
 
+bool ReadEventResponse::IsResetReasonEvent() const {
+    return ReadEventResponse::IsResetReasonEvent(GetEventType());
+}
+
 uint32_t ReadEventResponse::GetEventType() const {
     return ReadEventResponse::EventTypeFromBuffer(event_data);
 }
@@ -151,6 +158,10 @@ bool ReadEventResponse::IsSensorEvent(uint32_t event_type) {
 
 bool ReadEventResponse::IsAppToHostEvent(uint32_t event_type) {
     return (event_type == static_cast<uint32_t>(EventType::AppToHostEvent));
+}
+
+bool ReadEventResponse::IsResetReasonEvent(uint32_t event_type) {
+    return (event_type == static_cast<uint32_t>(EventType::ResetReasonEvent));
 }
 
 uint32_t ReadEventResponse::EventTypeFromBuffer(const std::vector<uint8_t>& buffer) {

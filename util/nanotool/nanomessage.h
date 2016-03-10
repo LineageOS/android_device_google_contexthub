@@ -34,6 +34,7 @@ enum class EventType {
     LastSensorEvent  = 0x000002FF,
     ConfigureSensor  = 0x00000300,
     AppToHostEvent   = 0x00000401,
+    ResetReasonEvent = 0x00000403,
 };
 
 /*
@@ -137,6 +138,7 @@ class ReadEventResponse : public NanoResponse {
 
     bool IsAppToHostEvent() const;
     bool IsSensorEvent() const;
+    bool IsResetReasonEvent() const;
     uint32_t GetEventType() const;
 
     // Event data associated with this response.
@@ -146,6 +148,7 @@ class ReadEventResponse : public NanoResponse {
     static uint32_t EventTypeFromBuffer(const std::vector<uint8_t>& buffer);
     static bool IsAppToHostEvent(uint32_t event_type);
     static bool IsSensorEvent(uint32_t event_type);
+    static bool IsResetReasonEvent(uint32_t event_type);
 };
 
 /*
