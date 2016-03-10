@@ -2072,7 +2072,7 @@ static void saveCalibration()
     spiBatchTxRx(&mTask.mode, sensorSpiCallback, NULL);
 }
 
-static void sendCalibrationResult(bool success, uint8_t sensorType, int32_t xBias, int32_t yBias, int32_t zBias) {
+static void sendCalibrationResult(uint8_t status, uint8_t sensorType, int32_t xBias, int32_t yBias, int32_t zBias) {
     struct CalibrationData *data = heapAlloc(sizeof(struct CalibrationData));
     if (!data) {
         osLog(LOG_WARN, "Couldn't alloc cal result pkt");
@@ -2083,7 +2083,7 @@ static void sendCalibrationResult(bool success, uint8_t sensorType, int32_t xBia
     data->header.dataLen = (sizeof(struct CalibrationData) - sizeof(struct HostHubRawPacket));
     data->data_header.msgId = SENSOR_APP_MSG_ID_CAL_RESULT;
     data->data_header.sensorType = sensorType;
-    data->data_header.status = (success) ? SENSOR_APP_EVT_STATUS_SUCCESS : SENSOR_APP_EVT_STATUS_ERROR;
+    data->data_header.status = status;
 
     data->xBias = xBias;
     data->yBias = yBias;
@@ -2170,7 +2170,7 @@ static void accCalibrationHandling(void)
                 (unsigned int)mTask.sensors[ACC].offset[1],
                 (unsigned int)mTask.sensors[ACC].offset[2]);
 
-        sendCalibrationResult(true, SENS_TYPE_ACCEL, mTask.sensors[ACC].offset[0], mTask.sensors[ACC].offset[1], mTask.sensors[ACC].offset[2]);
+        sendCalibrationResult(SENSOR_APP_EVT_STATUS_SUCCESS, SENS_TYPE_ACCEL, mTask.sensors[ACC].offset[0], mTask.sensors[ACC].offset[1], mTask.sensors[ACC].offset[2]);
 
         // Enable offset compensation for accel
         uint8_t mode = offset6Mode();
@@ -2190,17 +2190,14 @@ static void accCalibrationHandling(void)
 
 static bool accCalibration(void *cookie)
 {
-    if (mTask.state == SENSOR_IDLE) {
-        if (mTask.sensors[ACC].powered) {
-            osLog(LOG_ERROR, "No calibration allowed when sensor is powered\n");
-            return false;
-        }
+    if ((mTask.state != SENSOR_IDLE) || mTask.sensors[ACC].powered) {
+        osLog(LOG_ERROR, "BMI160: cannot calibrate accel because sensor is busy\n");
+        sendCalibrationResult(SENSOR_APP_EVT_STATUS_BUSY, SENS_TYPE_ACCEL, 0, 0, 0);
+        return false;
+    } else {
         mTask.state = SENSOR_CALIBRATING;
         mTask.calibration_state = CALIBRATION_START;
         accCalibrationHandling();
-    } else {
-        osLog(LOG_ERROR, "Accel not IDLE, can't perform calibration\n");
-        return false;
     }
     return true;
 }
@@ -2299,7 +2296,7 @@ static void gyrCalibrationHandling(void)
                 (unsigned int)mTask.sensors[GYR].offset[1],
                 (unsigned int)mTask.sensors[GYR].offset[2]);
 
-        sendCalibrationResult(true, SENS_TYPE_GYRO, mTask.sensors[GYR].offset[0], mTask.sensors[GYR].offset[1], mTask.sensors[GYR].offset[2]);
+        sendCalibrationResult(SENSOR_APP_EVT_STATUS_SUCCESS, SENS_TYPE_GYRO, mTask.sensors[GYR].offset[0], mTask.sensors[GYR].offset[1], mTask.sensors[GYR].offset[2]);
 
         // Enable offset compensation for gyro
         uint8_t mode = offset6Mode();
@@ -2319,17 +2316,14 @@ static void gyrCalibrationHandling(void)
 
 static bool gyrCalibration(void *cookie)
 {
-    if (mTask.state == SENSOR_IDLE) {
-        if (mTask.sensors[GYR].powered) {
-            osLog(LOG_ERROR, "No calibration allowed when sensor is powered\n");
-            return false;
-        }
+    if ((mTask.state != SENSOR_IDLE) || mTask.sensors[GYR].powered) {
+        osLog(LOG_ERROR, "BMI160: cannot calibrate gyro because sensor is busy\n");
+        sendCalibrationResult(SENSOR_APP_EVT_STATUS_BUSY, SENS_TYPE_GYRO, 0, 0, 0);
+        return false;
+    } else {
         mTask.state = SENSOR_CALIBRATING;
         mTask.calibration_state = CALIBRATION_START;
         gyrCalibrationHandling();
-    } else {
-        osLog(LOG_ERROR, "Gyro not IDLE, can't perform calibration\n");
-        return false;
     }
     return true;
 }
@@ -2719,7 +2713,7 @@ static void handleSpiDoneEvt(const void* evtData)
             processPendingEvt();
         } else if (mTask.calibration_state == CALIBRATION_TIMEOUT) {
             osLog(LOG_INFO, "Calibration TIMED OUT\n");
-            sendCalibrationResult(false, (mSensor->idx == ACC) ? SENS_TYPE_ACCEL : SENS_TYPE_GYRO, 0, 0, 0);
+            sendCalibrationResult(SENSOR_APP_EVT_STATUS_ERROR, (mSensor->idx == ACC) ? SENS_TYPE_ACCEL : SENS_TYPE_GYRO, 0, 0, 0);
             mTask.state = SENSOR_IDLE;
             processPendingEvt();
         } else if (mSensor->idx == ACC) {
