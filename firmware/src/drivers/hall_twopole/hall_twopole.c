@@ -32,8 +32,12 @@
 #include <plat/inc/syscfg.h>
 #include <variant/inc/variant.h>
 
+#define APP_ID      APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 11)
+#define APP_VERSION 1
+
 #define HALL_REPORT_OPENED_VALUE  0
 #define HALL_REPORT_CLOSED_VALUE  1
+#define HALL_DEBOUNCE_TIMER_DELAY 10000000ULL // 10 milliseconds
 
 #ifndef HALL_S_PIN
 #error "HALL_S_PIN is not defined; please define in variant.h"
@@ -48,6 +52,9 @@
 #error "HALL_N_IRQ is not defined; please define in variant.h"
 #endif
 
+#define MAKE_TYPE(sPin,nPin) (sPin ? HALL_REPORT_OPENED_VALUE : HALL_REPORT_CLOSED_VALUE) + \
+    ((nPin ? HALL_REPORT_OPENED_VALUE : HALL_REPORT_CLOSED_VALUE) << 1)
+
 static struct SensorTask
 {
     struct Gpio *sPin;
@@ -57,24 +64,47 @@ static struct SensorTask
 
     uint32_t id;
     uint32_t sensorHandle;
+    uint32_t debounceTimerHandle;
+
+    int32_t prevReportedState;
 
     bool on;
 } mTask;
 
-static void hallReportState(bool on, bool sPinState, bool nPinState)
+static void hallReportState(int32_t pinState)
 {
     union EmbeddedDataPoint sample;
-    if (on) {
-        sample.idata = (sPinState ? HALL_REPORT_OPENED_VALUE : HALL_REPORT_CLOSED_VALUE) +
-            ((nPinState ? HALL_REPORT_OPENED_VALUE : HALL_REPORT_CLOSED_VALUE) << 1);
+    if (pinState != mTask.prevReportedState) {
+        mTask.prevReportedState = pinState;
+        sample.idata = pinState;
         osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_HALL), sample.vptr, NULL);
     }
+}
+
+static void debounceTimerCallback(uint32_t timerId, void *cookie)
+{
+    int32_t prevPinState = (int32_t)cookie;
+    int32_t currPinState = MAKE_TYPE(gpioGet(mTask.sPin), gpioGet(mTask.nPin));
+
+    if (mTask.on && (currPinState == prevPinState)) {
+        hallReportState(currPinState);
+    }
+}
+
+static void startDebounceTimer(struct SensorTask *data)
+{
+    int32_t currPinState = MAKE_TYPE(gpioGet(data->sPin), gpioGet(data->nPin));
+    if (data->debounceTimerHandle)
+        timTimerCancel(data->debounceTimerHandle);
+
+    data->debounceTimerHandle = timTimerSet(HALL_DEBOUNCE_TIMER_DELAY, 0, 50, debounceTimerCallback, (void*)currPinState, true /* oneShot */);
 }
 
 static bool hallSouthIsr(struct ChainedIsr *localIsr)
 {
     struct SensorTask *data = container_of(localIsr, struct SensorTask, sIsr);
-    hallReportState(data->on, gpioGet(data->sPin), gpioGet(data->nPin));
+    if (data->on)
+        startDebounceTimer(data);
     extiClearPendingGpio(data->sPin);
     return true;
 }
@@ -82,7 +112,8 @@ static bool hallSouthIsr(struct ChainedIsr *localIsr)
 static bool hallNorthIsr(struct ChainedIsr *localIsr)
 {
     struct SensorTask *data = container_of(localIsr, struct SensorTask, nIsr);
-    hallReportState(data->on, gpioGet(data->sPin), gpioGet(data->nPin));
+    if (data->on)
+        startDebounceTimer(data);
     extiClearPendingGpio(data->nPin);
     return true;
 }
@@ -127,6 +158,13 @@ static bool hallPower(bool on, void *cookie)
     }
 
     mTask.on = on;
+    mTask.prevReportedState = -1;
+
+    if (mTask.debounceTimerHandle) {
+        timTimerCancel(mTask.debounceTimerHandle);
+        mTask.debounceTimerHandle = 0;
+    }
+
     return sensorSignalInternalEvt(mTask.sensorHandle, SENSOR_INTERNAL_EVT_POWER_STATE_CHG, on, 0);
 }
 
@@ -138,7 +176,8 @@ static bool hallFirmwareUpload(void *cookie)
 static bool hallSetRate(uint32_t rate, uint64_t latency, void *cookie)
 {
     // report initial state of hall interrupt pin
-    hallReportState(mTask.on, gpioGet(mTask.sPin), gpioGet(mTask.nPin));
+    if (mTask.on)
+        hallReportState(MAKE_TYPE(gpioGet(mTask.sPin), gpioGet(mTask.nPin)));
 
     return sensorSignalInternalEvt(mTask.sensorHandle, SENSOR_INTERNAL_EVT_RATE_CHG, rate, latency);
 }
@@ -166,6 +205,7 @@ static bool startTask(uint32_t taskId)
 
     mTask.id = taskId;
     mTask.sensorHandle = sensorRegister(&mSensorInfo, &mSensorOps, NULL, true);
+    mTask.prevReportedState = -1;
     mTask.sPin = gpioRequest(HALL_S_PIN);
     mTask.nPin = gpioRequest(HALL_N_PIN);
     mTask.sIsr.func = hallSouthIsr;
@@ -188,4 +228,4 @@ static void endTask(void)
     memset(&mTask, 0, sizeof(struct SensorTask));
 }
 
-INTERNAL_APP_INIT(APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 11), 0, startTask, endTask, handleEvent);
+INTERNAL_APP_INIT(APP_ID, APP_VERSION, startTask, endTask, handleEvent);
