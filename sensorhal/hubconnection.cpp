@@ -223,18 +223,19 @@ static bool getCalibrationInt32(
     return true;
 }
 
-static void getCalibrationFloat(
+static bool getCalibrationFloat(
         const sp<JSONObject> &settings, const char *key, float out[3]) {
     sp<JSONArray> array;
     if (!settings->getArray(key, &array)) {
-        out[0] = out[1] = out[2] = 0.0f;
+        return false;
     } else {
         for (size_t i = 0; i < 3; i++) {
             if (!array->getFloat(i, &out[i])) {
-                out[i] = 0.0f;
+                return false;
             }
         }
     }
+    return true;
 }
 
 static void loadSensorSettings(sp<JSONObject>* settings,
@@ -506,7 +507,7 @@ bool HubConnection::threadLoop() {
     sp<JSONObject> settings;
     sp<JSONObject> saved_settings;
     int32_t accel[3], gyro[3], proximity, proximity_array[4];
-    float barometer, mag[3];
+    float barometer, mag[3], light;
 
     ALOGI("threadLoop: starting");
 
@@ -532,8 +533,11 @@ bool HubConnection::threadLoop() {
     if (getCalibrationInt32(settings, "proximity", proximity_array, 4))
         queueData(COMMS_SENSOR_PROXIMITY, proximity_array, sizeof(proximity_array));
 
-    getCalibrationFloat(saved_settings, "mag", mag);
-    queueData(COMMS_SENSOR_MAG, mag, sizeof(mag));
+    if (settings->getFloat("light", &light))
+        queueData(COMMS_SENSOR_LIGHT, &light, sizeof(light));
+
+    if (getCalibrationFloat(saved_settings, "mag", mag))
+        queueData(COMMS_SENSOR_MAG, mag, sizeof(mag));
 
     while (!Thread::exitPending()) {
         do {
