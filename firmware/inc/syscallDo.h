@@ -159,7 +159,7 @@ static inline const bool eOsSensorUnregister(uint32_t handle)
     return syscallDo1P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_MAIN, SYSCALL_OS_MAIN_SENSOR, SYSCALL_OS_MAIN_SENSOR_UNREG), handle);
 }
 
-static inline const bool eOsSensorRegisterInitComplete(int32_t handle)
+static inline const bool eOsSensorRegisterInitComplete(uint32_t handle)
 {
     return syscallDo1P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_MAIN, SYSCALL_OS_MAIN_SENSOR, SYSCALL_OS_MAIN_SENSOR_REG_INIT_COMP), handle);
 }
