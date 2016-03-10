@@ -28,6 +28,7 @@ LOCAL_SRC_FILES := \
     log.cpp \
     nanomessage.cpp \
     nanotool.cpp \
+    resetreasonevent.cpp \
     sensorevent.cpp
 
 # JSON file handling from chinook

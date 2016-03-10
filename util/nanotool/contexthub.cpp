@@ -22,6 +22,7 @@
 
 #include "apptohostevent.h"
 #include "log.h"
+#include "resetreasonevent.h"
 #include "sensorevent.h"
 #include "util.h"
 
