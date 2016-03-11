@@ -500,7 +500,8 @@ static void sensorInternalRateChanged(void *evtP)
     struct SensorsInternalEvent *evt = (struct SensorsInternalEvent*)evtP;
     struct Sensor* s = sensorFindByHandle(evt->handle);
 
-    if (s && s->currentRate != SENSOR_RATE_POWERING_OFF) {
+    /* If the current rate is a state, do not change the rate */
+    if (s && s->currentRate != SENSOR_RATE_OFF && s->currentRate < SENSOR_RATE_POWERING_ON) {
         s->currentRate = evt->value1;
         s->currentLatency = evt->value2;
     }
