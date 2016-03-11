@@ -40,6 +40,22 @@
 #include <algos/time_sync.h>
 #include <nanohub_math.h>
 
+#define INFO_PRINT(fmt, ...) do { \
+        osLog(LOG_INFO, "%s " fmt, "[BMI160]", ##__VA_ARGS__); \
+    } while (0);
+
+#define ERROR_PRINT(fmt, ...) do { \
+        osLog(LOG_ERROR, "%s " fmt, "[BMI160] ERROR:", ##__VA_ARGS__); \
+    } while (0);
+
+#define DEBUG_PRINT(fmt, ...) do { \
+        if (enable_debug) {  \
+            INFO_PRINT(fmt,  ##__VA_ARGS__); \
+        } \
+    } while (0);
+
+static const bool enable_debug = 0;
+
 #define TIMESTAMP_DBG             0
 
 // fixme: to list required definitions for a slave mag
@@ -506,11 +522,11 @@ static void spiBatchTxRx(struct SpiMode *mode,
         SpiCbkF callback, void *cookie)
 {
     if (mWbufCnt > SPI_BUF_SIZE) {
-        osLog(LOG_ERROR, "NO enough SPI buffer space, dropping transaction.\n");
+        ERROR_PRINT("NO enough SPI buffer space, dropping transaction.\n");
         return;
     }
     if (mRegCnt > SPI_PACKET_SIZE) {
-        osLog(LOG_ERROR, "spiBatchTxRx too many packets!\n");
+        ERROR_PRINT("spiBatchTxRx too many packets!\n");
         return;
     }
 
@@ -889,7 +905,7 @@ static void configFifo(void)
 
 static bool accPower(bool on, void *cookie)
 {
-    osLog(LOG_INFO, "BMI160: accPower: on=%d, state=%d\n", on, mTask.state);
+    INFO_PRINT("accPower: on=%d, state=%d\n", on, mTask.state);
 
     if (mTask.state == SENSOR_IDLE) {
         if (on) {
@@ -916,7 +932,7 @@ static bool accPower(bool on, void *cookie)
 
 static bool gyrPower(bool on, void *cookie)
 {
-    osLog(LOG_INFO, "BMI160: gyrPower: on=%d, state=%d\n", on, mTask.state);
+    INFO_PRINT("gyrPower: on=%d, state=%d\n", on, mTask.state);
 
     if (mTask.state == SENSOR_IDLE) {
         if (on) {
@@ -935,7 +951,7 @@ static bool gyrPower(bool on, void *cookie)
 
         if (anyFifoEnabled() && on != mTask.sensors[GYR].powered) {
 #if TIMESTAMP_DBG
-            osLog(LOG_INFO, "minimize_sensortime_history()\n");
+            DEBUG_PRINT("minimize_sensortime_history()\n");
 #endif
             minimize_sensortime_history();
         }
@@ -951,7 +967,7 @@ static bool gyrPower(bool on, void *cookie)
 
 static bool magPower(bool on, void *cookie)
 {
-    osLog(LOG_INFO, "BMI160: magPower: on=%d, state=%d\n", on, mTask.state);
+    INFO_PRINT("magPower: on=%d, state=%d\n", on, mTask.state);
 
     if (mTask.state == SENSOR_IDLE) {
         if (on) {
@@ -1045,7 +1061,7 @@ static bool doubleTapPower(bool on, void *cookie)
 
 static bool anyMotionPower(bool on, void *cookie)
 {
-    //osLog(LOG_INFO, "BMI160: anyMotionPower: on=%d, oneshot_cnt %d, state=%d\n", on, mTask.active_oneshot_sensor_cnt, mTask.state);
+    //INFO_PRINT("anyMotionPower: on=%d, oneshot_cnt %d, state=%d\n", on, mTask.active_oneshot_sensor_cnt, mTask.state);
 
     if (mTask.state == SENSOR_IDLE) {
         if (on) {
@@ -1068,7 +1084,7 @@ static bool anyMotionPower(bool on, void *cookie)
 
 static bool noMotionPower(bool on, void *cookie)
 {
-    //osLog(LOG_INFO, "BMI160: noMotionPower: on=%d, oneshot_cnt %d, state=%d\n", on, mTask.active_oneshot_sensor_cnt, mTask.state);
+    //INFO_PRINT("noMotionPower: on=%d, oneshot_cnt %d, state=%d\n", on, mTask.active_oneshot_sensor_cnt, mTask.state);
 
     if (mTask.state == SENSOR_IDLE) {
         if (on) {
@@ -1159,14 +1175,14 @@ static bool accSetRate(uint32_t rate, uint64_t latency, void *cookie)
 {
     int odr, osr = 0;
 
-    osLog(LOG_INFO, "BMI160: accSetRate: rate=%ld, latency=%lld, state=%d\n", rate, latency, mTask.state);
+    INFO_PRINT("accSetRate: rate=%ld, latency=%lld, state=%d\n", rate, latency, mTask.state);
 
     if (mTask.state == SENSOR_IDLE) {
         mTask.state = SENSOR_CONFIG_CHANGING;
 
         odr = computeOdr(rate);
         if (!odr) {
-            osLog(LOG_ERROR, "invalid acc rate\n");
+            ERROR_PRINT("invalid acc rate\n");
             return false;
         }
 
@@ -1216,14 +1232,14 @@ static bool gyrSetRate(uint32_t rate, uint64_t latency, void *cookie)
 {
     int odr, osr = 0;
 
-    osLog(LOG_INFO, "BMI160: gyrSetRate: rate=%ld, latency=%lld, state=%d\n", rate, latency, mTask.state);
+    INFO_PRINT("gyrSetRate: rate=%ld, latency=%lld, state=%d\n", rate, latency, mTask.state);
 
     if (mTask.state == SENSOR_IDLE) {
         mTask.state = SENSOR_CONFIG_CHANGING;
 
         odr = computeOdr(rate);
         if (!odr) {
-            osLog(LOG_ERROR, "invalid gyr rate\n");
+            ERROR_PRINT("invalid gyr rate\n");
             return false;
         }
 
@@ -1276,7 +1292,7 @@ static bool magSetRate(uint32_t rate, uint64_t latency, void *cookie)
     if (rate == SENSOR_RATE_ONCHANGE)
         rate = SENSOR_HZ(100);
 
-    osLog(LOG_INFO, "BMI160: magSetRate: rate=%ld, latency=%lld, state=%d\n", rate, latency, mTask.state);
+    INFO_PRINT("magSetRate: rate=%ld, latency=%lld, state=%d\n", rate, latency, mTask.state);
 
     if (mTask.state == SENSOR_IDLE) {
         mTask.state = SENSOR_CONFIG_CHANGING;
@@ -1287,7 +1303,7 @@ static bool magSetRate(uint32_t rate, uint64_t latency, void *cookie)
 
         odr = computeOdr(rate);
         if (!odr) {
-            osLog(LOG_ERROR, "invalid mag rate\n");
+            ERROR_PRINT("invalid mag rate\n");
             return false;
         }
 
@@ -1552,7 +1568,7 @@ static bool allocateDataEvt(struct BMI160Sensor *mSensor, uint64_t rtc_time)
     mSensor->data_evt = slabAllocatorAlloc(mDataSlab);
     if (mSensor->data_evt == NULL) {
         // slab allocation failed
-        osLog(LOG_ERROR, "Slab allocation failed\n");
+        ERROR_PRINT("Slab allocation failed\n");
         return false;
     }
 
@@ -1582,7 +1598,7 @@ static void parseRawData(struct BMI160Sensor *mSensor, uint8_t *buf, float kScal
 
     if (rtc_time < mSensor->prev_rtc_time + kMinTimeIncrementNs) {
 #if TIMESTAMP_DBG
-        osLog(LOG_INFO, "%s prev rtc 0x%08x %08x, curr 0x%08x %08x, delta %d usec\n",
+        DEBUG_PRINT("%s prev rtc 0x%08x %08x, curr 0x%08x %08x, delta %d usec\n",
                 mSensorInfo[mSensor->idx].sensorName,
                 (unsigned int)((mSensor->prev_rtc_time >> 32) & 0xffffffff),
                 (unsigned int)(mSensor->prev_rtc_time & 0xffffffff),
@@ -1627,7 +1643,7 @@ static void parseRawData(struct BMI160Sensor *mSensor, uint8_t *buf, float kScal
     }
 
     if (mSensor->data_evt->samples[0].firstSample.numSamples >= MAX_NUM_COMMS_EVENT_SAMPLES) {
-        osLog(LOG_ERROR, "BAD INDEX\n");
+        ERROR_PRINT("BAD INDEX\n");
         return;
     }
 
@@ -1668,7 +1684,7 @@ static void parseRawData(struct BMI160Sensor *mSensor, uint8_t *buf, float kScal
     sample->y = y;
     sample->z = z;
 
-    //osLog(LOG_INFO, "bmi160: x: %d, y: %d, z: %d\n", (int)(1000*x), (int)(1000*y), (int)(1000*z));
+    //DEBUG_PRINT("bmi160: x: %d, y: %d, z: %d\n", (int)(1000*x), (int)(1000*y), (int)(1000*z));
 
     if (mSensor->data_evt->samples[0].firstSample.numSamples == MAX_NUM_COMMS_EVENT_SAMPLES) {
         flushAllData();
@@ -1755,11 +1771,11 @@ static void dispatchData(void)
 
 #if TIMESTAMP_DBG
                     if (frame_sensor_time == full_sensor_time) {
-                        //osLog(LOG_INFO, "frame %d FrameTime 0x%08x\n",
+                        //DEBUG_PRINT("frame %d FrameTime 0x%08x\n",
                         //        frame_num - 1,
                         //        (unsigned int)frame_sensor_time);
                     } else if (frame_sensor_time_valid) {
-                        osLog(LOG_INFO, "frame %d FrameTime 0x%08x != SensorTime 0x%08x, jumped %d msec\n",
+                        DEBUG_PRINT("frame %d FrameTime 0x%08x != SensorTime 0x%08x, jumped %d msec\n",
                                 frame_num - 1,
                                 (unsigned int)frame_sensor_time,
                                 (unsigned int)full_sensor_time,
@@ -1789,7 +1805,7 @@ static void dispatchData(void)
                         }
 
 #if TIMESTAMP_DBG
-                        osLog(LOG_INFO, "sensortime invalid: full, frame, task = %llu, %llu, %llu\n",
+                        DEBUG_PRINT("sensortime invalid: full, frame, task = %llu, %llu, %llu\n",
                                 full_sensor_time,
                                 frame_sensor_time,
                                 mTask.frame_sensortime);
@@ -1822,7 +1838,7 @@ static void dispatchData(void)
             } else if (fh_param == 2) {
                 // fifo_input config frame
 #if TIMESTAMP_DBG
-                osLog(LOG_INFO, "frame %d config change 0x%02x\n", frame_num, buf[i]);
+                DEBUG_PRINT("frame %d config change 0x%02x\n", frame_num, buf[i]);
 #endif
                 if (size >= 1) {
                     for (j = ACC; j <= MAG; j++) {
@@ -1830,7 +1846,7 @@ static void dispatchData(void)
                             mTask.pending_delta[j] = false;
                             mTask.time_delta[j] = mTask.next_delta[j];
 #if TIMESTAMP_DBG
-                            osLog(LOG_INFO, "%s new delta %u\n", mSensorInfo[j].sensorName, (unsigned int)mTask.time_delta[j]);
+                            DEBUG_PRINT("%s new delta %u\n", mSensorInfo[j].sensorName, (unsigned int)mTask.time_delta[j]);
 #endif
                         }
                     }
@@ -1841,7 +1857,7 @@ static void dispatchData(void)
                 }
             } else {
                 size = 0; // drop this batch
-                osLog(LOG_ERROR, "Invalid fh_param in conttrol frame\n");
+                ERROR_PRINT("Invalid fh_param in conttrol frame\n");
             }
         } else if (fh_mode == 2) {
             // Calcutate candidate frame time (tmp_frame_time):
@@ -1874,10 +1890,10 @@ static void dispatchData(void)
                         parseRawData(&mTask.sensors[MAG], &buf[i], 0, tmp_frame_time); // scale nor used
 #if TIMESTAMP_DBG
                         if (mTask.prev_frame_time[MAG] == ULONG_LONG_MAX) {
-                            osLog(LOG_INFO, "mag enabled: frame %d time 0x%08x\n",
+                            DEBUG_PRINT("mag enabled: frame %d time 0x%08x\n",
                                     frame_num, (unsigned int)tmp_frame_time);
                         } else if ((tmp_frame_time != tmp_time[MAG]) && (tmp_time[MAG] != 0)) {
-                            osLog(LOG_INFO, "frame %d mag time: 0x%08x -> 0x%08x, jumped %d msec\n",
+                            DEBUG_PRINT("frame %d mag time: 0x%08x -> 0x%08x, jumped %d msec\n",
                                     frame_num,
                                     (unsigned int)tmp_time[MAG],
                                     (unsigned int)tmp_frame_time,
@@ -1899,10 +1915,10 @@ static void dispatchData(void)
                         parseRawData(&mTask.sensors[GYR], &buf[i], kScale_gyr, tmp_frame_time);
 #if TIMESTAMP_DBG
                         if (mTask.prev_frame_time[GYR] == ULONG_LONG_MAX) {
-                            osLog(LOG_INFO, "gyr enabled: frame %d time 0x%08x\n",
+                            DEBUG_PRINT("gyr enabled: frame %d time 0x%08x\n",
                                     frame_num, (unsigned int)tmp_frame_time);
                         } else if ((tmp_frame_time != tmp_time[GYR]) && (tmp_time[GYR] != 0)) {
-                            osLog(LOG_INFO, "frame %d gyr time: 0x%08x -> 0x%08x, jumped %d msec\n",
+                            DEBUG_PRINT("frame %d gyr time: 0x%08x -> 0x%08x, jumped %d msec\n",
                                     frame_num,
                                     (unsigned int)tmp_time[GYR],
                                     (unsigned int)tmp_frame_time,
@@ -1924,10 +1940,10 @@ static void dispatchData(void)
                         parseRawData(&mTask.sensors[ACC], &buf[i], kScale_acc, tmp_frame_time);
 #if TIMESTAMP_DBG
                         if (mTask.prev_frame_time[ACC] == ULONG_LONG_MAX) {
-                            osLog(LOG_INFO, "acc enabled: frame %d time 0x%08x\n",
+                            DEBUG_PRINT("acc enabled: frame %d time 0x%08x\n",
                                     frame_num, (unsigned int)tmp_frame_time);
                         } else if ((tmp_frame_time != tmp_time[ACC]) && (tmp_time[ACC] != 0)) {
-                            osLog(LOG_INFO, "frame %d gyr time: 0x%08x -> 0x%08x, jumped %d msec\n",
+                            DEBUG_PRINT("frame %d gyr time: 0x%08x -> 0x%08x, jumped %d msec\n",
                                     frame_num,
                                     (unsigned int)tmp_time[ACC],
                                     (unsigned int)tmp_frame_time,
@@ -1948,7 +1964,7 @@ static void dispatchData(void)
                 frame_sensor_time = tmp_frame_time;
         } else {
             size = 0; // drop this batch
-            osLog(LOG_ERROR, "Invalid fh_mode\n");
+            ERROR_PRINT("Invalid fh_mode\n");
         }
     }
 
@@ -1970,7 +1986,7 @@ static void int2Handling(void)
     uint8_t int_status_1 = mTask.statusBuffer[2];
     if (int_status_0 & INT_STEP) {
         if (mTask.sensors[STEP].powered) {
-            osLog(LOG_INFO, "BMI160: Detected step\n");
+            DEBUG_PRINT("Detected step\n");
             osEnqueueEvt(EVT_SENSOR_STEP, NULL, NULL);
         }
         if (mTask.sensors[STEPCNT].powered) {
@@ -1983,24 +1999,24 @@ static void int2Handling(void)
         // bit [0:2] of INT_STATUS[2] is set when anymo is triggered by x, y or
         // z axies respectively. bit [3] indicates the slope.
         trigger_axies.idata = (mTask.statusBuffer[3] & 0x0f);
-        osLog(LOG_INFO, "BMI160: Detected any motion\n");
+        DEBUG_PRINT("Detected any motion\n");
         osEnqueueEvt(EVT_SENSOR_ANY_MOTION, trigger_axies.vptr, NULL);
     }
     if ((int_status_0 & INT_DOUBLE_TAP) && mTask.sensors[DTAP].powered) {
         // bit [4:6] of INT_STATUS[2] is set when double tap is triggered by
         // x, y or z axies respectively. bit [7] indicates the slope.
         trigger_axies.idata = ((mTask.statusBuffer[3] & 0xf0) >> 4);
-        osLog(LOG_INFO, "BMI160: Detected double tap\n");
+        DEBUG_PRINT("Detected double tap\n");
         osEnqueueEvt(EVT_SENSOR_DOUBLE_TAP, trigger_axies.vptr, NULL);
     }
     if ((int_status_0 & INT_FLAT) && mTask.sensors[FLAT].powered) {
         // bit [7] of INT_STATUS[3] indicates flat/non-flat position
         trigger_axies.idata = ((mTask.statusBuffer[4] & 0x80) >> 7);
-        osLog(LOG_INFO, "BMI160: Detected flat\n");
+        DEBUG_PRINT("Detected flat\n");
         osEnqueueEvt(EVT_SENSOR_FLAT, trigger_axies.vptr, NULL);
     }
     if ((int_status_1 & INT_NO_MOTION) && mTask.sensors[NOMO].powered) {
-        osLog(LOG_INFO, "BMI160: Detected no motion\n");
+        DEBUG_PRINT("Detected no motion\n");
         osEnqueueEvt(EVT_SENSOR_NO_MOTION, NULL, NULL);
     }
     return;
@@ -2050,7 +2066,7 @@ static uint8_t offset6Mode(void)
     mode |= (mTask.sensors[GYR].offset[2] & 0x0300) >> 4;
     mode |= (mTask.sensors[GYR].offset[1] & 0x0300) >> 6;
     mode |= (mTask.sensors[GYR].offset[0] & 0x0300) >> 8;
-    osLog(LOG_INFO, "OFFSET_6_MODE is: %02x\n", mode);
+    DEBUG_PRINT("OFFSET_6_MODE is: %02x\n", mode);
     return mode;
 }
 
@@ -2136,7 +2152,7 @@ static void accCalibrationHandling(void)
             //read the offset value for accel
             SPI_READ(BMI160_REG_OFFSET_0, 3, &mTask.dataBuffer);
             mTask.calibration_state = CALIBRATION_SET_OFFSET;
-            osLog(LOG_INFO, "FOC set FINISHED!\n");
+            DEBUG_PRINT("FOC set FINISHED!\n");
         } else {
 
             // calibration hasn't finished yet, go back to wait for 50ms.
@@ -2165,7 +2181,7 @@ static void accCalibrationHandling(void)
             mTask.sensors[ACC].offset[2] |= 0xFFFFFF00;
 
         mTask.sensors[ACC].offset_enable = true;
-        osLog(LOG_INFO, "ACCELERATION OFFSET is %02x  %02x  %02x\n",
+        DEBUG_PRINT("ACCELERATION OFFSET is %02x  %02x  %02x\n",
                 (unsigned int)mTask.sensors[ACC].offset[0],
                 (unsigned int)mTask.sensors[ACC].offset[1],
                 (unsigned int)mTask.sensors[ACC].offset[2]);
@@ -2183,7 +2199,7 @@ static void accCalibrationHandling(void)
         spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[ACC]);
         break;
     default:
-        osLog(LOG_ERROR, "Invalid calibration state\n");
+        ERROR_PRINT("Invalid calibration state\n");
         break;
     }
 }
@@ -2191,7 +2207,7 @@ static void accCalibrationHandling(void)
 static bool accCalibration(void *cookie)
 {
     if ((mTask.state != SENSOR_IDLE) || mTask.sensors[ACC].powered) {
-        osLog(LOG_ERROR, "BMI160: cannot calibrate accel because sensor is busy\n");
+        ERROR_PRINT("cannot calibrate accel because sensor is busy\n");
         sendCalibrationResult(SENSOR_APP_EVT_STATUS_BUSY, SENS_TYPE_ACCEL, 0, 0, 0);
         return false;
     } else {
@@ -2211,7 +2227,7 @@ static bool accCfgData(void *data, void *cookie)
     mTask.sensors[ACC].offset[2] = values[2];
     mTask.sensors[ACC].offset_enable = true;
 
-    osLog(LOG_INFO, "accCfgData: data=%02lx, %02lx, %02lx\n", values[0] & 0xFF, values[1] & 0xFF, values[2] & 0xFF);
+    INFO_PRINT("accCfgData: data=%02lx, %02lx, %02lx\n", values[0] & 0xFF, values[1] & 0xFF, values[2] & 0xFF);
 
     if (mTask.state == SENSOR_IDLE)
         saveCalibration();
@@ -2262,7 +2278,7 @@ static void gyrCalibrationHandling(void)
             //read the offset value for gyro
             SPI_READ(BMI160_REG_OFFSET_3, 4, &mTask.dataBuffer);
             mTask.calibration_state = CALIBRATION_SET_OFFSET;
-            osLog(LOG_INFO, "FOC set FINISHED!\n");
+            DEBUG_PRINT("FOC set FINISHED!\n");
         } else {
 
             // calibration hasn't finished yet, go back to wait for 50ms.
@@ -2291,7 +2307,7 @@ static void gyrCalibrationHandling(void)
             mTask.sensors[GYR].offset[2] |= 0xFFFFFC00;
 
         mTask.sensors[GYR].offset_enable = true;
-        osLog(LOG_INFO, "GYRO OFFSET is %02x  %02x  %02x\n",
+        DEBUG_PRINT("GYRO OFFSET is %02x  %02x  %02x\n",
                 (unsigned int)mTask.sensors[GYR].offset[0],
                 (unsigned int)mTask.sensors[GYR].offset[1],
                 (unsigned int)mTask.sensors[GYR].offset[2]);
@@ -2309,7 +2325,7 @@ static void gyrCalibrationHandling(void)
         spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[GYR]);
         break;
     default:
-        osLog(LOG_ERROR, "Invalid calibration state\n");
+        ERROR_PRINT("Invalid calibration state\n");
         break;
     }
 }
@@ -2317,7 +2333,7 @@ static void gyrCalibrationHandling(void)
 static bool gyrCalibration(void *cookie)
 {
     if ((mTask.state != SENSOR_IDLE) || mTask.sensors[GYR].powered) {
-        osLog(LOG_ERROR, "BMI160: cannot calibrate gyro because sensor is busy\n");
+        ERROR_PRINT("cannot calibrate gyro because sensor is busy\n");
         sendCalibrationResult(SENSOR_APP_EVT_STATUS_BUSY, SENS_TYPE_GYRO, 0, 0, 0);
         return false;
     } else {
@@ -2337,7 +2353,7 @@ static bool gyrCfgData(void *data, void *cookie)
     mTask.sensors[GYR].offset[2] = values[2];
     mTask.sensors[GYR].offset_enable = true;
 
-    osLog(LOG_INFO, "gyrCfgData: data=%02lx, %02lx, %02lx\n", values[0] & 0xFF, values[1] & 0xFF, values[2] & 0xFF);
+    INFO_PRINT("gyrCfgData: data=%02lx, %02lx, %02lx\n", values[0] & 0xFF, values[1] & 0xFF, values[2] & 0xFF);
 
     if (mTask.state == SENSOR_IDLE)
         saveCalibration();
@@ -2351,7 +2367,7 @@ static bool magCfgData(void *data, void *cookie)
 {
     float *values = data;
 
-    osLog(LOG_INFO, "magCfgData: %ld, %ld, %ld\n", (int32_t)(values[0] * 1000), (int32_t)(values[1] * 1000), (int32_t)(values[2] * 1000));
+    INFO_PRINT("magCfgData: %ld, %ld, %ld\n", (int32_t)(values[0] * 1000), (int32_t)(values[1] * 1000), (int32_t)(values[2] * 1000));
 
     mTask.moc.x_bias = values[0];
     mTask.moc.y_bias = values[1];
@@ -2468,7 +2484,7 @@ static void sensorInit(void)
 {
     switch (mTask.init_state) {
     case RESET_BMI160:
-        osLog(LOG_INFO, "BMI160: Performing soft reset\n");
+        DEBUG_PRINT("Performing soft reset\n");
         // perform soft reset and wait for 100ms
         SPI_WRITE(BMI160_REG_CMD, 0xb6, 100000);
         // dummy reads after soft reset, wait 100us
@@ -2544,7 +2560,7 @@ static void sensorInit(void)
             // fixme: check should be done before SPI_READ in MAG_READ
             SPI_READ(BMI160_REG_STATUS, 1, &mTask.statusBuffer, 1000);
             if (--mRetryLeft == 0) {
-                osLog(LOG_ERROR, "BMI160: INIT_MAG failed\n");
+                ERROR_PRINT("INIT_MAG failed\n");
                 // fixme: duplicate suspend mag here
                 mTask.mag_state = MAG_INIT_FAILED;
                 mTask.init_state = INIT_ON_CHANGE_SENSORS;
@@ -2597,7 +2613,7 @@ static void sensorInit(void)
         break;
 
     default:
-        osLog(LOG_INFO, "Invalid init_state.\n");
+        INFO_PRINT("Invalid init_state.\n");
     }
 }
 
@@ -2620,7 +2636,7 @@ static void handleSpiDoneEvt(const void* evtData)
     case SENSOR_VERIFY_ID:
         if (mTask.dataBuffer[1] != BMI160_ID) {
             mRetryLeft --;
-            osLog(LOG_ERROR, "failed id match: %02x\n", mTask.dataBuffer[1]);
+            ERROR_PRINT("failed id match: %02x\n", mTask.dataBuffer[1]);
             if (mRetryLeft == 0)
                 break;
             // For some reason the first ID read will fail to get the
@@ -2636,7 +2652,7 @@ static void handleSpiDoneEvt(const void* evtData)
         }
     case SENSOR_INITIALIZING:
         if (mTask.init_state == INIT_DONE) {
-            osLog(LOG_INFO, "Done initialzing, system IDLE\n");
+            DEBUG_PRINT("Done initialzing, system IDLE\n");
             for (i=0; i<NUM_OF_SENSOR; i++)
                 sensorRegisterInitComplete(mTask.sensors[i].handle);
             mTask.state = SENSOR_IDLE;
@@ -2652,7 +2668,7 @@ static void handleSpiDoneEvt(const void* evtData)
             // if this is the first one-shot sensor to enable, we need
             // to request the accel at 50Hz.
             sensorRequest(mTask.tid, mTask.sensors[ACC].handle, SENSOR_HZ(50), SENSOR_LATENCY_NODATA);
-            //osLog(LOG_INFO, "oneshot on\n");
+            //DEBUG_PRINT("oneshot on\n");
         }
         sensorSignalInternalEvt(mSensor->handle, SENSOR_INTERNAL_EVT_POWER_STATE_CHG, 1, 0);
         mTask.state = SENSOR_IDLE;
@@ -2664,7 +2680,7 @@ static void handleSpiDoneEvt(const void* evtData)
             // if this is the last one-shot sensor to disable, we need to
             // release the accel.
             sensorRelease(mTask.tid, mTask.sensors[ACC].handle);
-            //osLog(LOG_INFO, "oneshot off\n");
+            //DEBUG_PRINT("oneshot off\n");
         }
         sensorSignalInternalEvt(mSensor->handle, SENSOR_INTERNAL_EVT_POWER_STATE_CHG, 0, 0);
         mTask.state = SENSOR_IDLE;
@@ -2708,11 +2724,11 @@ static void handleSpiDoneEvt(const void* evtData)
     case SENSOR_CALIBRATING:
         mSensor = (struct BMI160Sensor *)evtData;
         if (mTask.calibration_state == CALIBRATION_DONE) {
-            osLog(LOG_INFO, "DONE calibration\n");
+            DEBUG_PRINT("DONE calibration\n");
             mTask.state = SENSOR_IDLE;
             processPendingEvt();
         } else if (mTask.calibration_state == CALIBRATION_TIMEOUT) {
-            osLog(LOG_INFO, "Calibration TIMED OUT\n");
+            DEBUG_PRINT("Calibration TIMED OUT\n");
             sendCalibrationResult(SENSOR_APP_EVT_STATUS_ERROR, (mSensor->idx == ACC) ? SENS_TYPE_ACCEL : SENS_TYPE_GYRO, 0, 0, 0);
             mTask.state = SENSOR_IDLE;
             processPendingEvt();
@@ -2740,7 +2756,7 @@ static void handleSpiDoneEvt(const void* evtData)
         processPendingEvt();
         break;
     case SENSOR_SAVE_CALIBRATION:
-        osLog(LOG_INFO, "SENSOR_SAVE_CALIBRATION: %02x %02x %02x %02x %02x %02x %02x\n", mTask.dataBuffer[1], mTask.dataBuffer[2], mTask.dataBuffer[3], mTask.dataBuffer[4], mTask.dataBuffer[5], mTask.dataBuffer[6], mTask.dataBuffer[7]);
+        DEBUG_PRINT("SENSOR_SAVE_CALIBRATION: %02x %02x %02x %02x %02x %02x %02x\n", mTask.dataBuffer[1], mTask.dataBuffer[2], mTask.dataBuffer[3], mTask.dataBuffer[4], mTask.dataBuffer[5], mTask.dataBuffer[6], mTask.dataBuffer[7]);
         mTask.state = SENSOR_IDLE;
         processPendingEvt();
         break;
@@ -2813,7 +2829,7 @@ static void initSensorStruct(struct BMI160Sensor *sensor, enum SensorIndex idx)
 
 static bool startTask(uint32_t task_id)
 {
-    osLog(LOG_INFO, "        IMU:  %ld\n", task_id);
+    DEBUG_PRINT("        IMU:  %ld\n", task_id);
 
     enum SensorIndex i;
     size_t slabSize;
@@ -2864,7 +2880,7 @@ static bool startTask(uint32_t task_id)
     // XXX: this consumes too much memeory, need to optimize
     mDataSlab = slabAllocatorNew(slabSize, 4, 20);
     if (!mDataSlab) {
-        osLog(LOG_INFO, "Slab allocation failed\n");
+        INFO_PRINT("Slab allocation failed\n");
         return false;
     }
 
