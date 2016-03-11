@@ -21,7 +21,7 @@ ifneq ($(PLATFORM),stm32f4xx)
 endif
 
 FLAGS += -DPLATFORM_HW_TYPE=0x4C75   #'Lu' -> lunchbox
-FLAGS += -DDEBUG_UART_PIN=0          #GPIOA0 is debug uart at 2MBps
+FLAGS += -DDEBUG_UART_PIN=16         #GPIOB0 is debug uart at 2MBps
 
 
 #board configuration shims
@@ -35,10 +35,14 @@ SRCS_os += links/variant/src/spi.c
 SRCS_os += src/drivers/rohm_rpr0521/rohm_rpr0521.c
 
 # Fusion algorithms
-SRCS_os += src/fusion/fusion.c src/fusion/mat.c src/fusion/quat.c src/fusion/vec.c
+SRCS_os += src/algos/fusion.c src/algos/mat.c src/algos/quat.c src/algos/vec.c
 
 # BMI160 accel and gyro, BMM150 mag drivers
-SRCS_os += src/drivers/bosch_bmi160_bmm150/bosch_bmi160_bmm150.c src/drivers/bosch_bmi160_bmm150/mag_cal.c src/drivers/bosch_bmi160_bmm150/time_sync.c
+FLAGS += -DUSE_BMM150
+SRCS_os += src/drivers/bosch_bmi160/bosch_bmi160.c \
+	src/drivers/bosch_bmi160/bosch_bmm150_slave.c \
+	src/algos/mag_cal.c \
+	src/algos/time_sync.c
 
 # Orientation sensor driver
 SRCS_os += src/drivers/orientation/orientation.c
