@@ -67,9 +67,8 @@ struct ConfigCmd
 
 struct ActiveSensor
 {
-    uint64_t lastInterrupt;
-    uint64_t lastTimestamp;
     uint64_t latency;
+    uint64_t firstTime;
     uint64_t lastTime;
     struct HostIntfDataBuffer buffer;
     uint32_t rate;
@@ -471,6 +470,7 @@ bool hostIntfPacketDequeue(void *data, uint32_t *wakeup, uint32_t *nonwakeup)
             else if (sensor->interrupt == NANOHUB_INT_NONWAKEUP)
                 mNonWakeupBlocks--;
             sensor->curSamples -= buffer->firstSample.numSamples;
+            sensor->firstTime = 0ull;
         } else {
             if (buffer->interrupt == NANOHUB_INT_WAKEUP)
                 mWakeupBlocks--;
@@ -615,7 +615,7 @@ static bool initSensors()
             resetBuffer(mActiveSensorTable + j);
             mActiveSensorTable[j].buffer.sensType = i;
             mActiveSensorTable[j].oneshot = false;
-            mActiveSensorTable[j].lastInterrupt = 0ull;
+            mActiveSensorTable[j].firstTime = 0ull;
             switch (si->numAxis) {
             case NUM_AXIS_EMBEDDED:
             case NUM_AXIS_ONE:
@@ -664,7 +664,8 @@ static void copySingleSamples(struct ActiveSensor *sensor, const struct SingleAx
                 mNonWakeupBlocks++;
             sensor->buffer.firstSample.numSamples = 1;
             sensor->buffer.firstSample.interrupt = sensor->interrupt;
-            sensor->curSamples++;
+            if (sensor->curSamples++ == 0)
+                sensor->firstTime = sensor->buffer.referenceTime;
         } else {
             if (i == 0) {
                 if (sensor->lastTime > single->referenceTime) {
@@ -737,7 +738,8 @@ static void copyTripleSamples(struct ActiveSensor *sensor, const struct TripleAx
                 mNonWakeupBlocks++;
             sensor->buffer.firstSample.numSamples = 1;
             sensor->buffer.firstSample.interrupt = sensor->interrupt;
-            sensor->curSamples++;
+            if (sensor->curSamples++ == 0)
+                sensor->firstTime = sensor->buffer.referenceTime;
         } else {
             if (i == 0) {
                 if (sensor->lastTime > triple->referenceTime) {
@@ -818,7 +820,8 @@ static void copyWifiSamples(struct ActiveSensor *sensor, const struct WifiScanEv
                 mNonWakeupBlocks++;
             sensor->buffer.firstSample.numSamples = 1;
             sensor->buffer.firstSample.interrupt = sensor->interrupt;
-            sensor->curSamples++;
+            if (sensor->curSamples++ == 0)
+                sensor->firstTime = sensor->buffer.referenceTime;
         } else {
             if (i == 0) {
                 if (sensor->lastTime > wifiScanEvent->referenceTime) {
@@ -867,7 +870,7 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
 {
     struct ConfigCmd *cmd;
     uint32_t i, cnt;
-    uint64_t currentTime, rtcTime;
+    uint64_t rtcTime;
     struct ActiveSensor *sensor;
     uint32_t tempSensorHandle;
     const struct HostHubRawPacket *hostMsg;
@@ -921,14 +924,13 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
     }
 #endif
     else if (evtType == EVT_LATENCY_TIMER) {
-        currentTime = timGetTime();
+        rtcTime = rtcGetTime();
 
         for (i = 0, cnt = 0; i < mNumSensors && cnt < mLatencyCnt; i++) {
             if (mActiveSensorTable[i].latency > 0) {
                 cnt++;
-                if (mActiveSensorTable[i].curSamples && currentTime >= mActiveSensorTable[i].lastInterrupt + mActiveSensorTable[i].latency) {
+                if (mActiveSensorTable[i].firstTime && rtcTime >= mActiveSensorTable[i].firstTime + mActiveSensorTable[i].latency) {
                     hostIntfSetInterrupt(mActiveSensorTable[i].interrupt);
-                    mActiveSensorTable[i].lastInterrupt += mActiveSensorTable[i].latency;
                 }
             }
         }
@@ -954,7 +956,6 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
                                 }
                             }
                             sensor->latency = cmd->latency;
-                            sensor->lastInterrupt = timGetTime();
                         }
                     }
                 } else if (cmd->cmd == CONFIG_CMD_DISABLE) {
@@ -992,7 +993,6 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
                         }
                         sensor->rate = cmd->rate;
                         sensor->latency = cmd->latency;
-                        sensor->lastInterrupt = timGetTime();
                         osEventSubscribe(mHostIntfTid, sensorGetMyEventType(cmd->sensType));
                         break;
                     } else {
@@ -1062,7 +1062,8 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
                         sensor->buffer.single[sensor->buffer.firstSample.numSamples].idata = (uint32_t)evtData;
                         sensor->buffer.firstSample.numSamples++;
                     }
-                    sensor->curSamples++;
+                    if (sensor->curSamples++ == 0)
+                        sensor->firstTime = sensor->buffer.referenceTime;
                     break;
                 case NUM_AXIS_ONE:
                     copySingleSamples(sensor, evtData);
@@ -1078,15 +1079,14 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
                 }
             }
 
-            currentTime = timGetTime();
-            if ((currentTime >= sensor->lastInterrupt + sensor->latency) ||
-                ((sensor->latency > sensorGetCurLatency(sensor->sensorHandle)) &&
-                    (currentTime + sensorGetCurLatency(sensor->sensorHandle) > sensor->lastInterrupt + sensor->latency))) {
+            rtcTime = rtcGetTime();
+            if (sensor->firstTime &&
+                ((rtcTime >= sensor->firstTime + sensor->latency) ||
+                 ((sensor->latency > sensorGetCurLatency(sensor->sensorHandle)) &&
+                  (rtcTime + sensorGetCurLatency(sensor->sensorHandle) > sensor->firstTime + sensor->latency)))) {
                 hostIntfSetInterrupt(sensor->interrupt);
-                sensor->lastInterrupt += sensor->latency;
             } else if (mWakeupBlocks + mNonWakeupBlocks >= mTotalBlocks) {
                 hostIntfSetInterrupt(sensor->interrupt);
-                sensor->lastInterrupt = currentTime;
             }
 
             if (sensor->oneshot) {
