@@ -95,10 +95,6 @@ SensorType SensorEvent::GetSensorType() const {
         GetEventType() - static_cast<uint32_t>(EventType::FirstSensorEvent));
 }
 
-uint8_t SensorEvent::GetNumSamples() const {
-    return 1;
-}
-
 /* TimestampedSensorEvent *****************************************************/
 
 uint8_t TimestampedSensorEvent::GetNumSamples() const {
@@ -232,9 +228,16 @@ std::string TripleAxisSensorEvent::StringForSample(uint8_t index) const {
         reinterpret_cast<const TripleAxisDataPoint *>(
             GetSampleAtIndex(index));
 
-    char buffer[64];
-    snprintf(buffer, sizeof(buffer), "  X:%f Y:%f Z:%f @ %s\n",
-             sample->x, sample->y, sample->z, GetSampleTimeStr(index).c_str());
+    const struct SensorFirstSample *first_sample =
+        reinterpret_cast<const struct SensorFirstSample *>(
+            event_data.data() + sizeof(struct SensorEventHeader));
+    bool is_bias_sample = first_sample->biasPresent
+        && first_sample->biasSample == index;
+
+    char buffer[128];
+    snprintf(buffer, sizeof(buffer), "  X:%f Y:%f Z:%f @ %s%s\n",
+             sample->x, sample->y, sample->z, GetSampleTimeStr(index).c_str(),
+             is_bias_sample ? " (Bias Sample)" : "");
 
     return std::string(buffer);
 }

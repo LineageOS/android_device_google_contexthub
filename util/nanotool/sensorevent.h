@@ -105,10 +105,9 @@ class SensorEvent : public ReadEventResponse {
 
     /*
      * Subclasses should override this function to return the number of samples
-     * contained in the event. By default, we assume that the event contains 1
-     * sample.
+     * contained in the event.
      */
-    virtual uint8_t GetNumSamples() const;
+    virtual uint8_t GetNumSamples() const = 0;
 
   protected:
     virtual bool SizeIsValid() const = 0;
