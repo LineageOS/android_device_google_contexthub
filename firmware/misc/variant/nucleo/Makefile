@@ -38,12 +38,14 @@ SRCS_os += src/drivers/ams_tmd2772/ams_tmd2772.c
 SRCS_os += src/drivers/rohm_rpr0521/rohm_rpr0521.c
 
 # Fusion algorithm
-SRCS_os += src/fusion/fusion.c src/fusion/mat.c src/fusion/quat.c src/fusion/vec.c
+SRCS_os += src/algos/fusion.c src/algos/mat.c src/algos/quat.c src/algos/vec.c
 
 # BMI160 accel and gyro, BMM150 mag drivers
-SRCS_os += src/drivers/bosch_bmi160_bmm150/bosch_bmi160_bmm150.c \
-		src/drivers/bosch_bmi160_bmm150/mag_cal.c \
-		src/drivers/bosch_bmi160_bmm150/time_sync.c
+FLAGS += -DUSE_BMM150
+SRCS_os += src/drivers/bosch_bmi160/bosch_bmi160.c \
+	src/drivers/bosch_bmi160/bosch_bmm150_slave.c \
+	src/algos/mag_cal.c \
+	src/algos/time_sync.c
 
 # Orientation sensor driver
 SRCS_os += src/drivers/orientation/orientation.c
