@@ -94,6 +94,9 @@ static bool timFireAsNeededAndUpdateAlarms(void)
     uint32_t i, id;
     void *callData;
 
+    // protect from concurrent execution [timIntHandler() and timTimerSetEx()]
+    uint64_t intSta = cpuIntsOff();
+
     do {
         somethingDone = false;
         nextTimer = 0;
@@ -134,6 +137,8 @@ static bool timFireAsNeededAndUpdateAlarms(void)
 
     if (!nextTimer)
         platSleepClockRequest(0, 0, 0, 0);
+
+    cpuIntsRestore(intSta);
 
     return totalSomethingDone;
 }
