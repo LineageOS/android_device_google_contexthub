@@ -34,6 +34,7 @@
 #include <linux/input.h>
 #include <linux/uinput.h>
 #include <media/stagefright/foundation/ADebug.h>
+#include <sys/inotify.h>
 
 #define APP_ID_GET_VENDOR(appid)       ((appid) >> 24)
 #define APP_ID_MAKE(vendor, app)       ((((uint64_t)(vendor)) << 24) | ((app) & 0x00FFFFFF))
@@ -48,7 +49,11 @@ static constexpr const char LID_STATE_OPEN[]     = "open";
 static constexpr const char LID_STATE_CLOSED[]   = "closed";
 
 #define NANOHUB_FILE_PATH       "/dev/nanohub"
+#define NANOHUB_LOCK_DIR        "/data/system/nanohub_lock"
+#define NANOHUB_LOCK_FILE       NANOHUB_LOCK_DIR "/lock"
 #define MAG_BIAS_FILE_PATH      "/sys/class/power_supply/battery/compass_compensation"
+
+#define NANOHUB_LOCK_DIR_PERMS  (S_IRUSR | S_IWUSR | S_IXUSR)
 
 #define SENSOR_RATE_ONCHANGE    0xFFFFFF01UL
 #define SENSOR_RATE_ONESHOT     0xFFFFFF02UL
@@ -92,13 +97,37 @@ HubConnection::HubConnection()
     mPollFds[0].fd = mFd;
     mPollFds[0].events = POLLIN;
     mPollFds[0].revents = 0;
-    mPollFds[1].fd = open(MAG_BIAS_FILE_PATH, O_RDONLY);
-    mPollFds[1].events = 0;
-    mPollFds[1].revents = 0;
-    if (mPollFds[1].fd == -1)
-        mNumPollFds = 1;
-    else
-        mNumPollFds = 2;
+    mNumPollFds = 1;
+
+    // Create the lock directory (if it doesn't already exist)
+    mkdir(NANOHUB_LOCK_DIR, NANOHUB_LOCK_DIR_PERMS);
+    mInotifyPollIndex = -1;
+    int inotifyFd = inotify_init1(IN_NONBLOCK);
+    if (inotifyFd < 0) {
+        ALOGE("Couldn't initialize inotify: %s", strerror(errno));
+    } else if (inotify_add_watch(inotifyFd, NANOHUB_LOCK_DIR, IN_CREATE | IN_DELETE) < 0) {
+        ALOGE("Couldn't add inotify watch: %s", strerror(errno));
+        close(inotifyFd);
+    } else {
+        mPollFds[mNumPollFds].fd = inotifyFd;
+        mPollFds[mNumPollFds].events = POLLIN;
+        mPollFds[mNumPollFds].revents = 0;
+        mInotifyPollIndex = mNumPollFds;
+        mNumPollFds++;
+    }
+
+    mMagBiasPollIndex = -1;
+    int magBiasFd = open(MAG_BIAS_FILE_PATH, O_RDONLY);
+    if (magBiasFd < 0) {
+        ALOGW("Mag bias file open failed: %s", strerror(errno));
+    } else {
+        mPollFds[mNumPollFds].fd = magBiasFd;
+        mPollFds[mNumPollFds].events = 0;
+        mPollFds[mNumPollFds].revents = 0;
+        mMagBiasPollIndex = mNumPollFds;
+        mNumPollFds++;
+    }
+
     mSensorState[COMMS_SENSOR_ACCEL].sensorType = SENS_TYPE_ACCEL;
     mSensorState[COMMS_SENSOR_GYRO].sensorType = SENS_TYPE_GYRO;
     mSensorState[COMMS_SENSOR_GYRO].alt = COMMS_SENSOR_GYRO_UNCALIBRATED;
@@ -495,6 +524,32 @@ void HubConnection::processSample(uint64_t timestamp, uint32_t type, uint32_t se
         mRing.write(nev, cnt);
 }
 
+void HubConnection::discardInotifyEvent() {
+    // Read & discard an inotify event. We only use the presence of an event as
+    // a trigger to perform the file existence check (for simplicity)
+    if (mInotifyPollIndex >= 0) {
+        char buf[sizeof(struct inotify_event) + NAME_MAX + 1];
+        int ret = ::read(mPollFds[mInotifyPollIndex].fd, buf, sizeof(buf));
+        ALOGD("Discarded %d bytes of inotify data", ret);
+    }
+}
+
+void HubConnection::waitOnNanohubLock() {
+    if (mInotifyPollIndex < 0) {
+        return;
+    }
+    struct pollfd *pfd = &mPollFds[mInotifyPollIndex];
+
+    // While the lock file exists, poll on the inotify fd (with timeout)
+    while (access(NANOHUB_LOCK_FILE, F_OK) == 0) {
+        ALOGW("Nanohub is locked; blocking read thread");
+        int ret = poll(pfd, 1, 5000);
+        if (pfd->revents & POLLIN) {
+            discardInotifyEvent();
+        }
+    }
+}
+
 bool HubConnection::threadLoop() {
     ssize_t ret;
     uint8_t recv[256];
@@ -515,6 +570,7 @@ bool HubConnection::threadLoop() {
         ALOGE("threadLoop: exiting prematurely: nanohub is unavailable");
         return false;
     }
+    waitOnNanohubLock();
 
     loadSensorSettings(&settings, &saved_settings);
 
@@ -544,11 +600,16 @@ bool HubConnection::threadLoop() {
             ret = poll(mPollFds, mNumPollFds, -1);
         } while (ret < 0 && errno == EINTR);
 
-        if (mNumPollFds == 2 && mPollFds[1].revents & POLLERR) {
+        if (mInotifyPollIndex >= 0 && mPollFds[mInotifyPollIndex].revents & POLLIN) {
+            discardInotifyEvent();
+            waitOnNanohubLock();
+        }
+
+        if (mMagBiasPollIndex >= 0 && mPollFds[mMagBiasPollIndex].revents & POLLERR) {
             // Read from mag bias file
             char buf[16];
-            lseek(mPollFds[1].fd, 0, SEEK_SET);
-            ::read(mPollFds[1].fd, buf, 16);
+            lseek(mPollFds[mMagBiasPollIndex].fd, 0, SEEK_SET);
+            ::read(mPollFds[mMagBiasPollIndex].fd, buf, 16);
             float bias = atof(buf);
             mUsbMagBias = bias;
             queueUsbMagBias();

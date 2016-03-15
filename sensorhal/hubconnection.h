@@ -181,7 +181,9 @@ private:
     int mUinputFd;
 
     int mFd;
-    struct pollfd mPollFds[2];
+    int mInotifyPollIndex;
+    int mMagBiasPollIndex;
+    struct pollfd mPollFds[3];
     int mNumPollFds;
 
     sensors_event_t *initEv(sensors_event_t *ev, uint64_t timestamp, uint32_t type, uint32_t sensor);
@@ -192,6 +194,9 @@ private:
     status_t initializeUinputNode();
     void sendFolioEvent(int32_t data);
     void initConfigCmd(struct ConfigCmd *cmd, int handle);
+
+    void discardInotifyEvent();
+    void waitOnNanohubLock();
 
     DISALLOW_EVIL_CONSTRUCTORS(HubConnection);
 };
