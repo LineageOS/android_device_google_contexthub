@@ -56,6 +56,8 @@ static constexpr const char LID_STATE_CLOSED[]   = "closed";
 #define MIN_MAG_SQ              (10.0f * 10.0f)
 #define MAX_MAG_SQ              (80.0f * 80.0f)
 
+#define ACCEL_RAW_KSCALE        (8.0f * 9.81f / 32768.0f)
+
 namespace android {
 
 // static
@@ -371,6 +373,28 @@ void HubConnection::magAccuracyUpdate(float x, float y, float z)
     }
 }
 
+void HubConnection::processSample(uint64_t timestamp, uint32_t type, uint32_t sensor, struct RawThreeAxisSample *sample, bool highAccuracy)
+{
+    sensors_vec_t *sv;
+    sensors_event_t nev[2];
+    int cnt = 0;
+
+    switch (sensor) {
+    case COMMS_SENSOR_ACCEL:
+        sv = &initEv(&nev[cnt++], timestamp, type, sensor)->acceleration;
+        sv->x = sample->ix * ACCEL_RAW_KSCALE;
+        sv->y = sample->iy * ACCEL_RAW_KSCALE;
+        sv->z = sample->iz * ACCEL_RAW_KSCALE;
+        sv->status = SENSOR_STATUS_ACCURACY_HIGH;
+        break;
+    default:
+        break;
+    }
+
+    if (cnt > 0)
+        mRing.write(nev, cnt);
+}
+
 void HubConnection::processSample(uint64_t timestamp, uint32_t type, uint32_t sensor, struct ThreeAxisSample *sample, bool highAccuracy)
 {
     sensors_vec_t *sv;
@@ -501,7 +525,7 @@ bool HubConnection::threadLoop() {
     struct nAxisEvent *data = (struct nAxisEvent *)recv;
     uint32_t type, sensor, bias, currSensor;
     int i, numSamples;
-    bool one, three;
+    bool one, rawThree, three;
     sensors_event_t ev;
     uint64_t timestamp;
     sp<JSONObject> settings;
@@ -558,13 +582,18 @@ bool HubConnection::threadLoop() {
             ret = ::read(mFd, recv, sizeof(recv));
 
             if (ret >= 4) {
-                one = three = false;
+                one = three = rawThree = false;
                 bias = 0;
                 switch (data->evtType) {
                 case SENS_TYPE_TO_EVENT(SENS_TYPE_ACCEL):
                     type = SENSOR_TYPE_ACCELEROMETER;
                     sensor = COMMS_SENSOR_ACCEL;
                     three = true;
+                    break;
+                case SENS_TYPE_TO_EVENT(SENS_TYPE_ACCEL_RAW):
+                    type = SENSOR_TYPE_ACCELEROMETER;
+                    sensor = COMMS_SENSOR_ACCEL;
+                    rawThree = true;
                     break;
                 case SENS_TYPE_TO_EVENT(SENS_TYPE_GYRO):
                     type = SENSOR_TYPE_GYROSCOPE;
@@ -701,6 +730,10 @@ bool HubConnection::threadLoop() {
                         if (i > 0)
                             timestamp += data->oneSamples[i].deltaTime;
                         processSample(timestamp, type, currSensor, &data->oneSamples[i], data->firstSample.highAccuracy);
+                    } else if (rawThree) {
+                        if (i > 0)
+                            timestamp += data->rawThreeSamples[i].deltaTime;
+                        processSample(timestamp, type, currSensor, &data->rawThreeSamples[i], data->firstSample.highAccuracy);
                     } else if (three) {
                         if (i > 0)
                             timestamp += data->threeSamples[i].deltaTime;
