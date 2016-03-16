@@ -53,7 +53,7 @@ extern "C" {
 #define SENS_TYPE_HALL            29
 #define SENS_TYPE_ACTIVITY        30
 #define SENS_TYPE_VSYNC           31
-
+#define SENS_TYPE_ACCEL_RAW       32
 #define SENS_TYPE_FIRST_USER      64 // event type necessarily begins with UserSensorEventHdr
 #define SENS_TYPE_LAST_USER       128
 
