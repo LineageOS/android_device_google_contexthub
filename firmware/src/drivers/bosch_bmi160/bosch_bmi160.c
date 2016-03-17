@@ -113,6 +113,7 @@ static const bool enable_debug = 0;
 #define BMI160_REG_INT_MAP_0      0x55
 #define BMI160_REG_INT_MAP_1      0x56
 #define BMI160_REG_INT_MAP_2      0x57
+#define BMI160_REG_INT_DATA_0     0x58
 #define BMI160_REG_INT_MOTION_0   0x5f
 #define BMI160_REG_INT_MOTION_1   0x60
 #define BMI160_REG_INT_MOTION_2   0x61
@@ -2520,6 +2521,9 @@ static void sensorInit(void)
         SPI_WRITE(BMI160_REG_INT_MAP_0, 0x00, 450);
         SPI_WRITE(BMI160_REG_INT_MAP_1, 0xE1, 450);
         SPI_WRITE(BMI160_REG_INT_MAP_2, 0xFF, 450);
+
+        // Use pre-filtered data for tap interrupt
+        SPI_WRITE(BMI160_REG_INT_DATA_0, 0x08);
 
         // Disable PMU_TRIGGER
         SPI_WRITE(BMI160_REG_PMU_TRIGGER, 0x00, 450);
