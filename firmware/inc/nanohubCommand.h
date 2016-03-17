@@ -24,6 +24,7 @@ struct NanohubCommand {
     uint8_t maxDataLen;
 };
 
+void nanohubInitCommand(void);
 const struct NanohubCommand *nanohubFindCommand(uint32_t packetReason);
 
 struct NanohubHalCommand {
