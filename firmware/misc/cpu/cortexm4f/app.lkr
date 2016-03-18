@@ -73,13 +73,13 @@ SECTIONS
 		LONG(__rel_end) 
 
                 /* version */
-		*(.app_version) *(.app_version.*) ;
+		KEEP(*(.app_version));
 
                 /* reserved */
 		LONG(0)
 
                 /* entry points */
-		*(.app_init) *(.app_init.*) ;
+		KEEP(*(.app_init));
 
                 /* code */
 		*(.text) *(.text.*) ;
