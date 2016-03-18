@@ -36,7 +36,7 @@
 #define ACCEL_MIN_RATE    SENSOR_HZ(50)
 #define ACCEL_MAX_LATENCY 250000000ull   // 250 ms
 
-#define BATCH_TIME      (2000000000) // 2.0 seconds
+#define BATCH_TIME      2000000000ull // 2.0 seconds
 #define ANGLE_THRESH    (0.819 * 9.81 * 9.81) // ~cos(35) * (1G in m/s^2)^2
 
 struct TiltAlgoState {
@@ -86,10 +86,10 @@ static bool algoUpdate(struct TripleAxisDataEvent *ev)
 
     for (i = 0; i < numSamples; i++) {
         sample = &ev->samples[i];
-        if(i > 0)
+        if (i > 0)
             sample_ts += sample->deltaTime;
 
-        if(state->this_batch_init_ts == 0) {
+        if (state->this_batch_init_ts == 0) {
             state->this_batch_init_ts = sample_ts;
         }
 
@@ -101,13 +101,13 @@ static bool algoUpdate(struct TripleAxisDataEvent *ev)
 
         dt = (sample_ts - state->this_batch_init_ts);
 
-        if(dt > BATCH_TIME) {
+        if (dt > BATCH_TIME) {
             invN = 1.0f / state->this_batch_num_samples;
             state->this_batch_g[0] = state->this_batch_sample_sum[0] * invN;
             state->this_batch_g[1] = state->this_batch_sample_sum[1] * invN;
             state->this_batch_g[2] = state->this_batch_sample_sum[2] * invN;
 
-            if(state->last_ref_g_vector_valid) {
+            if (state->last_ref_g_vector_valid) {
                 dotProduct = state->this_batch_g[0] * state->last_ref_g_vector[0] +
                     state->this_batch_g[1] * state->last_ref_g_vector[1] +
                     state->this_batch_g[2] * state->last_ref_g_vector[2];
@@ -118,17 +118,18 @@ static bool algoUpdate(struct TripleAxisDataEvent *ev)
                 }
             } else { // reference g vector not valid, first time computing
                 latch_g_vector = true;
+                state->last_ref_g_vector_valid = true;
             }
 
-            if(latch_g_vector) {
-                state->last_ref_g_vector_valid = true;
+            // latch the first batch or when dotProduct < ANGLE_THRESH
+            if (latch_g_vector) {
                 state->last_ref_g_vector[0] = state->this_batch_g[0];
                 state->last_ref_g_vector[1] = state->this_batch_g[1];
                 state->last_ref_g_vector[2] = state->this_batch_g[2];
             }
 
             // Seed the next batch
-            state->this_batch_init_ts = sample_ts;
+            state->this_batch_init_ts = 0;
             state->this_batch_num_samples = 0;
             state->this_batch_sample_sum[0] = 0;
             state->this_batch_sample_sum[1] = 0;
@@ -245,9 +246,9 @@ static void tiltDetectionHandleEvent(uint32_t evtType, const void* evtData)
 
     case EVT_SENSOR_NO_MOTION:
         if (mTask.taskState == STATE_AWAITING_TILT) {
-            configAnyMotion(true);
             configNoMotion(false);
             configAccel(false);
+            configAnyMotion(true);
 
             mTask.taskState = STATE_AWAITING_ANY_MOTION;
         }
