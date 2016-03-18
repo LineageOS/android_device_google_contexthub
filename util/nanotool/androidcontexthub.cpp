@@ -79,6 +79,7 @@ static bool GetCalibrationBytes(const char *key, SensorType sensor_type,
         success = CopyInt32Array(key, json, bytes);
         break;
 
+      case SensorType::AmbientLightSensor:
       case SensorType::Barometer: {
         float value = 0;
         success = json->getFloat(key, &value);
