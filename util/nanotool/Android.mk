@@ -16,7 +16,7 @@
 
 LOCAL_PATH := $(call my-dir)
 
-NANOTOOL_VERSION := 1.0.0
+NANOTOOL_VERSION := 1.1.0
 
 include $(CLEAR_VARS)
 
