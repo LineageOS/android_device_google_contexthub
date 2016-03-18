@@ -34,6 +34,7 @@ enum PlatSleepDevID
     Stm32sleepDevTim9, /* input capture uses this, potentially */
     Stm32sleepWakeup,  /* we use this to wakeup from AP */
     Stm32sleepDevSpi2, /* we use this to prevent stop mode during spi2 xfers */
+    Stm32sleepDevSpi3, /* we use this to prevent stop mode during spi3 xfers */
     Stm32sleepDevI2c1, /* we use this to prevent stop mode during i2c1 xfers */
 
     Stm32sleepDevNum,  //must be last always, and must be <= PLAT_MAX_SLEEP_DEVS
