@@ -365,18 +365,11 @@ static void SignalHandler(int sig) {
     (void) sig;
 }
 
-static void TerminateHandler() {
-    AndroidContextHub::TerminateHandler();
-    std::abort();
-}
-
-static void SetHandlers() {
+static void SetSignalHandler() {
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));
     sa.sa_handler = SignalHandler;
     sigaction(SIGINT, &sa, NULL);
-
-    std::set_terminate(TerminateHandler);
 }
 #endif
 
@@ -396,7 +389,7 @@ int main(int argc, char **argv) {
     }
 
 #ifdef __ANDROID__
-    SetHandlers();
+    SetSignalHandler();
 #endif
 
     std::unique_ptr<ContextHub> hub = GetContextHub();
