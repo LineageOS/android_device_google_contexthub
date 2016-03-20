@@ -34,7 +34,6 @@
 #include "system_comms.h"
 #include "nanohubhal.h"
 #include <utils/Log.h>
-#include <sys/inotify.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <pthread.h>
@@ -44,13 +43,6 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <poll.h>
-#include <unistd.h>
-
-
-
-#define NANOHUB_LOCK_DIR        "/data/system/nanohub_lock"
-#define NANOHUB_LOCK_FILE       NANOHUB_LOCK_DIR "/lock"
-#define NANOHUB_LOCK_DIR_PERMS  (S_IRUSR | S_IWUSR | S_IXUSR)
 
 
 
@@ -87,41 +79,6 @@ static int rread(int fd, void *buf, int len)
     return ret;
 }
 
-static bool hal_hub_init_inotify(struct pollfd *pfd) {
-    bool success = false;
-
-    mkdir(NANOHUB_LOCK_DIR, NANOHUB_LOCK_DIR_PERMS);
-    pfd->fd = inotify_init1(IN_NONBLOCK);
-    if (pfd->fd < 0) {
-        ALOGE("Couldn't initialize inotify: %s", strerror(errno));
-    } else if (inotify_add_watch(inotifyFd, NANOHUB_LOCK_DIR, IN_CREATE | IN_DELETE) < 0) {
-        ALOGE("Couldn't add inotify watch: %s", strerror(errno));
-        close(pfd->fd);
-    } else {
-        pfd->events = POLLIN;
-        success = true;
-    }
-
-    return success;
-}
-
-static void hal_hub_discard_inotify_evt(int inotifyFd) {
-    char buf[sizeof(struct inotify_event) + NAME_MAX + 1];
-    int ret = read(inotifyFd, buf, sizeof(buf));
-    ALOGD("Discarded %d bytes of inotify data", ret);
-}
-
-static void hal_hub_wait_on_dev_lock(struct pollfd *pfd) {
-    // While the lock file exists, poll on the inotify fd (with timeout)
-    while (access(NANOHUB_LOCK_FILE, F_OK) == 0) {
-        ALOGW("Nanohub is locked; blocking read thread");
-        int ret = poll(pfd, 1, 5000);
-        if (pfd->revents & POLLIN) {
-            hal_hub_discard_inotify_evt();
-        }
-    }
-}
-
 
 int hal_hub_do_send_msg(const void *name, uint8_t len, const void *data) //assumes message is not malformed or invalid
 {
@@ -150,29 +107,16 @@ static void* hal_hub_thread(void *unused) //all nanoapp message_type vals are "0
     uint8_t *header = &buffer[EVENT_ID_LEN];
     uint8_t *packetData = &buffer[EVENT_ID_LEN + APP_NAME_LEN + 1];
     const int idxNanohub = 0, idxClosePipe = 1;
-    struct pollfd myFds[3] = {
-        [idxNanohub] = { .fd = mFd, .events = POLLIN, },
-        [idxClosePipe] = { .fd = mThreadClosingPipe[0], .events = POLLIN, },
-    };
-    int idxInotify = -1;
-    int numPollFds = 2;
     int ret;
-
-    if (hal_hub_init_inotify(&myFds[numPollFds])) {
-        idxInotify = numPollFds++;
-    }
 
     (void)unused;
     while (1) {
-        ret = poll(myFds, numPollFds, -1);
+        struct pollfd myFds[] = { [idxNanohub] = { .fd = mFd, .events = POLLIN, }, [idxClosePipe] = {.fd = mThreadClosingPipe[0], .events = POLLIN, }, };
+
+        ret = poll(myFds, sizeof(myFds) / sizeof(*myFds), -1);
         if (ret <= 0) {
             ALOGD("poll is being weird");
             continue;
-        }
-
-        if (idxInotify >= 0 && myFds[idxInotify].revents & POLLIN) {
-            hal_hub_discard_inotify_evt(myFds[idxInotify].fd);
-            hal_hub_wait_on_dev_lock(&myFds[idxInotify]);
         }
 
         if (myFds[idxNanohub].revents & POLLIN) { // we have data
