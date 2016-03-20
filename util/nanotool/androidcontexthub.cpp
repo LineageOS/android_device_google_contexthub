@@ -21,13 +21,10 @@
 #include <poll.h>
 #include <time.h>
 #include <unistd.h>
-#include <sys/stat.h>
 
-#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
-#include <thread>
 #include <vector>
 
 #include "calibrationfile.h"
@@ -37,12 +34,6 @@ namespace android {
 
 constexpr char kSensorDeviceFile[] = "/dev/nanohub";
 constexpr char kCommsDeviceFile[] = "/dev/nanohub_comms";
-constexpr char kLockDirectory[] = "/data/system/nanohub_lock";
-constexpr char kLockFile[] = "/data/system/nanohub_lock/lock";
-
-constexpr mode_t kLockDirPermissions = (S_IRUSR | S_IWUSR | S_IXUSR);
-
-constexpr auto kLockDelay = std::chrono::milliseconds(100);
 
 constexpr int kDeviceFileCount = 2;
 constexpr int kPollNoTimeout = -1;
@@ -123,9 +114,6 @@ static bool GetCalibrationBytes(const char *key, SensorType sensor_type,
 }
 
 AndroidContextHub::~AndroidContextHub() {
-    if (unlink(kLockFile) < 0) {
-        LOGE("Couldn't remove lock file: %s", strerror(errno));
-    }
     if (sensor_fd_ >= 0) {
         DisableActiveSensors();
         (void) close(sensor_fd_);
@@ -135,31 +123,7 @@ AndroidContextHub::~AndroidContextHub() {
     }
 }
 
-void AndroidContextHub::TerminateHandler() {
-    (void) unlink(kLockFile);
-}
-
 bool AndroidContextHub::Initialize() {
-    // Acquire a lock on nanohub, so the HAL read threads won't take our events.
-    // We need to delay after creating the file to have good confidence that
-    // the HALs noticed the lock file creation.
-    if (access(kLockDirectory, F_OK) < 0) {
-        if (mkdir(kLockDirectory, kLockDirPermissions) < 0 && errno != EEXIST) {
-            LOGE("Couldn't create lock directory: %s", strerror(errno));
-        }
-    }
-    int lock_fd = open(kLockFile, O_CREAT | O_EXCL, S_IRUSR | S_IWUSR);
-    if (lock_fd < 0) {
-        LOGE("Couldn't create lock file: %s", strerror(errno));
-        if (errno != EEXIST) {
-            return false;
-        }
-    } else {
-        close(lock_fd);
-        std::this_thread::sleep_for(kLockDelay);
-        LOGD("Lock sleep complete");
-    }
-
     // Sensor device file is used for sensor requests, e.g. configure, etc., and
     // returns sensor events
     sensor_fd_ = open(kSensorDeviceFile, O_RDWR);
