@@ -128,6 +128,12 @@ private:
         uint8_t pad;
     };
 
+    struct RawThreeAxisSample
+    {
+        uint32_t deltaTime;
+        int16_t ix, iy, iz;
+    } __attribute__((packed));
+
     struct ThreeAxisSample
     {
         uint32_t deltaTime;
@@ -152,6 +158,7 @@ private:
         {
             struct FirstSample firstSample;
             struct OneAxisSample oneSamples[];
+            struct RawThreeAxisSample rawThreeSamples[];
             struct ThreeAxisSample threeSamples[];
         };
     } __attribute__((packed));
@@ -189,6 +196,7 @@ private:
     sensors_event_t *initEv(sensors_event_t *ev, uint64_t timestamp, uint32_t type, uint32_t sensor);
     void magAccuracyUpdate(float x, float y, float z);
     void processSample(uint64_t timestamp, uint32_t type, uint32_t sensor, struct OneAxisSample *sample, bool highAccuracy);
+    void processSample(uint64_t timestamp, uint32_t type, uint32_t sensor, struct RawThreeAxisSample *sample, bool highAccuracy);
     void processSample(uint64_t timestamp, uint32_t type, uint32_t sensor, struct ThreeAxisSample *sample, bool highAccuracy);
 
     status_t initializeUinputNode();
