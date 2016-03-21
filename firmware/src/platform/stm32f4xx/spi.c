@@ -573,11 +573,22 @@ static const struct StmSpiCfg mStmSpiCfgs[] = {
 
         .dmaBus = SPI2_DMA_BUS,
     },
+    [2] = {
+        .regs = (struct StmSpi *)SPI3_BASE,
+
+        .clockBus = PERIPH_BUS_APB1,
+        .clockUnit = PERIPH_APB1_SPI3,
+
+        .irq = SPI3_IRQn,
+
+        .dmaBus = SPI3_DMA_BUS,
+    },
 };
 
 static struct StmSpiDev mStmSpiDevs[ARRAY_SIZE(mStmSpiCfgs)];
 DECLARE_IRQ_HANDLER(1)
 DECLARE_IRQ_HANDLER(2)
+DECLARE_IRQ_HANDLER(3)
 
 static void stmSpiInit(struct StmSpiDev *pdev, const struct StmSpiCfg *cfg,
         const struct StmSpiBoardCfg *board, struct SpiDevice *dev)
