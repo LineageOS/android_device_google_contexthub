@@ -19,6 +19,7 @@
 #include <plat/inc/bl.h>
 #include <platform.h>
 #include <hostIntf.h>
+#include <inttypes.h>
 #include <syscall.h>
 #include <sensors.h>
 #include <string.h>
@@ -187,7 +188,7 @@ static void osStartTasks(void)
             continue;
         }
         if ((task = osTaskFindByAppID(app->appId))) {
-            osLog(LOG_WARN, "Internal app id %016llx @ %p attempting to update internal app @ %p. Ignored.\n", app->appId, app, task->appHdr);
+            osLog(LOG_WARN, "Internal app id %016" PRIX64 "@ %p attempting to update internal app @ %p. Ignored.\n", app->appId, app, task->appHdr);
             continue;
         }
         mTasks[nTasks++].appHdr = app;
@@ -216,21 +217,21 @@ static void osStartTasks(void)
                     osLog(LOG_WARN, "Weird marker on external app: [%p]=0x%04X\n", app, app->marker);
                 else if ((task = osTaskFindByAppID(app->appId))) {
                     if (task->appHdr->marker == APP_HDR_MARKER_INTERNAL)
-                        osLog(LOG_WARN, "External app id %016llx @ %p attempting to update internal app @ %p. This is not allowed.\n", app->appId, app, task->appHdr);
+                        osLog(LOG_WARN, "External app id %016" PRIX64 " @ %p attempting to update internal app @ %p. This is not allowed.\n", app->appId, app, task->appHdr);
                     else {
-                        osLog(LOG_DEBUG, "External app id %016llx @ %p updating app @ %p\n", app->appId, app, task->appHdr);
+                        osLog(LOG_DEBUG, "External app id %016" PRIX64 " @ %p updating app @ %p\n", app->appId, app, task->appHdr);
                         task->appHdr = app;
                     }
                 }
                 else if (nTasks == MAX_TASKS)
-                    osLog(LOG_WARN, "External app id %016llx @ %p cannot be used as too many apps already exist.\n", app->appId, app);
+                    osLog(LOG_WARN, "External app id %016" PRIX64 " @ %p cannot be used as too many apps already exist.\n", app->appId, app);
                 else
                     mTasks[nTasks++].appHdr = app;
             }
         }
     }
 
-    osLog(LOG_DEBUG, "Enumerated %lu apps\n", nTasks);
+    osLog(LOG_DEBUG, "Enumerated %" PRIu32 " apps\n", nTasks);
 
     /* Now that we have pointers to all the latest app headers, let's try loading then. */
     /* Note that if a new version fails to init we will NOT try the old (no reason to assume this is safe) */
@@ -255,7 +256,7 @@ static void osStartTasks(void)
         memcpy(mTasks + i, mTasks + --nTasks, sizeof(struct Task));
     }
 
-    osLog(LOG_DEBUG, "Loaded %lu apps\n", nTasks);
+    osLog(LOG_DEBUG, "Loaded %" PRIu32 " apps\n", nTasks);
 
     /* now finish initing structs, assign tids, call init funcs */
     osLog(LOG_DEBUG, "Starting apps...\n");
@@ -275,7 +276,7 @@ static void osStartTasks(void)
         }
     }
 
-    osLog(LOG_DEBUG, "Started %lu apps\n", nTasks);
+    osLog(LOG_DEBUG, "Started %" PRIu32 " apps\n", nTasks);
 }
 
 static void osInternalEvtHandle(uint32_t evtType, void *evtData)
