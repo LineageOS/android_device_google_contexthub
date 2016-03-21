@@ -440,16 +440,24 @@ static MagTask_t magTask;
     DEC_INFO(name, type, axis, inter, samples), \
     .supportedRates = rates
 
-#define DEC_INFO_RATE_BIAS(name, rates, type, axis, inter, bias, samples) \
+#define DEC_INFO_RATE_RAW(name, rates, type, axis, inter, samples, raw, scale) \
     DEC_INFO(name, type, axis, inter, samples), \
     .supportedRates = rates, \
+    .flags1 = SENSOR_INFO_FLAGS1_RAW, \
+    .rawType = raw, \
+    .rawScale = scale
+
+#define DEC_INFO_RATE_BIAS(name, rates, type, axis, inter, samples, bias) \
+    DEC_INFO(name, type, axis, inter, samples), \
+    .supportedRates = rates, \
+    .flags1 = SENSOR_INFO_FLAGS1_BIAS, \
     .biasType = bias
 
 static const struct SensorInfo mSensorInfo[NUM_OF_SENSOR] =
 {
-    { DEC_INFO_RATE("Accelerometer", AccRates, SENS_TYPE_ACCEL, NUM_AXIS_THREE, NANOHUB_INT_NONWAKEUP, 3000) },
+    { DEC_INFO_RATE_RAW("Accelerometer", AccRates, SENS_TYPE_ACCEL, NUM_AXIS_THREE, NANOHUB_INT_NONWAKEUP, 3000, SENS_TYPE_ACCEL_RAW, 1.0/kScale_acc) },
     { DEC_INFO_RATE("Gyroscope", GyrRates, SENS_TYPE_GYRO, NUM_AXIS_THREE, NANOHUB_INT_NONWAKEUP, 20) },
-    { DEC_INFO_RATE_BIAS("Magnetometer", MagRates, SENS_TYPE_MAG, NUM_AXIS_THREE, NANOHUB_INT_NONWAKEUP, SENS_TYPE_MAG_BIAS, 20) },
+    { DEC_INFO_RATE_BIAS("Magnetometer", MagRates, SENS_TYPE_MAG, NUM_AXIS_THREE, NANOHUB_INT_NONWAKEUP, 600, SENS_TYPE_MAG_BIAS) },
     { DEC_INFO("Step Detector", SENS_TYPE_STEP_DETECT, NUM_AXIS_EMBEDDED, NANOHUB_INT_NONWAKEUP, 100) },
     { DEC_INFO("Double Tap", SENS_TYPE_DOUBLE_TAP, NUM_AXIS_EMBEDDED, NANOHUB_INT_NONWAKEUP, 20) },
     { DEC_INFO("Flat", SENS_TYPE_FLAT, NUM_AXIS_EMBEDDED, NANOHUB_INT_NONWAKEUP, 20) },

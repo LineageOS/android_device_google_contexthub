@@ -81,7 +81,9 @@ struct ActiveSensor
     uint8_t packetSamples;
     uint8_t oneshot : 1;
     uint8_t discard : 1;
-    uint8_t reserved : 6;
+    uint8_t raw : 1;
+    uint8_t reserved : 5;
+    float rawScale;
 } __attribute__((packed));
 
 static uint8_t mSensorList[SENS_TYPE_LAST_USER];
@@ -446,9 +448,6 @@ bool hostIntfPacketDequeue(void *data, uint32_t *wakeup, uint32_t *nonwakeup)
         }
     }
 
-    if (count > 0)
-        osLog(LOG_INFO, "Discarded %ld packets for disabled sensor\n", count);
-
     if (!ret) {
         // nothing in queue. look for partial buffers to flush
         for (i = 0; i < mNumSensors; i++, mLastSensor = (mLastSensor + 1) % mNumSensors) {
@@ -549,7 +548,10 @@ static bool initSensors()
                         packetSamples = HOSTINTF_SENSOR_DATA_MAX / sizeof(struct SingleAxisDataPoint);
                         break;
                     case NUM_AXIS_THREE:
-                        packetSamples = HOSTINTF_SENSOR_DATA_MAX / sizeof(struct TripleAxisDataPoint);
+                        if (si->flags1 & SENSOR_INFO_FLAGS1_RAW)
+                            packetSamples = HOSTINTF_SENSOR_DATA_MAX / sizeof(struct RawTripleAxisDataPoint);
+                        else
+                            packetSamples = HOSTINTF_SENSOR_DATA_MAX / sizeof(struct TripleAxisDataPoint);
                         break;
                     case NUM_AXIS_WIFI:
                         packetSamples = HOSTINTF_SENSOR_DATA_MAX / sizeof(struct WifiScanResult);
@@ -597,11 +599,18 @@ static bool initSensors()
     for (i = SENS_TYPE_INVALID + 1, j = 0; i <= SENS_TYPE_LAST_USER && j < mNumSensors; i++) {
         if ((si = sensorFind(i, 0, &handle)) != NULL) {
             mSensorList[i - 1] = j;
+            resetBuffer(mActiveSensorTable + j);
+            mActiveSensorTable[j].buffer.sensType = i;
             mActiveSensorTable[j].rate = 0;
             mActiveSensorTable[j].latency = 0;
             mActiveSensorTable[j].numAxis = si->numAxis;
             mActiveSensorTable[j].interrupt = si->interrupt;
-            if (si->biasType != SENS_TYPE_INVALID) {
+            if (si->flags1 & SENSOR_INFO_FLAGS1_RAW) {
+                mSensorList[si->rawType - 1] = j;
+                mActiveSensorTable[j].buffer.sensType = si->rawType;
+                mActiveSensorTable[j].raw = true;
+                mActiveSensorTable[j].rawScale = si->rawScale;
+            } else if (si->flags1 & SENSOR_INFO_FLAGS1_BIAS) {
                 mSensorList[si->biasType - 1] = j;
                 osEventSubscribe(mHostIntfTid, sensorGetMyEventType(si->biasType));
             }
@@ -612,8 +621,6 @@ static bool initSensors()
                 mActiveSensorTable[j].minSamples = si->minSamples;
             }
             mActiveSensorTable[j].curSamples = 0;
-            resetBuffer(mActiveSensorTable + j);
-            mActiveSensorTable[j].buffer.sensType = i;
             mActiveSensorTable[j].oneshot = false;
             mActiveSensorTable[j].firstTime = 0ull;
             switch (si->numAxis) {
@@ -622,7 +629,10 @@ static bool initSensors()
                 mActiveSensorTable[j].packetSamples = HOSTINTF_SENSOR_DATA_MAX / sizeof(struct SingleAxisDataPoint);
                 break;
             case NUM_AXIS_THREE:
-                mActiveSensorTable[j].packetSamples = HOSTINTF_SENSOR_DATA_MAX / sizeof(struct TripleAxisDataPoint);
+                if (mActiveSensorTable[j].raw)
+                    mActiveSensorTable[j].packetSamples = HOSTINTF_SENSOR_DATA_MAX / sizeof(struct RawTripleAxisDataPoint);
+                else
+                    mActiveSensorTable[j].packetSamples = HOSTINTF_SENSOR_DATA_MAX / sizeof(struct TripleAxisDataPoint);
                 break;
             case NUM_AXIS_WIFI:
                 mActiveSensorTable[j].packetSamples = HOSTINTF_SENSOR_DATA_MAX / sizeof(struct WifiScanResult);
@@ -635,6 +645,90 @@ static bool initSensors()
     }
 
     return true;
+}
+
+static inline int16_t floatToInt16(float val)
+{
+    if (val < (INT16_MIN + 0.5f))
+        return INT16_MIN;
+    else if (val > (INT16_MAX - 0.5f))
+        return INT16_MAX;
+    else if (val >= 0.0f)
+        return val + 0.5f;
+    else
+        return val - 0.5f;
+}
+
+static void copyTripleSamplesRaw(struct ActiveSensor *sensor, const struct TripleAxisDataEvent *triple)
+{
+    int i;
+    uint32_t deltaTime;
+    uint8_t numSamples;
+
+    for (i = 0; i < triple->samples[0].firstSample.numSamples; i++) {
+        if (sensor->buffer.firstSample.numSamples == sensor->packetSamples) {
+            simpleQueueEnqueue(mOutputQ, &sensor->buffer, sizeof(uint32_t) + sensor->buffer.length, sensor->discard);
+            resetBuffer(sensor);
+        }
+
+        if (sensor->buffer.firstSample.numSamples == 0) {
+            if (i == 0) {
+                sensor->lastTime = sensor->buffer.referenceTime = triple->referenceTime;
+            } else {
+                sensor->lastTime += triple->samples[i].deltaTime;
+                sensor->buffer.referenceTime = sensor->lastTime;
+            }
+            sensor->buffer.length = sizeof(struct RawTripleAxisDataEvent) + sizeof(struct RawTripleAxisDataPoint);
+            sensor->buffer.rawTriple[0].ix = floatToInt16(triple->samples[i].x * sensor->rawScale);
+            sensor->buffer.rawTriple[0].iy = floatToInt16(triple->samples[i].y * sensor->rawScale);
+            sensor->buffer.rawTriple[0].iz = floatToInt16(triple->samples[i].z * sensor->rawScale);
+            if (sensor->interrupt == NANOHUB_INT_WAKEUP)
+                mWakeupBlocks++;
+            else if (sensor->interrupt == NANOHUB_INT_NONWAKEUP)
+                mNonWakeupBlocks++;
+            sensor->buffer.firstSample.numSamples = 1;
+            sensor->buffer.firstSample.interrupt = sensor->interrupt;
+            if (sensor->curSamples++ == 0)
+                sensor->firstTime = sensor->buffer.referenceTime;
+        } else {
+            if (i == 0) {
+                if (sensor->lastTime > triple->referenceTime) {
+                    // shouldn't happen. flush current packet
+                    simpleQueueEnqueue(mOutputQ, &sensor->buffer, sizeof(uint32_t) + sensor->buffer.length, sensor->discard);
+                    resetBuffer(sensor);
+                    i--;
+                } else if (triple->referenceTime - sensor->lastTime > UINT32_MAX) {
+                    simpleQueueEnqueue(mOutputQ, &sensor->buffer, sizeof(uint32_t) + sensor->buffer.length, sensor->discard);
+                    resetBuffer(sensor);
+                    i--;
+                } else {
+                    deltaTime = triple->referenceTime - sensor->lastTime;
+                    numSamples = sensor->buffer.firstSample.numSamples;
+
+                    sensor->buffer.length += sizeof(struct RawTripleAxisDataPoint);
+                    sensor->buffer.rawTriple[numSamples].deltaTime = deltaTime;
+                    sensor->buffer.rawTriple[numSamples].ix = floatToInt16(triple->samples[0].x * sensor->rawScale);
+                    sensor->buffer.rawTriple[numSamples].iy = floatToInt16(triple->samples[0].y * sensor->rawScale);
+                    sensor->buffer.rawTriple[numSamples].iz = floatToInt16(triple->samples[0].z * sensor->rawScale);
+                    sensor->lastTime = triple->referenceTime;
+                    sensor->buffer.firstSample.numSamples++;
+                    sensor->curSamples++;
+                }
+            } else {
+                deltaTime = triple->samples[i].deltaTime;
+                numSamples = sensor->buffer.firstSample.numSamples;
+
+                sensor->buffer.length += sizeof(struct RawTripleAxisDataPoint);
+                sensor->buffer.rawTriple[numSamples].deltaTime = deltaTime;
+                sensor->buffer.rawTriple[numSamples].ix = floatToInt16(triple->samples[i].x * sensor->rawScale);
+                sensor->buffer.rawTriple[numSamples].iy = floatToInt16(triple->samples[i].y * sensor->rawScale);
+                sensor->buffer.rawTriple[numSamples].iz = floatToInt16(triple->samples[i].z * sensor->rawScale);
+                sensor->lastTime += deltaTime;
+                sensor->buffer.firstSample.numSamples++;
+                sensor->curSamples++;
+            }
+        }
+    }
 }
 
 static void copySingleSamples(struct ActiveSensor *sensor, const struct SingleAxisDataEvent *single)
@@ -1069,7 +1163,10 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
                     copySingleSamples(sensor, evtData);
                     break;
                 case NUM_AXIS_THREE:
-                    copyTripleSamples(sensor, evtData);
+                    if (sensor->raw)
+                        copyTripleSamplesRaw(sensor, evtData);
+                    else
+                        copyTripleSamples(sensor, evtData);
                     break;
                 case NUM_AXIS_WIFI:
                     copyWifiSamples(sensor, evtData);
