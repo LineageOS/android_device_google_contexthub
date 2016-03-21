@@ -38,6 +38,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <pthread.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -94,7 +95,7 @@ static bool hal_hub_init_inotify(struct pollfd *pfd) {
     pfd->fd = inotify_init1(IN_NONBLOCK);
     if (pfd->fd < 0) {
         ALOGE("Couldn't initialize inotify: %s", strerror(errno));
-    } else if (inotify_add_watch(inotifyFd, NANOHUB_LOCK_DIR, IN_CREATE | IN_DELETE) < 0) {
+    } else if (inotify_add_watch(pfd->fd, NANOHUB_LOCK_DIR, IN_CREATE | IN_DELETE) < 0) {
         ALOGE("Couldn't add inotify watch: %s", strerror(errno));
         close(pfd->fd);
     } else {
@@ -117,7 +118,7 @@ static void hal_hub_wait_on_dev_lock(struct pollfd *pfd) {
         ALOGW("Nanohub is locked; blocking read thread");
         int ret = poll(pfd, 1, 5000);
         if (pfd->revents & POLLIN) {
-            hal_hub_discard_inotify_evt();
+            hal_hub_discard_inotify_evt(pfd->fd);
         }
     }
 }
