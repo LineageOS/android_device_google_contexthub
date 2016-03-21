@@ -48,7 +48,6 @@ uint64_t platGetTicks(void); //in nanoseconds since an arbitrary starting point 
 
 /* sleep/wake */
 #define PLAT_MAX_SLEEP_DEVS    32
-enum PlatSleepDevID;
 
 void platSleep(void);
 

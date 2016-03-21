@@ -17,6 +17,7 @@
 #include <plat/inc/taggedPtr.h>
 #include <cpu/inc/barrier.h>
 #include <atomicBitset.h>
+#include <inttypes.h>
 #include <sensors.h>
 #include <atomic.h>
 #include <stdio.h>
@@ -393,7 +394,7 @@ static uint32_t sensorCalcHwRate(struct Sensor* s, uint32_t extraReqedRate, uint
     if (s->si->supportedRates &&
         ((extraReqedRate == SENSOR_RATE_ONCHANGE && !s->hasOnchange) ||
          (extraReqedRate == SENSOR_RATE_ONDEMAND && !s->hasOndemand))) {
-        osLog(LOG_WARN, "Bad rate 0x%08lx for sensor %u", extraReqedRate, s->si->sensorType);
+        osLog(LOG_WARN, "Bad rate 0x%08" PRIX32 " for sensor %u", extraReqedRate, s->si->sensorType);
         return SENSOR_RATE_IMPOSSIBLE;
     }
 

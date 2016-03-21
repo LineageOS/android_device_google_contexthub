@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#include <cpu/inc/atomicBitset.h>
+#include <atomicBitset.h>
 #include <stdio.h>
 #include <heap.h>
 #include <slab.h>
