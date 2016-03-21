@@ -96,6 +96,21 @@ struct TripleAxisDataEvent {
     struct TripleAxisDataPoint samples[];
 };
 
+struct RawTripleAxisDataPoint {
+    union {
+        uint32_t deltaTime; //delta since last sample, for 0th sample this is firstSample
+        struct SensorFirstSample firstSample;
+    };
+    int16_t ix;
+    int16_t iy;
+    int16_t iz;
+} __attribute__((packed));
+
+struct RawTripleAxisDataEvent {
+    uint64_t referenceTime;
+    struct RawTripleAxisDataPoint samples[];
+};
+
 // For WiFi Scan Events
 #define WIFI_MAX_SSID_LEN (32+1)
 #define WIFI_BSSID_LEN 6
@@ -184,6 +199,11 @@ struct SensorOps {
     bool (*sensorMarshallData)(uint32_t yourEvtType, const void *yourEvtData, TaggedPtr *evtFreeingInfoP, void *); //marshall yourEvt for sending to host. Send a EVT_MARSHALLED_SENSOR_DATA event with marshalled data. Always send event, even on error, free the passed-in event using osFreeRetainedEvent
 };
 
+enum SensorInfoFlags1 {
+    SENSOR_INFO_FLAGS1_BIAS = (1 << 0),
+    SENSOR_INFO_FLAGS1_RAW  = (1 << 1),
+};
+
 struct SensorInfo {
     const char *sensorName; /* sensors.c code does not use this */
 
@@ -209,8 +229,12 @@ struct SensorInfo {
     uint8_t sensorType;
     uint8_t numAxis; /* enum NumAxis */
     uint8_t interrupt; /* interrupt to generate to AP */
-    uint8_t biasType;
+    uint8_t flags1; /* enum SensorInfoFlags1 */
     uint16_t minSamples; /* minimum host fifo size (in # of samples) */
+    uint8_t biasType;
+    uint8_t rawType;
+    uint16_t pad;
+    float rawScale;
 };
 
 
