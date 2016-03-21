@@ -57,8 +57,8 @@ struct StmSpiBoardCfg {
 #define SPI2_DMA_TX_CFG     { .channel = 0, .stream = 4 }
 
 #define SPI3_DMA_BUS        0
-#define SPI3_DMA_RX_CFG_A   { .channel = 0, .stream = 2 }
-#define SPI3_DMA_RX_CFG_B   { .channel = 0, .stream = 3 }
+#define SPI3_DMA_RX_CFG_A   { .channel = 0, .stream = 0 }
+#define SPI3_DMA_RX_CFG_B   { .channel = 0, .stream = 2 }
 #define SPI3_DMA_TX_CFG_A   { .channel = 0, .stream = 5 }
 #define SPI3_DMA_TX_CFG_B   { .channel = 0, .stream = 7 }
 
