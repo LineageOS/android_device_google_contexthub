@@ -151,6 +151,7 @@ struct StmGpio {
 #define BL_SYNC_IN                      0x5A
 #define BL_ACK                          0x79
 #define BL_NAK                          0x1F
+#define BL_SYNC_OUT                     0xA5
 
 #define BL_CMD_GET                      0x00
 #define BL_CMD_READ_MEM                 0x11
@@ -821,32 +822,33 @@ fail:
     return isValid;
 }
 
-static uint8_t blSpiLoaderRxByte(struct StmSpi *spi)
-{
-    while (!(spi->SR & 1));
-    return spi->DR;
-}
-
-static void blSpiLoaderTxByte(struct StmSpi *spi, uint32_t val)
+static uint8_t blSpiLoaderTxRxByte(struct StmSpi *spi, uint32_t val)
 {
     while (!(spi->SR & 2));
     spi->DR = val;
+    while (!(spi->SR & 1));
+    return spi->DR;
 }
 
 static void blSpiLoaderTxBytes(struct StmSpi *spi, const void *data, uint32_t len)
 {
     const uint8_t *buf = (const uint8_t*)data;
 
-    blSpiLoaderTxByte(spi, len - 1);
+    blSpiLoaderTxRxByte(spi, len - 1);
     while (len--)
-        blSpiLoaderTxByte(spi, *buf++);
+        blSpiLoaderTxRxByte(spi, *buf++);
+}
+
+static bool blSpiLoaderSendSyncOut(struct StmSpi *spi)
+{
+    return blSpiLoaderTxRxByte(spi, BL_SYNC_OUT) == BL_SYNC_IN;
 }
 
 static bool blSpiLoaderSendAck(struct StmSpi *spi, bool ack)
 {
-    blSpiLoaderTxByte(spi, 0);
-    blSpiLoaderTxByte(spi, ack ? BL_ACK : BL_NAK);
-    return blSpiLoaderRxByte(spi) == BL_ACK;
+    blSpiLoaderTxRxByte(spi, 0);
+    blSpiLoaderTxRxByte(spi, ack ? BL_ACK : BL_NAK);
+    return blSpiLoaderTxRxByte(spi, 0) == BL_ACK;
 }
 
 static void blSpiLoader(void)
@@ -885,7 +887,7 @@ static void blSpiLoader(void)
     gpioa->MODER = (gpioa->MODER & 0xffff00ff & ~(0x03 << (intInPin * 2))) | 0x0000aa00;
 
     //if int pin is not low, do not bother any further
-    if (gpioa->IDR & (1 << intInPin)) {
+    if (!(gpioa->IDR & (1 << intInPin))) {
 
         //config SPI
         spi->CR1 = 0x00000040; //spi is on, configured same as bootloader would
@@ -906,6 +908,8 @@ static void blSpiLoader(void)
             uint32_t allSizes[] = {__builtin_bswap32(__code_end - __code_start), __builtin_bswap32(__shared_end - __shared_start), __builtin_bswap32(__eedata_end - __eedata_start)};
             bool ack = true;  //we ack the sync
 
+            ack = blSpiLoaderSendSyncOut(spi);
+
             //loop forever listening to commands
             while (1) {
                 uint32_t sync, cmd, cmdNot, addr = 0, len, checksum = 0, i;
@@ -915,9 +919,9 @@ static void blSpiLoader(void)
                 if (!blSpiLoaderSendAck(spi, ack))
                     goto out;
 
-                while ((sync = blSpiLoaderRxByte(spi)) != BL_SYNC_IN);
-                cmd = blSpiLoaderRxByte(spi);
-                cmdNot = blSpiLoaderRxByte(spi);
+                while ((sync = blSpiLoaderTxRxByte(spi, 0)) != BL_SYNC_IN);
+                cmd = blSpiLoaderTxRxByte(spi, 0);
+                cmdNot = blSpiLoaderTxRxByte(spi, BL_ACK);
 
                 ack = false;
                 if (sync == BL_SYNC_IN && (cmd ^ cmdNot) == 0xff) switch (cmd) {
@@ -939,23 +943,23 @@ static void blSpiLoader(void)
 
                     //get address
                     for (i = 0; i < 4; i++) {
-                        uint32_t byte = blSpiLoaderRxByte(spi);
+                        uint32_t byte = blSpiLoaderTxRxByte(spi, 0);
                         checksum ^= byte;
                         addr = (addr << 8) + byte;
                     }
 
                     //reject addresses outside of our fake area or on invalid checksum
-                    if (blSpiLoaderRxByte(spi) != checksum || addr < BL_SHARED_AREA_FAKE_ADDR || addr - BL_SHARED_AREA_FAKE_ADDR > __shared_end - __shared_start)
+                    if (blSpiLoaderTxRxByte(spi, 0) != checksum || addr < BL_SHARED_AREA_FAKE_ADDR || addr - BL_SHARED_AREA_FAKE_ADDR > __shared_end - __shared_start)
                        break;
 
                     //ack the address
                     (void)blSpiLoaderSendAck(spi, true);
 
                     //get the length
-                    len = blSpiLoaderRxByte(spi);
+                    len = blSpiLoaderTxRxByte(spi, 0);
 
                     //reject invalid checksum
-                    if (blSpiLoaderRxByte(spi) != (uint8_t)~len || addr + len - BL_SHARED_AREA_FAKE_ADDR > __shared_end - __shared_start)
+                    if (blSpiLoaderTxRxByte(spi, 0) != (uint8_t)~len || addr + len - BL_SHARED_AREA_FAKE_ADDR > __shared_end - __shared_start)
                        break;
 
                     len++;
@@ -981,31 +985,31 @@ static void blSpiLoader(void)
 
                     //get address
                     for (i = 0; i < 4; i++) {
-                        uint32_t byte = blSpiLoaderRxByte(spi);
+                        uint32_t byte = blSpiLoaderTxRxByte(spi, 0);
                         checksum ^= byte;
                         addr = (addr << 8) + byte;
                     }
 
                     //reject addresses outside of our fake area or on invalid checksum
-                    if (blSpiLoaderRxByte(spi) != checksum || addr < BL_SHARED_AREA_FAKE_ADDR || addr - BL_SHARED_AREA_FAKE_ADDR > __shared_end - __shared_start)
+                    if (blSpiLoaderTxRxByte(spi, 0) != checksum || addr < BL_SHARED_AREA_FAKE_ADDR || addr - BL_SHARED_AREA_FAKE_ADDR > __shared_end - __shared_start)
                        break;
 
                     //ack the address
                     (void)blSpiLoaderSendAck(spi, true);
 
                     //get the length
-                    checksum = len = blSpiLoaderRxByte(spi);
+                    checksum = len = blSpiLoaderTxRxByte(spi, 0);
                     len++;
 
                     //get bytes
                     for (i = 0; i < len; i++) {
-                        uint32_t byte = blSpiLoaderRxByte(spi);
+                        uint32_t byte = blSpiLoaderTxRxByte(spi, 0);
                         checksum ^= byte;
                         data[i] = byte;
                     }
 
                     //reject writes that takes out outside fo shared area or invalid checksums
-                    if (blSpiLoaderRxByte(spi) != checksum || addr + len - BL_SHARED_AREA_FAKE_ADDR > __shared_end - __shared_start)
+                    if (blSpiLoaderTxRxByte(spi, 0) != checksum || addr + len - BL_SHARED_AREA_FAKE_ADDR > __shared_end - __shared_start)
                        break;
 
                     //a write anywhere where the OS header will be must start at 0
@@ -1039,17 +1043,17 @@ static void blSpiLoader(void)
 
                     //get address
                     for (i = 0; i < 2; i++) {
-                        uint32_t byte = blSpiLoaderRxByte(spi);
+                        uint32_t byte = blSpiLoaderTxRxByte(spi, 0);
                         checksum ^= byte;
                         addr = (addr << 8) + byte;
                     }
 
                     //reject addresses that are not our magic address or on invalid checksum
-                    if (blSpiLoaderRxByte(spi) != checksum || addr != BL_SHARED_AREA_FAKE_ERASE_BLK)
+                    if (blSpiLoaderTxRxByte(spi, 0) != checksum || addr != BL_SHARED_AREA_FAKE_ERASE_BLK)
                         break;
 
                     //do it
-                    ack = !blExtApiEraseSharedArea(BL_FLASH_KEY1, BL_FLASH_KEY2);
+                    ack = blExtApiEraseSharedArea(BL_FLASH_KEY1, BL_FLASH_KEY2);
                     if (ack)
                         seenErase = true;
                     break;
