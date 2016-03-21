@@ -31,6 +31,7 @@
 #include <util.h>
 #include <mpu.h>
 #include <heap.h>
+#include <slab.h>
 #include <sensType.h>
 #include <timer.h>
 #include <crc.h>
@@ -62,8 +63,18 @@ static struct DownloadState
     uint8_t  type;
     bool     erase;
 } *mDownloadState;
-
 static AppSecErr mAppSecStatus;
+static struct SlabAllocator *mEventSlab;
+
+static void slabFree(void *ptr)
+{
+    slabAllocatorFree(mEventSlab, ptr);
+}
+
+void nanohubInitCommand(void)
+{
+    mEventSlab = slabAllocatorNew(NANOHUB_PACKET_PAYLOAD_MAX-sizeof(__le32), 4, 2);
+}
 
 static uint32_t getOsHwVersion(void *rx, uint8_t rx_len, void *tx, uint64_t timestamp)
 {
@@ -587,32 +598,41 @@ static uint32_t writeEvent(void *rx, uint8_t rx_len, void *tx, uint64_t timestam
     uint8_t *packet;
     struct HostHubRawPacket *rawPacket;
     uint32_t tid;
+    EventFreeF free = slabFree;
 
     if (le32toh(req->evtType) == EVT_APP_FROM_HOST) {
         rawPacket = (struct HostHubRawPacket *)req->evtData;
         if (rx_len >= sizeof(req->evtType) + sizeof(struct HostHubRawPacket) && rx_len == sizeof(req->evtType) + sizeof(struct HostHubRawPacket) + rawPacket->dataLen && osTidById(rawPacket->appId, &tid)) {
-            packet = heapAlloc(rawPacket->dataLen + 1);
+            packet = slabAllocatorAlloc(mEventSlab);
+            if (!packet) {
+                packet = heapAlloc(rawPacket->dataLen + 1);
+                free = heapFree;
+            }
             if (!packet) {
                 resp->accepted = false;
             } else {
                 packet[0] = rawPacket->dataLen;
                 memcpy(packet + 1, rawPacket + 1, rawPacket->dataLen);
-                resp->accepted = osEnqueuePrivateEvt(EVT_APP_FROM_HOST, packet, heapFree, tid);
+                resp->accepted = osEnqueuePrivateEvt(EVT_APP_FROM_HOST, packet, free, tid);
                 if (!resp->accepted)
-                    heapFree(packet);
+                    free(packet);
             }
         } else {
             resp->accepted = false;
         }
     } else {
-        packet = heapAlloc(rx_len - sizeof(req->evtType));
+        packet = slabAllocatorAlloc(mEventSlab);
+        if (!packet) {
+            packet = heapAlloc(rx_len - sizeof(req->evtType));
+            free = heapFree;
+        }
         if (!packet) {
             resp->accepted = false;
         } else {
             memcpy(packet, req->evtData, rx_len - sizeof(req->evtType));
-            resp->accepted = osEnqueueEvt(le32toh(req->evtType), packet, heapFree);
+            resp->accepted = osEnqueueEvt(le32toh(req->evtType), packet, free);
             if (!resp->accepted)
-                heapFree(packet);
+                free(packet);
         }
     }
 

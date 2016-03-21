@@ -269,6 +269,7 @@ static bool hostIntfRequest(uint32_t tid)
     if (mComm) {
         int err = mComm->request();
         if (!err) {
+            nanohubInitCommand();
             mComm->rxPacket(mRxBuf, sizeof(mRxBuf), hostIntfRxDone);
             osEventSubscribe(mHostIntfTid, EVT_APP_START);
             return true;
