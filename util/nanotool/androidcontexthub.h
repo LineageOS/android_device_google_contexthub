@@ -31,6 +31,10 @@ class AndroidContextHub : public ContextHub {
   public:
     ~AndroidContextHub();
 
+    // Performs system resource cleanup in the event that the program is
+    // terminated abnormally (via std::terminate)
+    static void TerminateHandler();
+
     bool Initialize() override;
     bool LoadCalibration() override;
     void SetLoggingEnabled(bool logging_enabled) override;
