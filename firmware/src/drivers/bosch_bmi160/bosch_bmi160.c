@@ -192,6 +192,8 @@ static const bool enable_debug = 0;
 #define GYR_MAX_OSR     4
 #define OSR_THRESHOULD  8
 
+#define MOTION_ODR         7
+
 #define RETRY_CNT_CALIBRATION 10
 #define RETRY_CNT_ID 5
 #define RETRY_CNT_MAG 30
@@ -1070,7 +1072,7 @@ static bool doubleTapPower(bool on, void *cookie)
 
 static bool anyMotionPower(bool on, void *cookie)
 {
-    //INFO_PRINT("anyMotionPower: on=%d, oneshot_cnt %d, state=%d\n", on, mTask.active_oneshot_sensor_cnt, mTask.state);
+    DEBUG_PRINT("anyMotionPower: on=%d, oneshot_cnt %d, state=%d\n", on, mTask.active_oneshot_sensor_cnt, mTask.state);
 
     if (mTask.state == SENSOR_IDLE) {
         if (on) {
@@ -1093,7 +1095,7 @@ static bool anyMotionPower(bool on, void *cookie)
 
 static bool noMotionPower(bool on, void *cookie)
 {
-    //INFO_PRINT("noMotionPower: on=%d, oneshot_cnt %d, state=%d\n", on, mTask.active_oneshot_sensor_cnt, mTask.state);
+    DEBUG_PRINT("noMotionPower: on=%d, oneshot_cnt %d, state=%d\n", on, mTask.active_oneshot_sensor_cnt, mTask.state);
 
     if (mTask.state == SENSOR_IDLE) {
         if (on) {
@@ -1180,6 +1182,22 @@ static uint8_t computeOdr(uint32_t rate)
     }
 }
 
+static void configMotion(uint8_t odr) {
+    // motion threshold is element * 15.63mg (for 8g range)
+    static const uint8_t motion_thresholds[ACC_MAX_RATE+1] =
+        {5, 5, 5, 5, 5, 5, 5, 5, 4, 3, 2, 2, 2};
+
+    // set any_motion duration to 1 point
+    // set no_motion duration to (3+1)*1.28sec=5.12sec
+    SPI_WRITE(BMI160_REG_INT_MOTION_0, 0x03 << 2, 450);
+
+    // set any_motion threshould
+    SPI_WRITE(BMI160_REG_INT_MOTION_1, motion_thresholds[odr], 450);
+
+    // set no_motion threshold
+    SPI_WRITE(BMI160_REG_INT_MOTION_2, motion_thresholds[odr], 450);
+}
+
 static bool accSetRate(uint32_t rate, uint64_t latency, void *cookie)
 {
     int odr, osr = 0;
@@ -1215,6 +1233,9 @@ static bool accSetRate(uint32_t rate, uint64_t latency, void *cookie)
         mTask.sensors[ACC].latency = latency;
         mTask.sensors[ACC].configed = true;
         mTask.acc_downsample = osr;
+
+        // configure ANY_MOTION and NO_MOTION based on odr
+        configMotion(odr);
 
         // set ACC bandwidth parameter to 2 (bits[4:6])
         // set the rate (bits[0:3])
@@ -2586,18 +2607,8 @@ static void sensorInit(void)
         break;
 
     case INIT_ON_CHANGE_SENSORS:
-        // set any_motion duration to 0
-        // set no_motion duration to ~5sec
-        SPI_WRITE(BMI160_REG_INT_MOTION_0, 0x0c, 450);
-
-        // set any_motion threshould to 5*15.63mg(for 8g range)=78.15mg
-        // I use the same value as chinook...
-        SPI_WRITE(BMI160_REG_INT_MOTION_1, 0x05, 450);
-
-        // set no_motion threshould to 10*15.63mg (for 8g range)
-        // I use the same value as chinook.. Don't know why it is higher than
-        // any_motion.
-        SPI_WRITE(BMI160_REG_INT_MOTION_2, 0x0A, 450);
+        // configure any_motion and no_motion for 50Hz accel samples
+        configMotion(MOTION_ODR);
 
         // select no_motion over slow_motion
         // select any_motion over significant motion
