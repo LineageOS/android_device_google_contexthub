@@ -36,7 +36,7 @@
 #include <variant/inc/variant.h>
 
 #define AMS_TMD4903_APP_ID      APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 12)
-#define AMS_TMD4903_APP_VERSION 1
+#define AMS_TMD4903_APP_VERSION 2
 
 #ifndef PROX_INT_PIN
 #error "PROX_INT_PIN is not defined; please define in variant.h"
@@ -311,12 +311,11 @@ static void alsTimerCallback(uint32_t timerId, void *cookie)
     osEnqueuePrivateEvt(EVT_SENSOR_ALS_TIMER, cookie, NULL, mTask.tid);
 }
 
-#define GLASS_ATTENUATION 1.08f
-#define DEVICE_FACTOR     300.0f
-#define LUX_PER_COUNTS   ((GLASS_ATTENUATION * DEVICE_FACTOR)/AMS_TMD4903_ATIME_MS)
-#define R_COEFF           0.15f
-#define G_COEFF           1.0f
-#define B_COEFF           -0.5f
+#define LUX_PER_COUNTS   (797.88f/AMS_TMD4903_ATIME_MS)
+#define C_COEFF           1.89f
+#define R_COEFF           -0.69f
+#define G_COEFF           1.54f
+#define B_COEFF           -2.91f
 
 static inline float getLuxFromAlsData(uint16_t c, uint16_t r, uint16_t g, uint16_t b)
 {
@@ -326,17 +325,7 @@ static inline float getLuxFromAlsData(uint16_t c, uint16_t r, uint16_t g, uint16
     // TODO (trevorbunker): You can use IR ratio (depends on light source) to
     // select between different R, G, and B coefficients
 
-    // Remove IR component
-    float ir = (r + g + b - c) / 2;
-    float r_p = r - ir;
-    float g_p = g - ir;
-    float b_p = b - ir;
-
-    // Calculate total count
-    float g_2p = R_COEFF * r_p + G_COEFF * g_p + B_COEFF * b_p;
-
-    // Calculate lux
-    return (g_2p * LUX_PER_COUNTS) + mTask.alsOffset;
+    return LUX_PER_COUNTS * ((c * C_COEFF) + (r * R_COEFF) + (g * G_COEFF) + (b * B_COEFF));
 }
 
 static void sendCalibrationResultAls(uint8_t status, float offset) {
