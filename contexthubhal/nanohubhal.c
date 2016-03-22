@@ -322,8 +322,7 @@ static int hal_hub_send_message(uint32_t hub_id, const struct hub_message_t *msg
             ALOGW("not sending invalid message 1");
             ret = -EINVAL;
         }
-
-        if (!memcmp(get_hub_info()->os_app_name->app_name, msg->app->app_name, APP_NAME_LEN)) { //messages to the "system" app are special - hal handles them
+        else if (!memcmp(get_hub_info()->os_app_name->app_name, msg->app->app_name, APP_NAME_LEN)) { //messages to the "system" app are special - hal handles them
             ret = system_comms_handle_tx(msg);
         }
         else if (msg->message_type || msg->message_len > MAX_RX_PACKET) {
