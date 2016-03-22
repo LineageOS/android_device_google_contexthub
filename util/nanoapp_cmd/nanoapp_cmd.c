@@ -15,6 +15,7 @@
  */
 
 #include <android/log.h>
+#include <assert.h>
 #include <stdio.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -137,8 +138,9 @@ bool stop = false;
 char *buf;
 int nread, buf_size = 2048;
 
-void sig_handle(int sig)
+void sig_handle(__attribute__((unused)) int sig)
 {
+    assert(sig == SIGINT);
     printf("Terminating...\n");
     stop = true;
 }
