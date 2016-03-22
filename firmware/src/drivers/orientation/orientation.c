@@ -32,10 +32,11 @@
 #include <limits.h>
 #include <slab.h>
 
-#define MAX_NUM_COMMS_EVENT_SAMPLES 15 // at most 15 output samples can fit in one comms_event
+#define MAX_NUM_COMMS_EVENT_SAMPLES 15 // at most 15 samples can fit in one comms_event
+#define NUM_COMMS_EVENTS_IN_FIFO    2  // This controls how often the hub needs to wake up in batching
+#define FIFO_DEPTH                  (NUM_COMMS_EVENTS_IN_FIFO * MAX_NUM_COMMS_EVENT_SAMPLES)  // needs to be greater than max raw sensor rate ratio
 #define FIFO_MARGIN                 10 // max raw sensor rate ratio is 8:1, there can be 7 samples left in FIFO.
-#define FIFO_DEPTH                  15 // needs to be greater than max raw sensor rate ratio
-#define MAX_NUM_SAMPLES             (FIFO_MARGIN + FIFO_DEPTH)
+#define MAX_NUM_SAMPLES             (FIFO_MARGIN + FIFO_DEPTH) // actual input sample fifo depth
 #define EVT_SENSOR_ACC_DATA_RDY     sensorGetMyEventType(SENS_TYPE_ACCEL)
 #define EVT_SENSOR_GYR_DATA_RDY     sensorGetMyEventType(SENS_TYPE_GYRO)
 #define EVT_SENSOR_MAG_DATA_RDY     sensorGetMyEventType(SENS_TYPE_MAG)
@@ -266,7 +267,7 @@ static void addSample(struct FusionSensor *mSensor, uint64_t time, float x, floa
         mSensor->ev = slabAllocatorAlloc(mDataSlab);
         if (mSensor->ev == NULL) {
             // slaballocation failed
-            osLog(LOG_ERROR, "FUSION: Slab Allocation Failed\n");
+            osLog(LOG_ERROR, "ORIENTATION: slabAllocatorAlloc() Failed\n");
             return;
         }
         mSensor->ev->samples[0].firstSample.numSamples = 0;
@@ -275,7 +276,7 @@ static void addSample(struct FusionSensor *mSensor, uint64_t time, float x, floa
     }
 
     if (mSensor->ev->samples[0].firstSample.numSamples >= MAX_NUM_COMMS_EVENT_SAMPLES) {
-        osLog(LOG_ERROR, "BAD_INDEX\n");
+        osLog(LOG_ERROR, "ORIENTATION: BAD_INDEX\n");
         return;
     }
 
@@ -764,9 +765,9 @@ static bool fusionStart(uint32_t tid)
 
     slabSize = sizeof(struct TripleAxisDataEvent)
         + MAX_NUM_COMMS_EVENT_SAMPLES * sizeof(struct TripleAxisDataPoint);
-    mDataSlab = slabAllocatorNew(slabSize, 4, 10); // 10 slots for now, worst case 6 output sensors * 2 comms_events = 12
+    mDataSlab = slabAllocatorNew(slabSize, 4, 6 * (NUM_COMMS_EVENTS_IN_FIFO + 1)); // worst case 6 output sensors * (N + 1) comms_events
     if (!mDataSlab) {
-        osLog(LOG_ERROR, "FUSION SLAB ALLOCATION FAILED\n");
+        osLog(LOG_ERROR, "ORIENTATION: slabAllocatorNew() FAILED\n");
         return false;
     }
 

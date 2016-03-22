@@ -1577,7 +1577,7 @@ static bool allocateDataEvt(struct BMI160Sensor *mSensor, uint64_t rtc_time)
     mSensor->data_evt = slabAllocatorAlloc(mDataSlab);
     if (mSensor->data_evt == NULL) {
         // slab allocation failed
-        ERROR_PRINT("Slab allocation failed\n");
+        ERROR_PRINT("slabAllocatorAlloc() failed\n");
         return false;
     }
 
@@ -2892,7 +2892,7 @@ static bool startTask(uint32_t task_id)
     // XXX: this consumes too much memeory, need to optimize
     mDataSlab = slabAllocatorNew(slabSize, 4, 20);
     if (!mDataSlab) {
-        INFO_PRINT("Slab allocation failed\n");
+        INFO_PRINT("slabAllocatorNew() failed\n");
         return false;
     }
 
