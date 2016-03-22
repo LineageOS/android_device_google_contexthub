@@ -24,7 +24,8 @@
 
 using namespace android;
 
-static const int kVersion = 1;
+static const int kVersionMajor = 1;
+static const int kVersionMinor = 0;
 
 static const int ACTIVITY_TYPE_TILTING_INDEX = 6;
 
@@ -352,8 +353,8 @@ static int get_activity_list(
 struct activity_recognition_module HAL_MODULE_INFO_SYM = {
         .common = {
                 .tag = HARDWARE_MODULE_TAG,
-                .version_major = 1,
-                .version_minor = 0,
+                .version_major = kVersionMajor,
+                .version_minor = kVersionMinor,
                 .id = ACTIVITY_RECOGNITION_HARDWARE_MODULE_ID,
                 .name = "Google Activity Recognition module",
                 .author = "Google",
