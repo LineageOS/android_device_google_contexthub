@@ -568,7 +568,7 @@ void HubConnection::waitOnNanohubLock() {
     while (access(NANOHUB_LOCK_FILE, F_OK) == 0) {
         ALOGW("Nanohub is locked; blocking read thread");
         int ret = poll(pfd, 1, 5000);
-        if (pfd->revents & POLLIN) {
+        if ((ret > 0) && (pfd->revents & POLLIN)) {
             discardInotifyEvent();
         }
     }
