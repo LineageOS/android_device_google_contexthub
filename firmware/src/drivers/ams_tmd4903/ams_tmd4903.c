@@ -205,12 +205,13 @@ struct SensorData
 
     union EmbeddedDataPoint lastAlsSample;
 
-    uint8_t proxState; // enum ProxState
+    uint8_t lastProxState; // enum ProxState
 
     bool alsOn;
     bool proxOn;
     bool alsCalibrating;
     bool proxCalibrating;
+    bool proxFirstSample;
 };
 
 static struct SensorData mTask;
@@ -240,8 +241,7 @@ static const uint32_t supportedRates[] =
 static bool proxIsr(struct ChainedIsr *localIsr)
 {
     struct SensorData *data = container_of(localIsr, struct SensorData, isr);
-    bool firstProxSample = (data->proxState == PROX_STATE_INIT);
-    uint8_t lastProxState = data->proxState;
+    uint8_t lastProxState = data->lastProxState;
     union EmbeddedDataPoint sample;
     bool pinState;
 
@@ -256,16 +256,23 @@ static bool proxIsr(struct ChainedIsr *localIsr)
         (void)sample;
         (void)pinState;
         (void)lastProxState;
-        (void)firstProxSample;
         if (!pinState)
             osEnqueuePrivateEvt(EVT_SENSOR_PROX_INTERRUPT, NULL, NULL, mTask.tid);
 #else
-        if (firstProxSample && !pinState) {
-            osEnqueuePrivateEvt(EVT_SENSOR_PROX_INTERRUPT, NULL, NULL, mTask.tid);
-        } else if (!firstProxSample) {
+        // The falling edge of the interrupt ping for the first prox sample
+        // tells us when a sample is ready. Reset the proxFirstSample flag after
+        // you observe the deassertion of the interrupt pin. Then, the interrupt
+        // pin is a mapping of the current prox reading ("near" and "far").
+        if (data->proxFirstSample) {
+            if (!pinState) {
+                osEnqueuePrivateEvt(EVT_SENSOR_PROX_INTERRUPT, NULL, NULL, mTask.tid);
+            }
+
+            data->proxFirstSample = !pinState;
+        } else {
             sample.fdata = (pinState) ? AMS_TMD4903_REPORT_FAR_VALUE : AMS_TMD4903_REPORT_NEAR_VALUE;
-            data->proxState = (pinState) ? PROX_STATE_FAR : PROX_STATE_NEAR;
-            if (data->proxState != lastProxState)
+            data->lastProxState = (pinState) ? PROX_STATE_FAR : PROX_STATE_NEAR;
+            if (data->lastProxState != lastProxState)
                 osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_PROX), sample.vptr, NULL);
         }
 #endif
@@ -481,7 +488,8 @@ static bool sensorPowerProx(bool on, void *cookie)
         extiClearPendingGpio(mTask.pin);
     }
 
-    mTask.proxState = PROX_STATE_INIT;
+    mTask.lastProxState = PROX_STATE_INIT;
+    mTask.proxFirstSample = true;
     mTask.proxOn = on;
 
     setMode(mTask.alsOn, on, (void *)(on ? SENSOR_STATE_ENABLING_PROX : SENSOR_STATE_DISABLING_PROX));
@@ -519,7 +527,8 @@ static bool sensorCalibrateProx(void *cookie)
         return false;
     }
 
-    mTask.proxState = PROX_STATE_INIT;
+    mTask.lastProxState = PROX_STATE_INIT;
+    mTask.proxFirstSample = true;
     mTask.proxOn = true;
     mTask.proxCalibrating = true;
 
@@ -556,8 +565,8 @@ static bool sendLastSampleProx(void *cookie, uint32_t tid) {
     bool result = true;
 
     // See note in sendLastSampleAls
-    if (mTask.proxState != PROX_STATE_INIT) {
-        sample.fdata = (mTask.proxState == PROX_STATE_NEAR) ? AMS_TMD4903_REPORT_NEAR_VALUE : AMS_TMD4903_REPORT_FAR_VALUE;
+    if (mTask.lastProxState != PROX_STATE_INIT) {
+        sample.fdata = (mTask.lastProxState == PROX_STATE_NEAR) ? AMS_TMD4903_REPORT_NEAR_VALUE : AMS_TMD4903_REPORT_FAR_VALUE;
         result = osEnqueuePrivateEvt(sensorGetMyEventType(SENS_TYPE_PROX), sample.vptr, NULL, tid);
     }
     return result;
@@ -774,7 +783,7 @@ static void handle_i2c_event(int state)
 
     case SENSOR_STATE_PROX_SAMPLING:
         ps = *(uint16_t*)(mTask.txrxBuf);
-        lastProxState = mTask.proxState;
+        lastProxState = mTask.lastProxState;
 
         DEBUG_PRINT("prox sample ready: prox=%u\n", ps);
 
@@ -786,13 +795,13 @@ static void handle_i2c_event(int state)
 #else
             if (ps > AMS_TMD4903_PROX_THRESHOLD_HIGH) {
                 sample.fdata = AMS_TMD4903_REPORT_NEAR_VALUE;
-                mTask.proxState = PROX_STATE_NEAR;
+                mTask.lastProxState = PROX_STATE_NEAR;
             } else {
                 sample.fdata = AMS_TMD4903_REPORT_FAR_VALUE;
-                mTask.proxState = PROX_STATE_FAR;
+                mTask.lastProxState = PROX_STATE_FAR;
             }
 
-            if (mTask.proxState != lastProxState)
+            if (mTask.lastProxState != lastProxState)
                 osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_PROX), sample.vptr, NULL);
 #endif
 
@@ -829,8 +838,9 @@ static bool init_app(uint32_t myTid)
     mTask.alsOn = false;
     mTask.proxOn = false;
     mTask.lastAlsSample.idata = AMS_TMD4903_ALS_INVALID;
-    mTask.proxState = PROX_STATE_INIT;
+    mTask.lastProxState = PROX_STATE_INIT;
     mTask.proxCalibrating = false;
+    mTask.proxFirstSample = true;
 
     mTask.pin = gpioRequest(PROX_INT_PIN);
     gpioConfigInput(mTask.pin, GPIO_SPEED_LOW, GPIO_PULL_NONE);
