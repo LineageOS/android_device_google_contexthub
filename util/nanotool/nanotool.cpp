@@ -54,6 +54,7 @@ struct ParsedArgs {
     int count = 0;
     bool logging_enabled = false;
     std::string filename;
+    int device_index = 0;
 };
 
 static NanotoolCommand StrToCommand(const char *command_name) {
@@ -122,6 +123,12 @@ static void PrintUsage(const char *name) {
         "  -l, --log          Outputs logs from the sensor hub as they become available.\n"
         "                     The logs will be printed inline with sensor samples.\n"
         "                     The default is for log messages to be ignored.\n"
+#ifndef __ANDROID__
+        // This option is only applicable when connecting over USB
+        "\n"
+        "  -i, --index        Selects the device to work with by specifying the index\n"
+        "                     into the device list (default: 0)\n"
+#endif
         "\n"
         "  -v, -vv            Output verbose/extra verbose debugging information\n";
 
@@ -283,12 +290,13 @@ static std::unique_ptr<ParsedArgs> ParseArgs(int argc, char **argv) {
         {"count",   required_argument, nullptr, 'c'},
         {"flash",   required_argument, nullptr, 'f'},
         {"log",     no_argument,       nullptr, 'l'},
+        {"index",   required_argument, nullptr, 'i'},
     };
 
     auto args = std::unique_ptr<ParsedArgs>(new ParsedArgs());
     int index = 0;
     while (42) {
-        int c = getopt_long(argc, argv, "x:s:c:f:v::l", long_opts, &index);
+        int c = getopt_long(argc, argv, "x:s:c:f:v::li:", long_opts, &index);
         if (c == -1) {
             break;
         }
@@ -338,6 +346,15 @@ static std::unique_ptr<ParsedArgs> ParseArgs(int argc, char **argv) {
             }
             break;
           }
+          case 'i': {
+            args->device_index = atoi(optarg);
+            if (args->device_index < 0) {
+                fprintf(stderr, "%s: Invalid device index %d\n", argv[0],
+                        args->device_index);
+                return nullptr;
+            }
+            break;
+          }
           default:
             return nullptr;
         }
@@ -349,11 +366,12 @@ static std::unique_ptr<ParsedArgs> ParseArgs(int argc, char **argv) {
     return args;
 }
 
-static std::unique_ptr<ContextHub> GetContextHub() {
+static std::unique_ptr<ContextHub> GetContextHub(std::unique_ptr<ParsedArgs>& args) {
 #ifdef __ANDROID__
+    (void) args;
     return std::unique_ptr<AndroidContextHub>(new AndroidContextHub());
 #else
-    return std::unique_ptr<UsbContextHub>(new UsbContextHub());
+    return std::unique_ptr<UsbContextHub>(new UsbContextHub(args->device_index));
 #endif
 }
 
@@ -389,7 +407,7 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    auto args = ParseArgs(argc, argv);
+    std::unique_ptr<ParsedArgs> args = ParseArgs(argc, argv);
     if (!args) {
         PrintUsage(argv[0]);
         return 1;
@@ -399,7 +417,7 @@ int main(int argc, char **argv) {
     SetHandlers();
 #endif
 
-    std::unique_ptr<ContextHub> hub = GetContextHub();
+    std::unique_ptr<ContextHub> hub = GetContextHub(args);
     if (!hub || !hub->Initialize()) {
         LOGE("Error initializing ContextHub");
         return -1;
@@ -451,7 +469,8 @@ int main(int argc, char **argv) {
     if (!success) {
         LOGE("Command failed");
         return -1;
-    } else {
+    } else if (args->command != NanotoolCommand::Read
+                   && args->command != NanotoolCommand::Poll) {
         printf("Operation completed successfully\n");
     }
 
