@@ -451,6 +451,8 @@ int main(int argc, char **argv) {
     if (!success) {
         LOGE("Command failed");
         return -1;
+    } else {
+        printf("Operation completed successfully\n");
     }
 
     return 0;
