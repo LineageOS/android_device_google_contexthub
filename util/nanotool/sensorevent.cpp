@@ -24,6 +24,8 @@
 
 namespace android {
 
+constexpr float kCompressedSampleRatio(8.0f * 9.81f / 32768.0f);
+
 /* SensorEvent ****************************************************************/
 
 std::unique_ptr<SensorEvent> SensorEvent::FromBytes(
@@ -76,6 +78,10 @@ std::unique_ptr<SensorEvent> SensorEvent::FromBytes(
           sensor_event = new SingleAxisIntSensorEvent();
           break;
 
+      case SensorType::CompressedAccel:
+          sensor_event = new CompressedTripleAxisSensorEvent();
+          break;
+
     default:
         LOGW("Can't create SensorEvent for unknown/invalid sensor type %d",
              static_cast<int>(sensor_type));
@@ -87,6 +93,7 @@ std::unique_ptr<SensorEvent> SensorEvent::FromBytes(
         delete sensor_event;
         sensor_event = nullptr;
     }
+
     return std::unique_ptr<SensorEvent>(sensor_event);
 }
 
@@ -244,6 +251,36 @@ std::string TripleAxisSensorEvent::StringForSample(uint8_t index) const {
 
 uint8_t TripleAxisSensorEvent::GetSampleDataSize() const {
     return sizeof(struct TripleAxisDataPoint);
+}
+
+/* CompressedTripleAxisSensorEvent ********************************************/
+
+std::string CompressedTripleAxisSensorEvent::StringForSample(
+        uint8_t index) const {
+    const CompressedTripleAxisDataPoint *sample =
+        reinterpret_cast<const CompressedTripleAxisDataPoint *>(
+            GetSampleAtIndex(index));
+
+    const struct SensorFirstSample *first_sample =
+        reinterpret_cast<const struct SensorFirstSample *>(
+            event_data.data() + sizeof(struct SensorEventHeader));
+    bool is_bias_sample = first_sample->biasPresent
+        && first_sample->biasSample == index;
+
+    float x = sample->ix * kCompressedSampleRatio;
+    float y = sample->iy * kCompressedSampleRatio;
+    float z = sample->iz * kCompressedSampleRatio;
+
+    char buffer[128];
+    snprintf(buffer, sizeof(buffer), "  X:%f Y:%f Z:%f @ %s%s\n",
+             x, y, z, GetSampleTimeStr(index).c_str(),
+             is_bias_sample ? " (Bias Sample)" : "");
+
+    return std::string(buffer);
+}
+
+uint8_t CompressedTripleAxisSensorEvent::GetSampleDataSize() const {
+    return sizeof(CompressedTripleAxisDataPoint);
 }
 
 }  // namespace android
