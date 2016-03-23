@@ -402,7 +402,7 @@ void HubConnection::magAccuracyUpdate(float x, float y, float z)
     }
 }
 
-void HubConnection::processSample(uint64_t timestamp, uint32_t type, uint32_t sensor, struct RawThreeAxisSample *sample, bool highAccuracy)
+void HubConnection::processSample(uint64_t timestamp, uint32_t type, uint32_t sensor, struct RawThreeAxisSample *sample, __attribute__((unused)) bool highAccuracy)
 {
     sensors_vec_t *sv;
     sensors_event_t nev[2];
