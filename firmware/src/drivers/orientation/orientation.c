@@ -262,6 +262,7 @@ static void fillSamples(struct TripleAxisDataEvent *ev, enum RawSensorType index
 static void addSample(struct FusionSensor *mSensor, uint64_t time, float x, float y, float z)
 {
     struct TripleAxisDataPoint *sample;
+    bool success;
 
     if (mSensor->ev == NULL) {
         mSensor->ev = slabAllocatorAlloc(mDataSlab);
@@ -292,8 +293,11 @@ static void addSample(struct FusionSensor *mSensor, uint64_t time, float x, floa
     sample->z = z;
 
     if (mSensor->ev->samples[0].firstSample.numSamples == MAX_NUM_COMMS_EVENT_SAMPLES) {
-        osEnqueueEvt(EVENT_TYPE_BIT_DISCARDABLE | sensorGetMyEventType(mSi[mSensor->idx].sensorType),
+        success = osEnqueueEvt(EVENT_TYPE_BIT_DISCARDABLE | sensorGetMyEventType(mSi[mSensor->idx].sensorType),
                 mSensor->ev, dataEvtFree);
+        if (!success) {
+            dataEvtFree(mSensor->ev);
+        }
         mSensor->ev = NULL;
     }
 }
@@ -385,6 +389,7 @@ static void drainSamples()
     struct Vec3 a, w, m;
     float dT;
     uint64_t a_time, g_time, m_time;
+    bool success;
 
     if (mTask.gyro_cnt > 0)
         j = mTask.sample_indices[GYR];
@@ -462,8 +467,11 @@ static void drainSamples()
 
     for (i = ORIENT; i < NUM_OF_FUSION_SENSOR; i++) {
         if (mTask.sensors[i].ev != NULL) {
-            osEnqueueEvt(EVENT_TYPE_BIT_DISCARDABLE | sensorGetMyEventType(mSi[i].sensorType),
+            success = osEnqueueEvt(EVENT_TYPE_BIT_DISCARDABLE | sensorGetMyEventType(mSi[i].sensorType),
                     mTask.sensors[i].ev, dataEvtFree);
+            if (!success) {
+                dataEvtFree(mTask.sensors[i].ev);
+            }
             mTask.sensors[i].ev = NULL;
         }
     }
