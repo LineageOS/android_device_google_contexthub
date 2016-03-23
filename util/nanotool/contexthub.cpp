@@ -339,8 +339,7 @@ bool ContextHub::HandleCalibrationResult(const SensorSpec& sensor,
         break;
       }
 
-      case SensorType::Barometer:
-      case SensorType::AmbientLightSensor: {
+      case SensorType::Barometer: {
         auto result = reinterpret_cast<const FloatCalibrationResult *>(
             event.GetDataPtr());
         if (sensor.have_cal_ref) {
@@ -355,6 +354,16 @@ bool ContextHub::HandleCalibrationResult(const SensorSpec& sensor,
             event.GetDataPtr());
         success = SetCalibration(sensor.sensor_type, result->xBias,
                                  result->yBias, result->zBias, result->wBias);
+        break;
+      }
+
+      case SensorType::AmbientLightSensor: {
+        auto result = reinterpret_cast<const FloatCalibrationResult *>(
+            event.GetDataPtr());
+        if (sensor.have_cal_ref && (result->value != 0.0f)) {
+            success = SetCalibration(sensor.sensor_type,
+                                     (sensor.cal_ref / result->value));
+        }
         break;
       }
 
