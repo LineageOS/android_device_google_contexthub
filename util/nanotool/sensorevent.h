@@ -44,10 +44,12 @@ struct SingleAxisDataPoint {
     };
 } __attribute__((packed));
 
-struct SingleAxisDataEvent {
-    uint64_t referenceTime;
-    struct SingleAxisDataPoint samples[];
-};
+struct CompressedTripleAxisDataPoint {
+    uint32_t deltaTime;
+    int16_t ix;
+    int16_t iy;
+    int16_t iz;
+} __attribute__((packed));
 
 struct TripleAxisDataPoint {
     union {
@@ -67,11 +69,6 @@ struct TripleAxisDataPoint {
         int32_t iz;
     };
 } __attribute__((packed));
-
-struct TripleAxisDataEvent {
-    uint64_t referenceTime;
-    struct TripleAxisDataPoint samples[];
-};
 
 /*
  * Common timestamped sensor event structure is SensorEventHeader followed by
@@ -152,6 +149,14 @@ class SingleAxisIntSensorEvent : public SingleAxisSensorEvent {
 };
 
 class TripleAxisSensorEvent : public TimestampedSensorEvent {
+  public:
+    std::string StringForSample(uint8_t index) const override;
+
+  protected:
+    uint8_t GetSampleDataSize() const override;
+};
+
+class CompressedTripleAxisSensorEvent : public TimestampedSensorEvent {
   public:
     std::string StringForSample(uint8_t index) const override;
 
