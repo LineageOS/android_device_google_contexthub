@@ -190,7 +190,7 @@ static const bool enable_debug = 0;
 #define MAG_MAX_RATE    11
 #define ACC_MAX_OSR     3
 #define GYR_MAX_OSR     4
-#define OSR_THRESHOULD  8
+#define OSR_THRESHOLD   8
 
 #define MOTION_ODR         7
 
@@ -1191,7 +1191,7 @@ static void configMotion(uint8_t odr) {
     // set no_motion duration to (3+1)*1.28sec=5.12sec
     SPI_WRITE(BMI160_REG_INT_MOTION_0, 0x03 << 2, 450);
 
-    // set any_motion threshould
+    // set any_motion threshold
     SPI_WRITE(BMI160_REG_INT_MOTION_1, motion_thresholds[odr], 450);
 
     // set no_motion threshold
@@ -1224,7 +1224,7 @@ static bool accSetRate(uint32_t rate, uint64_t latency, void *cookie)
 
         // for high odrs, oversample to reduce hw latency and downsample
         // to get desired odr
-        if (odr > OSR_THRESHOULD) {
+        if (odr > OSR_THRESHOLD) {
             osr = (ACC_MAX_OSR + odr) > ACC_MAX_RATE ? (ACC_MAX_RATE - odr) : ACC_MAX_OSR;
             odr += osr;
         }
@@ -1284,7 +1284,7 @@ static bool gyrSetRate(uint32_t rate, uint64_t latency, void *cookie)
 
         // for high odrs, oversample to reduce hw latency and downsample
         // to get desired odr
-        if (odr > OSR_THRESHOULD) {
+        if (odr > OSR_THRESHOLD) {
             osr = (GYR_MAX_OSR + odr) > GYR_MAX_RATE ? (GYR_MAX_RATE - odr) : GYR_MAX_OSR;
             odr += osr;
         }
@@ -2618,7 +2618,7 @@ static void sensorInit(void)
         SPI_WRITE(BMI160_REG_INT_TAP_0, 0x42, 450);
 
         // int_tap_th = 7 * 250 mg (8-g range)
-        SPI_WRITE(BMI160_REG_INT_TAP_1, TAP_THRESHOULD, 450);
+        SPI_WRITE(BMI160_REG_INT_TAP_1, TAP_THRESHOLD, 450);
 
         // config step detector
         SPI_WRITE(BMI160_REG_STEP_CONF_0, 0x15, 450);
