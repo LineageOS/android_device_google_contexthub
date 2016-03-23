@@ -68,6 +68,7 @@ enum class SensorType {
     Hall,
     Activity,
     Vsync,
+    CompressedAccel,
 
     Max_
 };

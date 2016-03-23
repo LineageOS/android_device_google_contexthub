@@ -71,6 +71,27 @@ static const SensorTypeNames sensor_names_[] = {
     { SensorType::Vsync,                "vsync" },
 };
 
+struct SensorTypeAlias {
+    SensorType sensor_type;
+    SensorType sensor_alias;
+    const char *name_abbrev;
+};
+
+static const SensorTypeAlias sensor_aliases_[] = {
+    { SensorType::Accel, SensorType::CompressedAccel, "compressed_accel" },
+};
+
+bool SensorTypeIsAliasOf(SensorType sensor_type, SensorType alias) {
+    for (size_t i = 0; i < ARRAY_LEN(sensor_aliases_); i++) {
+        if (sensor_aliases_[i].sensor_type == sensor_type
+                && sensor_aliases_[i].sensor_alias == alias) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 SensorType ContextHub::SensorAbbrevNameToType(const char *sensor_name_abbrev) {
     for (unsigned int i = 0; i < ARRAY_LEN(sensor_names_); i++) {
         if (strcmp(sensor_names_[i].name_abbrev, sensor_name_abbrev) == 0) {
@@ -89,6 +110,12 @@ std::string ContextHub::SensorTypeToAbbrevName(SensorType sensor_type) {
     for (unsigned int i = 0; i < ARRAY_LEN(sensor_names_); i++) {
         if (sensor_names_[i].sensor_type == sensor_type) {
             return std::string(sensor_names_[i].name_abbrev);
+        }
+    }
+
+    for (unsigned int i = 0; i < ARRAY_LEN(sensor_aliases_); i++) {
+        if (sensor_aliases_[i].sensor_alias == sensor_type) {
+            return std::string(sensor_aliases_[i].name_abbrev);
         }
     }
 
@@ -245,7 +272,8 @@ void ContextHub::PrintAllEvents(unsigned int limit) {
 void ContextHub::PrintSensorEvents(SensorType type, int limit) {
     bool continuous = (limit == 0);
     auto event_printer = [type, &limit, continuous](const SensorEvent& event) -> bool {
-        if (event.GetSensorType() == type) {
+        SensorType event_source = event.GetSensorType();
+        if (event_source == type || SensorTypeIsAliasOf(type, event_source)) {
             printf("%s", event.ToString().c_str());
             limit -= event.GetNumSamples();
         }
@@ -259,7 +287,8 @@ void ContextHub::PrintSensorEvents(const std::vector<SensorSpec>& sensors, int l
     auto event_printer = [&sensors, &limit, continuous](const SensorEvent& event) -> bool {
         SensorType event_source = event.GetSensorType();
         for (unsigned int i = 0; i < sensors.size(); i++) {
-            if (sensors[i].sensor_type == event_source) {
+            if (sensors[i].sensor_type == event_source
+                    || SensorTypeIsAliasOf(sensors[i].sensor_type, event_source)) {
                 printf("%s", event.ToString().c_str());
                 limit -= event.GetNumSamples();
                 break;
