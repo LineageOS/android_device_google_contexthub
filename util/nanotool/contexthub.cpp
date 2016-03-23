@@ -397,16 +397,19 @@ ContextHub::TransportResult ContextHub::ReadAppEvents(
         auto delta = end_time - start_time;
         timeout_ms -= std::chrono::duration_cast<Milliseconds>(delta).count();
 
-        if (result != TransportResult::Success) {
-            return result;
-        }
-
-        if (event->IsAppToHostEvent()) {
-            AppToHostEvent *app_event =
-                reinterpret_cast<AppToHostEvent*>(event.get());
+        if (result == TransportResult::Success && event->IsAppToHostEvent()) {
+            AppToHostEvent *app_event = reinterpret_cast<AppToHostEvent*>(
+                event.get());
             keep_going = callback(*app_event);
         } else {
-            LOGD("Ignoring non-app-to-host event");
+            if (result != TransportResult::Success) {
+                LOGE("Error %d while reading", static_cast<int>(result));
+                if (result != TransportResult::ParseFailure) {
+                    return result;
+                }
+            } else {
+                LOGD("Ignoring non-app-to-host event");
+            }
         }
     }
 
