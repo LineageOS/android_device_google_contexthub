@@ -426,7 +426,7 @@ int system_comms_handle_rx(const void *name, uint32_t len, const void *dataP)
         ALOGI("Weird - we got a %u-byte ACK for reboot - ok then, moving on...", len);
         break;
 
-    dfault:
+    default:
         ALOGW("Unknown nanohub reply packet %u ( + %u bytes of data) - dropped", msgType, len);
         break;
     }
