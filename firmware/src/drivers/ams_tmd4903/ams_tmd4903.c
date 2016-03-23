@@ -36,7 +36,7 @@
 #include <variant/inc/variant.h>
 
 #define AMS_TMD4903_APP_ID      APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 12)
-#define AMS_TMD4903_APP_VERSION 2
+#define AMS_TMD4903_APP_VERSION 3
 
 #ifndef PROX_INT_PIN
 #error "PROX_INT_PIN is not defined; please define in variant.h"
@@ -325,7 +325,7 @@ static inline float getLuxFromAlsData(uint16_t c, uint16_t r, uint16_t g, uint16
     // TODO (trevorbunker): You can use IR ratio (depends on light source) to
     // select between different R, G, and B coefficients
 
-    return LUX_PER_COUNTS * ((c * C_COEFF) + (r * R_COEFF) + (g * G_COEFF) + (b * B_COEFF));
+    return LUX_PER_COUNTS * ((c * C_COEFF) + (r * R_COEFF) + (g * G_COEFF) + (b * B_COEFF)) * mTask.alsOffset;
 }
 
 static void sendCalibrationResultAls(uint8_t status, float offset) {
@@ -431,7 +431,7 @@ static bool sensorCalibrateAls(void *cookie)
     mTask.alsOn = true;
     mTask.lastAlsSample.idata = AMS_TMD4903_ALS_INVALID;
     mTask.alsCalibrating = true;
-    mTask.alsOffset = 0.0f;
+    mTask.alsOffset = 1.0f;
 
     extiClearPendingGpio(mTask.pin);
     enableInterrupt(mTask.pin, &mTask.isr);
@@ -757,7 +757,6 @@ static void handle_i2c_event(int state)
 
                 mTask.alsOn = false;
                 mTask.alsCalibrating = false;
-                mTask.alsOffset = sample.fdata;
 
                 mTask.txrxBuf[0] = AMS_TMD4903_REG_ENABLE;
                 mTask.txrxBuf[1] = 0; // REG_ENABLE
@@ -830,6 +829,7 @@ static bool init_app(uint32_t myTid)
     mTask.lastProxState = PROX_STATE_INIT;
     mTask.proxCalibrating = false;
     mTask.proxFirstSample = true;
+    mTask.alsOffset = 1.0f;
 
     mTask.pin = gpioRequest(PROX_INT_PIN);
     gpioConfigInput(mTask.pin, GPIO_SPEED_LOW, GPIO_PULL_NONE);
