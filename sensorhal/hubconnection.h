@@ -58,8 +58,8 @@ struct HubConnection : public Thread {
     void queueBatch(
             int handle,
             int flags,
-            int64_t sampling_period_ns,
-            int64_t max_report_latency_ns);
+            nsecs_t sampling_period_ns,
+            nsecs_t max_report_latency_ns);
 
     void queueFlush(int handle);
 
@@ -83,6 +83,12 @@ protected:
     virtual void onFirstRef();
 
 private:
+    typedef uint32_t rate_q10_t;  // q10 means lower 10 bits are for fractions
+
+    static inline uint64_t period_ns_to_frequency_q10(nsecs_t period_ns) {
+        return 1024000000000ULL / period_ns;
+    }
+
     enum
     {
         CONFIG_CMD_DISABLE      = 0,
@@ -96,7 +102,7 @@ private:
     {
         uint32_t evtType;
         uint64_t latency;
-        uint32_t rate;
+        rate_q10_t rate;
         uint8_t sensorType;
         uint8_t cmd;
         uint16_t flags;
@@ -111,7 +117,7 @@ private:
 
     struct SensorState {
         uint64_t latency;
-        uint32_t rate;
+        rate_q10_t rate;
         uint8_t sensorType;
         uint8_t alt;
         uint8_t flushCnt;

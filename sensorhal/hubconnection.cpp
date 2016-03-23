@@ -888,7 +888,7 @@ void HubConnection::queueActivate(int handle, bool enable)
 
         initConfigCmd(&cmd, handle);
 
-        ALOGI("queueActive: sensor=%d, enable=%d", cmd.sensorType, enable);
+        ALOGI("queueActive: sensor=%d, handle=%d, enable=%d", cmd.sensorType, handle, enable);
         do {
             ret = write(mFd, &cmd, sizeof(cmd));
         } while(ret != sizeof(cmd));
@@ -897,47 +897,53 @@ void HubConnection::queueActivate(int handle, bool enable)
     }
 }
 
-void HubConnection::queueSetDelay(int handle, nsecs_t delayNs)
+void HubConnection::queueSetDelay(int handle, nsecs_t sampling_period_ns)
 {
     struct ConfigCmd cmd;
     int ret;
 
     if (mSensorState[handle].sensorType) {
-        mSensorState[handle].latency = delayNs;
+        mSensorState[handle].rate = period_ns_to_frequency_q10(sampling_period_ns);
 
         initConfigCmd(&cmd, handle);
 
-        ALOGI("queueSetDelay: sensor=%d, delay=%" PRId64, cmd.sensorType, delayNs);
+        ALOGI("queueSetDelay: sensor=%d, handle=%d, period=%" PRId64,
+                cmd.sensorType, handle, sampling_period_ns);
         do {
             ret = write(mFd, &cmd, sizeof(cmd));
         } while(ret != sizeof(cmd));
     } else {
-        ALOGI("queueSetDelay: unhandled handle=%d, delay=%" PRId64, handle, delayNs);
+        ALOGI("queueSetDelay: unhandled handle=%d, period=%" PRId64, handle, sampling_period_ns);
     }
 }
 
 void HubConnection::queueBatch(
         int handle,
         __attribute__((unused)) int flags,
-        int64_t sampling_period_ns,
-        int64_t max_report_latency_ns)
+        nsecs_t sampling_period_ns,
+        nsecs_t max_report_latency_ns)
 {
     struct ConfigCmd cmd;
     int ret;
 
     if (mSensorState[handle].sensorType) {
-        if (sampling_period_ns > 0 && mSensorState[handle].rate != SENSOR_RATE_ONCHANGE && mSensorState[handle].rate != SENSOR_RATE_ONESHOT)
-            mSensorState[handle].rate = 1024000000000ULL / sampling_period_ns;
+        if (sampling_period_ns > 0 &&
+                mSensorState[handle].rate != SENSOR_RATE_ONCHANGE &&
+                mSensorState[handle].rate != SENSOR_RATE_ONESHOT) {
+            mSensorState[handle].rate = period_ns_to_frequency_q10(sampling_period_ns);
+        }
         mSensorState[handle].latency = max_report_latency_ns;
 
         initConfigCmd(&cmd, handle);
 
-        ALOGI("queueBatch: sensor=%d, period=%" PRId64 ", latency=%" PRId64, cmd.sensorType, sampling_period_ns, max_report_latency_ns);
+        ALOGI("queueBatch: sensor=%d, handle=%d, period=%" PRId64 ", latency=%" PRId64,
+                cmd.sensorType, handle, sampling_period_ns, max_report_latency_ns);
         do {
             ret = write(mFd, &cmd, sizeof(cmd));
         } while(ret != sizeof(cmd));
     } else {
-        ALOGI("queueBatch: unhandled handle=%d, period=%" PRId64 ", latency=%" PRId64, handle, sampling_period_ns, max_report_latency_ns);
+        ALOGI("queueBatch: unhandled handle=%d, period=%" PRId64 ", latency=%" PRId64,
+                handle, sampling_period_ns, max_report_latency_ns);
     }
 }
 
@@ -952,7 +958,7 @@ void HubConnection::queueFlush(int handle)
         initConfigCmd(&cmd, handle);
         cmd.cmd = CONFIG_CMD_FLUSH;
 
-        ALOGI("queueFlush: sensor=%d", cmd.sensorType);
+        ALOGI("queueFlush: sensor=%d, handle=%d", cmd.sensorType, handle);
         do {
             ret = write(mFd, &cmd, sizeof(cmd));
         } while(ret != sizeof(cmd));

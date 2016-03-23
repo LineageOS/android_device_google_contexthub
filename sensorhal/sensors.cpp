@@ -580,7 +580,7 @@ int SensorContext::setDelay(int handle, int64_t delayNs) {
             continue;
         }
 
-        if ((sensor.flags & 0xE) == SENSOR_FLAG_CONTINUOUS_MODE) {
+        if ((sensor.flags & REPORTING_MODE_MASK) == SENSOR_FLAG_CONTINUOUS_MODE) {
             if ((delayNs/1000) < sensor.minDelay) {
                 delayNsClamped = sensor.minDelay * 1000;
             } else if ((delayNs/1000) > sensor.maxDelay) {
@@ -624,7 +624,7 @@ int SensorContext::batch(
             continue;
         }
 
-        if ((sensor.flags & 0xE) == SENSOR_FLAG_CONTINUOUS_MODE) {
+        if ((sensor.flags & REPORTING_MODE_MASK) == SENSOR_FLAG_CONTINUOUS_MODE) {
             if ((sampling_period_ns/1000) < sensor.minDelay) {
                 sampling_period_ns_clamped = sensor.minDelay * 1000;
             } else if ((sampling_period_ns/1000) > sensor.maxDelay) {
