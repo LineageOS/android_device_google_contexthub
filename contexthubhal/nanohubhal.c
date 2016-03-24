@@ -199,7 +199,9 @@ static void* hal_hub_thread(void *unused) //all nanoapp message_type vals are "0
             }
 
             ret = system_comms_handle_rx(header, len, packetData);
-            if (!ret)
+            if (ret < 0)
+                ALOGE("system_comms_handle_rx returned %d", ret);
+            else if (ret)
                 hal_hub_call_rx_msg_f(header, 0, len, packetData);
         }
 
