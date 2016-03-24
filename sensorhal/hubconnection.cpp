@@ -903,7 +903,11 @@ void HubConnection::queueSetDelay(int handle, nsecs_t sampling_period_ns)
     int ret;
 
     if (mSensorState[handle].sensorType) {
-        mSensorState[handle].rate = period_ns_to_frequency_q10(sampling_period_ns);
+        if (sampling_period_ns > 0 &&
+                mSensorState[handle].rate != SENSOR_RATE_ONCHANGE &&
+                mSensorState[handle].rate != SENSOR_RATE_ONESHOT) {
+            mSensorState[handle].rate = period_ns_to_frequency_q10(sampling_period_ns);
+        }
 
         initConfigCmd(&cmd, handle);
 
