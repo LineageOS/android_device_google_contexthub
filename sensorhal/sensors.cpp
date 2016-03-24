@@ -32,10 +32,10 @@ using namespace android;
 static const int kVersion = 1;
 
 static const float kMinSampleRateHzAccel = 6.250f;
-static const float kMaxSampleRateHzAccel = 200.0f;
+static const float kMaxSampleRateHzAccel = 400.0f;
 
 static const float kMinSampleRateHzGyro = 6.250f;
-static const float kMaxSampleRateHzGyro = 200.0f;
+static const float kMaxSampleRateHzGyro = 400.0f;
 
 static const float kMinSampleRateHzMag = 3.125f;
 static const float kMaxSampleRateHzMag = 50.0f;
