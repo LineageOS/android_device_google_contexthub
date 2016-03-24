@@ -32,6 +32,9 @@
 #include <plat/inc/syscfg.h>
 #include <variant/inc/variant.h>
 
+#define VSYNC_APP_ID      APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 7)
+#define VSYNC_APP_VERSION 1
+
 #ifndef VSYNC_PIN
 #error "VSYNC_PIN is not defined; please define in variant.h"
 #endif
@@ -39,6 +42,18 @@
 #ifndef VSYNC_IRQ
 #error "VSYNC_IRQ is not defined; please define in variant.h"
 #endif
+
+#define INFO_PRINT(fmt, ...) do { \
+        osLog(LOG_INFO, "%s " fmt, "[VSYNC]", ##__VA_ARGS__); \
+    } while (0);
+
+#define DEBUG_PRINT(fmt, ...) do { \
+        if (enable_debug) {  \
+            INFO_PRINT(fmt, ##__VA_ARGS__); \
+        } \
+    } while (0);
+
+static const bool enable_debug = 0;
 
 static struct SensorTask
 {
@@ -96,6 +111,8 @@ static const struct SensorInfo mSensorInfo =
 
 static bool vsyncPower(bool on, void *cookie)
 {
+    INFO_PRINT("power %d\n", on);
+
     if (on) {
         extiClearPendingGpio(mTask.pin);
         enableInterrupt(mTask.pin, &mTask.isr);
@@ -116,11 +133,13 @@ static bool vsyncFirmwareUpload(void *cookie)
 
 static bool vsyncSetRate(uint32_t rate, uint64_t latency, void *cookie)
 {
+    INFO_PRINT("setRate\n");
     return sensorSignalInternalEvt(mTask.sensorHandle, SENSOR_INTERNAL_EVT_RATE_CHG, rate, latency);
 }
 
 static bool vsyncFlush(void *cookie)
 {
+    INFO_PRINT("flush\n");
     return osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_VSYNC), SENSOR_DATA_EVENT_FLUSH, NULL);
 }
 
@@ -138,7 +157,7 @@ static void handleEvent(uint32_t evtType, const void* evtData)
 
 static bool startTask(uint32_t taskId)
 {
-    osLog(LOG_INFO, "VSYNC: task starting\n");
+    INFO_PRINT("task starting\n");
 
     mTask.id = taskId;
     mTask.sensorHandle = sensorRegister(&mSensorInfo, &mSensorOps, NULL, true);
@@ -157,4 +176,4 @@ static void endTask(void)
     sensorUnregister(mTask.sensorHandle);
 }
 
-INTERNAL_APP_INIT(APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 7), 0, startTask, endTask, handleEvent);
+INTERNAL_APP_INIT(VSYNC_APP_ID, VSYNC_APP_VERSION, startTask, endTask, handleEvent);
