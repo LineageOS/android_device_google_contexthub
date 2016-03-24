@@ -34,7 +34,7 @@
 #include <hardware/context_hub.h>
 #include "nanohubhal.h"
 
-//rx: return 1 if handled, 0 if not handled, else error
+//rx: return 0 if handled, 1 if not handled, else -errno
 int system_comms_handle_rx(const void *name, uint32_t len, const void *data);
 int system_comms_handle_tx(const struct hub_message_t *outMsg);
 

@@ -377,7 +377,7 @@ int system_comms_handle_rx(const void *name, uint32_t len, const void *dataP)
 
     //we only care for messages from HostIF
     if (memcmp(name, mHostIfAppNameBuf, APP_NAME_LEN))
-        return 0;
+        return 1;
 
     //they must all be at least 1 byte long
     if (len < 1)
@@ -431,7 +431,7 @@ int system_comms_handle_rx(const void *name, uint32_t len, const void *dataP)
         break;
     }
 
-    return 1;
+    return 0;
 }
 
 static int system_comms_handle_upload(const void *data, uint32_t len, bool isOs)
