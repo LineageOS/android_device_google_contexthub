@@ -888,12 +888,12 @@ void HubConnection::queueActivate(int handle, bool enable)
 
         initConfigCmd(&cmd, handle);
 
-        ALOGI("queueActive: sensor=%d, handle=%d, enable=%d", cmd.sensorType, handle, enable);
+        ALOGI("queueActivate: sensor=%d, handle=%d, enable=%d", cmd.sensorType, handle, enable);
         do {
             ret = write(mFd, &cmd, sizeof(cmd));
         } while(ret != sizeof(cmd));
     } else {
-        ALOGI("queueActive: unhandled handle=%d, enable=%d", handle, enable);
+        ALOGI("queueActivate: unhandled handle=%d, enable=%d", handle, enable);
     }
 }
 
