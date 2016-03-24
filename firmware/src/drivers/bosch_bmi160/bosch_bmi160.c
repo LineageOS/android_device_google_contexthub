@@ -71,7 +71,7 @@ static const bool enable_debug = 0;
 #define BMI160_SPI_READ           0x80
 
 #define BMI160_SPI_BUS_ID         1
-#define BMI160_SPI_SPEED_HZ       4000000
+#define BMI160_SPI_SPEED_HZ       8000000
 #define BMI160_SPI_MODE           3
 
 #define BMI160_INT_IRQ            EXTI9_5_IRQn
