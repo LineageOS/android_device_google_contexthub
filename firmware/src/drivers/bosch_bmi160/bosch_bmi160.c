@@ -179,9 +179,11 @@ static const bool enable_debug = 0;
 #define kScale_acc 0.00239501953f  // ACC_range * 9.81f / 32768.0f;
 #define kScale_gyr 0.00106472439f  // GYR_range * M_PI / (180.0f * 32768.0f);
 
-#define kTimeSyncPeriodNs   100000000ull // sync sensor and RTC time every 100ms
-#define kMinTimeIncrementNs 2500000ull // min time increment set to 2.5ms
-#define kSensorTimerIntervalUs 39ull   // bmi160 clock increaments every 39000ns
+#define kTimeSyncPeriodNs        100000000ull // sync sensor and RTC time every 100ms
+#define kSensorTimerIntervalUs   39ull        // bmi160 clock increaments every 39000ns
+
+#define kMinRTCTimeIncrementNs   1250000ull // forced min rtc time increment, 1.25ms for 400Hz
+#define kMinSensorTimeIncrement  64         // forced min sensortime increment, 64 = 2.5 msec for 400Hz
 
 #define ACC_MIN_RATE    5
 #define GYR_MIN_RATE    6
@@ -1626,7 +1628,7 @@ static void parseRawData(struct BMI160Sensor *mSensor, uint8_t *buf, float kScal
         return;
     }
 
-    if (rtc_time < mSensor->prev_rtc_time + kMinTimeIncrementNs) {
+    if (rtc_time < mSensor->prev_rtc_time + kMinRTCTimeIncrementNs) {
 #if TIMESTAMP_DBG
         DEBUG_PRINT("%s prev rtc 0x%08x %08x, curr 0x%08x %08x, delta %d usec\n",
                 mSensorInfo[mSensor->idx].sensorName,
@@ -1636,7 +1638,7 @@ static void parseRawData(struct BMI160Sensor *mSensor, uint8_t *buf, float kScal
                 (unsigned int)(rtc_time & 0xffffffff),
                 (int)(rtc_time - mSensor->prev_rtc_time) / 1000);
 #endif
-        rtc_time = mSensor->prev_rtc_time + kMinTimeIncrementNs;
+        rtc_time = mSensor->prev_rtc_time + kMinRTCTimeIncrementNs;
     }
 
     if (mSensor->idx == MAG) {
@@ -1892,7 +1894,7 @@ static void dispatchData(void)
         } else if (fh_mode == 2) {
             // Calcutate candidate frame time (tmp_frame_time):
             // 1) When sensor is first enabled, reference from other sensors if possible.
-            // Otherwise, add the smallest increment (5msec) to the previous data frame time.
+            // Otherwise, add the smallest increment to the previous data frame time.
             // 2) The newly enabled sensor could only underestimate its
             // frame time without reference from other sensors.
             // 3) The underestimated frame time of a newly enabled sensor will be corrected
@@ -1910,14 +1912,14 @@ static void dispatchData(void)
                     tmp_frame_time = (tmp_time[j] > tmp_frame_time) ? tmp_time[j] : tmp_frame_time;
                 }
             }
-            tmp_frame_time = (frame_sensor_time + 128 > tmp_frame_time)
-                ? (frame_sensor_time + 128) : tmp_frame_time;
+            tmp_frame_time = (frame_sensor_time + kMinSensorTimeIncrement > tmp_frame_time)
+                ? (frame_sensor_time + kMinSensorTimeIncrement) : tmp_frame_time;
 
             // regular frame, dispatch data to each sensor's own fifo
             if (fh_param & 4) { // have mag data
                 if (size >= 8) {
                     if (frame_sensor_time_valid) {
-                        parseRawData(&mTask.sensors[MAG], &buf[i], 0, tmp_frame_time); // scale nor used
+                        parseRawData(&mTask.sensors[MAG], &buf[i], 0, tmp_frame_time); // scale not used
 #if TIMESTAMP_DBG
                         if (mTask.prev_frame_time[MAG] == ULONG_LONG_MAX) {
                             DEBUG_PRINT("mag enabled: frame %d time 0x%08x\n",
