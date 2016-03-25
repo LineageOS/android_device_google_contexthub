@@ -24,6 +24,8 @@ LOCAL_SHARED_LIBRARIES :=               \
 
 LOCAL_C_INCLUDES:= \
 
+LOCAL_CFLAGS := -Wall -Werror -Wextra
+
 LOCAL_MODULE_TAGS := optional
 LOCAL_MODULE_OWNER := google
 
