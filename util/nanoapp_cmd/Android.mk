@@ -20,6 +20,7 @@ include $(CLEAR_VARS)
 LOCAL_SRC_FILES:= nanoapp_cmd.c
 
 LOCAL_C_INCLUDES := $(LOCAL_PATH)/../../firmware/inc
+LOCAL_CFLAGS := -Wall -Werror -Wextra
 
 LOCAL_MODULE:= nanoapp_cmd
 
