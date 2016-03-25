@@ -27,8 +27,6 @@ LOCAL_SRC_FILES := \
         stm32_bl.c \
         stm32f4_crc.c
 
-LOCAL_CFLAGS := -Wall -Werror -Wextra
-
 LOCAL_MODULE := stm32_flash
 
 LOCAL_MODULE_TAGS := optional
