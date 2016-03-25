@@ -332,7 +332,7 @@ bool ContextHub::CalibrateSingleSensor(const SensorSpec& sensor) {
       return false;
     }
 
-    return true;
+    return success;
 }
 
 bool ContextHub::ForEachSensor(const std::vector<SensorSpec>& sensors,
