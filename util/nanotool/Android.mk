@@ -45,7 +45,7 @@ LOCAL_SHARED_LIBRARIES := \
     libstagefright_foundation \
     libutils
 
-LOCAL_CFLAGS += -Wall
+LOCAL_CFLAGS += -Wall -Werror -Wextra
 LOCAL_CFLAGS += -std=c++11
 LOCAL_CFLAGS += -DNANOTOOL_VERSION_STR='"version $(NANOTOOL_VERSION)"'
 
