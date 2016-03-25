@@ -14,6 +14,8 @@
 
 LOCAL_PATH := $(call my-dir)
 
+MY_CFLAGS := -Wall -Werror -Wextra
+
 ifneq ($(TARGET_USES_CHINOOK_SENSORHUB),true)
 
 ifneq ($(filter bullhead angler marlin sailfish,$(TARGET_DEVICE)),)
