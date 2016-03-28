@@ -36,7 +36,7 @@
 #include <variant/inc/variant.h>
 
 #define AMS_TMD4903_APP_ID      APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 12)
-#define AMS_TMD4903_APP_VERSION 3
+#define AMS_TMD4903_APP_VERSION 4
 
 #ifndef PROX_INT_PIN
 #error "PROX_INT_PIN is not defined; please define in variant.h"
@@ -129,12 +129,12 @@
 #define PROX_STREAMING 0
 
 #define INFO_PRINT(fmt, ...) do { \
-        osLog(LOG_INFO, "[AMS TMD4903] " fmt, ##__VA_ARGS__); \
+        osLog(LOG_INFO, "%s " fmt, "[TMD4903]", ##__VA_ARGS__); \
     } while (0);
 
 #define DEBUG_PRINT(fmt, ...) do { \
         if (enable_debug) {  \
-            osLog(LOG_INFO, "[AMS TMD4903] " fmt, ##__VA_ARGS__); \
+            INFO_PRINT(fmt, ##__VA_ARGS__); \
         } \
     } while (0);
 
@@ -170,6 +170,7 @@ enum SensorState
     SENSOR_STATE_DISABLING_PROX_3,
     SENSOR_STATE_ALS_SAMPLING,
     SENSOR_STATE_PROX_SAMPLING,
+    SENSOR_STATE_PROX_TRANSITION_0,
     SENSOR_STATE_IDLE,
 };
 
@@ -211,7 +212,7 @@ struct SensorData
     bool proxOn;
     bool alsCalibrating;
     bool proxCalibrating;
-    bool proxFirstSample;
+    bool proxDirectMode;
 };
 
 static struct SensorData mTask;
@@ -259,21 +260,13 @@ static bool proxIsr(struct ChainedIsr *localIsr)
         if (!pinState)
             osEnqueuePrivateEvt(EVT_SENSOR_PROX_INTERRUPT, NULL, NULL, mTask.tid);
 #else
-        // The falling edge of the interrupt ping for the first prox sample
-        // tells us when a sample is ready. Reset the proxFirstSample flag after
-        // you observe the deassertion of the interrupt pin. Then, the interrupt
-        // pin is a mapping of the current prox reading ("near" and "far").
-        if (data->proxFirstSample) {
-            if (!pinState) {
-                osEnqueuePrivateEvt(EVT_SENSOR_PROX_INTERRUPT, NULL, NULL, mTask.tid);
-            }
-
-            data->proxFirstSample = !pinState;
-        } else {
+        if (data->proxDirectMode) {
             sample.fdata = (pinState) ? AMS_TMD4903_REPORT_FAR_VALUE : AMS_TMD4903_REPORT_NEAR_VALUE;
             data->lastProxState = (pinState) ? PROX_STATE_FAR : PROX_STATE_NEAR;
             if (data->lastProxState != lastProxState)
                 osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_PROX), sample.vptr, NULL);
+        } else {
+            osEnqueuePrivateEvt(EVT_SENSOR_PROX_INTERRUPT, NULL, NULL, mTask.tid);
         }
 #endif
     } else if (data->alsOn && data->alsCalibrating && !pinState) {
@@ -284,9 +277,9 @@ static bool proxIsr(struct ChainedIsr *localIsr)
     return true;
 }
 
-static bool enableInterrupt(struct Gpio *pin, struct ChainedIsr *isr)
+static bool enableInterrupt(struct Gpio *pin, struct ChainedIsr *isr, enum ExtiTrigger trigger)
 {
-    extiEnableIntGpio(pin, EXTI_TRIGGER_BOTH);
+    extiEnableIntGpio(pin, trigger);
     extiChainIsr(PROX_IRQ, isr);
     return true;
 }
@@ -376,7 +369,10 @@ static void sendCalibrationResultProx(uint8_t status, int16_t *offsets) {
 static void setMode(bool alsOn, bool proxOn, void *cookie)
 {
     mTask.txrxBuf[0] = AMS_TMD4903_REG_ENABLE;
-    mTask.txrxBuf[1] = POWER_ON_BIT | (alsOn ? ALS_ENABLE_BIT : 0) | (proxOn ? (PROX_INT_ENABLE_BIT | PROX_ENABLE_BIT) : 0);
+    mTask.txrxBuf[1] =
+        ((alsOn || proxOn) ? POWER_ON_BIT : 0) |
+        (alsOn ? ALS_ENABLE_BIT : 0) |
+        (proxOn ? (PROX_INT_ENABLE_BIT | PROX_ENABLE_BIT) : 0);
     i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 2, &i2cCallback, cookie);
 }
 
@@ -434,7 +430,7 @@ static bool sensorCalibrateAls(void *cookie)
     mTask.alsOffset = 1.0f;
 
     extiClearPendingGpio(mTask.pin);
-    enableInterrupt(mTask.pin, &mTask.isr);
+    enableInterrupt(mTask.pin, &mTask.isr, EXTI_TRIGGER_FALLING);
 
     mTask.txrxBuf[0] = AMS_TMD4903_REG_ENABLE;
     mTask.txrxBuf[1] = POWER_ON_BIT | ALS_ENABLE_BIT | ALS_INT_ENABLE_BIT;
@@ -471,15 +467,15 @@ static bool sensorPowerProx(bool on, void *cookie)
 
     if (on) {
         extiClearPendingGpio(mTask.pin);
-        enableInterrupt(mTask.pin, &mTask.isr);
+        enableInterrupt(mTask.pin, &mTask.isr, EXTI_TRIGGER_FALLING);
     } else {
         disableInterrupt(mTask.pin, &mTask.isr);
         extiClearPendingGpio(mTask.pin);
     }
 
     mTask.lastProxState = PROX_STATE_INIT;
-    mTask.proxFirstSample = true;
     mTask.proxOn = on;
+    mTask.proxDirectMode = false;
 
     setMode(mTask.alsOn, on, (void *)(on ? SENSOR_STATE_ENABLING_PROX : SENSOR_STATE_DISABLING_PROX));
     return true;
@@ -517,12 +513,12 @@ static bool sensorCalibrateProx(void *cookie)
     }
 
     mTask.lastProxState = PROX_STATE_INIT;
-    mTask.proxFirstSample = true;
     mTask.proxOn = true;
     mTask.proxCalibrating = true;
+    mTask.proxDirectMode = false;
 
     extiClearPendingGpio(mTask.pin);
-    enableInterrupt(mTask.pin, &mTask.isr);
+    enableInterrupt(mTask.pin, &mTask.isr, EXTI_TRIGGER_FALLING);
 
     mTask.txrxBuf[0] = AMS_TMD4903_REG_ENABLE;
     mTask.txrxBuf[1] = POWER_ON_BIT; // REG_ENABLE
@@ -799,13 +795,30 @@ static void handle_i2c_event(int state)
             mTask.txrxBuf[1] = 0x60; // REG_INTCLEAR - reset proximity interrupts
             i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 2, &i2cCallback, (void *)SENSOR_STATE_IDLE);
 #else
-            // After the first prox sample, change the proximity interrupt setting to follow proximity state
-            mTask.txrxBuf[0] = AMS_TMD4903_REG_CFG4;
-            mTask.txrxBuf[1] = 0x27; // REG_CFG4 - proximity state direct to interrupt pin
-            i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 2, &i2cCallback, (void *)SENSOR_STATE_IDLE);
+            // The TMD4903 direct interrupt mode does not work properly if enabled while something is covering the sensor,
+            // so we need to wait until it is far.
+            if (mTask.lastProxState == PROX_STATE_FAR) {
+                disableInterrupt(mTask.pin, &mTask.isr);
+                extiClearPendingGpio(mTask.pin);
+
+                // Switch to proximity interrupt direct mode
+                mTask.txrxBuf[0] = AMS_TMD4903_REG_CFG4;
+                mTask.txrxBuf[1] = 0x27; // REG_CFG4 - proximity state direct to interrupt pin
+                i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 2, &i2cCallback, (void *)SENSOR_STATE_PROX_TRANSITION_0);
+            } else {
+                // If we are in the "near" state, we cannot change to direct interrupt mode, so just clear the interrupt
+                mTask.txrxBuf[0] = AMS_TMD4903_REG_INTCLEAR;
+                mTask.txrxBuf[1] = 0x60; // REG_INTCLEAR - reset proximity interrupts
+                i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 2, &i2cCallback, (void *)SENSOR_STATE_IDLE);
+            }
 #endif
         }
+        break;
 
+    case SENSOR_STATE_PROX_TRANSITION_0:
+        mTask.proxDirectMode = true;
+        extiClearPendingGpio(mTask.pin);
+        enableInterrupt(mTask.pin, &mTask.isr, EXTI_TRIGGER_BOTH);
         break;
 
     default:
@@ -828,7 +841,6 @@ static bool init_app(uint32_t myTid)
     mTask.lastAlsSample.idata = AMS_TMD4903_ALS_INVALID;
     mTask.lastProxState = PROX_STATE_INIT;
     mTask.proxCalibrating = false;
-    mTask.proxFirstSample = true;
     mTask.alsOffset = 1.0f;
 
     mTask.pin = gpioRequest(PROX_INT_PIN);
