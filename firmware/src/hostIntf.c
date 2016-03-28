@@ -539,7 +539,7 @@ static bool initSensors()
                 osLog(LOG_INFO, "initSensors: %s not ready!\n", si->sensorName);
                 timTimerSet(SENSOR_INIT_DELAY, 0, 50, initCompleteCallback, NULL, true);
                 return false;
-            } else {
+            } else if (!(si->flags1 & SENSOR_INFO_FLAGS1_LOCAL_ONLY)) {
                 if (!present) {
                     present = 1;
                     numAxis = si->numAxis;
@@ -598,7 +598,7 @@ static bool initSensors()
     memset(mActiveSensorTable, 0x00, mNumSensors * sizeof(struct ActiveSensor));
 
     for (i = SENS_TYPE_INVALID + 1, j = 0; i <= SENS_TYPE_LAST_USER && j < mNumSensors; i++) {
-        if ((si = sensorFind(i, 0, &handle)) != NULL) {
+        if ((si = sensorFind(i, 0, &handle)) != NULL && !(si->flags1 & SENSOR_INFO_FLAGS1_LOCAL_ONLY)) {
             mSensorList[i - 1] = j;
             resetBuffer(mActiveSensorTable + j);
             mActiveSensorTable[j].buffer.sensType = i;

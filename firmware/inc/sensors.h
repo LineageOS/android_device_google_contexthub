@@ -202,6 +202,10 @@ struct SensorOps {
 enum SensorInfoFlags1 {
     SENSOR_INFO_FLAGS1_BIAS = (1 << 0),
     SENSOR_INFO_FLAGS1_RAW  = (1 << 1),
+
+    // Indicates that this sensor's events are for local consumption within the
+    // hub only, i.e. they should not be transmitted to the host
+    SENSOR_INFO_FLAGS1_LOCAL_ONLY = (1 << 2),
 };
 
 struct SensorInfo {
