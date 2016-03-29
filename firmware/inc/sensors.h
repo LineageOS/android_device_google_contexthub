@@ -34,7 +34,6 @@ enum NumAxis {
     NUM_AXIS_EMBEDDED = 0,   // data = (uint32_t)evtData
     NUM_AXIS_ONE      = 1,   // data is in struct SingleAxisDataEvent format
     NUM_AXIS_THREE    = 3,   // data is in struct TripleAxisDataEvent format
-    NUM_AXIS_WIFI     = 253, // data is in struct WifiScanEvent format
 };
 
 struct SensorFirstSample
@@ -109,42 +108,6 @@ struct RawTripleAxisDataPoint {
 struct RawTripleAxisDataEvent {
     uint64_t referenceTime;
     struct RawTripleAxisDataPoint samples[];
-};
-
-// For WiFi Scan Events
-#define WIFI_MAX_SSID_LEN (32+1)
-#define WIFI_BSSID_LEN 6
-
-enum WifiScanResultFlags {
-    WIFI_SCAN_RESULT_UNKNOWN                           = 0,
-    WIFI_SCAN_RESULT_HT_OPS_PRESENT                    = (1<<0), // EID 61 present, HT 8.4.2.59, HT capabilities present
-    WIFI_SCAN_RESULT_VHT_OPS_PRESENT                   = (1<<1), // EID 192 present, VHT 8.4.2.161, VHT capabilities present
-    WIFI_SCAN_RESULT_IS_80211MC_RTT_RESPONDER          = (1<<2), // EID 127, bit 70
-    WIFI_SCAN_RESULT_HAS_SECONDARY_CHANNEL_OFFSET      = (1<<3), // HT 8.4.2.59
-    WIFI_SCAN_RESULT_SECONDARY_CHANNEL_OFFSET_IS_BELOW = (1<<4), // HT 8.4.2.59, secondary channel is below primary channel
-};
-
-struct WifiScanResult {
-    union {                                 // this union must *always* be first item in the struct
-        uint32_t deltaTime;                 // delta since last sample in nanoseconds
-        struct SensorFirstSample firstSample;
-    };
-    uint8_t channelWidth;                   // VHT 8.4.2.161
-    uint8_t centerFreqIndex0;               // VHT 8.4.2.161
-    uint8_t centerFreqIndex1;               // VHT 8.4.2.161
-    uint8_t flags;                          // a set of fields from WifiScanResultFlags enumeration
-    uint64_t rtt;                           // in picoseconds
-    uint64_t rttStd;                        // standard deviation in rtt
-    char ssid[WIFI_MAX_SSID_LEN];           // null-terminated
-    uint8_t bssid[WIFI_BSSID_LEN];
-    int8_t rssi;                            // RSSI in dBm
-    uint8_t band;                           // 0 = 2.4 GHz, 1 = 5 GHz
-    uint8_t channelIndex;
-};
-
-struct WifiScanEvent {
-    uint64_t referenceTime;                 // in nanoseconds
-    struct WifiScanResult results[];
 };
 
 struct UserSensorEventHdr {  //all user sensor events start with this struct
