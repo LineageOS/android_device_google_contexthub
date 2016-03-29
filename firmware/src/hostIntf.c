@@ -554,9 +554,6 @@ static bool initSensors()
                         else
                             packetSamples = HOSTINTF_SENSOR_DATA_MAX / sizeof(struct TripleAxisDataPoint);
                         break;
-                    case NUM_AXIS_WIFI:
-                        packetSamples = HOSTINTF_SENSOR_DATA_MAX / sizeof(struct WifiScanResult);
-                        break;
                     default:
                         packetSamples = 1;
                         error = true;
@@ -634,9 +631,6 @@ static bool initSensors()
                     mActiveSensorTable[j].packetSamples = HOSTINTF_SENSOR_DATA_MAX / sizeof(struct RawTripleAxisDataPoint);
                 else
                     mActiveSensorTable[j].packetSamples = HOSTINTF_SENSOR_DATA_MAX / sizeof(struct TripleAxisDataPoint);
-                break;
-            case NUM_AXIS_WIFI:
-                mActiveSensorTable[j].packetSamples = HOSTINTF_SENSOR_DATA_MAX / sizeof(struct WifiScanResult);
                 break;
             }
             j++;
@@ -888,70 +882,6 @@ static void copyTripleSamples(struct ActiveSensor *sensor, const struct TripleAx
     }
 }
 
-static void copyWifiSamples(struct ActiveSensor *sensor, const struct WifiScanEvent *wifiScanEvent)
-{
-    int i;
-    uint32_t deltaTime;
-    uint8_t numSamples;
-
-    for (i = 0; i < wifiScanEvent->results[0].firstSample.numSamples; i++) {
-        if (sensor->buffer.firstSample.numSamples == sensor->packetSamples) {
-            simpleQueueEnqueue(mOutputQ, &sensor->buffer, sizeof(uint32_t) + sensor->buffer.length, sensor->discard);
-            resetBuffer(sensor);
-        }
-
-        if (sensor->buffer.firstSample.numSamples == 0) {
-            if (i == 0) {
-                sensor->lastTime = sensor->buffer.referenceTime = wifiScanEvent->referenceTime;
-            } else {
-                sensor->lastTime += wifiScanEvent->results[i].deltaTime;
-                sensor->buffer.referenceTime = sensor->lastTime;
-            }
-            sensor->buffer.length = sizeof(struct WifiScanEvent) + sizeof(struct WifiScanResult);
-            memcpy(&sensor->buffer.wifiScanResults[0], &wifiScanEvent->results[i], sizeof(struct WifiScanResult));
-            if (sensor->interrupt == NANOHUB_INT_WAKEUP)
-                mWakeupBlocks++;
-            else if (sensor->interrupt == NANOHUB_INT_NONWAKEUP)
-                mNonWakeupBlocks++;
-            sensor->buffer.firstSample.numSamples = 1;
-            sensor->buffer.firstSample.interrupt = sensor->interrupt;
-            if (sensor->curSamples++ == 0)
-                sensor->firstTime = sensor->buffer.referenceTime;
-        } else {
-            if (i == 0) {
-                if (sensor->lastTime > wifiScanEvent->referenceTime) {
-                    // shouldn't happen. flush current packet
-                    simpleQueueEnqueue(mOutputQ, &sensor->buffer, sizeof(uint32_t) + sensor->buffer.length, sensor->discard);
-                    resetBuffer(sensor);
-                    i--;
-                } else if (wifiScanEvent->referenceTime - sensor->lastTime > UINT32_MAX) {
-                    simpleQueueEnqueue(mOutputQ, &sensor->buffer, sizeof(uint32_t) + sensor->buffer.length, sensor->discard);
-                    resetBuffer(sensor);
-                    i--;
-                } else {
-                    deltaTime = wifiScanEvent->referenceTime - sensor->lastTime;
-                    numSamples = sensor->buffer.firstSample.numSamples;
-
-                    sensor->buffer.length += sizeof(struct WifiScanResult);
-                    memcpy(&sensor->buffer.wifiScanResults[numSamples], &wifiScanEvent->results[0], sizeof(struct WifiScanResult));
-                    sensor->lastTime = wifiScanEvent->referenceTime;
-                    sensor->buffer.firstSample.numSamples++;
-                    sensor->curSamples++;
-                }
-            } else {
-                deltaTime = wifiScanEvent->results[i].deltaTime;
-                numSamples = sensor->buffer.firstSample.numSamples;
-
-                sensor->buffer.length += sizeof(struct WifiScanResult);
-                memcpy(&sensor->buffer.wifiScanResults[numSamples], &wifiScanEvent->results[i], sizeof(struct WifiScanResult));
-                sensor->lastTime += deltaTime;
-                sensor->buffer.firstSample.numSamples++;
-                sensor->curSamples++;
-            }
-        }
-    }
-}
-
 static void hostIntfAddBlock(struct HostIntfDataBuffer *data)
 {
     if (data->interrupt == NANOHUB_INT_WAKEUP)
@@ -1168,9 +1098,6 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
                         copyTripleSamplesRaw(sensor, evtData);
                     else
                         copyTripleSamples(sensor, evtData);
-                    break;
-                case NUM_AXIS_WIFI:
-                    copyWifiSamples(sensor, evtData);
                     break;
                 default:
                     return;
