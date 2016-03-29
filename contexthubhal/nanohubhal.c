@@ -44,6 +44,7 @@
 #include <string.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <inttypes.h>
 #include <poll.h>
 #include <unistd.h>
 
@@ -147,9 +148,9 @@ void hal_hub_call_rx_msg_f(const void *name, uint32_t typ, uint32_t len, const v
 
 static void* hal_hub_thread(void *unused) //all nanoapp message_type vals are "0" for this hal. apps can send type themselves in payload
 {
-    uint8_t buffer[EVENT_ID_LEN + APP_NAME_LEN + 1 + MAX_RX_PACKET];
+    uint8_t buffer[PRE_PACKET_LEN + MAX_RX_PACKET];
     uint8_t *header = &buffer[EVENT_ID_LEN];
-    uint8_t *packetData = &buffer[EVENT_ID_LEN + APP_NAME_LEN + 1];
+    uint8_t *packetData = &buffer[PRE_PACKET_LEN];
     const int idxNanohub = 0, idxClosePipe = 1;
     struct pollfd myFds[3] = {
         [idxNanohub] = { .fd = mFd, .events = POLLIN, },
@@ -182,19 +183,28 @@ static void* hal_hub_thread(void *unused) //all nanoapp message_type vals are "0
 
             ret = rread(mFd, buffer, sizeof(buffer));
             if (ret <= 0) {
-                ALOGE("read 1 fails");
+                ALOGE("read failed with %d", ret);
                 break;
             }
+            if (ret < PRE_PACKET_LEN) {
+                ALOGE("Only read %d bytes", ret);
+                break;
+            }
+
+#if PACKET_LENGTH_LEN != 1
+  #error Code assumes packet length is in a single byte
+#endif
 
             len = header[APP_NAME_LEN];
 
             if (len > MAX_RX_PACKET) {
-                ALOGE("malformed packet");
+                ALOGE("malformed packet with len %" PRIu32, len);
                 break;
             }
 
-            if (ret != EVENT_ID_LEN + APP_NAME_LEN + 1 + len) {
-                ALOGE("read 2 fails");
+            if (ret != PRE_PACKET_LEN + (int)len) {
+                ALOGE("Expected %d bytes, read %d bytes",
+                      PRE_PACKET_LEN + (int)len, ret);
                 break;
             }
 

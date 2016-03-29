@@ -35,8 +35,10 @@
 
 
 //as per protocol
-#define APP_NAME_LEN            8
 #define EVENT_ID_LEN            4
+#define APP_NAME_LEN            8
+#define PACKET_LENGTH_LEN       1
+#define PRE_PACKET_LEN          (EVENT_ID_LEN + APP_NAME_LEN + PACKET_LENGTH_LEN)
 #define MAX_RX_PACKET           128
 #define APP_FROM_HOST_EVENT_ID  0x000000F8
 
