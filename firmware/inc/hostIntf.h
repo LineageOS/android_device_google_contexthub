@@ -52,7 +52,6 @@ struct HostIntfDataBuffer
                 struct SingleAxisDataPoint single[HOSTINTF_SENSOR_DATA_MAX / sizeof(struct SingleAxisDataPoint)];
                 struct TripleAxisDataPoint triple[HOSTINTF_SENSOR_DATA_MAX / sizeof(struct TripleAxisDataPoint)];
                 struct RawTripleAxisDataPoint rawTriple[HOSTINTF_SENSOR_DATA_MAX / sizeof(struct RawTripleAxisDataPoint)];
-                struct WifiScanResult wifiScanResults[HOSTINTF_SENSOR_DATA_MAX / sizeof(struct WifiScanResult)];
             };
         };
         uint8_t buffer[sizeof(uint64_t) + HOSTINTF_SENSOR_DATA_MAX];
