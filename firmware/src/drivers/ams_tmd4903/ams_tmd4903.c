@@ -36,7 +36,7 @@
 #include <variant/inc/variant.h>
 
 #define AMS_TMD4903_APP_ID      APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 12)
-#define AMS_TMD4903_APP_VERSION 4
+#define AMS_TMD4903_APP_VERSION 5
 
 #ifndef PROX_INT_PIN
 #error "PROX_INT_PIN is not defined; please define in variant.h"
@@ -816,9 +816,11 @@ static void handle_i2c_event(int state)
         break;
 
     case SENSOR_STATE_PROX_TRANSITION_0:
-        mTask.proxDirectMode = true;
-        extiClearPendingGpio(mTask.pin);
-        enableInterrupt(mTask.pin, &mTask.isr, EXTI_TRIGGER_BOTH);
+        if (mTask.proxOn) {
+            mTask.proxDirectMode = true;
+            extiClearPendingGpio(mTask.pin);
+            enableInterrupt(mTask.pin, &mTask.isr, EXTI_TRIGGER_BOTH);
+        }
         break;
 
     default:
