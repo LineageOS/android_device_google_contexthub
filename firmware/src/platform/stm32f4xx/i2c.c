@@ -652,7 +652,7 @@ static void stmI2cMasterBusError(struct StmI2cDev *pdev)
 
     stmI2cMasterDmaCancel(pdev);
     regs->SR1 &= ~I2C_SR1_BERR;
-    stmI2cMasterTxRxDone(pdev, EIO);
+    stmI2cMasterTxRxDone(pdev, -EIO);
 }
 
 static void stmI2cMasterArbitrationLoss(struct StmI2cDev *pdev)
@@ -661,7 +661,7 @@ static void stmI2cMasterArbitrationLoss(struct StmI2cDev *pdev)
 
     stmI2cMasterDmaCancel(pdev);
     regs->SR1 &= ~I2C_SR1_ARLO;
-    stmI2cMasterTxRxDone(pdev, EBUSY);
+    stmI2cMasterTxRxDone(pdev, -EBUSY);
 }
 
 static void stmI2cMasterUnexpectedError(struct StmI2cDev *pdev)
@@ -673,7 +673,7 @@ static void stmI2cMasterUnexpectedError(struct StmI2cDev *pdev)
 
     stmI2cMasterDmaCancel(pdev);
     regs->SR1 = 0;
-    stmI2cMasterTxRxDone(pdev, EIO);
+    stmI2cMasterTxRxDone(pdev, -EIO);
 }
 
 static void stmI2cIsrEvent(struct StmI2cDev *pdev)
