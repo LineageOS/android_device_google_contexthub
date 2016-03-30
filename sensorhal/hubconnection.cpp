@@ -365,11 +365,11 @@ void HubConnection::processSample(uint64_t timestamp, uint32_t type, uint32_t se
         break;
     case COMMS_SENSOR_STEP_DETECTOR:
     case COMMS_SENSOR_SIGNIFICANT_MOTION:
-    case COMMS_SENSOR_GESTURE:
     case COMMS_SENSOR_TILT:
     case COMMS_SENSOR_DOUBLE_TWIST:
         initEv(&nev[cnt++], timestamp, type, sensor)->data[0] = 1.0f;
         break;
+    case COMMS_SENSOR_GESTURE:
     case COMMS_SENSOR_SYNC:
         initEv(&nev[cnt++], timestamp, type, sensor)->data[0] = sample->idata;
         break;
