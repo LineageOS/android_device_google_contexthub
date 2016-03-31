@@ -205,12 +205,6 @@ status_t HubConnection::getAliveCheck()
     return OK;
 }
 
-status_t HubConnection::getProximitySensorType(ProximitySensorType *type)
-{
-    *type = PROXIMITY_ROHM;
-    return OK;
-}
-
 static sp<JSONObject> readSettings(File *file) {
     off64_t size = file->seekTo(0, SEEK_END);
     file->seekTo(0, SEEK_SET);
