@@ -37,10 +37,17 @@ enum HostIntfDataType
 
 struct HostIntfDataBuffer
 {
-    uint8_t sensType;
-    uint8_t length;
-    uint8_t dataType;
-    uint8_t interrupt;
+    union
+    {
+        struct
+        {
+            uint8_t sensType;
+            uint8_t length;
+            uint8_t dataType;
+            uint8_t interrupt;
+        };
+        uint32_t evtType;
+    };
     union
     {
         struct
