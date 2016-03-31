@@ -85,9 +85,10 @@ static void osExpApiLogLogv(uintptr_t *retValP, va_list args)
 {
     enum LogLevel level = va_arg(args, int /* enums promoted to ints in va_args in C */);
     const char *str = va_arg(args, const char*);
-    va_list innerArgs = INTEGER_TO_VA_LIST(va_arg(args, uintptr_t));
-
+    va_list innerArgs;
+    va_copy(innerArgs, INTEGER_TO_VA_LIST(va_arg(args, uintptr_t)));
     osLogv(level, str, innerArgs);
+    va_end(innerArgs);
 }
 
 static void osExpApiSensorSignal(uintptr_t *retValP, va_list args)

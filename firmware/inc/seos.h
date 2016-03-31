@@ -118,6 +118,10 @@ struct SeosEedataEncrKeyData {
  * context, you're very very likely wrong. That is not to say that being in interrupt context is a free pass to set this!
  */
 
+// osMainInit is exposed for testing only, it must never be called for any reason at all by anyone
+void osMainInit(void);
+// osMainDequeueLoop is exposed for testing only, it must never be called for any reason at all by anyone
+void osMainDequeueLoop(void);
 void osMain(void);
 
 bool osEventSubscribe(uint32_t tid, uint32_t evtType); /* async */
@@ -152,6 +156,7 @@ void osLogv(enum LogLevel level, const char *str, va_list vl);
 void osLog(enum LogLevel level, const char *str, ...)
     __attribute__((format(printf, 2, 3)));
 
+#ifndef INTERNAL_APP_INIT
 #define INTERNAL_APP_INIT(_id, _ver, _init, _end, _event)                                   \
 static const struct AppHdr __attribute__((used,section (".internal_app_init"))) mAppHdr = { \
     .magic = APP_HDR_MAGIC,                                                                 \
@@ -163,7 +168,9 @@ static const struct AppHdr __attribute__((used,section (".internal_app_init"))) 
     .funcs.end = (_end),                                                                    \
     .funcs.handle = (_event)                                                                \
 }
+#endif
 
+#ifndef APP_INIT
 #define APP_INIT(_ver, _init, _end, _event)                                            \
 extern const struct AppFuncs _mAppFuncs;                                         \
 const struct AppFuncs __attribute__((used,section (".app_init"),visibility("default"))) _mAppFuncs = { \
@@ -172,6 +179,7 @@ const struct AppFuncs __attribute__((used,section (".app_init"),visibility("defa
     .handle = (_event)                                                           \
 };                                                                                \
 const uint32_t __attribute__((used,section (".app_version"),visibility("default"))) _mAppVer = _ver
+#endif
 
 
 #ifdef __cplusplus
