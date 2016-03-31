@@ -361,12 +361,8 @@ void osFreeRetainedEvent(uint32_t evtType, void *evtData, TaggedPtr *evtFreeingI
     handleEventFreeing(evtType, evtData, *evtFreeingInfoP);
 }
 
-void __attribute__((noreturn)) osMain(void)
+void osMainInit(void)
 {
-    TaggedPtr evtFreeingInfo;
-    uint32_t evtType, i, j;
-    void *evtData;
-
     cpuIntsOff();
     osInit();
     timInit();
@@ -379,40 +375,54 @@ void __attribute__((noreturn)) osMain(void)
 
     //broadcast app start to all already-loaded apps
     (void)osEnqueueEvt(EVT_APP_START, NULL, NULL);
+}
 
-    while (true) {
+void osMainDequeueLoop(void)
+{
+    TaggedPtr evtFreeingInfo;
+    uint32_t evtType, i, j;
+    void *evtData;
 
-        /* get an event */
-        if (!evtQueueDequeue(mEvtsInternal, &evtType, &evtData, &evtFreeingInfo, true))
-            continue;
+    /* get an event */
+    if (!evtQueueDequeue(mEvtsInternal, &evtType, &evtData, &evtFreeingInfo, true))
+        return;
 
-        /* by default we free them when we're done with them */
-        mCurEvtEventFreeingInfo = &evtFreeingInfo;
+    /* by default we free them when we're done with them */
+    mCurEvtEventFreeingInfo = &evtFreeingInfo;
 
-        if (evtType < EVT_NO_FIRST_USER_EVENT) { /* no need for discardable check. all internal events arent discardable */
-            /* handle deferred actions and other reserved events here */
-            osInternalEvtHandle(evtType, evtData);
-        }
-        else {
-            /* send this event to all tasks who want it */
-            for (i = 0; i < MAX_TASKS; i++) {
-                if (!mTasks[i].subbedEvents) /* only check real tasks */
-                    continue;
-                for (j = 0; j < mTasks[i].subbedEvtCount; j++) {
-                    if (mTasks[i].subbedEvents[j] == (evtType & ~EVENT_TYPE_BIT_DISCARDABLE)) {
-                        cpuAppHandle(mTasks[i].appHdr, &mTasks[i].platInfo, evtType & ~EVENT_TYPE_BIT_DISCARDABLE, evtData);
-                        break;
-                    }
+    if (evtType < EVT_NO_FIRST_USER_EVENT) { /* no need for discardable check. all internal events arent discardable */
+        /* handle deferred actions and other reserved events here */
+        osInternalEvtHandle(evtType, evtData);
+    }
+    else {
+        /* send this event to all tasks who want it */
+        for (i = 0; i < MAX_TASKS; i++) {
+            if (!mTasks[i].subbedEvents) /* only check real tasks */
+                continue;
+            for (j = 0; j < mTasks[i].subbedEvtCount; j++) {
+                if (mTasks[i].subbedEvents[j] == (evtType & ~EVENT_TYPE_BIT_DISCARDABLE)) {
+                    cpuAppHandle(mTasks[i].appHdr, &mTasks[i].platInfo, evtType & ~EVENT_TYPE_BIT_DISCARDABLE, evtData);
+                    break;
                 }
             }
         }
+    }
 
-        /* free it */
-        if (mCurEvtEventFreeingInfo)
-            handleEventFreeing(evtType, evtData, evtFreeingInfo);
+    /* free it */
+    if (mCurEvtEventFreeingInfo)
+        handleEventFreeing(evtType, evtData, evtFreeingInfo);
 
-        /* avoid some possible errors */
-        mCurEvtEventFreeingInfo = NULL;
+    /* avoid some possible errors */
+    mCurEvtEventFreeingInfo = NULL;
+}
+
+void __attribute__((noreturn)) osMain(void)
+{
+    osMainInit();
+
+    while (true)
+    {
+        osMainDequeueLoop();
     }
 }
 
