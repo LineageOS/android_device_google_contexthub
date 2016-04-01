@@ -47,9 +47,6 @@ struct HubConnection : public Thread {
     // Blocks until it can return a status
     status_t getAliveCheck();
 
-    // Blocks until it can return a type (including unknown).
-    status_t getProximitySensorType(ProximitySensorType *type);
-
     virtual bool threadLoop();
 
     void queueActivate(int handle, bool enable);

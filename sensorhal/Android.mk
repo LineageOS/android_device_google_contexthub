@@ -38,6 +38,14 @@ LOCAL_C_INCLUDES +=                     \
 LOCAL_SRC_FILES :=                      \
 	sensors.cpp
 
+ifeq ($(TARGET_DEVICE), bullhead)
+	LOCAL_SRC_FILES += sensorlist_bullhead.cpp
+else ifeq ($(TARGET_DEVICE), angler)
+	LOCAL_SRC_FILES += sensorlist_angler.cpp
+else ifeq ($(TARGET_DEVICE), $(filter $(TARGET_DEVICE), marlin sailfish))
+	LOCAL_SRC_FILES += sensorlist_marlin.cpp
+endif
+
 LOCAL_SHARED_LIBRARIES :=               \
 	libcutils                       \
 	libhubconnection                \
