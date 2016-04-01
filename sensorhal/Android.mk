@@ -16,9 +16,15 @@ LOCAL_PATH := $(call my-dir)
 
 MY_CFLAGS := -Wall -Werror -Wextra
 
+SUPPORTED_DEVICES := \
+	bullhead \
+	angler \
+	marlin \
+	sailfish
+
 ifneq ($(TARGET_USES_CHINOOK_SENSORHUB),true)
 
-ifneq ($(filter bullhead angler marlin sailfish,$(TARGET_DEVICE)),)
+ifneq ($(filter $(SUPPORTED_DEVICES), $(TARGET_DEVICE)),)
 
 include $(CLEAR_VARS)
 
@@ -90,6 +96,17 @@ include $(CLEAR_VARS)
 LOCAL_MODULE := libhubconnection
 
 LOCAL_CFLAGS += $(MY_CFLAGS)
+
+LID_STATE_DEVICES := \
+	bullhead \
+	angler \
+	marlin \
+	sailfish
+
+ifneq ($(filter $(LID_STATE_DEVICES), $(TARGET_DEVICE)),)
+LOCAL_CFLAGS += -DLID_STATE_REPORTING_ENABLED
+endif
+
 LOCAL_C_INCLUDES +=                     \
 	device/google/contexthub/firmware/inc \
 	device/google/contexthub/util/common
