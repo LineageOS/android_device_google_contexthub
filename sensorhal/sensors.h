@@ -35,8 +35,6 @@ private:
     android::sp<android::HubConnection> mHubConnection;
     bool mHubAlive;
 
-    ~SensorContext();
-
     int close();
     int activate(int handle, int enabled);
     int setDelay(int handle, int64_t delayNs);
