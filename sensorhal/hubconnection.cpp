@@ -43,11 +43,6 @@
 
 #define SENS_TYPE_TO_EVENT(_sensorType) (EVT_NO_FIRST_SENSOR_EVENT + (_sensorType))
 
-static constexpr const char LID_STATE_PROPERTY[] = "sensors.contexthub.lid_state";
-static constexpr const char LID_STATE_UNKNOWN[]  = "unknown";
-static constexpr const char LID_STATE_OPEN[]     = "open";
-static constexpr const char LID_STATE_CLOSED[]   = "closed";
-
 #define NANOHUB_FILE_PATH       "/dev/nanohub"
 #define NANOHUB_LOCK_DIR        "/data/system/nanohub_lock"
 #define NANOHUB_LOCK_FILE       NANOHUB_LOCK_DIR "/lock"
@@ -62,6 +57,13 @@ static constexpr const char LID_STATE_CLOSED[]   = "closed";
 #define MAX_MAG_SQ              (80.0f * 80.0f)
 
 #define ACCEL_RAW_KSCALE        (8.0f * 9.81f / 32768.0f)
+
+#ifdef LID_STATE_REPORTING_ENABLED
+const char LID_STATE_PROPERTY[] = "sensors.contexthub.lid_state";
+const char LID_STATE_UNKNOWN[]  = "unknown";
+const char LID_STATE_OPEN[]     = "open";
+const char LID_STATE_CLOSED[]   = "closed";
+#endif  // LID_STATE_REPORTING_ENABLED
 
 namespace android {
 
@@ -172,6 +174,7 @@ HubConnection::HubConnection()
     mSensorState[COMMS_SENSOR_DOUBLE_TAP].sensorType = SENS_TYPE_DOUBLE_TAP;
     mSensorState[COMMS_SENSOR_DOUBLE_TAP].rate = SENSOR_RATE_ONCHANGE;
 
+#ifdef LID_STATE_REPORTING_ENABLED
     initializeUinputNode();
 
     // set initial lid state
@@ -183,6 +186,7 @@ HubConnection::HubConnection()
     if (mFd >= 0) {
         queueActivate(COMMS_SENSOR_HALL, true /* enable */);
     }
+#endif  // LID_STATE_REPORTING_ENABLED
 }
 
 HubConnection::~HubConnection()
@@ -368,7 +372,9 @@ void HubConnection::processSample(uint64_t timestamp, uint32_t type, uint32_t se
         initEv(&nev[cnt++], timestamp, type, sensor)->data[0] = sample->idata;
         break;
     case COMMS_SENSOR_HALL:
+#ifdef LID_STATE_REPORTING_ENABLED
         sendFolioEvent(sample->idata);
+#endif  // LID_STATE_REPORTING_ENABLED
         break;
     case COMMS_SENSOR_WINDOW_ORIENTATION:
         initEv(&nev[cnt++], timestamp, type, sensor)->data[0] = sample->idata;
@@ -1048,6 +1054,7 @@ status_t HubConnection::initializeUinputNode()
     return OK;
 }
 
+#ifdef LID_STATE_REPORTING_ENABLED
 void HubConnection::sendFolioEvent(int32_t data) {
     ssize_t ret = 0;
     struct input_event ev;
@@ -1079,5 +1086,6 @@ void HubConnection::sendFolioEvent(int32_t data) {
         ALOGE("could not set lid_state property");
     }
 }
+#endif  // LID_STATE_REPORTING_ENABLED
 
 } // namespace android
