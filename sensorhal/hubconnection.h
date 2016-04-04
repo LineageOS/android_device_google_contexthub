@@ -201,6 +201,7 @@ private:
     void processSample(uint64_t timestamp, uint32_t type, uint32_t sensor, struct OneAxisSample *sample, bool highAccuracy);
     void processSample(uint64_t timestamp, uint32_t type, uint32_t sensor, struct RawThreeAxisSample *sample, bool highAccuracy);
     void processSample(uint64_t timestamp, uint32_t type, uint32_t sensor, struct ThreeAxisSample *sample, bool highAccuracy);
+    ssize_t processBuf(uint8_t *buf, ssize_t len);
 
     status_t initializeUinputNode();
     void sendFolioEvent(int32_t data);
