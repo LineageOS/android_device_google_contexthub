@@ -574,15 +574,215 @@ void HubConnection::waitOnNanohubLock() {
     }
 }
 
-bool HubConnection::threadLoop() {
-    ssize_t ret;
-    uint8_t recv[256];
-    struct nAxisEvent *data = (struct nAxisEvent *)recv;
+ssize_t HubConnection::processBuf(uint8_t *buf, ssize_t len)
+{
+    struct nAxisEvent *data = (struct nAxisEvent *)buf;
     uint32_t type, sensor, bias, currSensor;
     int i, numSamples;
     bool one, rawThree, three;
     sensors_event_t ev;
     uint64_t timestamp;
+    ssize_t ret = 0;
+
+    if (len >= 4) {
+        ret = sizeof(data->evtType);
+        one = three = rawThree = false;
+        bias = 0;
+        switch (data->evtType) {
+        case SENS_TYPE_TO_EVENT(SENS_TYPE_ACCEL):
+            type = SENSOR_TYPE_ACCELEROMETER;
+            sensor = COMMS_SENSOR_ACCEL;
+            three = true;
+            break;
+        case SENS_TYPE_TO_EVENT(SENS_TYPE_ACCEL_RAW):
+            type = SENSOR_TYPE_ACCELEROMETER;
+            sensor = COMMS_SENSOR_ACCEL;
+            rawThree = true;
+            break;
+        case SENS_TYPE_TO_EVENT(SENS_TYPE_GYRO):
+            type = SENSOR_TYPE_GYROSCOPE;
+            sensor = COMMS_SENSOR_GYRO;
+            bias = COMMS_SENSOR_GYRO_BIAS;
+            three = true;
+            break;
+        case SENS_TYPE_TO_EVENT(SENS_TYPE_MAG):
+            type = SENSOR_TYPE_MAGNETIC_FIELD;
+            sensor = COMMS_SENSOR_MAG;
+            bias = COMMS_SENSOR_MAG_BIAS;
+            three = true;
+            break;
+        case SENS_TYPE_TO_EVENT(SENS_TYPE_ALS):
+            type = SENSOR_TYPE_LIGHT;
+            sensor = COMMS_SENSOR_LIGHT;
+            one = true;
+            break;
+        case SENS_TYPE_TO_EVENT(SENS_TYPE_PROX):
+            type = SENSOR_TYPE_PROXIMITY;
+            sensor = COMMS_SENSOR_PROXIMITY;
+            one = true;
+            break;
+        case SENS_TYPE_TO_EVENT(SENS_TYPE_BARO):
+            type = SENSOR_TYPE_PRESSURE;
+            sensor = COMMS_SENSOR_PRESSURE;
+            one = true;
+            break;
+        case SENS_TYPE_TO_EVENT(SENS_TYPE_TEMP):
+            type = SENSOR_TYPE_AMBIENT_TEMPERATURE;
+            sensor = COMMS_SENSOR_TEMPERATURE;
+            one = true;
+            break;
+        case SENS_TYPE_TO_EVENT(SENS_TYPE_ORIENTATION):
+            type = SENSOR_TYPE_ORIENTATION;
+            sensor = COMMS_SENSOR_ORIENTATION;
+            three = true;
+            break;
+        case SENS_TYPE_TO_EVENT(SENS_TYPE_WIN_ORIENTATION):
+            type = SENSOR_TYPE_DEVICE_ORIENTATION;
+            sensor = COMMS_SENSOR_WINDOW_ORIENTATION;
+            one = true;
+            break;
+        case SENS_TYPE_TO_EVENT(SENS_TYPE_STEP_DETECT):
+            type = SENSOR_TYPE_STEP_DETECTOR;
+            sensor = COMMS_SENSOR_STEP_DETECTOR;
+            one = true;
+            break;
+        case SENS_TYPE_TO_EVENT(SENS_TYPE_STEP_COUNT):
+            type = SENSOR_TYPE_STEP_COUNTER;
+            sensor = COMMS_SENSOR_STEP_COUNTER;
+            one = true;
+            break;
+        case SENS_TYPE_TO_EVENT(SENS_TYPE_SIG_MOTION):
+            type = SENSOR_TYPE_SIGNIFICANT_MOTION;
+            sensor = COMMS_SENSOR_SIGNIFICANT_MOTION;
+            one = true;
+            break;
+        case SENS_TYPE_TO_EVENT(SENS_TYPE_GRAVITY):
+            type = SENSOR_TYPE_GRAVITY;
+            sensor = COMMS_SENSOR_GRAVITY;
+            three = true;
+            break;
+        case SENS_TYPE_TO_EVENT(SENS_TYPE_LINEAR_ACCEL):
+            type = SENSOR_TYPE_LINEAR_ACCELERATION;
+            sensor = COMMS_SENSOR_LINEAR_ACCEL;
+            three = true;
+            break;
+        case SENS_TYPE_TO_EVENT(SENS_TYPE_ROTATION_VECTOR):
+            type = SENSOR_TYPE_ROTATION_VECTOR;
+            sensor = COMMS_SENSOR_ROTATION_VECTOR;
+            three = true;
+            break;
+        case SENS_TYPE_TO_EVENT(SENS_TYPE_GEO_MAG_ROT_VEC):
+            type = SENSOR_TYPE_GEOMAGNETIC_ROTATION_VECTOR;
+            sensor = COMMS_SENSOR_GEO_MAG;
+            three = true;
+            break;
+        case SENS_TYPE_TO_EVENT(SENS_TYPE_GAME_ROT_VECTOR):
+            type = SENSOR_TYPE_GAME_ROTATION_VECTOR;
+            sensor = COMMS_SENSOR_GAME_ROTATION_VECTOR;
+            three = true;
+            break;
+        case SENS_TYPE_TO_EVENT(SENS_TYPE_HALL):
+            type = 0;
+            sensor = COMMS_SENSOR_HALL;
+            one = true;
+            break;
+        case SENS_TYPE_TO_EVENT(SENS_TYPE_VSYNC):
+            type = SENSOR_TYPE_SYNC;
+            sensor = COMMS_SENSOR_SYNC;
+            one = true;
+            break;
+        case SENS_TYPE_TO_EVENT(SENS_TYPE_ACTIVITY):
+            type = 0;
+            sensor = COMMS_SENSOR_ACTIVITY;
+            one = true;
+            break;
+        case SENS_TYPE_TO_EVENT(SENS_TYPE_TILT):
+            type = SENSOR_TYPE_TILT_DETECTOR;
+            sensor = COMMS_SENSOR_TILT;
+            one = true;
+            break;
+        case SENS_TYPE_TO_EVENT(SENS_TYPE_GESTURE):
+            type = SENSOR_TYPE_PICK_UP_GESTURE;
+            sensor = COMMS_SENSOR_GESTURE;
+            one = true;
+            break;
+        case SENS_TYPE_TO_EVENT(SENS_TYPE_DOUBLE_TWIST):
+            type = SENSOR_TYPE_DOUBLE_TWIST;
+            sensor = COMMS_SENSOR_DOUBLE_TWIST;
+            one = true;
+            break;
+        case SENS_TYPE_TO_EVENT(SENS_TYPE_DOUBLE_TAP):
+            type = SENSOR_TYPE_DOUBLE_TAP;
+            sensor = COMMS_SENSOR_DOUBLE_TAP;
+            three = true;
+            break;
+        default:
+            return 0;
+        }
+    }
+
+    if (len >= 16) {
+        ret += sizeof(data->referenceTime);
+        timestamp = data->referenceTime;
+        numSamples = data->firstSample.numSamples;
+        for (i=0; i<numSamples; i++) {
+            if (data->firstSample.biasPresent && data->firstSample.biasSample == i)
+                currSensor = bias;
+            else
+                currSensor = sensor;
+
+            if (one) {
+                if (i > 0)
+                    timestamp += data->oneSamples[i].deltaTime;
+                processSample(timestamp, type, currSensor, &data->oneSamples[i], data->firstSample.highAccuracy);
+                ret += sizeof(data->oneSamples[i]);
+            } else if (rawThree) {
+                if (i > 0)
+                    timestamp += data->rawThreeSamples[i].deltaTime;
+                processSample(timestamp, type, currSensor, &data->rawThreeSamples[i], data->firstSample.highAccuracy);
+                ret += sizeof(data->rawThreeSamples[i]);
+            } else if (three) {
+                if (i > 0)
+                    timestamp += data->threeSamples[i].deltaTime;
+                processSample(timestamp, type, currSensor, &data->threeSamples[i], data->firstSample.highAccuracy);
+                ret += sizeof(data->threeSamples[i]);
+            }
+        }
+
+        for (i=0; i<data->firstSample.numFlushes; i++) {
+            if (sensor == COMMS_SENSOR_ACTIVITY) {
+                if (mActivityCb != NULL) {
+                    (*mActivityCb)(mActivityCbCookie, 0ull, /* when_us */
+                        true, /* is_flush */
+                        0.0f, 0.0f, 0.0f);
+                }
+            } else {
+                memset(&ev, 0x00, sizeof(sensors_event_t));
+                ev.version = META_DATA_VERSION;
+                ev.timestamp = 0;
+                ev.type = SENSOR_TYPE_META_DATA;
+                ev.sensor = 0;
+                ev.meta_data.what = META_DATA_FLUSH_COMPLETE;
+                if (mSensorState[sensor].alt && mSensorState[mSensorState[sensor].alt].flushCnt > 0) {
+                    mSensorState[mSensorState[sensor].alt].flushCnt --;
+                    ev.meta_data.sensor = mSensorState[sensor].alt;
+                } else {
+                    mSensorState[sensor].flushCnt --;
+                    ev.meta_data.sensor = sensor;
+                }
+
+                mRing.write(&ev, 1);
+                ALOGI("flushing %d", ev.meta_data.sensor);
+            }
+        }
+    }
+
+    return ret;
+}
+
+bool HubConnection::threadLoop() {
+    ssize_t ret, len, offset;
+    uint8_t recv[256];
     sp<JSONObject> settings;
     sp<JSONObject> saved_settings;
     int32_t accel[3], gyro[3], proximity, proximity_array[4];
@@ -640,194 +840,15 @@ bool HubConnection::threadLoop() {
         }
 
         if (mPollFds[0].revents & POLLIN) {
-            ret = ::read(mFd, recv, sizeof(recv));
+            len = ::read(mFd, recv, sizeof(recv));
 
-            if (ret >= 4) {
-                one = three = rawThree = false;
-                bias = 0;
-                switch (data->evtType) {
-                case SENS_TYPE_TO_EVENT(SENS_TYPE_ACCEL):
-                    type = SENSOR_TYPE_ACCELEROMETER;
-                    sensor = COMMS_SENSOR_ACCEL;
-                    three = true;
-                    break;
-                case SENS_TYPE_TO_EVENT(SENS_TYPE_ACCEL_RAW):
-                    type = SENSOR_TYPE_ACCELEROMETER;
-                    sensor = COMMS_SENSOR_ACCEL;
-                    rawThree = true;
-                    break;
-                case SENS_TYPE_TO_EVENT(SENS_TYPE_GYRO):
-                    type = SENSOR_TYPE_GYROSCOPE;
-                    sensor = COMMS_SENSOR_GYRO;
-                    bias = COMMS_SENSOR_GYRO_BIAS;
-                    three = true;
-                    break;
-                case SENS_TYPE_TO_EVENT(SENS_TYPE_MAG):
-                    type = SENSOR_TYPE_MAGNETIC_FIELD;
-                    sensor = COMMS_SENSOR_MAG;
-                    bias = COMMS_SENSOR_MAG_BIAS;
-                    three = true;
-                    break;
-                case SENS_TYPE_TO_EVENT(SENS_TYPE_ALS):
-                    type = SENSOR_TYPE_LIGHT;
-                    sensor = COMMS_SENSOR_LIGHT;
-                    one = true;
-                    break;
-                case SENS_TYPE_TO_EVENT(SENS_TYPE_PROX):
-                    type = SENSOR_TYPE_PROXIMITY;
-                    sensor = COMMS_SENSOR_PROXIMITY;
-                    one = true;
-                    break;
-                case SENS_TYPE_TO_EVENT(SENS_TYPE_BARO):
-                    type = SENSOR_TYPE_PRESSURE;
-                    sensor = COMMS_SENSOR_PRESSURE;
-                    one = true;
-                    break;
-                case SENS_TYPE_TO_EVENT(SENS_TYPE_TEMP):
-                    type = SENSOR_TYPE_AMBIENT_TEMPERATURE;
-                    sensor = COMMS_SENSOR_TEMPERATURE;
-                    one = true;
-                    break;
-                case SENS_TYPE_TO_EVENT(SENS_TYPE_ORIENTATION):
-                    type = SENSOR_TYPE_ORIENTATION;
-                    sensor = COMMS_SENSOR_ORIENTATION;
-                    three = true;
-                    break;
-                case SENS_TYPE_TO_EVENT(SENS_TYPE_WIN_ORIENTATION):
-                    type = SENSOR_TYPE_DEVICE_ORIENTATION;
-                    sensor = COMMS_SENSOR_WINDOW_ORIENTATION;
-                    one = true;
-                    break;
-                case SENS_TYPE_TO_EVENT(SENS_TYPE_STEP_DETECT):
-                    type = SENSOR_TYPE_STEP_DETECTOR;
-                    sensor = COMMS_SENSOR_STEP_DETECTOR;
-                    one = true;
-                    break;
-                case SENS_TYPE_TO_EVENT(SENS_TYPE_STEP_COUNT):
-                    type = SENSOR_TYPE_STEP_COUNTER;
-                    sensor = COMMS_SENSOR_STEP_COUNTER;
-                    one = true;
-                    break;
-                case SENS_TYPE_TO_EVENT(SENS_TYPE_SIG_MOTION):
-                    type = SENSOR_TYPE_SIGNIFICANT_MOTION;
-                    sensor = COMMS_SENSOR_SIGNIFICANT_MOTION;
-                    one = true;
-                    break;
-                case SENS_TYPE_TO_EVENT(SENS_TYPE_GRAVITY):
-                    type = SENSOR_TYPE_GRAVITY;
-                    sensor = COMMS_SENSOR_GRAVITY;
-                    three = true;
-                    break;
-                case SENS_TYPE_TO_EVENT(SENS_TYPE_LINEAR_ACCEL):
-                    type = SENSOR_TYPE_LINEAR_ACCELERATION;
-                    sensor = COMMS_SENSOR_LINEAR_ACCEL;
-                    three = true;
-                    break;
-                case SENS_TYPE_TO_EVENT(SENS_TYPE_ROTATION_VECTOR):
-                    type = SENSOR_TYPE_ROTATION_VECTOR;
-                    sensor = COMMS_SENSOR_ROTATION_VECTOR;
-                    three = true;
-                    break;
-                case SENS_TYPE_TO_EVENT(SENS_TYPE_GEO_MAG_ROT_VEC):
-                    type = SENSOR_TYPE_GEOMAGNETIC_ROTATION_VECTOR;
-                    sensor = COMMS_SENSOR_GEO_MAG;
-                    three = true;
-                    break;
-                case SENS_TYPE_TO_EVENT(SENS_TYPE_GAME_ROT_VECTOR):
-                    type = SENSOR_TYPE_GAME_ROTATION_VECTOR;
-                    sensor = COMMS_SENSOR_GAME_ROTATION_VECTOR;
-                    three = true;
-                    break;
-                case SENS_TYPE_TO_EVENT(SENS_TYPE_HALL):
-                    type = 0;
-                    sensor = COMMS_SENSOR_HALL;
-                    one = true;
-                    break;
-                case SENS_TYPE_TO_EVENT(SENS_TYPE_VSYNC):
-                    type = SENSOR_TYPE_SYNC;
-                    sensor = COMMS_SENSOR_SYNC;
-                    one = true;
-                    break;
-                case SENS_TYPE_TO_EVENT(SENS_TYPE_ACTIVITY):
-                    type = 0;
-                    sensor = COMMS_SENSOR_ACTIVITY;
-                    one = true;
-                    break;
-                case SENS_TYPE_TO_EVENT(SENS_TYPE_TILT):
-                    type = SENSOR_TYPE_TILT_DETECTOR;
-                    sensor = COMMS_SENSOR_TILT;
-                    one = true;
-                    break;
-                case SENS_TYPE_TO_EVENT(SENS_TYPE_GESTURE):
-                    type = SENSOR_TYPE_PICK_UP_GESTURE;
-                    sensor = COMMS_SENSOR_GESTURE;
-                    one = true;
-                    break;
-                case SENS_TYPE_TO_EVENT(SENS_TYPE_DOUBLE_TWIST):
-                    type = SENSOR_TYPE_DOUBLE_TWIST;
-                    sensor = COMMS_SENSOR_DOUBLE_TWIST;
-                    one = true;
-                    break;
-                case SENS_TYPE_TO_EVENT(SENS_TYPE_DOUBLE_TAP):
-                    type = SENSOR_TYPE_DOUBLE_TAP;
-                    sensor = COMMS_SENSOR_DOUBLE_TAP;
-                    three = true;
-                    break;
-                default:
-                    continue;
-                }
-            }
+            for (offset = 0; offset < len;) {
+                ret = processBuf(recv + offset, len - offset);
 
-            if (ret >= 16) {
-                timestamp = data->referenceTime;
-                numSamples = data->firstSample.numSamples;
-                for (i=0; i<numSamples; i++) {
-                    if (data->firstSample.biasPresent && data->firstSample.biasSample == i)
-                        currSensor = bias;
-                    else
-                        currSensor = sensor;
-
-                    if (one) {
-                        if (i > 0)
-                            timestamp += data->oneSamples[i].deltaTime;
-                        processSample(timestamp, type, currSensor, &data->oneSamples[i], data->firstSample.highAccuracy);
-                    } else if (rawThree) {
-                        if (i > 0)
-                            timestamp += data->rawThreeSamples[i].deltaTime;
-                        processSample(timestamp, type, currSensor, &data->rawThreeSamples[i], data->firstSample.highAccuracy);
-                    } else if (three) {
-                        if (i > 0)
-                            timestamp += data->threeSamples[i].deltaTime;
-                        processSample(timestamp, type, currSensor, &data->threeSamples[i], data->firstSample.highAccuracy);
-                    }
-                }
-
-                for (i=0; i<data->firstSample.numFlushes; i++) {
-                    if (sensor == COMMS_SENSOR_ACTIVITY) {
-                        if (mActivityCb != NULL) {
-                            (*mActivityCb)(mActivityCbCookie, 0ull, /* when_us */
-                                true, /* is_flush */
-                                0.0f, 0.0f, 0.0f);
-                        }
-                    } else {
-                        memset(&ev, 0x00, sizeof(sensors_event_t));
-                        ev.version = META_DATA_VERSION;
-                        ev.timestamp = 0;
-                        ev.type = SENSOR_TYPE_META_DATA;
-                        ev.sensor = 0;
-                        ev.meta_data.what = META_DATA_FLUSH_COMPLETE;
-                        if (mSensorState[sensor].alt && mSensorState[mSensorState[sensor].alt].flushCnt > 0) {
-                            mSensorState[mSensorState[sensor].alt].flushCnt --;
-                            ev.meta_data.sensor = mSensorState[sensor].alt;
-                        } else {
-                            mSensorState[sensor].flushCnt --;
-                            ev.meta_data.sensor = sensor;
-                        }
-
-                        mRing.write(&ev, 1);
-                        ALOGI("flushing %d", ev.meta_data.sensor);
-                    }
-                }
+                if (ret > 0)
+                    offset += ret;
+                else
+                    break;
             }
         }
     }
