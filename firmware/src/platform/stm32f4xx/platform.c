@@ -188,8 +188,10 @@ void platInitialize(void)
     SCB->SCR &=~ SCB_SCR_SLEEPONEXIT_Msk;
 
     //set ints up for a sane state
+    //3 bits preemptPriority, 1 bit subPriority
+    NVIC_SetPriorityGrouping(4);
     for (i = 0; i < NUM_INTERRUPTS; i++) {
-        NVIC_SetPriority(i, 2);
+        NVIC_SetPriority(i, NVIC_EncodePriority(4, 2, 1));
         NVIC_DisableIRQ(i);
         NVIC_ClearPendingIRQ(i);
     }
