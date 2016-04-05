@@ -487,7 +487,6 @@ static int system_comms_handle_app_info_query(bool start)
 int system_comms_handle_tx(const struct hub_message_t *outMsg)
 {
     uint8_t cmd[APP_NAME_LEN + 1], len = 1;
-    struct hub_message_t tx = {.app = &mHostIfAppName, .message_len = 1, .message = cmd, };
 
     switch (outMsg->message_type) {
 
