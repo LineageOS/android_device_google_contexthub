@@ -79,5 +79,7 @@ struct StmSpiBoardCfg {
 #define SPI6_DMA_TX_CFG     { .channel = 1, .stream = 5 }
 
 extern const struct StmSpiBoardCfg *boardStmSpiCfg(uint8_t busId);
+const enum IRQn spiRxIrq(uint8_t busId);
+const enum IRQn spiTxIrq(uint8_t busId);
 
 #endif /* __PLAT_SPI_H */

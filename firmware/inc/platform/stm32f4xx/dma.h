@@ -57,5 +57,6 @@ int dmaStart(uint8_t busId, uint8_t stream, const void *buf, uint16_t size,
         const struct dmaMode *mode, DmaCallbackF callback, void *cookie);
 uint16_t dmaBytesLeft(uint8_t busId, uint8_t stream);
 void dmaStop(uint8_t busId, uint8_t stream);
+const enum IRQn dmaIrq(uint8_t busId, uint8_t stream);
 
 #endif /* _DMA_H */
