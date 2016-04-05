@@ -23,6 +23,8 @@ LOCAL_SHARED_LIBRARIES := libc
 LOCAL_SRC_FILES := \
         postprocess.c
 
+LOCAL_CFLAGS := -Wall -Werror -Wextra
+
 LOCAL_MODULE := nanoapp_postprocess
 
 LOCAL_MODULE_TAGS := optional
