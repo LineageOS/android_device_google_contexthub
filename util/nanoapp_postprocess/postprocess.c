@@ -15,6 +15,7 @@
  */
 
 #include "../../firmware/inc/cpu/cortexm4f/appRelocFormat.h"
+#include <assert.h>
 #include <sys/types.h>
 #include <stdbool.h>
 #include <unistd.h>
@@ -115,9 +116,10 @@ int main(int argc, char **argv)
 
 
     argc--;
+    assert(argc >= 0);
     argv++;
 
-    for (i = 0; i < argc; i++) {
+    for (i = 0; i < (uint32_t)argc; i++) {
         if (!strcmp(argv[i], "-v")) {
             verbose = true;
             continue;
