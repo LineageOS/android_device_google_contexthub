@@ -65,6 +65,14 @@ static struct DownloadState
 } *mDownloadState;
 static AppSecErr mAppSecStatus;
 static struct SlabAllocator *mEventSlab;
+static struct HostIntfDataBuffer mTxNext;
+static uint32_t mWakeup, mNonWakeup;
+static uint8_t mTxNextLength;
+
+static inline bool isSensorEvent(uint32_t evtType)
+{
+    return evtType > EVT_NO_FIRST_SENSOR_EVENT && evtType <= EVT_NO_FIRST_SENSOR_EVENT + SENS_TYPE_LAST_USER;
+}
 
 static void slabFree(void *ptr)
 {
@@ -546,49 +554,73 @@ static uint64_t getAvgDelta(struct TimeSync *sync)
 static uint32_t readEvent(void *rx, uint8_t rx_len, void *tx, uint64_t timestamp)
 {
     struct NanohubReadEventRequest *req = rx;
-    struct NanohubReadEventResponse *resp = tx;
-    struct HostIntfDataBuffer *packet = tx;
+    struct HostIntfDataBuffer *packet = &mTxNext;
+    struct HostIntfDataBuffer *firstPacket = tx;
+    uint8_t *buf = tx;
     uint32_t length, wakeup, nonwakeup;
+    uint32_t totLength = 0;
     static struct TimeSync timeSync = { };
 
     addDelta(&timeSync, req->apBootTime, timestamp);
 
-    if (hostIntfPacketDequeue(packet, &wakeup, &nonwakeup)) {
-        length = packet->length + sizeof(resp->evtType);
-        // TODO combine messages if multiple can fit in a single packet
+    if (mTxNextLength > 0) {
+        length = mTxNextLength;
+        wakeup = mWakeup;
+        nonwakeup = mNonWakeup;
+        memcpy(buf, &mTxNext, length);
+        totLength = length;
+        mTxNextLength = 0;
+    }
+
+    while (hostIntfPacketDequeue(&mTxNext, &mWakeup, &mNonWakeup)) {
+        length = packet->length + sizeof(packet->evtType);
         if (packet->sensType == SENS_TYPE_INVALID) {
             switch (packet->dataType) {
             case HOSTINTF_DATA_TYPE_APP_TO_HOST:
-                resp->evtType = htole32(EVT_APP_TO_HOST);
+                packet->evtType = htole32(EVT_APP_TO_HOST);
                 break;
             case HOSTINTF_DATA_TYPE_RESET_REASON:
-                resp->evtType = htole32(EVT_RESET_REASON);
+                packet->evtType = htole32(EVT_RESET_REASON);
                 break;
 #ifdef DEBUG_LOG_EVT
             case HOSTINTF_DATA_TYPE_LOG:
-                resp->evtType = htole32(DEBUG_LOG_EVT);
+                packet->evtType = htole32(DEBUG_LOG_EVT);
                 break;
 #endif
             default:
-                resp->evtType = htole32(0x00000000);
+                packet->evtType = htole32(0x00000000);
                 break;
             }
         } else {
-            resp->evtType = htole32(EVT_NO_FIRST_SENSOR_EVENT + packet->sensType);
+            packet->evtType = htole32(EVT_NO_FIRST_SENSOR_EVENT + packet->sensType);
             if (packet->referenceTime)
                 packet->referenceTime += getAvgDelta(&timeSync);
-            if (!wakeup)
-                hostIntfClearInterrupt(NANOHUB_INT_WAKEUP);
-            if (!nonwakeup)
-                hostIntfClearInterrupt(NANOHUB_INT_NONWAKEUP);
         }
+
+        if ((!totLength || (isSensorEvent(firstPacket->evtType) && isSensorEvent(packet->evtType))) && totLength + length <= sizeof(struct HostIntfDataBuffer)) {
+            wakeup = mWakeup;
+            nonwakeup = mNonWakeup;
+            memcpy(buf + totLength, &mTxNext, length);
+            totLength += length;
+            if (isSensorEvent(packet->evtType) && packet->firstSample.interrupt == NANOHUB_INT_WAKEUP)
+                firstPacket->firstSample.interrupt = NANOHUB_INT_WAKEUP;
+        } else {
+            mTxNextLength = length;
+            break;
+        }
+    }
+
+    if (totLength) {
+        if (!wakeup)
+            hostIntfClearInterrupt(NANOHUB_INT_WAKEUP);
+        if (!nonwakeup)
+            hostIntfClearInterrupt(NANOHUB_INT_NONWAKEUP);
     } else {
         hostIntfClearInterrupt(NANOHUB_INT_WAKEUP);
         hostIntfClearInterrupt(NANOHUB_INT_NONWAKEUP);
-        length = 0;
     }
 
-    return length;
+    return totLength;
 }
 
 static uint32_t writeEvent(void *rx, uint8_t rx_len, void *tx, uint64_t timestamp)
