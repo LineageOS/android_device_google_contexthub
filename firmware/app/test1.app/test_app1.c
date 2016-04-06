@@ -22,6 +22,7 @@
 static bool start_task(uint32_t myTid)
 {
     //todo
+    (void)myTid;
     return true;
 }
 
@@ -33,6 +34,8 @@ static void end_task(void)
 static void handle_event(uint32_t evtType, const void* evtData)
 {
     //todo
+    (void)evtType;
+    (void)evtData;
 }
 
 APP_INIT(0, start_task, end_task, handle_event);
