@@ -45,7 +45,7 @@
 
 static pthread_mutex_t mLock = PTHREAD_MUTEX_INITIALIZER; //protects every global here
 static bool mHaveRsaKeys = false, mAppInfoReqInProgress = false, mUploadingOs, mUploadingStarted = false;
-static uint32_t mRsaOffset, mUploadLen, mUploadPos, mNumRsaKeys, mAppQueryIdx = 0;
+static uint32_t mRsaOffset, mUploadLen, mUploadPos, mAppQueryIdx = 0;
 static uint8_t *mUploadData = NULL, *mRsaKeys = NULL;
 static struct NanohubAppInfo *mAppInfo = NULL;
 
@@ -54,11 +54,6 @@ static struct NanohubAppInfo *mAppInfo = NULL;
 
 static const uint8_t mHostIfAppNameBuf[APP_NAME_LEN] = {
     0, 0, 0, 'l', 'g' ,'o', 'o', 'G',
-};
-
-static const struct hub_app_name_t mHostIfAppName = {
-    .app_name_len = APP_NAME_LEN,
-    .app_name = mHostIfAppNameBuf,
 };
 
 static uint32_t leToHost32(uint32_t in)
