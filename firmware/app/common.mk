@@ -22,7 +22,7 @@ DELIVERABLES := $(DELIVERABLES) $(APP_NM).napp
 APP_ELF := $(APP_NM).elf
 APP_BIN := $(APP_NM).bin
 APP_APP := $(APP_NM).napp
-APPFLAGS += $(EXTRA_FLAGS)
+APPFLAGS += $(EXTRA_FLAGS) -Wall -Wextra -Werror
 
 
 define APPRULE
