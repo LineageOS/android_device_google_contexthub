@@ -10,6 +10,7 @@ LOCAL_MODULE_RELATIVE_PATH := hw
 LOCAL_MULTILIB := both
 LOCAL_SHARED_LIBRARIES := liblog libcutils
 LOCAL_SRC_FILES := nanohubhal.c system_comms.c
+LOCAL_CFLAGS := -Wall -Werror -Wextra
 LOCAL_MODULE_OWNER := google
 
 # Include target-specific files.
