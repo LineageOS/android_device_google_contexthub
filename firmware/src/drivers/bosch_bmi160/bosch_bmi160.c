@@ -36,7 +36,9 @@
 
 #include <seos.h>
 
+#ifdef MAG_SLAVE_PRESENT
 #include <algos/mag_cal.h>
+#endif
 #include <algos/time_sync.h>
 #include <nanohub_math.h>
 
@@ -328,8 +330,9 @@ struct BMI160Task {
     struct Gpio *Int2;
     struct ChainedIsr Isr1;
     struct ChainedIsr Isr2;
+#ifdef MAG_SLAVE_PRESENT
     struct MagCal moc;
-
+#endif
     time_sync_t gSensorTime2RTC;
 
     float last_charging_bias_x;
@@ -1648,6 +1651,7 @@ static void parseRawData(struct BMI160Sensor *mSensor, uint8_t *buf, float kScal
 
         BMM150_TO_ANDROID_COORDINATE(x, y, z);
 
+#ifdef MAG_SLAVE_PRESENT
         float xi, yi, zi;
         magCalRemoveSoftiron(&mTask.moc,
                 x, y, z,
@@ -1657,6 +1661,7 @@ static void parseRawData(struct BMI160Sensor *mSensor, uint8_t *buf, float kScal
                 sensorTime * kSensorTimerIntervalUs, xi, yi, zi);
 
         magCalRemoveBias(&mTask.moc, xi, yi, zi, &x, &y, &z);
+#endif
     } else {
         raw_x = (buf[0] | buf[1] << 8);
         raw_y = (buf[2] | buf[3] << 8);
@@ -1692,8 +1697,9 @@ static void parseRawData(struct BMI160Sensor *mSensor, uint8_t *buf, float kScal
         mSensor->data_evt->samples[0].firstSample.biasPresent = 1;
         mSensor->data_evt->samples[0].firstSample.biasSample = mSensor->data_evt->samples[0].firstSample.numSamples;
         sample = &mSensor->data_evt->samples[mSensor->data_evt->samples[0].firstSample.numSamples++];
+#ifdef MAG_SLAVE_PRESENT
         magCalGetBias(&mTask.moc, &sample->x, &sample->y, &sample->z);
-
+#endif
         // bias is non-discardable, if we fail to enqueue, don't clear new_mag_bias
         if (flushData(mSensor, sensorGetMyEventType(mSensorInfo[MAG].biasType)))
             mTask.magBiasPosted = true;
@@ -2401,9 +2407,11 @@ static bool magCfgData(void *data, void *cookie)
 
     INFO_PRINT("magCfgData: %ld, %ld, %ld\n", (int32_t)(values[0] * 1000), (int32_t)(values[1] * 1000), (int32_t)(values[2] * 1000));
 
+#ifdef MAG_SLAVE_PRESENT
     mTask.moc.x_bias = values[0];
     mTask.moc.y_bias = values[1];
     mTask.moc.z_bias = values[2];
+#endif
 
     mTask.magBiasPosted = false;
 
@@ -2819,7 +2827,9 @@ static void handleEvent(uint32_t evtType, const void* evtData)
             memcpy(&newMagBias, packet+1, sizeof(float));
             bias_delta_x = mTask.last_charging_bias_x - newMagBias;
             mTask.last_charging_bias_x = newMagBias;
+#ifdef MAG_SLAVE_PRESENT
             magCalAddBias(&mTask.moc, bias_delta_x, 0.0, 0.0);
+#endif
             mTask.magBiasPosted = false;
         }
         break;
@@ -2890,11 +2900,13 @@ static bool startTask(uint32_t task_id)
 
     osEventSubscribe(mTask.tid, EVT_APP_START);
 
+#ifdef MAG_SLAVE_PRESENT
     initMagCal(&mTask.moc,
             0.0f, 0.0f, 0.0f,      // bias x, y, z
             1.0f, 0.0f, 0.0f,      // c00, c01, c02
             0.0f, 1.0f, 0.0f,      // c10, c11, c12
             0.0f, 0.0f, 1.0f);     // c20, c21, c22
+#endif
 
     slabSize = sizeof(struct TripleAxisDataEvent) +
         MAX_NUM_COMMS_EVENT_SAMPLES * sizeof(struct TripleAxisDataPoint);
@@ -2926,7 +2938,9 @@ static bool startTask(uint32_t task_id)
 
 static void endTask(void)
 {
+#ifdef MAG_SLAVE_PRESENT
     destroy_mag_cal(&mTask.moc);
+#endif
     slabAllocatorDestroy(mDataSlab);
     spiMasterRelease(mTask.spiDev);
 
