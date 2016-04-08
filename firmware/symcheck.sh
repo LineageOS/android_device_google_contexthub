@@ -16,6 +16,9 @@
 # limitations under the License.
 #
 
+# Exit in error if we use an undefined variable (i.e. commit a typo).
+set -u
+
 infile="$1"
 shift
 outfile="$1"
