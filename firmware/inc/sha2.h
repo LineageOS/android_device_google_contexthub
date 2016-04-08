@@ -21,11 +21,11 @@
 
 #include <stdint.h>
 
-#define SHA2_BLOCK_SIZE         64 //in bytes
-#define SHA2_WORDS_STATE_SIZE   64 //in words
+#define SHA2_BLOCK_SIZE         64U //in bytes
+#define SHA2_WORDS_STATE_SIZE   64U //in words
 
-#define SHA2_HASH_SIZE          32 //in bytes
-#define SHA2_HASH_WORDS         8  //in words
+#define SHA2_HASH_SIZE          32U //in bytes
+#define SHA2_HASH_WORDS         8U  //in words
 
 struct Sha2state {
     uint32_t h[8];
