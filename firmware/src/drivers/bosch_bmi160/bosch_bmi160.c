@@ -92,6 +92,8 @@ static const bool enable_debug = 0;
 #define BMI160_REG_STATUS         0x1b
 #define BMI160_REG_INT_STATUS_0   0x1c
 #define BMI160_REG_INT_STATUS_1   0x1d
+#define BMI160_REG_TEMPERATURE_0  0x20
+#define BMI160_REG_TEMPERATURE_1  0x21
 #define BMI160_REG_FIFO_LENGTH_0  0x22
 #define BMI160_REG_FIFO_DATA      0x24
 #define BMI160_REG_ACC_CONF       0x40
@@ -178,8 +180,10 @@ static const bool enable_debug = 0;
 
 #define MAX_NUM_COMMS_EVENT_SAMPLES 15
 
-#define kScale_acc 0.00239501953f  // ACC_range * 9.81f / 32768.0f;
-#define kScale_gyr 0.00106472439f  // GYR_range * M_PI / (180.0f * 32768.0f);
+#define kScale_acc    0.00239501953f  // ACC_range * 9.81f / 32768.0f;
+#define kScale_gyr    0.00106472439f  // GYR_range * M_PI / (180.0f * 32768.0f);
+#define kScale_temp   0.001953125f    // temperature in deg C
+#define kTempInvalid  -1000.0f
 
 #define kTimeSyncPeriodNs        100000000ull // sync sensor and RTC time every 100ms
 #define kSensorTimerIntervalUs   39ull        // bmi160 clock increaments every 39000ns
@@ -320,6 +324,7 @@ struct BMI160Task {
     uint64_t prev_frame_time[3];
     uint64_t time_delta[3];
     uint64_t next_delta[3];
+    uint64_t tempTime;
 
     // spi and interrupt
     spi_cs_t cs;
@@ -335,6 +340,7 @@ struct BMI160Task {
 #endif
     time_sync_t gSensorTime2RTC;
 
+    float tempCelsius;
     float last_charging_bias_x;
     uint32_t total_step_cnt;
     uint32_t last_step_cnt;
@@ -354,6 +360,7 @@ struct BMI160Task {
     uint8_t *dataBuffer;
     uint8_t *statusBuffer;
     uint8_t *sensorTimeBuffer;
+    uint8_t *temperatureBuffer;
     uint8_t txrxBuffer[SPI_BUF_SIZE];
 
     // states
@@ -2480,6 +2487,7 @@ static void timeSyncEvt(uint32_t evtGeneration, bool evtDataValid)
     } else {
         mTask.state = SENSOR_TIME_SYNC;
         SPI_READ(BMI160_REG_SENSORTIME_0, 3, &mTask.sensorTimeBuffer);
+        SPI_READ(BMI160_REG_TEMPERATURE_0, 2, &mTask.temperatureBuffer);
         spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask);
     }
 }
@@ -2654,6 +2662,7 @@ static void handleSpiDoneEvt(const void* evtData)
 {
     struct BMI160Sensor *mSensor;
     uint64_t SensorTime;
+    int16_t temperature16;
     int i;
 
     switch (mTask.state) {
@@ -2780,6 +2789,14 @@ static void handleSpiDoneEvt(const void* evtData)
         SensorTime = parseSensortime(mTask.sensorTimeBuffer[1] | (mTask.sensorTimeBuffer[2] << 8) | (mTask.sensorTimeBuffer[3] << 16));
         map_sensortime_to_rtc_time(SensorTime, rtcGetTime());
 
+        temperature16 = (mTask.temperatureBuffer[1] | (mTask.temperatureBuffer[2] << 8));
+        if (temperature16 == 0x8000) {
+            mTask.tempCelsius = kTempInvalid;
+        } else {
+            mTask.tempCelsius = 23.0f + temperature16 * kScale_temp;
+            mTask.tempTime = rtcGetTime();
+        }
+
         if (mTask.active_poll_generation == mTask.poll_generation) {
             // attach the generation number to event
             timTimerSet(kTimeSyncPeriodNs, 100, 100, timeSyncCallback, (void *)mTask.poll_generation, true);
@@ -2882,6 +2899,8 @@ static bool startTask(uint32_t task_id)
     mTask.pending_dispatch = false;
     mTask.frame_sensortime_valid = false;
     mTask.poll_generation = 0;
+    mTask.tempCelsius = kTempInvalid;
+    mTask.tempTime = 0;
 
     mTask.mode.speed = BMI160_SPI_SPEED_HZ;
     mTask.mode.bitsPerWord = 8;
@@ -2951,4 +2970,4 @@ static void endTask(void)
     gpioRelease(mTask.Int2);
 }
 
-INTERNAL_APP_INIT(BMI160_APP_ID, 0, startTask, endTask, handleEvent);
+INTERNAL_APP_INIT(BMI160_APP_ID, 1, startTask, endTask, handleEvent);
