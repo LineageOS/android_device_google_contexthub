@@ -131,7 +131,8 @@ int main(int argc, char **argv)
     uint8_t buf[RSA_BYTES];
     uint64_t fileSz = 0;
     bool verbose = false;
-    int c, i, ret = -1;
+    int c, ret = -1;
+    unsigned int i;
 
     argc--;
     argv++;
