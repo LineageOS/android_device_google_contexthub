@@ -316,7 +316,11 @@ void HubConnection::saveSensorSettings() const {
     // Write the JSON string to disk.
     AString serializedSettings = settingsObject->toString();
     size_t size = serializedSettings.size();
-    CHECK_EQ(saved_settings_file.write(serializedSettings.c_str(), size), size);
+    if ((err = saved_settings_file.write(serializedSettings.c_str(), size)) != (ssize_t)size) {
+        ALOGE("saved settings file write failed %d (%s)",
+              err,
+              strerror(-err));
+    }
 }
 
 sensors_event_t *HubConnection::initEv(sensors_event_t *ev, uint64_t timestamp, uint32_t type, uint32_t sensor)
