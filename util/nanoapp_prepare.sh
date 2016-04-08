@@ -16,6 +16,9 @@
 # limitations under the License.
 #
 
+# Exit in error if we use an undefined variable (i.e. commit a typo).
+set -u
+
 terminate() { #cleanup and exit
 	rm -rf $stage
 	exit $1
