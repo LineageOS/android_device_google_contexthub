@@ -48,21 +48,15 @@
 #include <poll.h>
 #include <unistd.h>
 
-
-
 #define NANOHUB_LOCK_DIR        "/data/system/nanohub_lock"
 #define NANOHUB_LOCK_FILE       NANOHUB_LOCK_DIR "/lock"
 #define NANOHUB_LOCK_DIR_PERMS  (S_IRUSR | S_IWUSR | S_IXUSR)
-
-
 
 static pthread_mutex_t mLock = PTHREAD_MUTEX_INITIALIZER;
 static context_hub_callback *mMsgCbkFunc = NULL;
 static int mThreadClosingPipe[2], mFd; // [0] is read end
 static void * mMsgCbkData = NULL;
 static pthread_t mWorkerThread;
-
-
 
 static int rwrite(int fd, const void *buf, int len)
 {
@@ -124,33 +118,39 @@ static void hal_hub_wait_on_dev_lock(struct pollfd *pfd) {
     }
 }
 
-
-int hal_hub_do_send_msg(const void *name, uint8_t len, const void *data) //assumes message is not malformed or invalid
+int hal_hub_do_send_msg(const struct hub_app_name_t *name, uint32_t len, const void *data)
 {
-    uint8_t buf[EVENT_ID_LEN + APP_NAME_LEN + 1 + MAX_RX_PACKET];
-    uint32_t event_id = APP_FROM_HOST_EVENT_ID;
+    if (len > MAX_RX_PACKET)
+        return -EINVAL;
 
-    memcpy(buf + 0, &event_id, EVENT_ID_LEN);
-    memcpy(buf + EVENT_ID_LEN, name, APP_NAME_LEN);
-    buf[EVENT_ID_LEN + APP_NAME_LEN] = len;
-    memcpy(buf + EVENT_ID_LEN + APP_NAME_LEN + 1, data, len);
+    struct nano_message msg = {
+        .hdr = {
+            .event_id = APP_FROM_HOST_EVENT_ID,
+            .app_name = *name,
+            .len = len,
+        }
+    };
 
-    return rwrite(mFd, buf, EVENT_ID_LEN + APP_NAME_LEN + 1 + len);
+    memcpy(&msg.data[0], data, len);
+
+    return rwrite(mFd, &msg, len + sizeof(msg.hdr));
 }
 
-void hal_hub_call_rx_msg_f(const void *name, uint32_t typ, uint32_t len, const void *data)
+void hal_hub_call_rx_msg_f(const struct hub_app_name_t *name, uint32_t typ, uint32_t len, const void *data)
 {
-    struct hub_app_name_t appName = { .app_name_len = APP_NAME_LEN, .app_name = name, };
-    struct hub_message_t msg = { .app = &appName, .message_type = typ, .message_len = len, .message = data, };
+    struct hub_message_t msg = {
+        .app_name = *name,
+        .message_type = typ,
+        .message_len = len,
+        .message = data,
+    };
 
     mMsgCbkFunc(0, &msg, mMsgCbkData);
 }
 
 static void* hal_hub_thread(void *unused) //all nanoapp message_type vals are "0" for this hal. apps can send type themselves in payload
 {
-    uint8_t buffer[PRE_PACKET_LEN + MAX_RX_PACKET];
-    uint8_t *header = &buffer[EVENT_ID_LEN];
-    uint8_t *packetData = &buffer[PRE_PACKET_LEN];
+    struct nano_message msg;
     const int idxNanohub = 0, idxClosePipe = 1;
     struct pollfd myFds[3] = {
         [idxNanohub] = { .fd = mFd, .events = POLLIN, },
@@ -172,7 +172,7 @@ static void* hal_hub_thread(void *unused) //all nanoapp message_type vals are "0
             continue;
         }
 
-        if (idxInotify >= 0 && myFds[idxInotify].revents & POLLIN) {
+        if (idxInotify >= 0 && (myFds[idxInotify].revents & POLLIN)) {
             hal_hub_discard_inotify_evt(myFds[idxInotify].fd);
             hal_hub_wait_on_dev_lock(&myFds[idxInotify]);
         }
@@ -181,38 +181,33 @@ static void* hal_hub_thread(void *unused) //all nanoapp message_type vals are "0
 
             uint32_t len;
 
-            ret = rread(mFd, buffer, sizeof(buffer));
+            ret = rread(mFd, &msg, sizeof(msg));
             if (ret <= 0) {
                 ALOGE("read failed with %d", ret);
                 break;
             }
-            if (ret < PRE_PACKET_LEN) {
+            if (ret < (int)sizeof(msg.hdr)) {
                 ALOGE("Only read %d bytes", ret);
                 break;
             }
 
-#if PACKET_LENGTH_LEN != 1
-  #error Code assumes packet length is in a single byte
-#endif
+            len = msg.hdr.len;
 
-            len = header[APP_NAME_LEN];
-
-            if (len > MAX_RX_PACKET) {
+            if (len > sizeof(msg.data)) {
                 ALOGE("malformed packet with len %" PRIu32, len);
                 break;
             }
 
-            if (ret != PRE_PACKET_LEN + (int)len) {
-                ALOGE("Expected %d bytes, read %d bytes",
-                      PRE_PACKET_LEN + (int)len, ret);
+            if (ret != (int)(sizeof(msg.hdr) + len)) {
+                ALOGE("Expected %d bytes, read %d bytes", (int)sizeof(msg.hdr) + (int)len, ret);
                 break;
             }
 
-            ret = system_comms_handle_rx(header, len, packetData);
+            ret = system_comms_handle_rx(&msg);
             if (ret < 0)
                 ALOGE("system_comms_handle_rx returned %d", ret);
             else if (ret)
-                hal_hub_call_rx_msg_f(header, 0, len, packetData);
+                hal_hub_call_rx_msg_f(&msg.hdr.app_name, msg.hdr.event_id, msg.hdr.len, &msg.data[0]);
         }
 
         if (myFds[idxClosePipe].revents & POLLIN) { // we have been asked to die
@@ -330,11 +325,12 @@ static int hal_hub_send_message(uint32_t hub_id, const struct hub_message_t *msg
     }
     else {
 
-        if (!msg || !msg->app || !msg->app->app_name || msg->app->app_name_len != APP_NAME_LEN || !msg->message) {
+        if (!msg || !msg->message) {
             ALOGW("not sending invalid message 1");
             ret = -EINVAL;
         }
-        else if (!memcmp(get_hub_info()->os_app_name->app_name, msg->app->app_name, APP_NAME_LEN)) { //messages to the "system" app are special - hal handles them
+        else if (memcmp(&get_hub_info()->os_app_name, &msg->app_name, sizeof(msg->app_name)) == 0) {
+            //messages to the "system" app are special - hal handles them
             ret = system_comms_handle_tx(msg);
         }
         else if (msg->message_type || msg->message_len > MAX_RX_PACKET) {
@@ -342,7 +338,7 @@ static int hal_hub_send_message(uint32_t hub_id, const struct hub_message_t *msg
             ret = -EINVAL;
         }
         else {
-            ret = hal_hub_do_send_msg(msg->app->app_name, msg->message_len, msg->message);
+            ret = hal_hub_do_send_msg(&msg->app_name, msg->message_len, msg->message);
         }
     }
 
@@ -366,7 +362,7 @@ struct context_hub_module_t HAL_MODULE_INFO_SYM = {
         .module_api_version = CONTEXT_HUB_DEVICE_API_VERSION_1_0,
         .hal_api_version = HARDWARE_HAL_API_VERSION,
         .id = CONTEXT_HUB_MODULE_ID,
-        .name = "Bullhead nanohub HAL",
+        .name = "Nanohub HAL",
         .author = "Google",
     },
 
@@ -374,4 +370,3 @@ struct context_hub_module_t HAL_MODULE_INFO_SYM = {
     .subscribe_messages = hal_hub_subscribe_messages,
     .send_message = hal_hub_send_message,
 };
-
