@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Exit in error if we use an undefined variable (i.e. commit a typo).
+set -u
+
 function getvar {
 	hex=$(nm $1 | grep -v "U" | grep "$2" |awk '{print "16#" $1 }')
 	echo $(($hex))
