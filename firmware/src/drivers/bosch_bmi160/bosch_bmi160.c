@@ -2818,7 +2818,6 @@ static void handleSpiDoneEvt(const void* evtData)
 static void handleEvent(uint32_t evtType, const void* evtData)
 {
     uint64_t currTime;
-    float bias_delta_x;
     uint8_t *packet;
     float newMagBias;
 
@@ -2842,11 +2841,10 @@ static void handleEvent(uint32_t evtType, const void* evtData)
         packet = (uint8_t*)evtData;
         if (packet[0] == sizeof(float)) {
             memcpy(&newMagBias, packet+1, sizeof(float));
-            bias_delta_x = mTask.last_charging_bias_x - newMagBias;
-            mTask.last_charging_bias_x = newMagBias;
 #ifdef MAG_SLAVE_PRESENT
-            magCalAddBias(&mTask.moc, bias_delta_x, 0.0, 0.0);
+            magCalAddBias(&mTask.moc, (mTask.last_charging_bias_x - newMagBias), 0.0, 0.0);
 #endif
+            mTask.last_charging_bias_x = newMagBias;
             mTask.magBiasPosted = false;
         }
         break;
