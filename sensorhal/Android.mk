@@ -12,50 +12,50 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+#
+# Nanohub sensor HAL usage instructions:
+#
+# Add the following to your device.mk file.
+#
+# # Enable the nanohub sensor HAL
+# TARGET_USES_NANOHUB_SENSORHAL := true
+#
+# # Nanohub sensor list source file
+# NANOHUB_SENSORHAL_SENSORLIST := $(LOCAL_PATH)/sensorhal/sensorlist.cpp
+#
+# # Enable lid-state reporting (optional)
+# NANOHUB_SENSORHAL_LID_STATE_ENABLED := true
+#
+
 LOCAL_PATH := $(call my-dir)
 
-MY_CFLAGS := -Wall -Werror -Wextra
+ifeq ($(TARGET_USES_NANOHUB_SENSORHAL), true)
 
-SUPPORTED_DEVICES := \
-	bullhead \
-	angler \
-	marlin \
-	sailfish
+COMMON_CFLAGS := -Wall -Werror -Wextra
 
-ifneq ($(TARGET_USES_CHINOOK_SENSORHUB),true)
-
-ifneq ($(filter $(SUPPORTED_DEVICES), $(TARGET_DEVICE)),)
+################################################################################
 
 include $(CLEAR_VARS)
 
 LOCAL_MODULE := sensors.$(TARGET_DEVICE)
-
 LOCAL_MODULE_RELATIVE_PATH := hw
-
 LOCAL_MODULE_TAGS := optional
 LOCAL_MODULE_OWNER := google
 
-LOCAL_CFLAGS += $(MY_CFLAGS)
+LOCAL_CFLAGS += $(COMMON_CFLAGS)
 
-LOCAL_C_INCLUDES +=                     \
+LOCAL_C_INCLUDES += \
 	device/google/contexthub/firmware/inc \
 	device/google/contexthub/util/common
 
-LOCAL_SRC_FILES :=                      \
-	sensors.cpp
+LOCAL_SRC_FILES := \
+	sensors.cpp \
+	../../../../$(NANOHUB_SENSORHAL_SENSORLIST)
 
-ifeq ($(TARGET_DEVICE), bullhead)
-	LOCAL_SRC_FILES += sensorlist_bullhead.cpp
-else ifeq ($(TARGET_DEVICE), angler)
-	LOCAL_SRC_FILES += sensorlist_angler.cpp
-else ifeq ($(TARGET_DEVICE), $(filter $(TARGET_DEVICE), marlin sailfish))
-	LOCAL_SRC_FILES += sensorlist_marlin.cpp
-endif
-
-LOCAL_SHARED_LIBRARIES :=               \
-	libcutils                       \
-	libhubconnection                \
-	libstagefright_foundation       \
+LOCAL_SHARED_LIBRARIES := \
+	libcutils \
+	libhubconnection \
+	libstagefright_foundation \
 	libutils
 
 include $(BUILD_SHARED_LIBRARY)
@@ -65,26 +65,24 @@ include $(BUILD_SHARED_LIBRARY)
 include $(CLEAR_VARS)
 
 LOCAL_MODULE := activity_recognition.$(TARGET_DEVICE)
-
 LOCAL_MODULE_RELATIVE_PATH := hw
-
-LOCAL_CFLAGS += $(MY_CFLAGS)
-
 LOCAL_MODULE_TAGS := optional
 LOCAL_MODULE_OWNER := google
 
-LOCAL_C_INCLUDES +=                     \
+LOCAL_CFLAGS += $(COMMON_CFLAGS)
+
+LOCAL_C_INCLUDES += \
 	device/google/contexthub/firmware/inc \
 	device/google/contexthub/util/common
 
-LOCAL_SRC_FILES :=                      \
+LOCAL_SRC_FILES := \
 	activity.cpp
 
-LOCAL_SHARED_LIBRARIES :=               \
-	libcutils                       \
-	libhubconnection                \
-	liblog                          \
-	libstagefright_foundation       \
+LOCAL_SHARED_LIBRARIES := \
+	libcutils \
+	libhubconnection \
+	liblog \
+	libstagefright_foundation \
 	libutils
 
 include $(BUILD_SHARED_LIBRARY)
@@ -94,40 +92,33 @@ include $(BUILD_SHARED_LIBRARY)
 include $(CLEAR_VARS)
 
 LOCAL_MODULE := libhubconnection
-
-LOCAL_CFLAGS += $(MY_CFLAGS)
-
-LID_STATE_DEVICES := \
-	bullhead \
-	angler \
-	marlin \
-	sailfish
-
-ifneq ($(filter $(LID_STATE_DEVICES), $(TARGET_DEVICE)),)
-LOCAL_CFLAGS += -DLID_STATE_REPORTING_ENABLED
-endif
-
-LOCAL_C_INCLUDES +=                     \
-	device/google/contexthub/firmware/inc \
-	device/google/contexthub/util/common
-
 LOCAL_MODULE_TAGS := optional
 LOCAL_MODULE_OWNER := google
 
-LOCAL_SRC_FILES :=                          \
-	hubconnection.cpp                   \
-	../util/common/file.cpp       \
+LOCAL_CFLAGS += $(COMMON_CFLAGS)
+
+ifeq ($(NANOHUB_SENSORHAL_LID_STATE_ENABLED), true)
+LOCAL_CFLAGS += -DLID_STATE_REPORTING_ENABLED
+endif
+
+LOCAL_C_INCLUDES += \
+	device/google/contexthub/firmware/inc \
+	device/google/contexthub/util/common
+
+LOCAL_SRC_FILES := \
+	hubconnection.cpp \
+	../util/common/file.cpp \
 	../util/common/JSONObject.cpp \
 	../util/common/ring.cpp
 
-LOCAL_SHARED_LIBRARIES :=                   \
-	libcutils                           \
-	liblog                              \
-	libstagefright_foundation           \
+LOCAL_SHARED_LIBRARIES := \
+	libcutils \
+	liblog \
+	libstagefright_foundation \
 	libutils
 
 include $(BUILD_SHARED_LIBRARY)
 
-endif
+################################################################################
 
 endif
