@@ -26,6 +26,9 @@
 # # Enable lid-state reporting (optional)
 # NANOHUB_SENSORHAL_LID_STATE_ENABLED := true
 #
+# # Enable mag-bias reporting (optional)
+# NANOHUB_SENSORHAL_USB_MAG_BIAS_ENABLED := true
+#
 
 LOCAL_PATH := $(call my-dir)
 
@@ -99,6 +102,10 @@ LOCAL_CFLAGS += $(COMMON_CFLAGS)
 
 ifeq ($(NANOHUB_SENSORHAL_LID_STATE_ENABLED), true)
 LOCAL_CFLAGS += -DLID_STATE_REPORTING_ENABLED
+endif
+
+ifeq ($(NANOHUB_SENSORHAL_USB_MAG_BIAS_ENABLED), true)
+LOCAL_CFLAGS += -DUSB_MAG_BIAS_REPORTING_ENABLED
 endif
 
 LOCAL_C_INCLUDES += \
