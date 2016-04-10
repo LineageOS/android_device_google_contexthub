@@ -203,6 +203,8 @@ private:
     void discardInotifyEvent();
     void waitOnNanohubLock();
 
+    void initNanohubLock();
+
 #ifdef LID_STATE_REPORTING_ENABLED
     int mUinputFd;
 
