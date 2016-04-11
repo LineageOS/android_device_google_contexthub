@@ -62,7 +62,6 @@ struct HubConnection : public Thread {
 
     void queueData(int handle, void *data, size_t length);
 
-    void queueUsbMagBias();
 
     ssize_t read(sensors_event_t *ev, size_t size);
 
@@ -177,7 +176,6 @@ private:
     ActivityFunc mActivityCb;
 
     float mMagBias[3];
-    float mUsbMagBias;
     uint8_t mMagAccuracy;
     uint8_t mMagAccuracyRestore;
 
@@ -188,11 +186,8 @@ private:
     uint64_t mStepCounterOffset;
     uint64_t mLastStepCount;
 
-    int mUinputFd;
-
     int mFd;
     int mInotifyPollIndex;
-    int mMagBiasPollIndex;
     struct pollfd mPollFds[3];
     int mNumPollFds;
 
@@ -203,12 +198,24 @@ private:
     void processSample(uint64_t timestamp, uint32_t type, uint32_t sensor, struct ThreeAxisSample *sample, bool highAccuracy);
     ssize_t processBuf(uint8_t *buf, ssize_t len);
 
-    status_t initializeUinputNode();
-    void sendFolioEvent(int32_t data);
     void initConfigCmd(struct ConfigCmd *cmd, int handle);
 
     void discardInotifyEvent();
     void waitOnNanohubLock();
+
+#ifdef LID_STATE_REPORTING_ENABLED
+    int mUinputFd;
+
+    status_t initializeUinputNode();
+    void sendFolioEvent(int32_t data);
+#endif  // LID_STATE_REPORTING_ENABLED
+
+#ifdef USB_MAG_BIAS_REPORTING_ENABLED
+    int mMagBiasPollIndex;
+    float mUsbMagBias;
+
+    void queueUsbMagBias();
+#endif  // USB_MAG_BIAS_REPORTING_ENABLED
 
     DISALLOW_EVIL_CONSTRUCTORS(HubConnection);
 };
