@@ -19,7 +19,10 @@
 
 #include <stdint.h>
 
-#ifdef MY_FLOAT_RUNTIME_SUCKS
+#ifdef USE_NANOHUB_FLOAT_RUNTIME
+
+// Under this define, we want to use these custom methods rather than trust
+// our built-in float runtime.
 
 uint64_t floatToUint64(float f);
 int64_t floatToInt64(float f);
@@ -27,7 +30,7 @@ float floatFromUint64(uint64_t v);
 float floatFromInt64(int64_t v);
 
 
-#else //MY_FLOAT_RUNTIME_SUCKS
+#else // USE_NANOHUB_FLOAT_RUNTIME
 
 static inline uint64_t floatToUint64(float f)
 {
@@ -49,7 +52,7 @@ static inline float floatFromInt64(int64_t v)
 	return v;
 }
 
-#endif //MY_FLOAT_RUNTIME_SUCKS
+#endif // USE_NANOHUB_FLOAT_RUNTIME
 
 #endif
 
