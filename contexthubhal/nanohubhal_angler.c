@@ -33,16 +33,6 @@
 #include "nanohubhal.h"
 #include <utils/Log.h>
 
-
-static const uint8_t mOsAppNameArr[APP_NAME_LEN] = {
-    0,
-};
-
-static const struct hub_app_name_t mOsAppName = {
-    .app_name_len = APP_NAME_LEN,
-    .app_name = mOsAppNameArr,
-};
-
 static const struct connected_sensor_t mSensors[] = {
     {
         .sensor_id = 123,
@@ -67,17 +57,16 @@ static const struct context_hub_t mHub = {
     .hub_id = 0,
 
     .peak_mips = 16,
-    .stopped_power_draw_mw = .01 * 1.8,
-    .sleep_power_draw_mw = .08 * 1.8,
-    .peak_power_draw_mw = 3 * 1.8,
+    .stopped_power_draw_mw = 0.010 * 1.800,
+    .sleep_power_draw_mw   = 0.080 * 1.800,
+    .peak_power_draw_mw    = 3.000 * 1.800,
 
     .connected_sensors = mSensors,
     .num_connected_sensors = sizeof(mSensors) / sizeof(*mSensors),
 
     .max_supported_msg_len = MAX_RX_PACKET,
-    .os_app_name = &mOsAppName,
+    .os_app_name = { .id = 0 },
 };
-
 
 const char *get_devnode_path(void)
 {
@@ -88,5 +77,3 @@ const struct context_hub_t* get_hub_info(void)
 {
     return &mHub;
 }
-
-

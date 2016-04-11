@@ -35,7 +35,7 @@
 #include "nanohubhal.h"
 
 //rx: return 0 if handled, 1 if not handled, else -errno
-int system_comms_handle_rx(const void *name, uint32_t len, const void *data);
+int system_comms_handle_rx(const struct nano_message *msg);
 int system_comms_handle_tx(const struct hub_message_t *outMsg);
 
 
@@ -52,12 +52,15 @@ int system_comms_handle_tx(const struct hub_message_t *outMsg);
 #define NANOHUB_REBOOT             9 // () -> (char success)
 
 
+#define NANOHUB_APP_NOT_LOADED  0
+#define NANOHUB_APP_LOADED      1
+#define NANOHUB_APPS_RUNNING    2
 
 #define NANOHUB_UPLOAD_CHUNK_SZ_MAX 64
 #define NANOHUB_MEM_SZ_UNKNOWN      0xFFFFFFFFUL
 
 struct NanohubAppInfo {
-    uint8_t name[APP_NAME_LEN];
+    struct hub_app_name_t name;
     uint32_t version, flashUse, ramUse;
 };
 
