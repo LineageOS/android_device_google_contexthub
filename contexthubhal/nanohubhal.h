@@ -33,17 +33,25 @@
 
 #include <hardware/context_hub.h>
 
+#define NANOAPP_VENDOR_GOOGLE NANOAPP_VENDOR("Googl")
 
 //as per protocol
-#define EVENT_ID_LEN            4
-#define APP_NAME_LEN            8
-#define PACKET_LENGTH_LEN       1
-#define PRE_PACKET_LEN          (EVENT_ID_LEN + APP_NAME_LEN + PACKET_LENGTH_LEN)
 #define MAX_RX_PACKET           128
 #define APP_FROM_HOST_EVENT_ID  0x000000F8
 
-int hal_hub_do_send_msg(const void *name, uint8_t len, const void *data);
-void hal_hub_call_rx_msg_f(const void *name, uint32_t type, uint32_t len, const void *data);
+struct nano_message_hdr {
+    uint32_t event_id;
+    struct hub_app_name_t app_name;
+    uint8_t len;
+} __attribute__((packed));
+
+struct nano_message {
+    struct nano_message_hdr hdr;
+    uint8_t data[MAX_RX_PACKET];
+} __attribute__((packed));
+
+int hal_hub_do_send_msg(const struct hub_app_name_t *name, uint32_t len, const void *data);
+void hal_hub_call_rx_msg_f(const struct hub_app_name_t *name, uint32_t type, uint32_t len, const void *data);
 
 
 #endif

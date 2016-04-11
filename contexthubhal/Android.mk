@@ -1,6 +1,12 @@
 LOCAL_PATH := $(call my-dir)
 
-ifneq ($(filter bullhead angler,$(TARGET_DEVICE)),)
+SUPPORTED_DEVICES := \
+	bullhead \
+	angler \
+	marlin \
+	sailfish
+
+ifneq ($(filter $(SUPPORTED_DEVICES),$(TARGET_DEVICE)),)
 
 # HAL module implemenation stored in
 # hw/<CONTEXT_HUB_MODULE_ID>.<ro.hardware>.so

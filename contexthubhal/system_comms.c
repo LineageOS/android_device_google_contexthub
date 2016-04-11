@@ -33,6 +33,7 @@
 #include "system_comms.h"
 #include "nanohubhal.h"
 #include <utils/Log.h>
+#include <inttypes.h>
 #include <stdbool.h>
 #include <pthread.h>
 #include <string.h>
@@ -40,20 +41,15 @@
 #include <stdint.h>
 #include <errno.h>
 
-
-
-
 static pthread_mutex_t mLock = PTHREAD_MUTEX_INITIALIZER; //protects every global here
 static bool mHaveRsaKeys = false, mAppInfoReqInProgress = false, mUploadingOs, mUploadingStarted = false;
 static uint32_t mRsaOffset, mUploadLen, mUploadPos, mAppQueryIdx = 0;
 static uint8_t *mUploadData = NULL, *mRsaKeys = NULL;
 static struct NanohubAppInfo *mAppInfo = NULL;
+static uint32_t mUploadResult;
 
-
-
-
-static const uint8_t mHostIfAppNameBuf[APP_NAME_LEN] = {
-    0, 0, 0, 'l', 'g' ,'o', 'o', 'G',
+static const struct hub_app_name_t mHostIfAppName = {
+    .id = NANO_APP_ID(NANOAPP_VENDOR_GOOGLE, 0)
 };
 
 static uint32_t leToHost32(uint32_t in)
@@ -68,7 +64,7 @@ static uint32_t leToHost32(uint32_t in)
 
 static void send_msg_to_java(uint32_t typ, uint32_t len, const void *data)
 {
-    hal_hub_call_rx_msg_f(get_hub_info()->os_app_name, typ, len, data);
+    hal_hub_call_rx_msg_f(&get_hub_info()->os_app_name, typ, len, data);
 }
 
 static int system_comms_handle_app_info_query_locked(bool start)
@@ -78,33 +74,29 @@ static int system_comms_handle_app_info_query_locked(bool start)
         mAppInfo = NULL;
         mAppQueryIdx = 0;
     }
+    struct {
+        uint8_t cmd;
+        uint32_t idx;
+    } __attribute__((packed)) cmd;
 
-    uint8_t cmd[5] = {NANOHUB_QUERY_APPS, mAppQueryIdx, mAppQueryIdx >> 8, mAppQueryIdx >> 16, mAppQueryIdx >> 24};
+    cmd.cmd = NANOHUB_QUERY_APPS;
+    memcpy(&cmd.idx, &mAppQueryIdx, sizeof(cmd.idx));
 
-    return hal_hub_do_send_msg(mHostIfAppNameBuf, sizeof(cmd), cmd);
+    return hal_hub_do_send_msg(&mHostIfAppName, sizeof(cmd), &cmd);
 }
 
 static int system_comms_send_app_info_to_java_locked(void)
 {
     uint32_t infosSz;
-    struct hub_app_name_t *names = (struct hub_app_name_t*)calloc(1, sizeof(struct hub_app_name_t[mAppQueryIdx]));
-    struct mem_range_t *ranges = (struct mem_range_t*)calloc(1, sizeof(struct mem_range_t[mAppQueryIdx * 2]));
-    struct hub_app_info *infos = (struct hub_app_info*)calloc(1, infosSz = sizeof(struct hub_app_info[mAppQueryIdx]));
-    uint8_t *nameBufs = (uint8_t*)calloc(1, mAppQueryIdx * APP_NAME_LEN);
+    struct mem_range_t *ranges = (struct mem_range_t*)calloc(1, mAppQueryIdx * 2 *sizeof(struct mem_range_t));
+    struct hub_app_info *infos = (struct hub_app_info*)calloc(1, infosSz = mAppQueryIdx * sizeof(struct hub_app_info));
     uint32_t i, j = 0;
 
-    if (names && ranges && infos && nameBufs) {
+    if (ranges && infos) {
 
         for (i = 0; i < mAppQueryIdx; i++) { //loop over apps
 
             uint32_t startRange = j;
-
-            //set up name struct
-            names[i].app_name_len = APP_NAME_LEN;
-            names[i].app_name = nameBufs + i * APP_NAME_LEN;
-
-            //set up name itself
-            memcpy(nameBufs + i * APP_NAME_LEN, mAppInfo[i].name, APP_NAME_LEN);
 
             //copy mem info
             if (mAppInfo[i].flashUse != NANOHUB_MEM_SZ_UNKNOWN) {
@@ -119,7 +111,7 @@ static int system_comms_send_app_info_to_java_locked(void)
             }
 
             //populate app info
-            infos[i].name = names + i;
+            infos[i].app_name = mAppInfo[i].name;
             infos[i].version = mAppInfo[i].version;
             infos[i].num_mem_ranges = j - startRange;
             infos[i].mem_usage = ranges + startRange;
@@ -129,17 +121,11 @@ static int system_comms_send_app_info_to_java_locked(void)
         send_msg_to_java(CONTEXT_HUB_QUERY_APPS, infosSz, infos);
     }
 
-    if(names)
-        free(names);
-
     if(ranges)
         free(ranges);
 
     if (infos)
         free(infos);
-
-    if (nameBufs)
-        free(nameBufs);
 
     if (mAppInfo)
         free(mAppInfo);
@@ -150,9 +136,7 @@ static int system_comms_send_app_info_to_java_locked(void)
 
 static int system_comms_handle_rx_app_info(uint32_t len, const uint8_t *data)
 {
-    const struct NanohubAppInfo *i = (const struct NanohubAppInfo*)data;
     int ret = 0;
-    void *tmp;
 
     pthread_mutex_lock(&mLock);
 
@@ -161,19 +145,15 @@ static int system_comms_handle_rx_app_info(uint32_t len, const uint8_t *data)
         goto out;
     }
 
-    if (len == sizeof(struct NanohubAppInfo)) { //proper sized reply is more data
-        tmp = (struct NanohubAppInfo*)realloc(mAppInfo, sizeof(struct NanohubAppInfo[mAppQueryIdx + 1]));
+    if (len == sizeof(struct NanohubAppInfo)) {
+        void *tmp = (struct NanohubAppInfo*)realloc(mAppInfo, sizeof(struct NanohubAppInfo[mAppQueryIdx + 1]));
+
         if (tmp) {
             mAppInfo = tmp;
-            memcpy(mAppInfo[mAppQueryIdx].name, i->name, APP_NAME_LEN);
-            mAppInfo[mAppQueryIdx].version = leToHost32(i->version);
-            mAppInfo[mAppQueryIdx].flashUse = leToHost32(i->flashUse);
-            mAppInfo[mAppQueryIdx].ramUse = leToHost32(i->ramUse);
-            mAppQueryIdx++;
+            memcpy(&mAppInfo[mAppQueryIdx++], data, sizeof(struct NanohubAppInfo));
 
-            //query next, consider us done if that fails
             if (!system_comms_handle_app_info_query_locked(false))
-                goto out;
+                goto out; // expect more entries
         }
     }
 
@@ -251,14 +231,14 @@ static int system_comms_handle_upload_piece_locked(void)
         //TODO: future: RSA check here as an optimization
 
         mUploadingStarted = true;
-        return hal_hub_do_send_msg(mHostIfAppNameBuf, sizeof(msg), msg);
+        return hal_hub_do_send_msg(&mHostIfAppName, sizeof(msg), msg);
     }
 
     //are we just finishing
     else if (mUploadPos == mUploadLen) {
         uint8_t msg = NANOHUB_FINISH_UPLOAD;
 
-        return hal_hub_do_send_msg(mHostIfAppNameBuf, 1, &msg);
+        return hal_hub_do_send_msg(&mHostIfAppName, 1, &msg);
     }
 
     //guess we're in the middle of it - upload NANOHUB_UPLOAD_CHUNK_SZ_MAX bytes or what's left, whichever is smaller
@@ -272,20 +252,27 @@ static int system_comms_handle_upload_piece_locked(void)
         memcpy(msg + 5, mUploadData + mUploadPos, now);
         mUploadPos += now;
 
-        return hal_hub_do_send_msg(mHostIfAppNameBuf, now + 5, msg);
+        return hal_hub_do_send_msg(&mHostIfAppName, now + 5, msg);
     }
 }
 
 static int system_comms_handle_rx_upload_finish_locked(bool success)
 {
-    uint8_t ret = success ? 1 : 0;
     uint8_t msg = NANOHUB_REBOOT;
+    uint8_t result = success ? NANOHUB_APP_LOADED : NANOHUB_APP_NOT_LOADED;
 
-    send_msg_to_java(mUploadingOs ? CONTEXT_HUB_LOAD_OS : CONTEXT_HUB_LOAD_APP, 1, &ret);
     free(mUploadData);
     mUploadData = NULL;
 
-    return hal_hub_do_send_msg(mHostIfAppNameBuf, 1, &msg);
+    send_msg_to_java(mUploadingOs ? CONTEXT_HUB_LOAD_OS : CONTEXT_HUB_LOAD_APP,
+            sizeof(result), &result);
+
+    if (success) {
+        mUploadResult = true;
+        return hal_hub_do_send_msg(&mHostIfAppName, 1, &msg);
+    }
+
+    return 0;
 }
 
 static int system_comms_handle_rx_upload_status(uint32_t len, const uint8_t *data, bool fini)
@@ -325,11 +312,30 @@ static int system_comms_handle_rx_upload_fini(uint32_t len, const uint8_t *data)
     return system_comms_handle_rx_upload_status(len, data, true);
 }
 
+static int system_comms_handle_rx_reboot(uint32_t len, const uint8_t *data)
+{
+    uint8_t ret = NANOHUB_APPS_RUNNING;
+
+    if (len == sizeof(uint32_t)) {
+        uint32_t status;
+        memcpy(&status, data, sizeof(status));
+        ALOGI("Nanohub reboot status: %08" PRIX32, status);
+    }
+
+    pthread_mutex_lock(&mLock);
+    if (mUploadResult)
+        send_msg_to_java(mUploadingOs ? CONTEXT_HUB_LOAD_OS : CONTEXT_HUB_LOAD_APP, sizeof(ret), &ret);
+    mUploadResult = false;
+    pthread_mutex_unlock(&mLock);
+
+    return 0;
+}
+
 static int system_comms_handle_get_rsa_keys_locked(void)
 {
     uint8_t msg[5] = {NANOHUB_QUERY_RSA_KEYS, mRsaOffset, mRsaOffset >> 8, mRsaOffset >> 16, mRsaOffset >> 24};
 
-    return hal_hub_do_send_msg(mHostIfAppNameBuf, sizeof(msg), msg);
+    return hal_hub_do_send_msg(&mHostIfAppName, sizeof(msg), msg);
 }
 
 static int system_comms_handle_rx_rsa_keys(uint32_t len, const uint8_t *data)
@@ -365,13 +371,14 @@ out:
     return ret;
 }
 
-int system_comms_handle_rx(const void *name, uint32_t len, const void *dataP)
+int system_comms_handle_rx(const struct nano_message *msg)
 {
-    const uint8_t *data = (const uint8_t*)dataP;
+    const uint8_t *data = &msg->data[0];
+    int len = msg->hdr.len;
     uint8_t msgType;
 
     //we only care for messages from HostIF
-    if (memcmp(name, mHostIfAppNameBuf, APP_NAME_LEN))
+    if (memcmp(&msg->hdr.app_name, &mHostIfAppName, sizeof(mHostIfAppName)) != 0)
         return 1;
 
     //they must all be at least 1 byte long
@@ -418,8 +425,7 @@ int system_comms_handle_rx(const void *name, uint32_t len, const void *dataP)
         return system_comms_handle_rx_upload_fini(len, data);
 
     case NANOHUB_REBOOT:
-        ALOGI("Weird - we got a %u-byte ACK for reboot - ok then, moving on...", len);
-        break;
+        return system_comms_handle_rx_reboot(len, data);
 
     default:
         ALOGW("Unknown nanohub reply packet %u ( + %u bytes of data) - dropped", msgType, len);
@@ -481,35 +487,39 @@ static int system_comms_handle_app_info_query(bool start)
 
 int system_comms_handle_tx(const struct hub_message_t *outMsg)
 {
-    uint8_t cmd[APP_NAME_LEN + 1], len = 1;
+    struct {
+        uint8_t cmd;
+        struct hub_app_name_t app_name;
+    } __attribute__((packed)) cmd;
+    uint8_t len = 1;
 
     switch (outMsg->message_type) {
 
     case CONTEXT_HUB_APPS_ENABLE:
-        cmd[0] = NANOHUB_EXT_APPS_ON;
+        cmd.cmd = NANOHUB_EXT_APPS_ON;
         break;
 
     case CONTEXT_HUB_APPS_DISABLE:
-        cmd[0] = NANOHUB_EXT_APPS_OFF;
+        cmd.cmd = NANOHUB_EXT_APPS_OFF;
         break;
 
     case CONTEXT_HUB_LOAD_APP:
         return system_comms_handle_upload(outMsg->message, outMsg->message_len, false);
 
     case CONTEXT_HUB_UNLOAD_APP:
-        if (outMsg->message_len != APP_NAME_LEN)
+        if (outMsg->message_len != sizeof(cmd.app_name))
             return -EINVAL;
 
-        cmd[0] = NANOHUB_EXT_APP_DELETE;
-        memcpy(cmd + 1, outMsg->message, APP_NAME_LEN);
-        len = 1 + APP_NAME_LEN;
+        cmd.cmd = NANOHUB_EXT_APP_DELETE;
+        memcpy(&cmd.app_name, outMsg->message, sizeof(cmd.app_name));
+        len += sizeof(cmd.app_name);
         break;
 
     case CONTEXT_HUB_QUERY_APPS:
         return system_comms_handle_app_info_query(true);
 
     case CONTEXT_HUB_QUERY_MEMORY:
-        cmd[0] = NANOHUB_QUERY_MEMINFO;
+        cmd.cmd = NANOHUB_QUERY_MEMINFO;
         break;
 
     case CONTEXT_HUB_LOAD_OS:
@@ -520,10 +530,5 @@ int system_comms_handle_tx(const struct hub_message_t *outMsg)
         return -EINVAL;
     }
 
-    return hal_hub_do_send_msg(mHostIfAppNameBuf, len, cmd);
+    return hal_hub_do_send_msg(&mHostIfAppName, len, &cmd);
 }
-
-
-
-
-
