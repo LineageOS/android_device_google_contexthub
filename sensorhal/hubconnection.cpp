@@ -91,7 +91,6 @@ HubConnection::HubConnection()
       mLastStepCount(0ull)
 {
     mMagBias[0] = mMagBias[1] = mMagBias[2] = 0.0f;
-    mUsbMagBias = 0;
     mMagAccuracy = SENSOR_STATUS_UNRELIABLE;
     mMagAccuracyRestore = SENSOR_STATUS_UNRELIABLE;
     mGyroBias[0] = mGyroBias[1] = mGyroBias[2] = 0.0f;
@@ -120,6 +119,8 @@ HubConnection::HubConnection()
         mNumPollFds++;
     }
 
+#ifdef USB_MAG_BIAS_REPORTING_ENABLED
+    mUsbMagBias = 0;
     mMagBiasPollIndex = -1;
     int magBiasFd = open(MAG_BIAS_FILE_PATH, O_RDONLY);
     if (magBiasFd < 0) {
@@ -131,6 +132,7 @@ HubConnection::HubConnection()
         mMagBiasPollIndex = mNumPollFds;
         mNumPollFds++;
     }
+#endif  // USB_MAG_BIAS_REPORTING_ENABLED
 
     mSensorState[COMMS_SENSOR_ACCEL].sensorType = SENS_TYPE_ACCEL;
     mSensorState[COMMS_SENSOR_GYRO].sensorType = SENS_TYPE_GYRO;
@@ -306,7 +308,11 @@ void HubConnection::saveSensorSettings() const {
 
     // Build a settings object.
     sp<JSONArray> magArray = new JSONArray;
+#ifdef USB_MAG_BIAS_REPORTING_ENABLED
     magArray->addFloat(mMagBias[0] + mUsbMagBias);
+#else
+    magArray->addFloat(mMagBias[0]);
+#endif  // USB_MAG_BIAS_REPORTING_ENABLED
     magArray->addFloat(mMagBias[1]);
     magArray->addFloat(mMagBias[2]);
 
@@ -833,6 +839,7 @@ bool HubConnection::threadLoop() {
             waitOnNanohubLock();
         }
 
+#ifdef USB_MAG_BIAS_REPORTING_ENABLED
         if (mMagBiasPollIndex >= 0 && mPollFds[mMagBiasPollIndex].revents & POLLERR) {
             // Read from mag bias file
             char buf[16];
@@ -842,6 +849,7 @@ bool HubConnection::threadLoop() {
             mUsbMagBias = bias;
             queueUsbMagBias();
         }
+#endif // USB_MAG_BIAS_REPORTING_ENABLED
 
         if (mPollFds[0].revents & POLLIN) {
             len = ::read(mFd, recv, sizeof(recv));
@@ -1016,6 +1024,7 @@ void HubConnection::queueData(int handle, void *data, size_t length)
     }
 }
 
+#ifdef USB_MAG_BIAS_REPORTING_ENABLED
 void HubConnection::queueUsbMagBias()
 {
     struct MsgCmd *cmd = (struct MsgCmd *)malloc(sizeof(struct MsgCmd) + sizeof(float));
@@ -1034,7 +1043,9 @@ void HubConnection::queueUsbMagBias()
         free(cmd);
     }
 }
+#endif  // USB_MAG_BIAS_REPORTING_ENABLED
 
+#ifdef LID_STATE_REPORTING_ENABLED
 status_t HubConnection::initializeUinputNode()
 {
     int ret = 0;
@@ -1079,7 +1090,6 @@ status_t HubConnection::initializeUinputNode()
     return OK;
 }
 
-#ifdef LID_STATE_REPORTING_ENABLED
 void HubConnection::sendFolioEvent(int32_t data) {
     ssize_t ret = 0;
     struct input_event ev;
