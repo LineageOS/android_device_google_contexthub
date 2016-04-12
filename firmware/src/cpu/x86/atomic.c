@@ -63,7 +63,7 @@ uint32_t atomicXchg32bits(volatile uint32_t *word, uint32_t newVal)
 
 bool atomicCmpXchgByte(volatile uint8_t *byte, uint32_t prevVal, uint32_t newVal)
 {
-    return __sync_bool_compare_and_swap (byte, prevVal, newVal); 
+    return __sync_bool_compare_and_swap (byte, prevVal, newVal);
 /*
     uint32_t ret;
 
@@ -80,7 +80,7 @@ bool atomicCmpXchgByte(volatile uint8_t *byte, uint32_t prevVal, uint32_t newVal
 
 bool atomicCmpXchg32bits(volatile uint32_t *word, uint32_t prevVal, uint32_t newVal)
 {
-    return __sync_bool_compare_and_swap (word, prevVal, newVal); 
+    return __sync_bool_compare_and_swap (word, prevVal, newVal);
 /*
     uint32_t ret;
 

@@ -72,7 +72,7 @@ SRCS_os += src/hostIntf.c src/hostIntfI2c.c src/hostIntfSpi.c src/nanohubCommand
 SRCS_os += src/eventQ.c src/osApi.c src/appSec.c src/simpleQ.c src/floatRt.c
 
 #some help for bootloader
-SRCS_bl += src/printf.c 
+SRCS_bl += src/printf.c
 
 ifndef PLATFORM_HAS_HARDWARE_CRC
 SRCS_os += src/softcrc.c

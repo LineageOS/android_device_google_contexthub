@@ -52,7 +52,7 @@ BADWORDS += "cosf=include nanhub_math.h before using cosf()"
 BADWORDS += "asinf=include nanhub_math.h before using asinf()"
 
 #all softfloat double funcs are forbidden
-BADWORDS += __muldf3 __divdf3 __subdf3 __adddf3 __truncdfsf2 
+BADWORDS += __muldf3 __divdf3 __subdf3 __adddf3 __truncdfsf2
 
 
 
