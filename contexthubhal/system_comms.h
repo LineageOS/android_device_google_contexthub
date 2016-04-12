@@ -51,6 +51,9 @@ int system_comms_handle_tx(const struct hub_message_t *outMsg);
 #define NANOHUB_FINISH_UPLOAD      8 // () -> (char success)
 #define NANOHUB_REBOOT             9 // () -> (char success)
 
+// Custom defined private messages
+#define CONTEXT_HUB_LOAD_OS (CONTEXT_HUB_TYPE_PRIVATE_MSG_BASE + 1)
+
 
 #define NANOHUB_APP_NOT_LOADED  0
 #define NANOHUB_APP_LOADED      1
