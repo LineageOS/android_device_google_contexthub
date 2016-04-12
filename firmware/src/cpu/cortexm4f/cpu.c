@@ -172,7 +172,7 @@ void cpuIntsRestore(uint64_t state)
     asm volatile(
         "msr PRIMASK, %0   \n"
         ::"r"((uint32_t)state)
-    );   
+    );
 }
 
 static void __attribute__((used)) syscallHandler(uintptr_t *excRegs)

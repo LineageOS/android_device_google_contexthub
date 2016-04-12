@@ -164,7 +164,7 @@ extern "C" {
 #define DBG_BASE                      0xE0042000UL
 
 
-enum Stm32F4xxSleepType {       //current       power          wkup way       wkup speed   (typ/max) 
+enum Stm32F4xxSleepType {       //current       power          wkup way       wkup speed   (typ/max)
     stm32f411SleepModeSleep,    //2.7-5.9mA     all-core       interrupt      1 cy
     stm32f144SleepModeStopMR,   //111uA         RTC,flash,reg  EXTI           13.5/14.5us
     stm32f144SleepModeStopMRFPD,// 73uA         RTC,reg        EXTI           105/111us
