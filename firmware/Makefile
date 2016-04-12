@@ -22,7 +22,7 @@ DEBUG ?= -DDEBUG
 
 #bad words
 BADWORDS += strcpy strcat atoi
-BADWORDS += "rsaPrivOp=RSA private ops should never be compiled into firmware. You *ARE* doing something wrong! Stop!"
+BADWORDS += "rsaPrivOp=RSA private ops must never be compiled into firmware."
 
 #find makefiles
 MAKE_PLAT = misc/platform/$(PLATFORM)/Makefile
