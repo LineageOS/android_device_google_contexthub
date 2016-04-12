@@ -44,7 +44,7 @@ const uint32_t* rsaPrivOp(struct RsaState* state, const uint32_t *a, const uint3
 const uint32_t* rsaPubOp(struct RsaState* state, const uint32_t *a, const uint32_t *c);
 
 #ifdef ARM
-#error "RSA private ops should never be compiled into firmware. You *ARE* doing something wrong! Stop!"
+#error "RSA private ops must never be compiled into firmware."
 #endif
 
 #endif
