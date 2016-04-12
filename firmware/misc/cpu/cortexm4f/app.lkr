@@ -33,7 +33,7 @@
 	After this image is produced a nonoapp_postprocess unitily will process relocs and symbols and compress them to a small reloc table
 	while also modifying the app code itself potentially to adjust for new reloc format. This shrinks relocs a lot. GCC produces relocs at 8
 	bytes per reloc and symbols at 16 bytes per symbol. We remove all symbol infos (as weo not need them) and compress the relevant data
-	from there into relocs and app image itself, generating 4 bytes per reloc of "nano reloc data" 
+	from there into relocs and app image itself, generating 4 bytes per reloc of "nano reloc data"
 
 	Our format allows apps that are up to 256MB of flash and 256MB of ram in size.
 */
@@ -59,18 +59,18 @@ SECTIONS
 		LONG(0xaaaaaaaa)
 
                 /* things we need to load it */
-		LONG(__data_start) 
-		LONG(__data_end) 
-		LONG(LOADADDR(.data)) 
+		LONG(__data_start)
+		LONG(__data_end)
+		LONG(LOADADDR(.data))
 
-		LONG(__bss_start) 
-		LONG(__bss_end) 
+		LONG(__bss_start)
+		LONG(__bss_end)
 
                 /* things we need to run it */
-		LONG(__got_start) 
-		LONG(__got_end) 
-		LONG(__rel_start) 
-		LONG(__rel_end) 
+		LONG(__got_start)
+		LONG(__got_end)
+		LONG(__rel_start)
+		LONG(__rel_end)
 
                 /* version */
 		KEEP(*(.app_version));
