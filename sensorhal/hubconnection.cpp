@@ -102,22 +102,7 @@ HubConnection::HubConnection()
     mPollFds[0].revents = 0;
     mNumPollFds = 1;
 
-    // Create the lock directory (if it doesn't already exist)
-    mkdir(NANOHUB_LOCK_DIR, NANOHUB_LOCK_DIR_PERMS);
-    mInotifyPollIndex = -1;
-    int inotifyFd = inotify_init1(IN_NONBLOCK);
-    if (inotifyFd < 0) {
-        ALOGE("Couldn't initialize inotify: %s", strerror(errno));
-    } else if (inotify_add_watch(inotifyFd, NANOHUB_LOCK_DIR, IN_CREATE | IN_DELETE) < 0) {
-        ALOGE("Couldn't add inotify watch: %s", strerror(errno));
-        close(inotifyFd);
-    } else {
-        mPollFds[mNumPollFds].fd = inotifyFd;
-        mPollFds[mNumPollFds].events = POLLIN;
-        mPollFds[mNumPollFds].revents = 0;
-        mInotifyPollIndex = mNumPollFds;
-        mNumPollFds++;
-    }
+    initNanohubLock();
 
 #ifdef USB_MAG_BIAS_REPORTING_ENABLED
     mUsbMagBias = 0;
@@ -1021,6 +1006,29 @@ void HubConnection::queueData(int handle, void *data, size_t length)
         free(cmd);
     } else {
         ALOGI("queueData: unhandled handle=%d", handle);
+    }
+}
+
+void HubConnection::initNanohubLock() {
+    // Create the lock directory (if it doesn't already exist)
+    if (mkdir(NANOHUB_LOCK_DIR, NANOHUB_LOCK_DIR_PERMS) < 0 && errno != EEXIST) {
+        ALOGE("Couldn't create Nanohub lock directory: %s", strerror(errno));
+        return;
+    }
+
+    mInotifyPollIndex = -1;
+    int inotifyFd = inotify_init1(IN_NONBLOCK);
+    if (inotifyFd < 0) {
+        ALOGE("Couldn't initialize inotify: %s", strerror(errno));
+    } else if (inotify_add_watch(inotifyFd, NANOHUB_LOCK_DIR, IN_CREATE | IN_DELETE) < 0) {
+        ALOGE("Couldn't add inotify watch: %s", strerror(errno));
+        close(inotifyFd);
+    } else {
+        mPollFds[mNumPollFds].fd = inotifyFd;
+        mPollFds[mNumPollFds].events = POLLIN;
+        mPollFds[mNumPollFds].revents = 0;
+        mInotifyPollIndex = mNumPollFds;
+        mNumPollFds++;
     }
 }
 
