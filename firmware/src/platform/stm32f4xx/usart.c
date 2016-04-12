@@ -124,7 +124,7 @@ void usartOpen(struct usart* __restrict usart, UsartPort port,
     intPart = intPart << 4;
     fraPart = ((fraPart * 8 + 50) / 100) & 7;
     block->BRR = intPart | fraPart;
- 
+
     /* enable */
     block->CR1 |= 0x2000;
 }

@@ -96,7 +96,7 @@ static void sha2processBlock(struct Sha2state *state)
         uint32_t s0 = ror(a, 2) ^ ror(a, 13) ^ ror(a, 22);
         uint32_t maj = (a & b) ^ (a & c) ^ (b & c);
         uint32_t temp2 = s0 + maj;
- 
+
         h = g;
         g = f;
         f = e;
