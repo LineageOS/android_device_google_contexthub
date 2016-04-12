@@ -38,7 +38,7 @@
  *   else
  *      e = e - 127
  *      useLeadingOne = 1
- * 
+ *
  *   val = ((useLeadingOne << 24) + m) / (2 ^ 23)
  *   val *= 2 ^ e
  *
@@ -54,7 +54,7 @@
 #define EXP_ADJUST      127
 
 
-#ifdef MY_FLOAT_RUNTIME_SUCKS
+#ifdef USE_NANOHUB_FLOAT_RUNTIME
 
 uint64_t floatToUint64(float f)
 {
@@ -150,4 +150,4 @@ float floatFromInt64(int64_t v)
 
 
 
-#endif //MY_FLOAT_RUNTIME_SUCKS
+#endif // USE_NANOHUB_FLOAT_RUNTIME
