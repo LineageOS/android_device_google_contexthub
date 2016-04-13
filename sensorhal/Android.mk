@@ -23,6 +23,9 @@
 # # Nanohub sensor list source file
 # NANOHUB_SENSORHAL_SENSORLIST := $(LOCAL_PATH)/sensorhal/sensorlist.cpp
 #
+# # Sensor HAL name override (optional)
+# NANOHUB_SENSORHAL_NAME_OVERRIDE := sensors.nanohub
+#
 # # Enable lid-state reporting (optional)
 # NANOHUB_SENSORHAL_LID_STATE_ENABLED := true
 #
@@ -40,7 +43,12 @@ COMMON_CFLAGS := -Wall -Werror -Wextra
 
 include $(CLEAR_VARS)
 
+ifeq ($(NANOHUB_SENSORHAL_NAME_OVERRIDE),)
 LOCAL_MODULE := sensors.$(TARGET_DEVICE)
+else
+LOCAL_MODULE := $(NANOHUB_SENSORHAL_NAME_OVERRIDE)
+endif
+
 LOCAL_MODULE_RELATIVE_PATH := hw
 LOCAL_MODULE_TAGS := optional
 LOCAL_MODULE_OWNER := google
