@@ -41,11 +41,12 @@
 #include <heap.h>
 #include <simpleQ.h>
 
-#define MAX_NUM_BLOCKS      280         /* times 256 = 71680 bytes */
-#define MIN_NUM_BLOCKS      10          /* times 256 = 2560 bytes */
-#define SENSOR_INIT_DELAY   500000000   /* ns */
-#define CHECK_LATENCY_TIME  500000000   /* ns */
-#define EVT_LATENCY_TIMER   EVT_NO_FIRST_USER_EVENT
+#define HOSTINTF_MAX_ERR_MSG    8
+#define MAX_NUM_BLOCKS          280         /* times 256 = 71680 bytes */
+#define MIN_NUM_BLOCKS          10          /* times 256 = 2560 bytes */
+#define SENSOR_INIT_DELAY       500000000   /* ns */
+#define CHECK_LATENCY_TIME      500000000   /* ns */
+#define EVT_LATENCY_TIMER       EVT_NO_FIRST_USER_EVENT
 
 static const uint32_t delta_time_multiplier_order = 9;
 static const uint32_t delta_time_coarse_mask = ~1;
@@ -131,6 +132,29 @@ static uint8_t mRxIdle;
 static uint8_t mWakeActive;
 static uint8_t mActiveWrite;
 static uint8_t mRestartRx;
+static uint8_t mIntErrMsgIdx;
+static volatile uint32_t mIntErrMsgCnt;
+
+enum hostIntfIntErrReason
+{
+    HOSTINTF_ERR_PKG_INCOMPELETE = 0,
+    HOSTINTF_ERR_PGK_SIZE,
+    HOSTINTF_ERR_PKG_PAYLOAD_SIZE,
+    HOSTINTF_ERR_PKG_CRC,
+    HOSTINTF_ERR_RECEIVE,
+    HOSTINTF_ERR_SEND,
+    HOSTINTF_ERR_ACK,
+    HOSTINTF_ERR_NACKED,
+    HOSTINTF_ERR_UNKNOWN
+};
+
+struct hostIntfIntErrMsg
+{
+    enum LogLevel level;
+    enum hostIntfIntErrReason reason;
+    const char *func;
+};
+static struct hostIntfIntErrMsg mIntErrMsg[HOSTINTF_MAX_ERR_MSG];
 
 static void hostIntfTxPacket(uint32_t reason, uint8_t len, uint32_t seq,
         HostIntfCommCallbackF callback);
@@ -168,6 +192,28 @@ static inline __le32 hostIntfComputeCrc(uint8_t *buf)
     return htole32(crc);
 }
 
+static void hostIntfPrintErrMsg(void *cookie)
+{
+    struct hostIntfIntErrMsg *msg = (struct hostIntfIntErrMsg *)cookie;
+    osLog(msg->level, "%s failed with: %d\n", msg->func, msg->reason);
+    atomicAdd(&mIntErrMsgCnt, -1UL);
+}
+
+static void hostIntfDeferErrLog(enum LogLevel level, enum hostIntfIntErrReason reason, const char *func)
+{
+    // If the message buffer is full, we drop the newer messages.
+    if (atomicRead32bits(&mIntErrMsgCnt) == HOSTINTF_MAX_ERR_MSG)
+        return;
+
+    mIntErrMsg[mIntErrMsgIdx].level = level;
+    mIntErrMsg[mIntErrMsgIdx].reason = reason;
+    mIntErrMsg[mIntErrMsgIdx].func = func;
+    if (osDefer(hostIntfPrintErrMsg, &mIntErrMsg[mIntErrMsgIdx], false)) {
+        atomicAdd(&mIntErrMsgCnt, 1UL);
+        mIntErrMsgIdx = (mIntErrMsgIdx + 1) % HOSTINTF_MAX_ERR_MSG;
+    }
+}
+
 static inline const struct NanohubCommand *hostIntfFindHandler(uint8_t *buf, size_t size, uint32_t *seq)
 {
     struct NanohubPacket *packet = (struct NanohubPacket *)buf;
@@ -177,21 +223,19 @@ static inline const struct NanohubCommand *hostIntfFindHandler(uint8_t *buf, siz
     const struct NanohubCommand *cmd;
 
     if (size < NANOHUB_PACKET_SIZE(0)) {
-        osLog(LOG_WARN, "%s: received incomplete packet (size = %zu)\n", __func__, size);
+        hostIntfDeferErrLog(LOG_WARN, HOSTINTF_ERR_PKG_INCOMPELETE, __func__);
         return NULL;
     }
 
     if (size != NANOHUB_PACKET_SIZE(packet->len)) {
-        osLog(LOG_WARN, "%s: size mismatch (size = %zu, packet->len = %zu)\n",
-                __func__, size, NANOHUB_PACKET_SIZE(packet->len));
+        hostIntfDeferErrLog(LOG_WARN, HOSTINTF_ERR_PGK_SIZE, __func__);
         return NULL;
     }
 
     footer = hostIntfGetFooter(buf);
     packetCrc = hostIntfComputeCrc(buf);
     if (footer->crc != packetCrc) {
-        osLog(LOG_WARN, "%s: CRC mismatch (calculated %08" PRIx32 ", footer->crc = %08" PRIx32 ")\n",
-                __func__, le32toh(packetCrc), le32toh(footer->crc));
+        hostIntfDeferErrLog(LOG_WARN, HOSTINTF_ERR_PKG_CRC, __func__);
         return NULL;
     }
 
@@ -211,17 +255,14 @@ static inline const struct NanohubCommand *hostIntfFindHandler(uint8_t *buf, siz
 
     if ((cmd = nanohubFindCommand(packetReason)) != NULL) {
         if (packet->len < cmd->minDataLen || packet->len > cmd->maxDataLen) {
-            osLog(LOG_WARN, "%s: payload size mismatch (reason = %08" PRIx32 ", min sizeof(payload) = %zu, max sizeof(payload) = %zu, packet->len = %zu)\n",
-                    __func__, cmd->reason, cmd->minDataLen, cmd->maxDataLen,
-                    packet->len);
+            hostIntfDeferErrLog(LOG_WARN, HOSTINTF_ERR_PKG_PAYLOAD_SIZE, __func__);
             return NULL;
         }
 
         return cmd;
     }
 
-    osLog(LOG_WARN, "%s: unknown reason %08" PRIx32 "\n",
-            __func__, packetReason);
+    hostIntfDeferErrLog(LOG_WARN, HOSTINTF_ERR_UNKNOWN, __func__);
     return NULL;
 }
 
@@ -314,7 +355,7 @@ static void hostIntfRxDone(size_t rx, int err)
     mRxSize = rx;
 
     if (err != 0) {
-        osLog(LOG_ERROR, "%s: failed to receive request: %d\n", __func__, err);
+        hostIntfDeferErrLog(LOG_ERROR, HOSTINTF_ERR_RECEIVE, __func__);
         return;
     }
 
@@ -365,14 +406,14 @@ static void hostIntfTxAckDone(size_t tx, int err)
     hostIntfTxPacketDone(err, tx, hostIntfTxAckDone);
 
     if (err) {
-        osLog(LOG_ERROR, "%s: failed to ACK request: %d\n", __func__, err);
+        hostIntfDeferErrLog(LOG_ERROR, HOSTINTF_ERR_ACK, __func__);
         hostIntfTxComplete(false);
         return;
     }
 
     if (!mRxCmd) {
         if (!mBusy)
-            osLog(LOG_DEBUG, "%s: NACKed invalid request\n", __func__);
+            hostIntfDeferErrLog(LOG_DEBUG, HOSTINTF_ERR_NACKED, __func__);
         if (atomicReadByte(&mRestartRx))
             hostIntfTxComplete(true);
         else
@@ -401,7 +442,7 @@ static void hostIntfTxPayloadDone(size_t tx, int err)
     bool done = hostIntfTxPacketDone(err, tx, hostIntfTxPayloadDone);
 
     if (err)
-        osLog(LOG_ERROR, "%s: failed to send response: %d\n", __func__, err);
+        hostIntfDeferErrLog(LOG_ERROR, HOSTINTF_ERR_SEND, __func__);
 
     if (done) {
         if (atomicReadByte(&mRestartRx))
