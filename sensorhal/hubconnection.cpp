@@ -744,6 +744,9 @@ ssize_t HubConnection::processBuf(uint8_t *buf, ssize_t len)
             }
         }
 
+        if (!numSamples)
+            ret += sizeof(data->firstSample);
+
         for (i=0; i<data->firstSample.numFlushes; i++) {
             if (sensor == COMMS_SENSOR_ACTIVITY) {
                 if (mActivityCb != NULL) {
