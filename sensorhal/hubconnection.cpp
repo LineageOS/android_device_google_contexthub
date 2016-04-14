@@ -65,6 +65,9 @@ const char LID_STATE_OPEN[]     = "open";
 const char LID_STATE_CLOSED[]   = "closed";
 #endif  // LID_STATE_REPORTING_ENABLED
 
+static const uint32_t delta_time_encoded = 1;
+static const uint32_t delta_time_shift_table[2] = {9, 0};
+
 namespace android {
 
 // static
@@ -728,17 +731,17 @@ ssize_t HubConnection::processBuf(uint8_t *buf, ssize_t len)
 
             if (one) {
                 if (i > 0)
-                    timestamp += data->oneSamples[i].deltaTime;
+                    timestamp += ((uint64_t)data->oneSamples[i].deltaTime) << delta_time_shift_table[data->oneSamples[i].deltaTime & delta_time_encoded];
                 processSample(timestamp, type, currSensor, &data->oneSamples[i], data->firstSample.highAccuracy);
                 ret += sizeof(data->oneSamples[i]);
             } else if (rawThree) {
                 if (i > 0)
-                    timestamp += data->rawThreeSamples[i].deltaTime;
+                    timestamp += ((uint64_t)data->rawThreeSamples[i].deltaTime) << delta_time_shift_table[data->rawThreeSamples[i].deltaTime & delta_time_encoded];
                 processSample(timestamp, type, currSensor, &data->rawThreeSamples[i], data->firstSample.highAccuracy);
                 ret += sizeof(data->rawThreeSamples[i]);
             } else if (three) {
                 if (i > 0)
-                    timestamp += data->threeSamples[i].deltaTime;
+                    timestamp += ((uint64_t)data->threeSamples[i].deltaTime) << delta_time_shift_table[data->threeSamples[i].deltaTime & delta_time_encoded];
                 processSample(timestamp, type, currSensor, &data->threeSamples[i], data->firstSample.highAccuracy);
                 ret += sizeof(data->threeSamples[i]);
             }
