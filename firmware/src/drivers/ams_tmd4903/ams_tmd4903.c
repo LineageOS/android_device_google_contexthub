@@ -36,7 +36,7 @@
 #include <variant/inc/variant.h>
 
 #define AMS_TMD4903_APP_ID      APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 12)
-#define AMS_TMD4903_APP_VERSION 5
+#define AMS_TMD4903_APP_VERSION 6
 
 #ifndef PROX_INT_PIN
 #error "PROX_INT_PIN is not defined; please define in variant.h"
@@ -304,11 +304,11 @@ static void alsTimerCallback(uint32_t timerId, void *cookie)
     osEnqueuePrivateEvt(EVT_SENSOR_ALS_TIMER, cookie, NULL, mTask.tid);
 }
 
-#define LUX_PER_COUNTS   (797.88f/AMS_TMD4903_ATIME_MS)
-#define C_COEFF           1.89f
-#define R_COEFF           -0.69f
-#define G_COEFF           1.54f
-#define B_COEFF           -2.91f
+#define LUX_PER_COUNTS   (799.397f/AMS_TMD4903_ATIME_MS)
+#define C_COEFF           2.387f
+#define R_COEFF           -1.57f
+#define G_COEFF           2.69f
+#define B_COEFF           -3.307f
 
 static inline float getLuxFromAlsData(uint16_t c, uint16_t r, uint16_t g, uint16_t b)
 {
