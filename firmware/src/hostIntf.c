@@ -47,6 +47,12 @@
 #define CHECK_LATENCY_TIME  500000000   /* ns */
 #define EVT_LATENCY_TIMER   EVT_NO_FIRST_USER_EVENT
 
+static const uint32_t delta_time_multiplier_order = 9;
+static const uint32_t delta_time_coarse_mask = ~1;
+static const uint32_t delta_time_fine_mask = 1;
+static const uint32_t delta_time_rounding = 0x200;      /* 1ul << delta_time_multiplier_order */
+static const uint64_t delta_time_max = 0x1FFFFFFFE00;   /* UINT32_MAX << delta_time_multiplier_order */
+
 enum ConfigCmds
 {
     CONFIG_CMD_DISABLE      = 0,
@@ -654,6 +660,18 @@ static inline int16_t floatToInt16(float val)
         return val - 0.5f;
 }
 
+static uint32_t encodeDeltaTime(uint64_t time)
+{
+    uint32_t deltaTime;
+
+    if (time <= UINT32_MAX) {
+        deltaTime = time | delta_time_fine_mask;
+    } else {
+        deltaTime = ((time + delta_time_rounding) >> delta_time_multiplier_order) & delta_time_coarse_mask;
+    }
+    return deltaTime;
+}
+
 static void copyTripleSamplesRaw(struct ActiveSensor *sensor, const struct TripleAxisDataEvent *triple)
 {
     int i;
@@ -692,12 +710,12 @@ static void copyTripleSamplesRaw(struct ActiveSensor *sensor, const struct Tripl
                     simpleQueueEnqueue(mOutputQ, &sensor->buffer, sizeof(uint32_t) + sensor->buffer.length, sensor->discard);
                     resetBuffer(sensor);
                     i--;
-                } else if (triple->referenceTime - sensor->lastTime > UINT32_MAX) {
+                } else if (triple->referenceTime - sensor->lastTime >= delta_time_max) {
                     simpleQueueEnqueue(mOutputQ, &sensor->buffer, sizeof(uint32_t) + sensor->buffer.length, sensor->discard);
                     resetBuffer(sensor);
                     i--;
                 } else {
-                    deltaTime = triple->referenceTime - sensor->lastTime;
+                    deltaTime = encodeDeltaTime(triple->referenceTime - sensor->lastTime);
                     numSamples = sensor->buffer.firstSample.numSamples;
 
                     sensor->buffer.length += sizeof(struct RawTripleAxisDataPoint);
@@ -714,7 +732,7 @@ static void copyTripleSamplesRaw(struct ActiveSensor *sensor, const struct Tripl
                 numSamples = sensor->buffer.firstSample.numSamples;
 
                 sensor->buffer.length += sizeof(struct RawTripleAxisDataPoint);
-                sensor->buffer.rawTriple[numSamples].deltaTime = deltaTime;
+                sensor->buffer.rawTriple[numSamples].deltaTime = deltaTime | delta_time_fine_mask;
                 sensor->buffer.rawTriple[numSamples].ix = floatToInt16(triple->samples[i].x * sensor->rawScale);
                 sensor->buffer.rawTriple[numSamples].iy = floatToInt16(triple->samples[i].y * sensor->rawScale);
                 sensor->buffer.rawTriple[numSamples].iz = floatToInt16(triple->samples[i].z * sensor->rawScale);
@@ -762,12 +780,12 @@ static void copySingleSamples(struct ActiveSensor *sensor, const struct SingleAx
                     simpleQueueEnqueue(mOutputQ, &sensor->buffer, sizeof(uint32_t) + sensor->buffer.length, sensor->discard);
                     resetBuffer(sensor);
                     i--;
-                } else if (single->referenceTime - sensor->lastTime > UINT32_MAX) {
+                } else if (single->referenceTime - sensor->lastTime >= delta_time_max) {
                     simpleQueueEnqueue(mOutputQ, &sensor->buffer, sizeof(uint32_t) + sensor->buffer.length, sensor->discard);
                     resetBuffer(sensor);
                     i--;
                 } else {
-                    deltaTime = single->referenceTime - sensor->lastTime;
+                    deltaTime = encodeDeltaTime(single->referenceTime - sensor->lastTime);
                     numSamples = sensor->buffer.firstSample.numSamples;
 
                     sensor->buffer.length += sizeof(struct SingleAxisDataPoint);
@@ -782,7 +800,7 @@ static void copySingleSamples(struct ActiveSensor *sensor, const struct SingleAx
                 numSamples = sensor->buffer.firstSample.numSamples;
 
                 sensor->buffer.length += sizeof(struct SingleAxisDataPoint);
-                sensor->buffer.single[numSamples].deltaTime = deltaTime;
+                sensor->buffer.single[numSamples].deltaTime = deltaTime | delta_time_fine_mask;
                 sensor->buffer.single[numSamples].idata = single->samples[i].idata;
                 sensor->lastTime += deltaTime;
                 sensor->buffer.firstSample.numSamples++;
@@ -836,12 +854,12 @@ static void copyTripleSamples(struct ActiveSensor *sensor, const struct TripleAx
                     simpleQueueEnqueue(mOutputQ, &sensor->buffer, sizeof(uint32_t) + sensor->buffer.length, sensor->discard);
                     resetBuffer(sensor);
                     i--;
-                } else if (triple->referenceTime - sensor->lastTime > UINT32_MAX) {
+                } else if (triple->referenceTime - sensor->lastTime >= delta_time_max) {
                     simpleQueueEnqueue(mOutputQ, &sensor->buffer, sizeof(uint32_t) + sensor->buffer.length, sensor->discard);
                     resetBuffer(sensor);
                     i--;
                 } else {
-                    deltaTime = triple->referenceTime - sensor->lastTime;
+                    deltaTime = encodeDeltaTime(triple->referenceTime - sensor->lastTime);
                     numSamples = sensor->buffer.firstSample.numSamples;
 
                     sensor->buffer.length += sizeof(struct TripleAxisDataPoint);
@@ -864,7 +882,7 @@ static void copyTripleSamples(struct ActiveSensor *sensor, const struct TripleAx
                 numSamples = sensor->buffer.firstSample.numSamples;
 
                 sensor->buffer.length += sizeof(struct TripleAxisDataPoint);
-                sensor->buffer.triple[numSamples].deltaTime = deltaTime;
+                sensor->buffer.triple[numSamples].deltaTime = deltaTime | delta_time_fine_mask;
                 sensor->buffer.triple[numSamples].ix = triple->samples[i].ix;
                 sensor->buffer.triple[numSamples].iy = triple->samples[i].iy;
                 sensor->buffer.triple[numSamples].iz = triple->samples[i].iz;
@@ -1066,7 +1084,7 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
                 switch (sensor->numAxis) {
                 case NUM_AXIS_EMBEDDED:
                     rtcTime = rtcGetTime();
-                    if (sensor->buffer.length > 0 && rtcTime - sensor->lastTime > UINT32_MAX) {
+                    if (sensor->buffer.length > 0 && rtcTime - sensor->lastTime >= delta_time_max) {
                         simpleQueueEnqueue(mOutputQ, &sensor->buffer, sizeof(uint32_t) + sensor->buffer.length, sensor->discard);
                         resetBuffer(sensor);
                     }
@@ -1082,7 +1100,7 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
                         sensor->buffer.single[0].idata = (uint32_t)evtData;
                     } else {
                         sensor->buffer.length += sizeof(struct SingleAxisDataPoint);
-                        sensor->buffer.single[sensor->buffer.firstSample.numSamples].deltaTime = rtcTime - sensor->lastTime;
+                        sensor->buffer.single[sensor->buffer.firstSample.numSamples].deltaTime = encodeDeltaTime(rtcTime - sensor->lastTime);
                         sensor->lastTime = rtcTime;
                         sensor->buffer.single[sensor->buffer.firstSample.numSamples].idata = (uint32_t)evtData;
                         sensor->buffer.firstSample.numSamples++;
