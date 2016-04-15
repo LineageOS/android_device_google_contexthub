@@ -25,7 +25,7 @@ extern "C" {
 #include <sensType.h>
 #include <stdbool.h>
 #include <stdint.h>
-
+#include "toolchain.h"
 
 #define MAX_REGISTERED_SENSORS  32 /* this may need to be revisted later */
 #define MAX_MIN_SAMPLES         3000
@@ -54,6 +54,7 @@ union EmbeddedDataPoint {
 };
 
 // NUM_AXIS_ONE data format
+SET_PACKED_STRUCT_MODE_ON
 struct SingleAxisDataPoint {
     union {
         uint32_t deltaTime; //delta since last sample, for 0th sample this is firstSample
@@ -63,7 +64,8 @@ struct SingleAxisDataPoint {
         float fdata;
         int32_t idata;
     };
-} __attribute__((packed));
+} ATTRIBUTE_PACKED;
+SET_PACKED_STRUCT_MODE_OFF
 
 struct SingleAxisDataEvent {
     uint64_t referenceTime;
@@ -71,6 +73,7 @@ struct SingleAxisDataEvent {
 };
 
 // NUM_AXIS_THREE data format
+SET_PACKED_STRUCT_MODE_ON
 struct TripleAxisDataPoint {
     union {
         uint32_t deltaTime; //delta since last sample, for 0th sample this is firstSample
@@ -88,13 +91,15 @@ struct TripleAxisDataPoint {
         float z;
         int32_t iz;
     };
-} __attribute__((packed));
+} ATTRIBUTE_PACKED;
+SET_PACKED_STRUCT_MODE_OFF
 
 struct TripleAxisDataEvent {
     uint64_t referenceTime;
     struct TripleAxisDataPoint samples[];
 };
 
+SET_PACKED_STRUCT_MODE_ON
 struct RawTripleAxisDataPoint {
     union {
         uint32_t deltaTime; //delta since last sample, for 0th sample this is firstSample
@@ -103,7 +108,8 @@ struct RawTripleAxisDataPoint {
     int16_t ix;
     int16_t iy;
     int16_t iz;
-} __attribute__((packed));
+} ATTRIBUTE_PACKED;
+SET_PACKED_STRUCT_MODE_OFF
 
 struct RawTripleAxisDataEvent {
     uint64_t referenceTime;
