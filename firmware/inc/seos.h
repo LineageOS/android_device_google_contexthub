@@ -28,11 +28,7 @@ extern "C" {
 #include <eventQ.h>
 #include <plat/inc/app.h>
 #include <eventnums.h>
-
-
-
-#define UNROLLED   __attribute__((optimize("unroll-loops")))
-
+#include "toolchain.h"
 
 #define MAX_TASKS                        16
 #define MAX_EMBEDDED_EVT_SUBS            6 /*tradeoff, no wrong answer */
@@ -103,10 +99,12 @@ typedef void (*OsDeferCbkF)(void *);
 
 typedef void (*EventFreeF)(void* event);
 
+SET_PACKED_STRUCT_MODE_ON
 struct SeosEedataEncrKeyData {
     uint64_t keyID;
     uint8_t key[32];
-} __attribute__((packed));
+} ATTRIBUTE_PACKED;
+SET_PACKED_STRUCT_MODE_OFF
 
 /* ==== ABOUT THE "urgent" FLAG ====
  *
@@ -153,12 +151,11 @@ enum LogLevel {
 };
 
 void osLogv(enum LogLevel level, const char *str, va_list vl);
-void osLog(enum LogLevel level, const char *str, ...)
-    __attribute__((format(printf, 2, 3)));
+void osLog(enum LogLevel level, const char *str, ...) PRINTF_ATTRIBUTE;
 
 #ifndef INTERNAL_APP_INIT
 #define INTERNAL_APP_INIT(_id, _ver, _init, _end, _event)                                   \
-static const struct AppHdr __attribute__((used,section (".internal_app_init"))) mAppHdr = { \
+SET_INTERNAL_LOCATION(location, ".internal_app_init")static const struct AppHdr SET_INTERNAL_LOCATION_ATTRIBUTES(used, section (".internal_app_init")) mAppHdr = { \
     .magic = APP_HDR_MAGIC,                                                                 \
     .fmtVer = APP_HDR_VER_CUR,                                                              \
     .marker = APP_HDR_MARKER_INTERNAL,                                                      \
@@ -173,12 +170,12 @@ static const struct AppHdr __attribute__((used,section (".internal_app_init"))) 
 #ifndef APP_INIT
 #define APP_INIT(_ver, _init, _end, _event)                                            \
 extern const struct AppFuncs _mAppFuncs;                                         \
-const struct AppFuncs __attribute__((used,section (".app_init"),visibility("default"))) _mAppFuncs = { \
+const struct AppFuncs SET_EXTERNAL_APP_ATTRIBUTES(used, section (".app_init"), visibility("default")) _mAppFuncs = { \
     .init = (_init),                                                             \
     .end = (_end),                                                               \
     .handle = (_event)                                                           \
 };                                                                                \
-const uint32_t __attribute__((used,section (".app_version"),visibility("default"))) _mAppVer = _ver
+const uint32_t SET_EXTERNAL_APP_VERSION(used, section (".appversion"), visibility("default")) _mAppVer = _ver
 #endif
 
 
