@@ -18,6 +18,7 @@
 #define EVENTNUMS_H
 
 #include <stdint.h>
+#include "toolchain.h"
 
 /* These define ranges of reserved events */
 #define EVT_NO_FIRST_USER_EVENT          0x00000100    //all events lower than this are reserved for the OS. all of them are nondiscardable necessarily!
@@ -30,12 +31,15 @@
 
 #define HOST_HUB_RAW_PACKET_MAX_LEN      128
 
+SET_PACKED_STRUCT_MODE_ON
 struct HostHubRawPacket {
     uint64_t appId;
     uint8_t dataLen; //not incl this header, 128 bytes max
     //raw data in unspecified format here
-} __attribute((packed));
+}ATTRIBUTE_PACKED;
+SET_PACKED_STRUCT_MODE_OFF
 
+SET_PACKED_STRUCT_MODE_ON
 struct MarshalledUserEventData {
     //for matching
     uint32_t origEvtType;
@@ -43,8 +47,8 @@ struct MarshalledUserEventData {
     int32_t dataLen;  //use negative here to indicate marshalling error.
     //raw data in unspecified format here
 
-} __attribute((packed));
-
+}ATTRIBUTE_PACKED;
+SET_PACKED_STRUCT_MODE_OFF
 
 
 /*
@@ -53,11 +57,13 @@ struct MarshalledUserEventData {
  * with this header to allow for common parsing. But this is not a requirement,
  * as these messages are inherently application-specific.
  */
+SET_PACKED_STRUCT_MODE_ON
 struct SensorAppEventHeader {
     uint8_t msgId;
     uint8_t sensorType;
     uint8_t status; // 0 for success, else application-specific error code
-} __attribute__((packed));
+}ATTRIBUTE_PACKED;
+SET_PACKED_STRUCT_MODE_OFF
 
 #define SENSOR_APP_EVT_STATUS_SUCCESS    0x00
 #define SENSOR_APP_EVT_STATUS_ERROR      0x01 // General failure

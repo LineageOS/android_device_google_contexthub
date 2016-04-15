@@ -16,14 +16,12 @@
 
 #ifndef __UTIL_H
 #define __UTIL_H
-
+#include "toolchain.h"
 #include <limits.h>
 #include <stdbool.h>
 #include <stddef.h>
 
 #define ARRAY_SIZE(a)   (sizeof((a)) / sizeof((a)[0]))
-#define LIKELY(x)	(__builtin_expect(x, 1))
-#define UNLIKELY(x)	(__builtin_expect(x, 0))
 
 #define container_of(addr, struct_name, field_name) \
     ((struct_name *)((char *)(addr) - offsetof(struct_name, field_name)))
@@ -39,7 +37,7 @@ static inline int LOG2_FLOOR(unsigned int n)
         return INT_MIN;
 
     // floor(log2(n)) = MSB(n) = (# of bits) - (# of leading zeros) - 1
-    return 8 * sizeof(n) - __builtin_clz(n) - 1;
+    return 8 * sizeof(n) - CLZ(n) - 1;
 }
 
 static inline int LOG2_CEIL(unsigned int n)
