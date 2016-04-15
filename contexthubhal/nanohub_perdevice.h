@@ -33,9 +33,15 @@
 
 #include <hardware/context_hub.h>
 
+namespace android {
+
+namespace nanohub {
+
 const struct context_hub_t* get_hub_info(void);
 const char *get_devnode_path(void);
 
+}; // namespace nanohub
+
+}; // namespace android
 
 #endif
-

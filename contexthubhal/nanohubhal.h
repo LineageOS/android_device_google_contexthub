@@ -31,7 +31,10 @@
 #ifndef _NANOHUB_HAL_H_
 #define _NANOHUB_HAL_H_
 
+#include <pthread.h>
+
 #include <hardware/context_hub.h>
+#include <utils/Mutex.h>
 
 #define NANOAPP_VENDOR_GOOGLE NANOAPP_VENDOR("Googl")
 
@@ -39,20 +42,75 @@
 #define MAX_RX_PACKET           128
 #define APP_FROM_HOST_EVENT_ID  0x000000F8
 
+namespace android {
+
+namespace nanohub {
+
 struct nano_message_hdr {
     uint32_t event_id;
-    struct hub_app_name_t app_name;
+    hub_app_name_t app_name;
     uint8_t len;
 } __attribute__((packed));
 
 struct nano_message {
-    struct nano_message_hdr hdr;
+    nano_message_hdr hdr;
     uint8_t data[MAX_RX_PACKET];
 } __attribute__((packed));
 
-int hal_hub_do_send_msg(const struct hub_app_name_t *name, uint32_t len, const void *data);
-void hal_hub_call_rx_msg_f(const struct hub_app_name_t *name, uint32_t type, uint32_t len, const void *data);
+class NanoHub {
+    Mutex mLock;
+    context_hub_callback *mMsgCbkFunc;
+    int mThreadClosingPipe[2];
+    int mFd; // [0] is read end
+    void * mMsgCbkData;
+    pthread_t mWorkerThread;
 
+    NanoHub() {
+        reset();
+    }
+
+    void reset() {
+        mThreadClosingPipe[0] = -1;
+        mThreadClosingPipe[1] = -1;
+        mFd = -1;
+        mMsgCbkData = nullptr;
+        mMsgCbkFunc = nullptr;
+        mWorkerThread = 0;
+    }
+
+    static void* run(void *);
+    void* doRun();
+
+    int openHub();
+    int closeHub();
+
+    static NanoHub *hubInstance() {
+        static NanoHub theHub;
+        return &theHub;
+    }
+
+    int doSubscribeMessages(uint32_t hub_id, context_hub_callback *cbk, void *cookie);
+    int doSendToNanohub(uint32_t hub_id, const hub_message_t *msg);
+    int doSendToDevice(const hub_app_name_t *name, const void *data, uint32_t len);
+    void doSendToApp(const hub_app_name_t *name, uint32_t typ, const void *data, uint32_t len);
+
+public:
+    static int subscribeMessages(uint32_t hub_id, context_hub_callback *cbk, void *cookie) {
+        return hubInstance()->doSubscribeMessages(hub_id, cbk, cookie);
+    }
+    static int sendToNanohub(uint32_t hub_id, const hub_message_t *msg) {
+        return hubInstance()->doSendToNanohub(hub_id, msg);
+    }
+    static int sendToDevice(const hub_app_name_t *name, const void *data, uint32_t len) {
+        return hubInstance()->doSendToDevice(name, data, len);
+    }
+    static void sendToApp(const hub_app_name_t *name, uint32_t typ, const void *data, uint32_t len) {
+        hubInstance()->doSendToApp(name, typ, data, len);
+    }
+};
+
+}; // namespace nanohub
+
+}; // namespace android
 
 #endif
-
