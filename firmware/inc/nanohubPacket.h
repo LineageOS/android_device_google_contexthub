@@ -21,6 +21,7 @@
  * Formats and constants related to nanohub packets.  This header is intended
  * to be shared between the host Linux kernel and the nanohub implementation.
  */
+#include "toolchain.h"
 
 #ifdef __KERNEL__
 #include <linux/types.h>
@@ -36,17 +37,21 @@ typedef uint64_t __le64;
 typedef uint64_t __be64;
 #endif
 
+SET_PACKED_STRUCT_MODE_ON
 struct NanohubPacket {
     uint8_t sync;
     __le32 seq;
     __le32 reason;
     uint8_t len;
     uint8_t data[0];
-} __attribute__((packed));
+} ATTRIBUTE_PACKED;
+SET_PACKED_STRUCT_MODE_OFF
 
+SET_PACKED_STRUCT_MODE_ON
 struct NanohubPacketFooter {
     __le32 crc;
-} __attribute__((packed));
+} ATTRIBUTE_PACKED;
+SET_PACKED_STRUCT_MODE_OFF
 
 static inline struct NanohubPacketFooter *nanohubGetPacketFooter(struct NanohubPacket *packet)
 {
@@ -81,58 +86,77 @@ static inline struct NanohubPacketFooter *nanohubGetPacketFooter(struct NanohubP
  */
 
 #define NANOHUB_REASON_GET_OS_HW_VERSIONS     0x00001000
-
+#if defined(__GNUC__)
+SET_PACKED_STRUCT_MODE_ON
 struct NanohubOsHwVersionsRequest {
-} __attribute__((packed));
+} ATTRIBUTE_PACKED;
+SET_PACKED_STRUCT_MODE_OFF
+#endif
 
+SET_PACKED_STRUCT_MODE_ON
 struct NanohubOsHwVersionsResponse {
     __le16 hwType;
     __le16 hwVer;
     __le16 blVer;
     __le16 osVer;
     __le32 variantVer;
-} __attribute__((packed));
+} ATTRIBUTE_PACKED;
+SET_PACKED_STRUCT_MODE_OFF
 
 #define NANOHUB_REASON_GET_APP_VERSIONS       0x00001001
 
+SET_PACKED_STRUCT_MODE_ON
 struct NanohubAppVersionsRequest {
     __le64 appId;
-} __attribute__((packed));
+} ATTRIBUTE_PACKED;
+SET_PACKED_STRUCT_MODE_OFF
 
+SET_PACKED_STRUCT_MODE_ON
 struct NanohubAppVersionsResponse {
     __le32 appVer;
-} __attribute__((packed));
+} ATTRIBUTE_PACKED;
+SET_PACKED_STRUCT_MODE_OFF
 
 #define NANOHUB_REASON_QUERY_APP_INFO         0x00001002
 
+SET_PACKED_STRUCT_MODE_ON
 struct NanohubAppInfoRequest {
     __le32 appIdx;
-} __attribute__((packed));
+} ATTRIBUTE_PACKED;
+SET_PACKED_STRUCT_MODE_OFF
 
+SET_PACKED_STRUCT_MODE_ON
 struct NanohubAppInfoResponse {
     __le64 appId;
     __le32 appVer;
     __le32 appSize;
-} __attribute__((packed));
+} ATTRIBUTE_PACKED;
+SET_PACKED_STRUCT_MODE_OFF
 
 #define NANOHUB_REASON_START_FIRMWARE_UPLOAD  0x00001040
 
+SET_PACKED_STRUCT_MODE_ON
 struct NanohubStartFirmwareUploadRequest {
     __le32 size;
     __le32 crc;
     uint8_t type;
-} __attribute__((packed));
+} ATTRIBUTE_PACKED;
+SET_PACKED_STRUCT_MODE_OFF
 
+SET_PACKED_STRUCT_MODE_ON
 struct NanohubStartFirmwareUploadResponse {
     uint8_t accepted;
-} __attribute__((packed));
+} ATTRIBUTE_PACKED;
+SET_PACKED_STRUCT_MODE_OFF
 
 #define NANOHUB_REASON_FIRMWARE_CHUNK         0x00001041
 
+SET_PACKED_STRUCT_MODE_ON
 struct NanohubFirmwareChunkRequest {
     __le32 offset;
     uint8_t data[NANOHUB_PACKET_PAYLOAD_MAX-sizeof(__le32)];
-} __attribute__((packed));
+} ATTRIBUTE_PACKED;
+SET_PACKED_STRUCT_MODE_OFF
 
 enum NanohubFirmwareChunkReply {
     NANOHUB_FIRMWARE_CHUNK_REPLY_ACCEPTED = 0,
@@ -143,14 +167,20 @@ enum NanohubFirmwareChunkReply {
     NANOHUB_FIRMWARE_CHUNK_REPLY_CANCEL_NO_RETRY,
 };
 
+SET_PACKED_STRUCT_MODE_ON
 struct NanohubFirmwareChunkResponse {
     uint8_t chunkReply;
-} __attribute__ ((packed));
+} ATTRIBUTE_PACKED;
+SET_PACKED_STRUCT_MODE_OFF
 
 #define NANOHUB_REASON_FINISH_FIRMWARE_UPLOAD 0x00001042
 
+#if defined(__GNUC__)
+SET_PACKED_STRUCT_MODE_ON
 struct NanohubFinishFirmwareUploadRequest {
-} __attribute__ ((packed));
+} ATTRIBUTE_PACKED;
+SET_PACKED_STRUCT_MODE_OFF
+#endif
 
 enum NanohubFirmwareUploadReply {
     NANOHUB_FIRMWARE_UPLOAD_SUCCESS = 0,
@@ -168,67 +198,91 @@ enum NanohubFirmwareUploadReply {
     NANOHUB_FIRMWARE_UPLOAD_APP_SEC_BAD,
 };
 
+SET_PACKED_STRUCT_MODE_ON
 struct NanohubFinishFirmwareUploadResponse {
    uint8_t uploadReply;
-} __attribute__ ((packed));
+} ATTRIBUTE_PACKED;
+SET_PACKED_STRUCT_MODE_OFF
 
 #define NANOHUB_REASON_GET_INTERRUPT          0x00001080
 
+SET_PACKED_STRUCT_MODE_ON
 struct NanohubGetInterruptRequest {
     uint32_t clear[HOSTINTF_MAX_INTERRUPTS/(32*sizeof(uint8_t))];
-} __attribute__((packed));
+} ATTRIBUTE_PACKED;
+SET_PACKED_STRUCT_MODE_OFF
 
+SET_PACKED_STRUCT_MODE_ON
 struct NanohubGetInterruptResponse {
     uint32_t interrupts[HOSTINTF_MAX_INTERRUPTS/(32*sizeof(uint8_t))];
-} __attribute__ ((packed));
+} ATTRIBUTE_PACKED;
+SET_PACKED_STRUCT_MODE_OFF
 
 #define NANOHUB_REASON_MASK_INTERRUPT         0x00001081
 
+SET_PACKED_STRUCT_MODE_ON
 struct NanohubMaskInterruptRequest {
     uint8_t interrupt;
-} __attribute__((packed));
+} ATTRIBUTE_PACKED;
+SET_PACKED_STRUCT_MODE_OFF
 
+SET_PACKED_STRUCT_MODE_ON
 struct NanohubMaskInterruptResponse {
     uint8_t accepted;
-} __attribute__ ((packed));
+} ATTRIBUTE_PACKED;
+SET_PACKED_STRUCT_MODE_OFF
 
 #define NANOHUB_REASON_UNMASK_INTERRUPT       0x00001082
 
+SET_PACKED_STRUCT_MODE_ON
 struct NanohubUnmaskInterruptRequest {
     uint8_t interrupt;
-} __attribute__((packed));
+} ATTRIBUTE_PACKED;
+SET_PACKED_STRUCT_MODE_OFF
 
+SET_PACKED_STRUCT_MODE_ON
 struct NanohubUnmaskInterruptResponse {
     uint8_t accepted;
-} __attribute__ ((packed));
+} ATTRIBUTE_PACKED;
+SET_PACKED_STRUCT_MODE_OFF
 
 #define NANOHUB_REASON_READ_EVENT             0x00001090
 
+SET_PACKED_STRUCT_MODE_ON
 struct NanohubReadEventRequest {
     __le64 apBootTime;
-} __attribute__((packed));
+} ATTRIBUTE_PACKED;
+SET_PACKED_STRUCT_MODE_OFF
 
+SET_PACKED_STRUCT_MODE_ON
 struct NanohubReadEventResponse {
     __le32 evtType;
     uint8_t evtData[NANOHUB_PACKET_PAYLOAD_MAX - sizeof(__le32)];
-} __attribute__ ((packed));
+} ATTRIBUTE_PACKED;
+SET_PACKED_STRUCT_MODE_OFF
 
 #define NANOHUB_REASON_WRITE_EVENT            0x00001091
 
+SET_PACKED_STRUCT_MODE_ON
 struct NanohubWriteEventRequest {
     __le32 evtType;
     uint8_t evtData[NANOHUB_PACKET_PAYLOAD_MAX - sizeof(__le32)];
-} __attribute__((packed));
+} ATTRIBUTE_PACKED;
+SET_PACKED_STRUCT_MODE_OFF
 
+SET_PACKED_STRUCT_MODE_ON
 struct NanohubWriteEventResponse {
     uint8_t accepted;
-} __attribute__ ((packed));
+} ATTRIBUTE_PACKED;
+SET_PACKED_STRUCT_MODE_OFF
 
+SET_PACKED_STRUCT_MODE_ON
 struct NanohubHalHdr {
     uint64_t appId;
     uint8_t len;
     uint8_t msg;
-} __attribute__ ((packed));
+} ATTRIBUTE_PACKED;
+SET_PACKED_STRUCT_MODE_OFF
 
 #define NANOHUB_HAL_EXT_APPS_ON     0
 #define NANOHUB_HAL_EXT_APPS_OFF    1
@@ -236,65 +290,85 @@ struct NanohubHalHdr {
 #define NANOHUB_HAL_QUERY_MEMINFO   3
 #define NANOHUB_HAL_QUERY_APPS      4
 
+SET_PACKED_STRUCT_MODE_ON
 struct NanohubHalQueryAppsRx {
     __le32 idx;
-} __attribute__ ((packed));
+} ATTRIBUTE_PACKED;
+SET_PACKED_STRUCT_MODE_OFF
 
+SET_PACKED_STRUCT_MODE_ON
 struct NanohubHalQueryAppsTx {
     struct NanohubHalHdr hdr;
     __le64 appId;
     __le32 version;
     __le32 flashUse;
     __le32 ramUse;
-} __attribute__ ((packed));
+} ATTRIBUTE_PACKED;
+SET_PACKED_STRUCT_MODE_OFF
 
 #define NANOHUB_HAL_QUERY_RSA_KEYS  5
 
+SET_PACKED_STRUCT_MODE_ON
 struct NanohubHalQueryRsaKeysRx {
     __le32 offset;
-} __attribute__ ((packed));
+} ATTRIBUTE_PACKED;
+SET_PACKED_STRUCT_MODE_OFF
 
+SET_PACKED_STRUCT_MODE_ON
 struct NanohubHalQueryRsaKeysTx {
     struct NanohubHalHdr hdr;
     uint8_t data[];
-} __attribute__ ((packed));
+} ATTRIBUTE_PACKED;
+SET_PACKED_STRUCT_MODE_OFF
 
 #define NANOHUB_HAL_START_UPLOAD    6
 
+SET_PACKED_STRUCT_MODE_ON
 struct NanohubHalStartUploadRx {
     uint8_t isOs;
     __le32 length;
-} __attribute__ ((packed));
+} ATTRIBUTE_PACKED;
+SET_PACKED_STRUCT_MODE_OFF
 
+SET_PACKED_STRUCT_MODE_ON
 struct NanohubHalStartUploadTx {
     struct NanohubHalHdr hdr;
     uint8_t success;
-} __attribute__ ((packed));
+} ATTRIBUTE_PACKED;
+SET_PACKED_STRUCT_MODE_OFF
 
 #define NANOHUB_HAL_CONT_UPLOAD     7
 
+SET_PACKED_STRUCT_MODE_ON
 struct NanohubHalContUploadRx {
     __le32 offset;
     uint8_t data[];
-} __attribute__ ((packed));
+} ATTRIBUTE_PACKED;
+SET_PACKED_STRUCT_MODE_OFF
 
+SET_PACKED_STRUCT_MODE_ON
 struct NanohubHalContUploadTx {
     struct NanohubHalHdr hdr;
     uint8_t success;
-} __attribute__ ((packed));
+} ATTRIBUTE_PACKED;
+SET_PACKED_STRUCT_MODE_OFF
 
 #define NANOHUB_HAL_FINISH_UPLOAD   8
 
+SET_PACKED_STRUCT_MODE_ON
 struct NanohubHalFinishUploadTx {
     struct NanohubHalHdr hdr;
     uint8_t success;
-} __attribute__ ((packed));
+} ATTRIBUTE_PACKED;
+SET_PACKED_STRUCT_MODE_OFF
 
 #define NANOHUB_HAL_REBOOT          9
 
+SET_PACKED_STRUCT_MODE_ON
 struct NanohubHalRebootTx {
     struct NanohubHalHdr hdr;
     uint8_t success;
-} __attribute__ ((packed));
+} ATTRIBUTE_PACKED;
+SET_PACKED_STRUCT_MODE_OFF
 
 #endif /* __NANOHUBPACKET_H */

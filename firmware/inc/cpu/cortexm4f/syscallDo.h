@@ -30,6 +30,13 @@ extern "C" {
 #include <stdint.h>
 #include <stdarg.h>
 
+#if defined(__ICCARM__)
+
+#pragma swi_number=0
+__swi uintptr_t cpuSyscallDo(uint32_t syscallNo, uint32_t vl);
+
+#elif defined(__GNUC__)
+
 #define cpuSyscallDo(syscallNo, vaListPtr)                     \
     ({                                                         \
         register uint32_t _r0 asm("r0") = syscallNo;           \
@@ -118,7 +125,7 @@ extern "C" {
         _r0;                                                        \
     })
 
-
+#endif
 
 
 #ifdef __cplusplus

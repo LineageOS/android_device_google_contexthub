@@ -20,6 +20,7 @@
 #include <stdint.h>
 #include <atomicBitset.h>
 #include <sensors.h>
+#include "toolchain.h"
 
 /**
  * System-facing hostIntf API
@@ -35,6 +36,7 @@ enum HostIntfDataType
     HOSTINTF_DATA_TYPE_RESET_REASON,
 };
 
+SET_PACKED_STRUCT_MODE_ON
 struct HostIntfDataBuffer
 {
     union
@@ -63,7 +65,8 @@ struct HostIntfDataBuffer
         };
         uint8_t buffer[sizeof(uint64_t) + HOSTINTF_SENSOR_DATA_MAX];
     };
-} __attribute__((packed));
+} ATTRIBUTE_PACKED;
+SET_PACKED_STRUCT_MODE_OFF
 
 void hostIntfCopyInterrupts(void *dst, uint32_t numBits);
 void hostIntfClearInterrupts();
