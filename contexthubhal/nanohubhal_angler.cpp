@@ -33,7 +33,11 @@
 #include "nanohubhal.h"
 #include <utils/Log.h>
 
-static const struct connected_sensor_t mSensors[] = {
+namespace android {
+
+namespace nanohub {
+
+static const connected_sensor_t mSensors[] = {
     {
         .sensor_id = 123,
         .physical_sensor = {
@@ -48,7 +52,7 @@ static const struct connected_sensor_t mSensors[] = {
     },
 };
 
-static const struct context_hub_t mHub = {
+static const context_hub_t mHub = {
     .name = "Google System Nanohub on Angler",
     .vendor = "Google/StMicro",
     .toolchain = "gcc-arm-none-eabi",
@@ -73,7 +77,11 @@ const char *get_devnode_path(void)
     return "/dev/nanohub_comms";
 }
 
-const struct context_hub_t* get_hub_info(void)
+const context_hub_t* get_hub_info(void)
 {
     return &mHub;
 }
+
+}; // namespace nanohub
+
+}; // namespace android
