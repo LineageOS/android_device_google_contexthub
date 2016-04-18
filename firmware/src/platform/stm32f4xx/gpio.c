@@ -181,6 +181,25 @@ void gpioConfigAlt(const struct Gpio* __restrict gpioHandle, int32_t gpioSpeed, 
         gpioConfigAltWithNum((uint32_t)gpioHandle - GPIO_HANDLE_OFFSET, gpioSpeed, pull, output, altFunc);
 }
 
+static void gpioConfigAnalogWithNum(uint32_t gpioNum)
+{
+    struct StmGpio *block = (struct StmGpio*)mGpioBases[gpioNum >> GPIO_PORT_SHIFT];
+    const uint32_t pinNo = gpioNum & GPIO_PIN_MASK;
+    const uint32_t shift_2b = pinNo * 2;
+    const uint32_t mask_2b = (3UL << shift_2b);
+
+    gpioConfigWithNum(gpioNum, GPIO_SPEED_LOW, GPIO_PULL_NONE, GPIO_OUT_OPEN_DRAIN);
+
+    /* I/O configuration */
+    block->MODER = (block->MODER & ~mask_2b) | (((uint32_t)GPIO_MODE_ANALOG) << shift_2b);
+}
+
+void gpioConfigAnalog(const struct Gpio* __restrict gpioHandle)
+{
+    if (gpioHandle)
+        gpioConfigAnalogWithNum((uint32_t)gpioHandle - GPIO_HANDLE_OFFSET);
+}
+
 static void gpioSetWithNum(uint32_t gpioNum, bool value)
 {
     struct StmGpio *block = (struct StmGpio*)mGpioBases[gpioNum >> GPIO_PORT_SHIFT];
