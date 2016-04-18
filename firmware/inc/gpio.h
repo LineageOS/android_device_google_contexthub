@@ -71,6 +71,7 @@ void gpioRelease(struct Gpio* __restrict gpio);
 void gpioConfigInput(const struct Gpio* __restrict gpio, int32_t gpioSpeed, enum GpioPullMode pull);
 void gpioConfigOutput(const struct Gpio* __restrict gpio, int32_t gpioSpeed, enum GpioPullMode pull, enum GpioOpenDrainMode odrMode, bool value);
 void gpioConfigAlt(const struct Gpio* __restrict gpio, int32_t gpioSpeed, enum GpioPullMode pull, enum GpioOpenDrainMode odrMode, uint32_t altFunc);
+void gpioConfigAnalog(const struct Gpio* __restrict gpio);
 
 /* Sets and gets a value for a specific GPIO pin */
 void gpioSet(const struct Gpio* __restrict gpio, bool value);
