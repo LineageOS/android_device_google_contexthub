@@ -950,6 +950,22 @@ static void hostIntfAddBlock(struct HostIntfDataBuffer *data)
     hostIntfSetInterrupt(data->interrupt);
 }
 
+static void hostIntfNotifyReboot(uint32_t reason)
+{
+    struct NanohubHalRebootTx *resp = heapAlloc(sizeof(*resp));
+    __le32 raw_reason = htole32(reason);
+
+    if (resp) {
+        resp->hdr = (struct NanohubHalHdr){
+            .appId = APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 0),
+            .len = sizeof(*resp) - sizeof(resp->hdr) + sizeof(resp->hdr.msg),
+            .msg = NANOHUB_HAL_REBOOT,
+        };
+        memcpy(&resp->reason, &raw_reason, sizeof(resp->reason));
+        osEnqueueEvtOrFree(EVT_APP_TO_HOST, resp, heapFree);
+    }
+}
+
 static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
 {
     struct ConfigCmd *cmd;
@@ -980,6 +996,7 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
             memcpy(data->buffer, &reason, sizeof(reason));
             simpleQueueEnqueue(mOutputQ, data, sizeof(uint32_t) + data->length, false);
             hostIntfAddBlock(data);
+            hostIntfNotifyReboot(reason);
         }
     } else if (evtType == EVT_APP_TO_HOST) {
         hostMsg = evtData;
