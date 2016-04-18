@@ -194,6 +194,22 @@ void platInitialize(void)
         NVIC_ClearPendingIRQ(i);
     }
 
+    /* disable pins */
+    for (i = 0; i < 16; i++) {
+#if defined(DEBUG) && defined(DEBUG_SWD)
+        /* pins PA13 and PA14 are used for SWD */
+        if ((i != 13) && (i != 14))
+            gpioConfigAnalog(gpioRequest(GPIO_PA(i)));
+#else
+        gpioConfigAnalog(gpioRequest(GPIO_PA(i)));
+#endif
+        gpioConfigAnalog(gpioRequest(GPIO_PB(i)));
+        gpioConfigAnalog(gpioRequest(GPIO_PC(i)));
+        gpioConfigAnalog(gpioRequest(GPIO_PD(i)));
+        gpioConfigAnalog(gpioRequest(GPIO_PE(i)));
+        gpioConfigAnalog(gpioRequest(GPIO_PH(i)));
+    }
+
 #ifdef DEBUG_UART_UNITNO
     /* Open mDbgUart on PA2 and PA3 */
     usartOpen(&mDbgUart, DEBUG_UART_UNITNO, DEBUG_UART_GPIO_TX, DEBUG_UART_GPIO_RX,
