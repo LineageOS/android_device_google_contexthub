@@ -47,8 +47,6 @@
 #include "system_comms.h"
 #include "nanohubhal.h"
 
-//#define DEBUG_NANOHUB_PROTO
-
 namespace android {
 
 namespace nanohub {
@@ -91,8 +89,7 @@ static void readNanohubMemInfo(MessageBuf &buf,  NanohubMemInfo &mi) {
     }
 }
 
-#ifdef DEBUG_NANOHUB_PROTO
-static void dumpBuffer(const char *pfx, const void *data, size_t len)
+void SystemComm::dumpBuffer(const char *pfx, const void *data, size_t len, int status)
 {
     std::ostringstream os;
     const char *p = static_cast<const char *>(data);
@@ -100,11 +97,11 @@ static void dumpBuffer(const char *pfx, const void *data, size_t len)
     for (size_t i=0; i < len; ++i) {
         os << " " << (int)p[i];
     }
+    if (status) {
+        os << "; status=" << status;
+    }
     ALOGI("%s%s", pfx, os.str().c_str());
 }
-#else
-static void dumpBuffer(const char *, const void *, size_t){}
-#endif
 
 NanohubRsp::NanohubRsp(MessageBuf &buf, bool no_status) {
     // all responses start with command
@@ -120,7 +117,9 @@ NanohubRsp::NanohubRsp(MessageBuf &buf, bool no_status) {
 }
 
 int SystemComm::sendToSystem(const void *data, size_t len) {
-    dumpBuffer("HAL -> SYS", data, len);
+    if (getSystem()->messageTracingEnabled()) {
+        dumpBuffer("HAL -> SYS", data, len);
+    }
     return NanoHub::sendToDevice(&getSystem()->mHostIfAppName, data, len);
 }
 
@@ -512,8 +511,17 @@ int SystemComm::doHandleRx(const nano_message *msg)
         return -EINVAL;
     }
     MessageBuf buf(reinterpret_cast<const char*>(msg->data), msg->hdr.len);
-    dumpBuffer("SYS -> HAL", buf.getData(), buf.getSize());
-    return mSessions.handleRx(buf);
+    if (messageTracingEnabled()) {
+        dumpBuffer("SYS -> HAL", buf.getData(), buf.getSize());
+    }
+    int status = mSessions.handleRx(buf);
+    if (status) {
+        // provide default handler for any system message, that is not properly handled
+        dumpBuffer(status > 0 ? "HAL (not handled)" : "HAL (error)", buf.getData(), buf.getSize(), status);
+        status = status > 0 ? 0 : status;
+    }
+
+    return status;
 }
 
 int SystemComm::SessionManager::handleRx(MessageBuf &buf)
