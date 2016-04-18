@@ -129,6 +129,7 @@ bool osEnqueuePrivateEvt(uint32_t evtType, void *evtData, EventFreeF evtFreeF, u
 bool osEnqueuePrivateEvtAsApp(uint32_t evtType, void *evtData, uint32_t fromApp, uint32_t toTid);
 
 bool osEnqueueEvt(uint32_t evtType, void *evtData, EventFreeF evtFreeF);
+bool osEnqueueEvtOrFree(uint32_t evtType, void *evtData, EventFreeF evtFreeF);
 bool osEnqueueEvtAsApp(uint32_t evtType, void *evtData, uint32_t fromApp);
 
 bool osDefer(OsDeferCbkF callback, void *cookie, bool urgent);
