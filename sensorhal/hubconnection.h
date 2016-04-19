@@ -26,10 +26,13 @@
 #include <utils/Errors.h>
 #include <utils/Mutex.h>
 #include <utils/Thread.h>
+#include <hardware_legacy/power.h>
 
 #include "eventnums.h"
 #include "hubdefs.h"
 #include "ring.h"
+
+#define WAKELOCK_NAME "sensorHal"
 
 namespace android {
 
@@ -62,6 +65,10 @@ struct HubConnection : public Thread {
 
     void queueData(int handle, void *data, size_t length);
 
+    bool isWakeEvent(int32_t sensor);
+    void releaseWakeLockIfAppropriate();
+    ssize_t getWakeEventCount();
+    ssize_t decrementWakeEventCount();
 
     ssize_t read(sensors_event_t *ev, size_t size);
 
@@ -80,6 +87,11 @@ protected:
 
 private:
     typedef uint32_t rate_q10_t;  // q10 means lower 10 bits are for fractions
+
+    bool mWakelockHeld;
+    int32_t mWakeEventCount;
+
+    void protectIfWakeEvent(int32_t sensor);
 
     static inline uint64_t period_ns_to_frequency_q10(nsecs_t period_ns) {
         return 1024000000000ULL / period_ns;

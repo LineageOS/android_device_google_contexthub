@@ -130,6 +130,7 @@ LOCAL_SHARED_LIBRARIES := \
 	libcutils \
 	liblog \
 	libstagefright_foundation \
+	libhardware_legacy \
 	libutils
 
 include $(BUILD_SHARED_LIBRARY)

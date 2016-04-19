@@ -105,6 +105,9 @@ HubConnection::HubConnection()
     mPollFds[0].revents = 0;
     mNumPollFds = 1;
 
+    mWakelockHeld = false;
+    mWakeEventCount = 0;
+
     initNanohubLock();
 
 #ifdef USB_MAG_BIAS_REPORTING_ENABLED
@@ -328,6 +331,49 @@ sensors_event_t *HubConnection::initEv(sensors_event_t *ev, uint64_t timestamp, 
     return ev;
 }
 
+ssize_t HubConnection::getWakeEventCount()
+{
+    return mWakeEventCount;
+}
+
+ssize_t HubConnection::decrementWakeEventCount()
+{
+    return --mWakeEventCount;
+}
+
+bool HubConnection::isWakeEvent(int32_t sensor)
+{
+    switch (sensor) {
+    case COMMS_SENSOR_PROXIMITY:
+    case COMMS_SENSOR_SIGNIFICANT_MOTION:
+    case COMMS_SENSOR_TILT:
+    case COMMS_SENSOR_DOUBLE_TWIST:
+    case COMMS_SENSOR_GESTURE:
+        return true;
+    default:
+        return false;
+    }
+}
+
+void HubConnection::protectIfWakeEvent(int32_t sensor)
+{
+    if (isWakeEvent(sensor)) {
+        if (mWakelockHeld == false) {
+            acquire_wake_lock(PARTIAL_WAKE_LOCK, WAKELOCK_NAME);
+            mWakelockHeld = true;
+        }
+        mWakeEventCount++;
+    }
+}
+
+void HubConnection::releaseWakeLockIfAppropriate()
+{
+    if (mWakelockHeld && (mWakeEventCount == 0)) {
+        mWakelockHeld = false;
+        release_wake_lock(WAKELOCK_NAME);
+    }
+}
+
 void HubConnection::processSample(uint64_t timestamp, uint32_t type, uint32_t sensor, struct OneAxisSample *sample, __attribute__((unused)) bool highAccuracy)
 {
     sensors_event_t nev[1];
@@ -381,8 +427,11 @@ void HubConnection::processSample(uint64_t timestamp, uint32_t type, uint32_t se
         break;
     }
 
-    if (cnt > 0)
+    if (cnt > 0) {
+        // If event is a wake event, protect it with a wakelock
+        protectIfWakeEvent(sensor);
         mRing.write(nev, cnt);
+    }
 }
 
 void HubConnection::magAccuracyUpdate(float x, float y, float z)
@@ -418,8 +467,11 @@ void HubConnection::processSample(uint64_t timestamp, uint32_t type, uint32_t se
         break;
     }
 
-    if (cnt > 0)
+    if (cnt > 0) {
+        // If event is a wake event, protect it with a wakelock
+        protectIfWakeEvent(sensor);
         mRing.write(nev, cnt);
+    }
 }
 
 void HubConnection::processSample(uint64_t timestamp, uint32_t type, uint32_t sensor, struct ThreeAxisSample *sample, bool highAccuracy)
@@ -542,8 +594,11 @@ void HubConnection::processSample(uint64_t timestamp, uint32_t type, uint32_t se
         break;
     }
 
-    if (cnt > 0)
+    if (cnt > 0) {
+        // If event is a wake event, protect it with a wakelock
+        protectIfWakeEvent(sensor);
         mRing.write(nev, cnt);
+    }
 }
 
 void HubConnection::discardInotifyEvent() {
