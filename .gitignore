@@ -7,3 +7,7 @@
 *.bin
 firmware/links
 *.napp
+# exclude IDE project files/directories
+.*
+# keep .gitignore and other important hidden files
+!.gitignore
