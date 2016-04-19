@@ -462,6 +462,16 @@ bool osEnqueueEvt(uint32_t evtType, void *evtData, EventFreeF evtFreeF)
     return evtQueueEnqueue(mEvtsInternal, evtType, evtData, taggedPtrMakeFromPtr(evtFreeF), false);
 }
 
+bool osEnqueueEvtOrFree(uint32_t evtType, void *evtData, EventFreeF evtFreeF)
+{
+    bool success = osEnqueueEvt(evtType, evtData, evtFreeF);
+
+    if (!success && evtFreeF)
+        evtFreeF(evtData);
+
+    return success;
+}
+
 bool osEnqueueEvtAsApp(uint32_t evtType, void *evtData, uint32_t fromAppTid)
 {
     return evtQueueEnqueue(mEvtsInternal, evtType, evtData, taggedPtrMakeFromUint(fromAppTid), false);
