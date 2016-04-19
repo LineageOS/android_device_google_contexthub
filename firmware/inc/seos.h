@@ -176,7 +176,7 @@ const struct AppFuncs SET_EXTERNAL_APP_ATTRIBUTES(used, section (".app_init"), v
     .end = (_end),                                                               \
     .handle = (_event)                                                           \
 };                                                                                \
-const uint32_t SET_EXTERNAL_APP_VERSION(used, section (".appversion"), visibility("default")) _mAppVer = _ver
+const uint32_t SET_EXTERNAL_APP_VERSION(used, section (".app_version"), visibility("default")) _mAppVer = _ver
 #endif
 
 
