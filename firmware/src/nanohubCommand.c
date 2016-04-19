@@ -763,13 +763,13 @@ static void halQueryApps(void *rx, uint8_t rx_len)
         resp->version = appVer;
         resp->flashUse = appSize;
         resp->ramUse = 0;
-        osEnqueueEvt(EVT_APP_TO_HOST, resp, heapFree);
+        osEnqueueEvtOrFree(EVT_APP_TO_HOST, resp, heapFree);
     } else {
         hdr = heapAlloc(sizeof(*hdr));
         hdr->appId = APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 0);
         hdr->len = 1;
         hdr->msg = NANOHUB_HAL_QUERY_APPS;
-        osEnqueueEvt(EVT_APP_TO_HOST, hdr, heapFree);
+        osEnqueueEvtOrFree(EVT_APP_TO_HOST, hdr, heapFree);
     }
 }
 
