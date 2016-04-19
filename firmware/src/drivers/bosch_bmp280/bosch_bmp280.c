@@ -168,6 +168,27 @@ static void setMode(bool on, void *cookie)
                 cookie);
 }
 
+static void sendCalibrationResult(uint8_t status, float value) {
+    struct CalibrationData *data = heapAlloc(sizeof(struct CalibrationData));
+    if (!data) {
+        osLog(LOG_WARN, "Couldn't alloc cal result pkt");
+        return;
+    }
+
+    data->header.appId = BMP280_APP_ID;
+    data->header.dataLen = (sizeof(struct CalibrationData) - sizeof(struct HostHubRawPacket));
+    data->data_header.msgId = SENSOR_APP_MSG_ID_CAL_RESULT;
+    data->data_header.sensorType = SENS_TYPE_BARO;
+    data->data_header.status = status;
+
+    data->value = value;
+
+    if (!osEnqueueEvt(EVT_APP_TO_HOST, data, heapFree)) {
+        heapFree(data);
+        osLog(LOG_WARN, "Couldn't send cal result evt");
+    }
+}
+
 // TODO: only turn on the timer when enabled
 static bool sensorPowerBaro(bool on, void *cookie)
 {
@@ -212,6 +233,7 @@ static bool sensorCalibrateBaro(void *cookie)
 {
     if (mTask.baroOn || mTask.tempOn) {
         osLog(LOG_ERROR, "BMP280: cannot calibrate while baro or temp are active\n");
+        sendCalibrationResult(SENSOR_APP_EVT_STATUS_BUSY, 0.0f);
         return false;
     }
 
@@ -361,27 +383,6 @@ static void getTempAndBaro(const uint8_t *tmp, float *pressure_Pa, float *temp_c
     *pressure_Pa = pres * (1.0f / 256.0f) + mTask.offset;
 }
 
-static void sendCalibrationResult(float value) {
-    struct CalibrationData *data = heapAlloc(sizeof(struct CalibrationData));
-    if (!data) {
-        osLog(LOG_WARN, "Couldn't alloc cal result pkt");
-        return;
-    }
-
-    data->header.appId = BMP280_APP_ID;
-    data->header.dataLen = (sizeof(struct CalibrationData) - sizeof(struct HostHubRawPacket));
-    data->data_header.msgId = SENSOR_APP_MSG_ID_CAL_RESULT;
-    data->data_header.sensorType = SENS_TYPE_BARO;
-    data->data_header.status = SENSOR_APP_EVT_STATUS_SUCCESS;
-
-    data->value = value;
-
-    if (!osEnqueueEvt(EVT_APP_TO_HOST, data, heapFree)) {
-        heapFree(data);
-        osLog(LOG_WARN, "Couldn't send cal result evt");
-    }
-}
-
 static void handleI2cEvent(enum BMP280TaskState state)
 {
     union EmbeddedDataPoint sample;
@@ -460,7 +461,7 @@ static void handleI2cEvent(enum BMP280TaskState state)
 
             if (mTask.baroOn && mTask.baroReading) {
                 if (mTask.baroCalibrating) {
-                    sendCalibrationResult(pressure_Pa * 0.01f);
+                    sendCalibrationResult(SENSOR_APP_EVT_STATUS_SUCCESS, pressure_Pa * 0.01f);
 
                     if (mTask.baroTimerHandle)
                         timTimerCancel(mTask.baroTimerHandle);
