@@ -183,10 +183,8 @@ static void sendCalibrationResult(uint8_t status, float value) {
 
     data->value = value;
 
-    if (!osEnqueueEvt(EVT_APP_TO_HOST, data, heapFree)) {
-        heapFree(data);
+    if (!osEnqueueEvtOrFree(EVT_APP_TO_HOST, data, heapFree))
         osLog(LOG_WARN, "Couldn't send cal result evt");
-    }
 }
 
 // TODO: only turn on the timer when enabled
