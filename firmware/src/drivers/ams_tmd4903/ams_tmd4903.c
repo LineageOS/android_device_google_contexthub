@@ -335,10 +335,8 @@ static void sendCalibrationResultAls(uint8_t status, float offset) {
     data->data_header.status = status;
     data->offset = offset;
 
-    if (!osEnqueueEvt(EVT_APP_TO_HOST, data, heapFree)) {
-        heapFree(data);
+    if (!osEnqueueEvtOrFree(EVT_APP_TO_HOST, data, heapFree))
         osLog(LOG_WARN, "Couldn't send als cal result evt");
-    }
 }
 
 static void sendCalibrationResultProx(uint8_t status, int16_t *offsets) {
@@ -360,10 +358,8 @@ static void sendCalibrationResultProx(uint8_t status, int16_t *offsets) {
     for (i = 0; i < 4; i++)
         data->offsets[i] = offsets[i];
 
-    if (!osEnqueueEvt(EVT_APP_TO_HOST, data, heapFree)) {
-        heapFree(data);
+    if (!osEnqueueEvtOrFree(EVT_APP_TO_HOST, data, heapFree))
         osLog(LOG_WARN, "Couldn't send prox cal result evt");
-    }
 }
 
 static void setMode(bool alsOn, bool proxOn, void *cookie)
