@@ -662,9 +662,7 @@ static uint32_t writeEvent(void *rx, uint8_t rx_len, void *tx, uint64_t timestam
             resp->accepted = false;
         } else {
             memcpy(packet, req->evtData, rx_len - sizeof(req->evtType));
-            resp->accepted = osEnqueueEvt(le32toh(req->evtType), packet, free);
-            if (!resp->accepted)
-                free(packet);
+            resp->accepted = osEnqueueEvtOrFree(le32toh(req->evtType), packet, free);
         }
     }
 
@@ -796,8 +794,7 @@ static void halQueryRsaKeys(void *rx, uint8_t rx_len)
     resp->hdr.len = sizeof(*resp) - sizeof(struct NanohubHalHdr) + 1 + len;
     resp->hdr.msg = NANOHUB_HAL_QUERY_RSA_KEYS;
 
-    if (!(osEnqueueEvt(EVT_APP_TO_HOST, resp, heapFree)))
-        heapFree(resp);
+    osEnqueueEvtOrFree(EVT_APP_TO_HOST, resp, heapFree);
 }
 
 static void halStartUpload(void *rx, uint8_t rx_len)
@@ -823,8 +820,7 @@ static void halStartUpload(void *rx, uint8_t rx_len)
 
         if (!mDownloadState) {
             resp->success = false;
-            if (!(osEnqueueEvt(EVT_APP_TO_HOST, resp, heapFree)))
-                heapFree(resp);
+            osEnqueueEvtOrFree(EVT_APP_TO_HOST, resp, heapFree);
             return;
         } else {
             memset(mDownloadState, 0x00, sizeof(struct DownloadState));
@@ -853,8 +849,7 @@ static void halStartUpload(void *rx, uint8_t rx_len)
     resetDownloadState();
 
     resp->success = true;
-    if (!(osEnqueueEvt(EVT_APP_TO_HOST, resp, heapFree)))
-        heapFree(resp);
+    osEnqueueEvtOrFree(EVT_APP_TO_HOST, resp, heapFree);
 }
 
 static void halContUpload(void *rx, uint8_t rx_len)
@@ -897,8 +892,7 @@ static void halContUpload(void *rx, uint8_t rx_len)
     }
     resp->success = !resp->success;
 
-    if (!(osEnqueueEvt(EVT_APP_TO_HOST, resp, heapFree)))
-        heapFree(resp);
+    osEnqueueEvtOrFree(EVT_APP_TO_HOST, resp, heapFree);
 }
 
 static void halFinishUpload(void *rx, uint8_t rx_len)
@@ -955,8 +949,7 @@ static void halFinishUpload(void *rx, uint8_t rx_len)
     }
     resp->success = !resp->success;
 
-    if (!(osEnqueueEvt(EVT_APP_TO_HOST, resp, heapFree)))
-        heapFree(resp);
+    osEnqueueEvtOrFree(EVT_APP_TO_HOST, resp, heapFree);
 }
 
 static void halReboot(void *rx, uint8_t rx_len)
