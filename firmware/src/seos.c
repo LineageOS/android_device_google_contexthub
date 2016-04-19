@@ -440,11 +440,7 @@ static bool osEventSubscribeUnsubscribe(uint32_t tid, uint32_t evtType, bool sub
     act->evtSub.evt = evtType;
     act->evtSub.tid = tid;
 
-    if (osEnqueueEvt(sub ? EVT_SUBSCRIBE_TO_EVT : EVT_UNSUBSCRIBE_TO_EVT, act, osDeferredActionFreeF))
-        return true;
-
-    slabAllocatorFree(mMiscInternalThingsSlab, act);
-    return false;
+    return osEnqueueEvtOrFree(sub ? EVT_SUBSCRIBE_TO_EVT : EVT_UNSUBSCRIBE_TO_EVT, act, osDeferredActionFreeF);
 }
 
 bool osEventSubscribe(uint32_t tid, uint32_t evtType)
@@ -504,11 +500,7 @@ static bool osEnqueuePrivateEvtEx(uint32_t evtType, void *evtData, TaggedPtr evt
     act->privateEvt.evtFreeInfo = evtFreeInfo;
     act->privateEvt.toTid = toTid;
 
-    if (osEnqueueEvt(EVT_PRIVATE_EVT, act, osDeferredActionFreeF))
-        return true;
-
-    slabAllocatorFree(mMiscInternalThingsSlab, act);
-    return false;
+    return osEnqueueEvtOrFree(EVT_PRIVATE_EVT, act, osDeferredActionFreeF);
 }
 
 bool osEnqueuePrivateEvt(uint32_t evtType, void *evtData, EventFreeF evtFreeF, uint32_t toTid)
