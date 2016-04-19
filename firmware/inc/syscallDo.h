@@ -107,6 +107,14 @@ static inline bool eOsEnqueueEvt(uint32_t evtType, void *evtData, uint32_t tidOf
     return syscallDo3P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_MAIN, SYSCALL_OS_MAIN_EVENTQ, SYSCALL_OS_MAIN_EVTQ_ENQUEUE), evtType, evtData, tidOfWhoWillFreeThisEvent);
 }
 
+static inline bool eOsEnqueueEvtOrFree(uint32_t evtType, void *evtData, EventFreeF evtFreeF, uint32_t tidOfWhoWillFreeThisEvent) // tidOfWhoWillFreeThisEvent is likely your TID
+{
+    bool success = eOsEnqueueEvt(evtType, evtData, tidOfWhoWillFreeThisEvent);
+    if (!success && evtFreeF)
+        evtFreeF(evtData);
+    return success;
+}
+
 static inline bool eOsEnqueuePrivateEvt(uint32_t evtType, void *evtData, uint32_t tidOfWhoWillFreeThisEvent, uint32_t toTid)
 {
     return syscallDo4P(SYSCALL_NO(SYSCALL_DOMAIN_OS, SYSCALL_OS_MAIN, SYSCALL_OS_MAIN_EVENTQ, SYSCALL_OS_MAIN_EVTQ_ENQUEUE_PRIVATE), evtType, evtData, tidOfWhoWillFreeThisEvent, toTid);
