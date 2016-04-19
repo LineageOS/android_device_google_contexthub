@@ -1586,12 +1586,7 @@ static bool flushData(struct BMI160Sensor *sensor, uint32_t eventId)
     bool success = false;
 
     if (sensor->data_evt) {
-        success = osEnqueueEvt(eventId, sensor->data_evt, dataEvtFree);
-        if (!success) {
-            // don't log error since queue is already full. silently drop
-            // this data event.
-            dataEvtFree(sensor->data_evt);
-        }
+        success = osEnqueueEvtOrFree(eventId, sensor->data_evt, dataEvtFree);
         sensor->data_evt = NULL;
     }
 
@@ -2150,10 +2145,8 @@ static void sendCalibrationResult(uint8_t status, uint8_t sensorType, int32_t xB
     data->yBias = yBias;
     data->zBias = zBias;
 
-    if (!osEnqueueEvt(EVT_APP_TO_HOST, data, heapFree)) {
-        heapFree(data);
+    if (!osEnqueueEvtOrFree(EVT_APP_TO_HOST, data, heapFree))
         osLog(LOG_WARN, "Couldn't send cal result evt");
-    }
 }
 
 static void accCalibrationHandling(void)
