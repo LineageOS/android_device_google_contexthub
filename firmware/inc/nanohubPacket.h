@@ -367,7 +367,7 @@ SET_PACKED_STRUCT_MODE_OFF
 SET_PACKED_STRUCT_MODE_ON
 struct NanohubHalRebootTx {
     struct NanohubHalHdr hdr;
-    uint8_t success;
+    __le32 reason;
 } ATTRIBUTE_PACKED;
 SET_PACKED_STRUCT_MODE_OFF
 
