@@ -50,7 +50,7 @@ uint64_t platGetTicks(void); //in nanoseconds since an arbitrary starting point 
 #define PLAT_MAX_SLEEP_DEVS    32
 
 void platSleep(void);
-
+void platWake(void);
 
 //in platSleepClockRequest() code to set next timer of some variety will live
 //note that maxErrTotalPpm != maxDriftPpm + maxJitterPpm is quite possible since it is possible to have:

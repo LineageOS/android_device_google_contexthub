@@ -137,6 +137,7 @@ bool evtQueueEnqueue(struct EvtQueue* q, uint32_t evtType, void *evtData, uintpt
     }
 
     cpuIntsRestore(intSta);
+    platWake();
     return true;
 }
 
