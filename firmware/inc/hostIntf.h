@@ -71,12 +71,15 @@ SET_PACKED_STRUCT_MODE_OFF
 void hostIntfCopyInterrupts(void *dst, uint32_t numBits);
 void hostIntfClearInterrupts();
 void hostIntfSetInterrupt(uint32_t bit);
+bool hostIntfGetInterrupt(uint32_t bit);
 void hostIntfClearInterrupt(uint32_t bit);
 void hostIntfSetInterruptMask(uint32_t bit);
+bool hostIntfGetInterruptMask(uint32_t bit);
 void hostIntfClearInterruptMask(uint32_t bit);
 void hostIntfPacketFree(void *ptr);
 bool hostIntfPacketDequeue(void *ptr, uint32_t *wakeup, uint32_t *nonwakeup);
 void hostIntfSetBusy(bool busy);
 void hostIntfRxPacket(bool wakeupActive);
+void hostIntfTxAck(void *buffer, uint8_t len);
 
 #endif /* __HOSTINTF_H */

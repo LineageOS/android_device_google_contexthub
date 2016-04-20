@@ -18,16 +18,46 @@
 #include <hostIntf_priv.h>
 #include <variant/inc/variant.h>
 #include <plat/inc/bl.h>
+#include <plat/inc/cmsis.h>
+#include <plat/inc/spi.h>
+
 
 const struct HostIntfComm *platHostIntfInit()
 {
+    uint32_t priorityGroup = NVIC_GetPriorityGrouping();
+    uint32_t priority, preemptPriority, subPriority;
+    enum IRQn rx, tx;
+    const struct HostIntfComm *ret = NULL;
+
 #if defined(PLATFORM_HOST_INTF_I2C_BUS)
-    return hostIntfI2cInit(PLATFORM_HOST_INTF_I2C_BUS);
+    ret = hostIntfI2cInit(PLATFORM_HOST_INTF_I2C_BUS);
 #elif defined(PLATFORM_HOST_INTF_SPI_BUS)
-    return hostIntfSpiInit(PLATFORM_HOST_INTF_SPI_BUS);
+    ret = hostIntfSpiInit(PLATFORM_HOST_INTF_SPI_BUS);
+
+    /* get the rx and tx irq numbers used by the host spi bus */
+    ret->request();
+    rx = spiRxIrq(PLATFORM_HOST_INTF_SPI_BUS);
+    tx = spiTxIrq(PLATFORM_HOST_INTF_SPI_BUS);
+    ret->release();
+
+    /* make the tx and rx dma isrs execute before other isrs when multiple
+       interrupts are pending (if avaliable subpriority bits).
+       We do not change the preempt priority */
+    priority = NVIC_GetPriority(rx);
+    NVIC_DecodePriority (priority, priorityGroup, &preemptPriority, &subPriority);
+    if (&subPriority > 0)
+        subPriority --;
+    NVIC_SetPriority(rx, NVIC_EncodePriority(priorityGroup, preemptPriority, subPriority));
+
+    priority = NVIC_GetPriority(tx);
+    NVIC_DecodePriority (priority, priorityGroup, &preemptPriority, &subPriority);
+    if (&subPriority > 0)
+        subPriority --;
+    NVIC_SetPriority(tx, NVIC_EncodePriority(priorityGroup, preemptPriority, subPriority));
 #else
 #error "No host interface bus specified"
 #endif
+    return ret;
 }
 
 uint16_t platHwType(void)

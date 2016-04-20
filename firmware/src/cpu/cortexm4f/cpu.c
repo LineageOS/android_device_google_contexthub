@@ -66,9 +66,6 @@ static struct RamPersistedDataAndDropbox* getInitedPersistedData(void)
 
 void cpuInit(void)
 {
-    /* set pendsv to be lowest priority possible */
-    NVIC_SetPriority(PendSV_IRQn, 1 << (8 - __NVIC_PRIO_BITS));
-
     /* set SVC to be highest possible priority */
     NVIC_SetPriority(SVCall_IRQn, 0xff);
 

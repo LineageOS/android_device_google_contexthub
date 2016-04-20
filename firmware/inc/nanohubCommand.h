@@ -17,14 +17,19 @@
 #ifndef __NANOHUBCOMMAND_H
 #define __NANOHUBCOMMAND_H
 
+#define NANOHUB_FAST_DONT_ACK       0xFFFFFFFE
+#define NANOHUB_FAST_UNHANDLED_ACK  0xFFFFFFFF
+
 struct NanohubCommand {
     uint32_t reason;
+    uint32_t (*fastHandler)(void *, uint8_t, void *, uint64_t);
     uint32_t (*handler)(void *, uint8_t, void *, uint64_t);
     uint8_t minDataLen;
     uint8_t maxDataLen;
 };
 
 void nanohubInitCommand(void);
+void nanohubPrefetchTx(uint32_t interrupt, uint32_t wakeup, uint32_t nonwakeup);
 const struct NanohubCommand *nanohubFindCommand(uint32_t packetReason);
 
 struct NanohubHalCommand {
