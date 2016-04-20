@@ -22,6 +22,7 @@
 #include <sys/endian.h>
 
 #include <atomicBitset.h>
+#include <atomic.h>
 #include <hostIntf.h>
 #include <hostIntf_priv.h>
 #include <nanohubCommand.h>
@@ -37,18 +38,22 @@
 #include <crc.h>
 #include <rsa.h>
 #include <appSec.h>
+#include <cpu.h>
 #include <plat/inc/bl.h>
 #include <plat/inc/plat.h>
 #include <variant/inc/variant.h>
 
-#define NANOHUB_COMMAND(_reason, _handler, _minReqType, _maxReqType) \
-        { .reason = _reason, .handler = _handler, \
+#define NANOHUB_COMMAND(_reason, _fastHandler, _handler, _minReqType, _maxReqType) \
+        { .reason = _reason, .fastHandler = _fastHandler, .handler = _handler, \
           .minDataLen = sizeof(_minReqType), .maxDataLen = sizeof(_maxReqType) }
 
 #define NANOHUB_HAL_COMMAND(_msg, _handler) \
         { .msg = _msg, .handler = _handler }
 
-static struct DownloadState
+#define SYNC_DATAPOINTS 16
+#define SYNC_RESET      10000000000ULL /* 10 seconds, ~100us drift */
+
+struct DownloadState
 {
     struct AppSecState *appSecState;
     uint32_t size;
@@ -62,12 +67,25 @@ static struct DownloadState
     uint8_t  chunkReply;
     uint8_t  type;
     bool     erase;
-} *mDownloadState;
+};
+
+struct TimeSync
+{
+    uint64_t lastTime;
+    uint64_t delta[SYNC_DATAPOINTS];
+    uint64_t avgDelta;
+    uint8_t cnt;
+    uint8_t tail;
+};
+
+static struct DownloadState *mDownloadState;
 static AppSecErr mAppSecStatus;
 static struct SlabAllocator *mEventSlab;
-static struct HostIntfDataBuffer mTxNext;
-static uint32_t mWakeup, mNonWakeup;
-static uint8_t mTxNextLength;
+static struct HostIntfDataBuffer mTxCurr, mTxNext;
+static uint8_t mTxCurrLength, mTxNextLength;
+static uint8_t mPrefetchActive, mPrefetchTx;
+static uint32_t mTxCurrWakeCnt[2], mTxNextWakeCnt[2];
+static struct TimeSync mTimeSync = { };
 
 static inline bool isSensorEvent(uint32_t evtType)
 {
@@ -502,20 +520,6 @@ static uint32_t unmaskInterrupt(void *rx, uint8_t rx_len, void *tx, uint64_t tim
     return sizeof(*resp);
 }
 
-#define SYNC_DATAPOINTS 16
-#define SYNC_RESET      10000000000ULL /* 10 seconds, ~100us drift */
-
-struct TimeSync
-{
-    uint64_t lastTime;
-    uint64_t delta[SYNC_DATAPOINTS];
-    uint64_t avgDelta;
-    uint8_t cnt;
-    uint8_t tail;
-} __attribute__((packed));
-
-static uint64_t getAvgDelta(struct TimeSync *sync);
-
 static void addDelta(struct TimeSync *sync, uint64_t apTime, uint64_t hubTime)
 {
     if (apTime - sync->lastTime > SYNC_RESET) {
@@ -551,28 +555,15 @@ static uint64_t getAvgDelta(struct TimeSync *sync)
     return sync->avgDelta;
 }
 
-static uint32_t readEvent(void *rx, uint8_t rx_len, void *tx, uint64_t timestamp)
+static int fillBuffer(void *tx, uint32_t totLength, uint32_t *wakeup, uint32_t *nonwakeup)
 {
-    struct NanohubReadEventRequest *req = rx;
     struct HostIntfDataBuffer *packet = &mTxNext;
     struct HostIntfDataBuffer *firstPacket = tx;
     uint8_t *buf = tx;
-    uint32_t length, wakeup, nonwakeup;
-    uint32_t totLength = 0;
-    static struct TimeSync timeSync = { };
+    uint32_t length;
+    uint32_t nextWakeup, nextNonWakeup;
 
-    addDelta(&timeSync, req->apBootTime, timestamp);
-
-    if (mTxNextLength > 0) {
-        length = mTxNextLength;
-        wakeup = mWakeup;
-        nonwakeup = mNonWakeup;
-        memcpy(buf, &mTxNext, length);
-        totLength = length;
-        mTxNextLength = 0;
-    }
-
-    while (hostIntfPacketDequeue(&mTxNext, &mWakeup, &mNonWakeup)) {
+    while (hostIntfPacketDequeue(&mTxNext, &nextWakeup, &nextNonWakeup)) {
         length = packet->length + sizeof(packet->evtType);
         if (packet->sensType == SENS_TYPE_INVALID) {
             switch (packet->dataType) {
@@ -594,21 +585,136 @@ static uint32_t readEvent(void *rx, uint8_t rx_len, void *tx, uint64_t timestamp
         } else {
             packet->evtType = htole32(EVT_NO_FIRST_SENSOR_EVENT + packet->sensType);
             if (packet->referenceTime)
-                packet->referenceTime += getAvgDelta(&timeSync);
+                packet->referenceTime += getAvgDelta(&mTimeSync);
         }
 
         if ((!totLength || (isSensorEvent(firstPacket->evtType) && isSensorEvent(packet->evtType))) && totLength + length <= sizeof(struct HostIntfDataBuffer)) {
-            wakeup = mWakeup;
-            nonwakeup = mNonWakeup;
+            atomicWrite32bits(&mTxNextWakeCnt[0], 0);
+            atomicWrite32bits(&mTxNextWakeCnt[1], 0);
+            *wakeup = nextWakeup;
+            *nonwakeup = nextNonWakeup;
             memcpy(buf + totLength, &mTxNext, length);
             totLength += length;
             if (isSensorEvent(packet->evtType) && packet->firstSample.interrupt == NANOHUB_INT_WAKEUP)
                 firstPacket->firstSample.interrupt = NANOHUB_INT_WAKEUP;
         } else {
+            atomicWrite32bits(&mTxNextWakeCnt[0], nextWakeup);
+            atomicWrite32bits(&mTxNextWakeCnt[1], nextNonWakeup);
             mTxNextLength = length;
             break;
         }
     }
+
+    return totLength;
+}
+
+void nanohubPrefetchTx(uint32_t interrupt, uint32_t wakeup, uint32_t nonwakeup)
+{
+    uint64_t state;
+
+    if (wakeup > atomicRead32bits(&mTxNextWakeCnt[0]))
+        atomicWrite32bits(&mTxNextWakeCnt[0], wakeup);
+
+    if (nonwakeup > atomicRead32bits(&mTxNextWakeCnt[1]))
+        atomicWrite32bits(&mTxNextWakeCnt[1], nonwakeup);
+
+    if (interrupt == HOSTINTF_MAX_INTERRUPTS && !hostIntfGetInterrupt(NANOHUB_INT_WAKEUP) && !hostIntfGetInterrupt(NANOHUB_INT_NONWAKEUP))
+        return;
+
+    atomicWriteByte(&mPrefetchActive, 1);
+
+    if (interrupt < HOSTINTF_MAX_INTERRUPTS)
+        hostIntfSetInterrupt(interrupt);
+
+    if (atomicReadByte(&mTxCurrLength) == 0 && mTxNextLength > 0) {
+        mTxCurrWakeCnt[0] = atomicRead32bits(&mTxNextWakeCnt[0]);
+        mTxCurrWakeCnt[1] = atomicRead32bits(&mTxNextWakeCnt[1]);
+        memcpy(&mTxCurr, &mTxNext, mTxNextLength);
+        atomicWriteByte(&mTxCurrLength, mTxNextLength);
+        mTxNextLength = 0;
+    }
+
+    if (mTxNextLength == 0) {
+        atomicWriteByte(&mTxCurrLength, fillBuffer(&mTxCurr, atomicReadByte(&mTxCurrLength), &mTxCurrWakeCnt[0], &mTxCurrWakeCnt[1]));
+    }
+
+    atomicWriteByte(&mPrefetchActive, 0);
+
+    if (atomicReadByte(&mPrefetchTx)) {
+        state = cpuIntsOff();
+
+        // interrupt occured during this call
+        // take care of it
+        hostIntfTxAck(&mTxCurr, atomicReadByte(&mTxCurrLength));
+        atomicWriteByte(&mPrefetchTx, 0);
+        atomicWriteByte(&mTxCurrLength, 0);
+
+        cpuIntsRestore(state);
+    }
+}
+
+static void nanohubPrefetchTxDefer(void *cookie)
+{
+    nanohubPrefetchTx(HOSTINTF_MAX_INTERRUPTS, 0, 0);
+}
+
+static uint32_t readEventFast(void *rx, uint8_t rx_len, void *tx, uint64_t timestamp)
+{
+    struct NanohubReadEventRequest *req = rx;
+    uint8_t ret = 0;
+
+    if (atomicReadByte(&mPrefetchActive)) {
+        atomicWriteByte(&mPrefetchTx, 1);
+        return NANOHUB_FAST_DONT_ACK;
+    } else {
+        if ((ret = atomicReadByte(&mTxCurrLength))) {
+            addDelta(&mTimeSync, req->apBootTime, timestamp);
+
+            memcpy(tx, &mTxCurr, ret);
+            atomicWriteByte(&mTxCurrLength, 0);
+
+            if (!mTxCurrWakeCnt[0] && !atomicRead32bits(&mTxNextWakeCnt[0]))
+                hostIntfClearInterrupt(NANOHUB_INT_WAKEUP);
+            if (!mTxCurrWakeCnt[1] && !atomicRead32bits(&mTxNextWakeCnt[1]))
+                hostIntfClearInterrupt(NANOHUB_INT_NONWAKEUP);
+            osDefer(nanohubPrefetchTxDefer, NULL, true);
+        } else {
+            return NANOHUB_FAST_UNHANDLED_ACK;
+        }
+    }
+
+    return ret;
+}
+
+static uint32_t readEvent(void *rx, uint8_t rx_len, void *tx, uint64_t timestamp)
+{
+    struct NanohubReadEventRequest *req = rx;
+    uint8_t *buf = tx;
+    uint32_t length, wakeup, nonwakeup;
+    uint32_t totLength = 0;
+
+    addDelta(&mTimeSync, req->apBootTime, timestamp);
+
+    if ((totLength = atomicReadByte(&mTxCurrLength))) {
+        memcpy(tx, &mTxCurr, totLength);
+        atomicWriteByte(&mTxCurrLength, 0);
+        if (!mTxCurrWakeCnt[0])
+            hostIntfClearInterrupt(NANOHUB_INT_WAKEUP);
+        if (!mTxCurrWakeCnt[1])
+            hostIntfClearInterrupt(NANOHUB_INT_NONWAKEUP);
+        return totLength;
+    }
+
+    if (mTxNextLength > 0) {
+        length = mTxNextLength;
+        wakeup = atomicRead32bits(&mTxNextWakeCnt[0]);
+        nonwakeup = atomicRead32bits(&mTxNextWakeCnt[1]);
+        memcpy(buf, &mTxNext, length);
+        totLength = length;
+        mTxNextLength = 0;
+    }
+
+    totLength = fillBuffer(buf, totLength, &wakeup, &nonwakeup);
 
     if (totLength) {
         if (!wakeup)
@@ -672,45 +778,56 @@ static uint32_t writeEvent(void *rx, uint8_t rx_len, void *tx, uint64_t timestam
 const static struct NanohubCommand mBuiltinCommands[] = {
     NANOHUB_COMMAND(NANOHUB_REASON_GET_OS_HW_VERSIONS,
                     getOsHwVersion,
+                    getOsHwVersion,
                     struct NanohubOsHwVersionsRequest,
                     struct NanohubOsHwVersionsRequest),
     NANOHUB_COMMAND(NANOHUB_REASON_GET_APP_VERSIONS,
+                    NULL,
                     getAppVersion,
                     struct NanohubAppVersionsRequest,
                     struct NanohubAppVersionsRequest),
     NANOHUB_COMMAND(NANOHUB_REASON_QUERY_APP_INFO,
+                    NULL,
                     queryAppInfo,
                     struct NanohubAppInfoRequest,
                     struct NanohubAppInfoRequest),
     NANOHUB_COMMAND(NANOHUB_REASON_START_FIRMWARE_UPLOAD,
+                    NULL,
                     startFirmwareUpload,
                     struct NanohubStartFirmwareUploadRequest,
                     struct NanohubStartFirmwareUploadRequest),
     NANOHUB_COMMAND(NANOHUB_REASON_FIRMWARE_CHUNK,
+                    NULL,
                     firmwareChunk,
                     __le32,
                     struct NanohubFirmwareChunkRequest),
     NANOHUB_COMMAND(NANOHUB_REASON_FINISH_FIRMWARE_UPLOAD,
+                    NULL,
                     finishFirmwareUpload,
                     struct NanohubFinishFirmwareUploadRequest,
                     struct NanohubFinishFirmwareUploadRequest),
     NANOHUB_COMMAND(NANOHUB_REASON_GET_INTERRUPT,
                     getInterrupt,
+                    getInterrupt,
                     0,
                     struct NanohubGetInterruptRequest),
     NANOHUB_COMMAND(NANOHUB_REASON_MASK_INTERRUPT,
+                    maskInterrupt,
                     maskInterrupt,
                     struct NanohubMaskInterruptRequest,
                     struct NanohubMaskInterruptRequest),
     NANOHUB_COMMAND(NANOHUB_REASON_UNMASK_INTERRUPT,
                     unmaskInterrupt,
+                    unmaskInterrupt,
                     struct NanohubUnmaskInterruptRequest,
                     struct NanohubUnmaskInterruptRequest),
     NANOHUB_COMMAND(NANOHUB_REASON_READ_EVENT,
+                    readEventFast,
                     readEvent,
                     struct NanohubReadEventRequest,
                     struct NanohubReadEventRequest),
     NANOHUB_COMMAND(NANOHUB_REASON_WRITE_EVENT,
+                    writeEvent,
                     writeEvent,
                     __le32,
                     struct NanohubWriteEventRequest),

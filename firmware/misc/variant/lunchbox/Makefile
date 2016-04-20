@@ -38,7 +38,7 @@ SRCS_os += src/drivers/rohm_rpr0521/rohm_rpr0521.c
 SRCS_os += src/algos/fusion.c src/algos/mat.c src/algos/quat.c src/algos/vec.c
 
 # BMI160 accel and gyro, BMM150 mag drivers
-FLAGS += -DUSE_BMM150
+FLAGS += -DUSE_BMM150 -DMAG_SLAVE_PRESENT
 SRCS_os += src/drivers/bosch_bmi160/bosch_bmi160.c \
 	src/drivers/bosch_bmi160/bosch_bmm150_slave.c \
 	src/algos/mag_cal.c \
