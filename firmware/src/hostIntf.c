@@ -362,10 +362,36 @@ static void hostIntfRxDone(size_t rx, int err)
     hostIntfGenerateAck(NULL);
 }
 
+static void hostIntfTxSendAck(uint32_t resp)
+{
+    void *txPayload = hostIntfGetPayload(mTxBuf.buf);
+
+    if (resp == NANOHUB_FAST_UNHANDLED_ACK) {
+        hostIntfCopyInterrupts(txPayload, HOSTINTF_MAX_INTERRUPTS);
+        hostIntfTxPacket(NANOHUB_REASON_ACK, 32, mTxRetrans.seq, hostIntfTxAckDone);
+    } else if (resp == NANOHUB_FAST_DONT_ACK) {
+        // do nothing. something else will do the ack
+    } else {
+        hostIntfTxPacket(mRxCmd->reason, resp, mTxRetrans.seq, hostIntfTxPayloadDone);
+    }
+}
+
+void hostIntfTxAck(void *buffer, uint8_t len)
+{
+    void *txPayload = hostIntfGetPayload(mTxBuf.buf);
+
+    memcpy(txPayload, buffer, len);
+
+    hostIntfTxSendAck(len);
+}
+
 static void hostIntfGenerateAck(void *cookie)
 {
     uint32_t seq = 0;
     void *txPayload = hostIntfGetPayload(mTxBuf.buf);
+    void *rxPayload = hostIntfGetPayload(mRxBuf);
+    uint8_t rx_len = hostIntfGetPayloadLen(mRxBuf);
+    uint32_t resp = NANOHUB_FAST_UNHANDLED_ACK;
 
     atomicWriteByte(&mActiveWrite, true);
     hostIntfSetInterrupt(NANOHUB_INT_WAKE_COMPLETE);
@@ -377,8 +403,10 @@ static void hostIntfGenerateAck(void *cookie)
         } else {
             mTxRetrans.seq = seq;
             mTxRetrans.cmd = mRxCmd;
-            hostIntfCopyInterrupts(txPayload, HOSTINTF_MAX_INTERRUPTS);
-            hostIntfTxPacket(NANOHUB_REASON_ACK, 32, seq, hostIntfTxAckDone);
+            if (mRxCmd->fastHandler)
+                resp = mRxCmd->fastHandler(rxPayload, rx_len, txPayload, mRxTimestamp);
+
+            hostIntfTxSendAck(resp);
         }
     } else {
         if (mBusy)
@@ -387,6 +415,7 @@ static void hostIntfGenerateAck(void *cookie)
             hostIntfTxPacket(NANOHUB_REASON_NAK, 0, seq, hostIntfTxAckDone);
     }
 }
+
 
 static void hostIntfTxComplete(bool restart)
 {
@@ -947,7 +976,7 @@ static void hostIntfAddBlock(struct HostIntfDataBuffer *data)
         mWakeupBlocks++;
     else if (data->interrupt == NANOHUB_INT_NONWAKEUP)
         mNonWakeupBlocks++;
-    hostIntfSetInterrupt(data->interrupt);
+    nanohubPrefetchTx(data->interrupt, mWakeupBlocks, mNonWakeupBlocks);
 }
 
 static void hostIntfNotifyReboot(uint32_t reason)
@@ -978,6 +1007,7 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
     const struct NanohubHalCommand *halCmd;
     const uint8_t *halMsg;
     uint32_t reason;
+    uint32_t interrupt = HOSTINTF_MAX_INTERRUPTS;
 
     if (evtType == EVT_APP_START) {
         if (initSensors()) {
@@ -1181,14 +1211,17 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
             }
 
             rtcTime = rtcGetTime();
+
             if (sensor->firstTime &&
                 ((rtcTime >= sensor->firstTime + sensor->latency) ||
                  ((sensor->latency > sensorGetCurLatency(sensor->sensorHandle)) &&
                   (rtcTime + sensorGetCurLatency(sensor->sensorHandle) > sensor->firstTime + sensor->latency)))) {
-                hostIntfSetInterrupt(sensor->interrupt);
+                interrupt = sensor->interrupt;
             } else if (mWakeupBlocks + mNonWakeupBlocks >= mTotalBlocks) {
-                hostIntfSetInterrupt(sensor->interrupt);
+                interrupt = sensor->interrupt;
             }
+
+            nanohubPrefetchTx(interrupt, mWakeupBlocks, mNonWakeupBlocks);
 
             if (sensor->oneshot) {
                 sensorRelease(mHostIntfTid, sensor->sensorHandle);
@@ -1203,7 +1236,7 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
             case NUM_AXIS_THREE:
                 if (((const struct TripleAxisDataEvent *)evtData)->samples[0].firstSample.biasPresent) {
                     copyTripleSamples(sensor, evtData);
-                    hostIntfSetInterrupt(sensor->interrupt);
+                    nanohubPrefetchTx(sensor->interrupt, mWakeupBlocks, mNonWakeupBlocks);
                 }
                 break;
             default:
@@ -1249,6 +1282,11 @@ void hostIntfSetInterrupt(uint32_t bit)
     cpuIntsRestore(state);
 }
 
+bool hostIntfGetInterrupt(uint32_t bit)
+{
+    return atomicBitsetGetBit(mInterrupt, bit);
+}
+
 void hostIntfClearInterrupt(uint32_t bit)
 {
     uint64_t state = cpuIntsOff();
@@ -1282,6 +1320,11 @@ void hostIntfSetInterruptMask(uint32_t bit)
         }
     }
     cpuIntsRestore(state);
+}
+
+bool hostIntfGetInterruptMask(uint32_t bit)
+{
+    return atomicBitsetGetBit(mInterruptMask, bit);
 }
 
 void hostIntfClearInterruptMask(uint32_t bit)
