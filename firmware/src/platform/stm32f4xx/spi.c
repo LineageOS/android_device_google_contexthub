@@ -623,3 +623,23 @@ int spiRequest(struct SpiDevice *dev, uint8_t busId)
     dev->pdata = pdev;
     return 0;
 }
+
+const enum IRQn spiRxIrq(uint8_t busId)
+{
+    if (busId >= ARRAY_SIZE(mStmSpiDevs))
+        return -ENODEV;
+
+    struct StmSpiDev *pdev = &mStmSpiDevs[busId];
+
+    return dmaIrq(pdev->cfg->dmaBus, pdev->board->dmaRx.stream);
+}
+
+const enum IRQn spiTxIrq(uint8_t busId)
+{
+    if (busId >= ARRAY_SIZE(mStmSpiDevs))
+        return -ENODEV;
+
+    struct StmSpiDev *pdev = &mStmSpiDevs[busId];
+
+    return dmaIrq(pdev->cfg->dmaBus, pdev->board->dmaTx.stream);
+}

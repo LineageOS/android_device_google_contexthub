@@ -285,3 +285,8 @@ void dmaStop(uint8_t busId, uint8_t stream)
     while (regs->CR & STM_DMA_CR_EN)
         ;
 }
+
+const enum IRQn dmaIrq(uint8_t busId, uint8_t stream)
+{
+    return STM_DMA_IRQ[busId][stream];
+}
