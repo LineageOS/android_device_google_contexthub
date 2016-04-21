@@ -84,7 +84,7 @@ static struct SlabAllocator *mEventSlab;
 static struct HostIntfDataBuffer mTxCurr, mTxNext;
 static uint8_t mTxCurrLength, mTxNextLength;
 static uint8_t mPrefetchActive, mPrefetchTx;
-static uint32_t mTxCurrWakeCnt[2], mTxNextWakeCnt[2];
+static uint32_t mTxWakeCnt[2];
 static struct TimeSync mTimeSync = { };
 
 static inline bool isSensorEvent(uint32_t evtType)
@@ -561,9 +561,12 @@ static int fillBuffer(void *tx, uint32_t totLength, uint32_t *wakeup, uint32_t *
     struct HostIntfDataBuffer *firstPacket = tx;
     uint8_t *buf = tx;
     uint32_t length;
-    uint32_t nextWakeup, nextNonWakeup;
+    uint32_t prevWakeup, prevNonWakeup;
 
-    while (hostIntfPacketDequeue(&mTxNext, &nextWakeup, &nextNonWakeup)) {
+    prevWakeup = *wakeup;
+    prevNonWakeup = *nonwakeup;
+
+    while (hostIntfPacketDequeue(&mTxNext, wakeup, nonwakeup)) {
         length = packet->length + sizeof(packet->evtType);
         if (packet->sensType == SENS_TYPE_INVALID) {
             switch (packet->dataType) {
@@ -589,18 +592,14 @@ static int fillBuffer(void *tx, uint32_t totLength, uint32_t *wakeup, uint32_t *
         }
 
         if ((!totLength || (isSensorEvent(firstPacket->evtType) && isSensorEvent(packet->evtType))) && totLength + length <= sizeof(struct HostIntfDataBuffer)) {
-            atomicWrite32bits(&mTxNextWakeCnt[0], 0);
-            atomicWrite32bits(&mTxNextWakeCnt[1], 0);
-            *wakeup = nextWakeup;
-            *nonwakeup = nextNonWakeup;
             memcpy(buf + totLength, &mTxNext, length);
             totLength += length;
             if (isSensorEvent(packet->evtType) && packet->firstSample.interrupt == NANOHUB_INT_WAKEUP)
                 firstPacket->firstSample.interrupt = NANOHUB_INT_WAKEUP;
         } else {
-            atomicWrite32bits(&mTxNextWakeCnt[0], nextWakeup);
-            atomicWrite32bits(&mTxNextWakeCnt[1], nextNonWakeup);
             mTxNextLength = length;
+            *wakeup = prevWakeup;
+            *nonwakeup = prevNonWakeup;
             break;
         }
     }
@@ -612,11 +611,11 @@ void nanohubPrefetchTx(uint32_t interrupt, uint32_t wakeup, uint32_t nonwakeup)
 {
     uint64_t state;
 
-    if (wakeup > atomicRead32bits(&mTxNextWakeCnt[0]))
-        atomicWrite32bits(&mTxNextWakeCnt[0], wakeup);
+    if (wakeup < atomicRead32bits(&mTxWakeCnt[0]))
+        wakeup = atomicRead32bits(&mTxWakeCnt[0]);
 
-    if (nonwakeup > atomicRead32bits(&mTxNextWakeCnt[1]))
-        atomicWrite32bits(&mTxNextWakeCnt[1], nonwakeup);
+    if (nonwakeup < atomicRead32bits(&mTxWakeCnt[1]))
+        nonwakeup = atomicRead32bits(&mTxWakeCnt[1]);
 
     if (interrupt == HOSTINTF_MAX_INTERRUPTS && !hostIntfGetInterrupt(NANOHUB_INT_WAKEUP) && !hostIntfGetInterrupt(NANOHUB_INT_NONWAKEUP))
         return;
@@ -626,31 +625,39 @@ void nanohubPrefetchTx(uint32_t interrupt, uint32_t wakeup, uint32_t nonwakeup)
     if (interrupt < HOSTINTF_MAX_INTERRUPTS)
         hostIntfSetInterrupt(interrupt);
 
-    if (atomicReadByte(&mTxCurrLength) == 0 && mTxNextLength > 0) {
-        mTxCurrWakeCnt[0] = atomicRead32bits(&mTxNextWakeCnt[0]);
-        mTxCurrWakeCnt[1] = atomicRead32bits(&mTxNextWakeCnt[1]);
-        memcpy(&mTxCurr, &mTxNext, mTxNextLength);
-        atomicWriteByte(&mTxCurrLength, mTxNextLength);
-        mTxNextLength = 0;
-    }
+    do {
+        if (atomicReadByte(&mTxCurrLength) == 0 && mTxNextLength > 0) {
+            memcpy(&mTxCurr, &mTxNext, mTxNextLength);
+            atomicWriteByte(&mTxCurrLength, mTxNextLength);
+            mTxNextLength = 0;
+        }
 
-    if (mTxNextLength == 0) {
-        atomicWriteByte(&mTxCurrLength, fillBuffer(&mTxCurr, atomicReadByte(&mTxCurrLength), &mTxCurrWakeCnt[0], &mTxCurrWakeCnt[1]));
-    }
+        if (mTxNextLength == 0) {
+            atomicWriteByte(&mTxCurrLength, fillBuffer(&mTxCurr, atomicReadByte(&mTxCurrLength), &wakeup, &nonwakeup));
+            atomicWrite32bits(&mTxWakeCnt[0], wakeup);
+            atomicWrite32bits(&mTxWakeCnt[1], nonwakeup);
+        }
 
-    atomicWriteByte(&mPrefetchActive, 0);
+        atomicWriteByte(&mPrefetchActive, 0);
 
-    if (atomicReadByte(&mPrefetchTx)) {
-        state = cpuIntsOff();
+        if (atomicReadByte(&mPrefetchTx)) {
+            state = cpuIntsOff();
 
-        // interrupt occured during this call
-        // take care of it
-        hostIntfTxAck(&mTxCurr, atomicReadByte(&mTxCurrLength));
-        atomicWriteByte(&mPrefetchTx, 0);
-        atomicWriteByte(&mTxCurrLength, 0);
+            // interrupt occured during this call
+            // take care of it
+            hostIntfTxAck(&mTxCurr, atomicReadByte(&mTxCurrLength));
+            atomicWriteByte(&mPrefetchTx, 0);
+            atomicWriteByte(&mTxCurrLength, 0);
+            cpuIntsRestore(state);
 
-        cpuIntsRestore(state);
-    }
+            if (!atomicRead32bits(&mTxWakeCnt[0]))
+                hostIntfClearInterrupt(NANOHUB_INT_WAKEUP);
+            if (!atomicRead32bits(&mTxWakeCnt[1]))
+                hostIntfClearInterrupt(NANOHUB_INT_NONWAKEUP);
+        } else {
+            break;
+        }
+    } while (mTxNextLength > 0);
 }
 
 static void nanohubPrefetchTxDefer(void *cookie)
@@ -673,9 +680,9 @@ static uint32_t readEventFast(void *rx, uint8_t rx_len, void *tx, uint64_t times
             memcpy(tx, &mTxCurr, ret);
             atomicWriteByte(&mTxCurrLength, 0);
 
-            if (!mTxCurrWakeCnt[0] && !atomicRead32bits(&mTxNextWakeCnt[0]))
+            if (!atomicRead32bits(&mTxWakeCnt[0]))
                 hostIntfClearInterrupt(NANOHUB_INT_WAKEUP);
-            if (!mTxCurrWakeCnt[1] && !atomicRead32bits(&mTxNextWakeCnt[1]))
+            if (!atomicRead32bits(&mTxWakeCnt[1]))
                 hostIntfClearInterrupt(NANOHUB_INT_NONWAKEUP);
             osDefer(nanohubPrefetchTxDefer, NULL, true);
         } else {
@@ -698,23 +705,25 @@ static uint32_t readEvent(void *rx, uint8_t rx_len, void *tx, uint64_t timestamp
     if ((totLength = atomicReadByte(&mTxCurrLength))) {
         memcpy(tx, &mTxCurr, totLength);
         atomicWriteByte(&mTxCurrLength, 0);
-        if (!mTxCurrWakeCnt[0])
+        if (!atomicRead32bits(&mTxWakeCnt[0]))
             hostIntfClearInterrupt(NANOHUB_INT_WAKEUP);
-        if (!mTxCurrWakeCnt[1])
+        if (!atomicRead32bits(&mTxWakeCnt[1]))
             hostIntfClearInterrupt(NANOHUB_INT_NONWAKEUP);
         return totLength;
     }
 
     if (mTxNextLength > 0) {
         length = mTxNextLength;
-        wakeup = atomicRead32bits(&mTxNextWakeCnt[0]);
-        nonwakeup = atomicRead32bits(&mTxNextWakeCnt[1]);
+        wakeup = atomicRead32bits(&mTxWakeCnt[0]);
+        nonwakeup = atomicRead32bits(&mTxWakeCnt[1]);
         memcpy(buf, &mTxNext, length);
         totLength = length;
         mTxNextLength = 0;
     }
 
     totLength = fillBuffer(buf, totLength, &wakeup, &nonwakeup);
+    atomicWrite32bits(&mTxWakeCnt[0], wakeup);
+    atomicWrite32bits(&mTxWakeCnt[1], nonwakeup);
 
     if (totLength) {
         if (!wakeup)
