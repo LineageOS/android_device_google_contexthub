@@ -41,6 +41,7 @@ void platReset(void);
 void *platLogAllocUserData();
 void platLogFlush(void *userData);
 bool platLogPutcharF(void *userData, char ch);
+void platEarlyLogFlush(void);
 
 /* fast timer */
 uint64_t platGetTicks(void); //in nanoseconds since an arbitrary starting point in the past
