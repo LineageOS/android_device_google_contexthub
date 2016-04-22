@@ -83,6 +83,8 @@
 /* AMS_TMD2772_REG_STATUS */
 #define PROX_INT_BIT                           (1 << 5)
 #define ALS_INT_BIT                            (1 << 4)
+#define PROX_VALID_BIT                         (1 << 1)
+#define ALS_VALID_BIT                          (1 << 0)
 
 #define AMS_TMD2772_REPORT_NEAR_VALUE          0.0f // centimeters
 #define AMS_TMD2772_REPORT_FAR_VALUE           5.0f // centimeters
@@ -545,11 +547,12 @@ static void handle_i2c_event(int state)
     case SENSOR_STATE_SAMPLING:
         /* TEST: log collected data
         osLog(LOG_INFO, DRIVER_NAME "sample ready: status=%02x prox=%u als0=%u als1=%u\n",
-              data.txrxBuf.sample.status, data.txrxBuf.sample.prox,
-              data.txrxBuf.sample.als[0], data.txrxBuf.sample.als[1]);
+              mData.txrxBuf.sample.status, mData.txrxBuf.sample.prox,
+              mData.txrxBuf.sample.als[0], mData.txrxBuf.sample.als[1]);
         */
 
-        if (mData.alsOn && mData.alsReading) {
+        if (mData.alsOn && mData.alsReading &&
+            (mData.txrxBuf.sample.status & ALS_VALID_BIT)) {
             /* Create event */
             sample.fdata = getLuxFromAlsData(mData.txrxBuf.sample.als[0],
                                              mData.txrxBuf.sample.als[1]);
@@ -559,7 +562,8 @@ static void handle_i2c_event(int state)
             }
         }
 
-        if (mData.proxOn && mData.proxReading) {
+        if (mData.proxOn && mData.proxReading &&
+            (mData.txrxBuf.sample.status & PROX_VALID_BIT)) {
             /* Create event */
             sendData = true;
             if (mData.proxState == PROX_STATE_INIT) {
