@@ -22,6 +22,7 @@
 #include <heap.h>
 #include <slab.h>
 #include <cpu.h>
+#include <util.h>
 
 
 struct EvtRecord {
@@ -44,7 +45,7 @@ struct EvtQueue {
 struct EvtQueue* evtQueueAlloc(uint32_t size, EvtQueueForciblyDiscardEvtCbkF forceDiscardCbk)
 {
     struct EvtQueue *q = heapAlloc(sizeof(struct EvtQueue));
-    struct SlabAllocator *slab = slabAllocatorNew(sizeof(struct EvtRecord), 1, size);
+    struct SlabAllocator *slab = slabAllocatorNew(sizeof(struct EvtRecord), alignof(struct EvtRecord), size);
 
     if (q && slab) {
         q->forceDiscardCbk = forceDiscardCbk;
