@@ -26,7 +26,8 @@ struct AtomicBitset {
     uint32_t words[];
 };
 
-#define ATOMIC_BITSET_SZ(numbits)	(sizeof(struct AtomicBitset) + ((numbits) + 31) / 8)
+#define ATOMIC_BITSET_NUM_WORDS(numbits) (((numbits) + 31) / 32)
+#define ATOMIC_BITSET_SZ(numbits) (sizeof(struct AtomicBitset) + sizeof(uint32_t) * ATOMIC_BITSET_NUM_WORDS(numbits))
 #define ATOMIC_BITSET_DECL(nam, numbits, extra_keyword)    DECLARE_OS_ALIGNMENT(nam, ATOMIC_BITSET_SZ(numbits), extra_keyword, struct AtomicBitset)
 
 void atomicBitsetInit(struct AtomicBitset *set, uint32_t numBits);
