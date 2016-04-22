@@ -23,6 +23,10 @@
 
 #define ARRAY_SIZE(a)   (sizeof((a)) / sizeof((a)[0]))
 
+#ifndef alignof
+#define alignof(type) offsetof(struct { char x; type field; }, field)
+#endif
+
 #define container_of(addr, struct_name, field_name) \
     ((struct_name *)((char *)(addr) - offsetof(struct_name, field_name)))
 
