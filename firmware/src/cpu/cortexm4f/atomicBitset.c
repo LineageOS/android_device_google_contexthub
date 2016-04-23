@@ -23,7 +23,7 @@
 void atomicBitsetInit(struct AtomicBitset *set, uint32_t numBits)
 {
     set->numBits = numBits;
-    memset(set->words, 0, (numBits + 31) / 8);
+    memset(set->words, 0, sizeof(uint32_t) * ATOMIC_BITSET_NUM_WORDS(numBits));
     if (numBits & 31) //mark all high bits so that atomicBitsetFindClearAndSet() is simpler
         set->words[numBits / 32] = ((uint32_t)((int32_t)-1LL)) << (numBits & 31);
 }
@@ -83,7 +83,7 @@ void atomicBitsetSetBit(struct AtomicBitset *set, uint32_t num)
 
 int32_t atomicBitsetFindClearAndSet(struct AtomicBitset *set)
 {
-    uint32_t idx, numWords = (set->numBits + 31) / 32;
+    uint32_t idx, numWords = ATOMIC_BITSET_NUM_WORDS(set->numBits);
     uint32_t scratch1, scratch2, scratch3, bit = 32;
     uint32_t *wordPtr = set->words;
 
@@ -116,7 +116,7 @@ int32_t atomicBitsetFindClearAndSet(struct AtomicBitset *set)
 
 bool atomicBitsetXchg(struct AtomicBitset *atomicallyAccessedSet, struct AtomicBitset *otherSet)
 {
-    uint32_t idx, numWords = (atomicallyAccessedSet->numBits + 31) / 32;
+    uint32_t idx, numWords = ATOMIC_BITSET_NUM_WORDS(atomicallyAccessedSet->numBits);
 
     if (atomicallyAccessedSet->numBits != otherSet->numBits)
         return false;
@@ -129,7 +129,7 @@ bool atomicBitsetXchg(struct AtomicBitset *atomicallyAccessedSet, struct AtomicB
 
 bool atomicBitsetBulkRead(struct AtomicBitset *set, uint32_t *dest, uint32_t numBits)
 {
-    uint32_t idx, numWords = (set->numBits + 31) / 32;
+    uint32_t idx, numWords = ATOMIC_BITSET_NUM_WORDS(set->numBits);
 
     if (set->numBits != numBits)
         return false;
