@@ -34,22 +34,22 @@ float floatFromInt64(int64_t v);
 
 static inline uint64_t floatToUint64(float f)
 {
-	return f;
+    return f;
 }
 
 static inline int64_t floatToInt64(float f)
 {
-	return f;
+    return f;
 }
 
 static inline float floatFromUint64(uint64_t v)
 {
-	return v;
+    return v;
 }
 
 static inline float floatFromInt64(int64_t v)
 {
-	return v;
+    return v;
 }
 
 #endif // USE_NANOHUB_FLOAT_RUNTIME
