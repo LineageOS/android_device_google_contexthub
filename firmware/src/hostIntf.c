@@ -308,7 +308,9 @@ static bool hostIntfRequest(uint32_t tid)
     mHostIntfTid = tid;
     atomicBitsetInit(mInterrupt, HOSTINTF_MAX_INTERRUPTS);
     atomicBitsetInit(mInterruptMask, HOSTINTF_MAX_INTERRUPTS);
+#ifdef AP_INT_NONWAKEUP
     hostIntfSetInterruptMask(NANOHUB_INT_NONWAKEUP);
+#endif
     mTxBuf.prePreamble = NANOHUB_PREAMBLE_BYTE;
     mTxBuf.postPreamble = NANOHUB_PREAMBLE_BYTE;
 
