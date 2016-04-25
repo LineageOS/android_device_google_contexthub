@@ -205,7 +205,7 @@ static AppSecErr appSecProcessIncomingHdr(struct AppSecState *state, bool *sendD
     if (!memcmp(state->dataBytes, hdrEncrHdr, sizeof(hdrEncrHdr) - 1)) {
 
         struct AppSecEncrHdr *encrHdr = (struct AppSecEncrHdr*)state->dataBytes;
-	uint32_t k[AES_KEY_WORDS];
+        uint32_t k[AES_KEY_WORDS];
         AppSecErr ret;
 
         if (state->haveEncr) //we do not allow encryption of already-encrypted data

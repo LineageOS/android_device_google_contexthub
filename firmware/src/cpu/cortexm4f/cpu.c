@@ -108,9 +108,9 @@ void cpuInitLate(void)
 
         cpuUnpackSrBits(dbx->sr_hfsr_cfsr_lo, dbx->magic & HARD_FAULT_DROPBOX_MAGIC_DATA_MASK, &sr, &hfsr, &cfsr);
 
-	osLog(LOG_INFO, "Hard Fault Dropbox not empty. Contents:\n");
-	for (i = 0; i < 16; i++)
-		osLog(LOG_INFO, "  R%02lu  = 0x%08lX\n", i, dbx->r[i]);
+        osLog(LOG_INFO, "Hard Fault Dropbox not empty. Contents:\n");
+        for (i = 0; i < 16; i++)
+            osLog(LOG_INFO, "  R%02lu  = 0x%08lX\n", i, dbx->r[i]);
         osLog(LOG_INFO, "  SR   = %08lX\n", sr);
         osLog(LOG_INFO, "  HFSR = %08lX\n", hfsr);
         osLog(LOG_INFO, "  CFSR = %08lX\n", cfsr);
