@@ -72,7 +72,7 @@ uint64_t floatToUint64(float f)
 
     //standard does not say what happens to NaNs, infs & other too-large values, we return a large value as an approximation (though a zero would be equally valid)
     if (word >= (EXP_ADJUST + 64) << EXP_SHIFT)
-	return 0xFFFFFFFFFFFFFFFFULL;
+        return 0xFFFFFFFFFFFFFFFFULL;
 
     //get mantissa and the implied leading one
     ret = (word & ((1 << MANTISSA_BITS) - 1)) | (1 << MANTISSA_BITS);
@@ -103,7 +103,7 @@ int64_t floatToInt64(float f)
 
     //standard does not say what happens to NaNs, infs & other too-large values, we return a large value as an approximation (though a zero would be equally valid)
     if (word >= (EXP_ADJUST + 63) << EXP_SHIFT)
-	ret = 0x7FFFFFFFFFFFFFFFULL;
+        ret = 0x7FFFFFFFFFFFFFFFULL;
 
     else {
         //get mantissa and the implied leading one
@@ -130,7 +130,7 @@ float floatFromUint64(uint64_t v)
     if (!hi) //this is very fast for cases where we fit into a uint32_t
         return(float)lo;
     else {
-	return ((float)hi) * 4294967296.0f + (float)lo;
+        return ((float)hi) * 4294967296.0f + (float)lo;
     }
 }
 
@@ -140,7 +140,7 @@ float floatFromInt64(int64_t v)
 
     if ((hi == 0x00000000 && !(lo >> 31)) || (hi == 0xffffffff && (lo >> 31))) //this complex test is a lot faster then the simpler ((v >> 33) == -1 || (v >> 33) == 0)
         return (float)(int32_t)lo;
-    else if (hi >> 31)	//the case of 0x8000000000000000 is handled here, as negated it remains the same
+    else if (hi >> 31)  //the case of 0x8000000000000000 is handled here, as negated it remains the same
         return -floatFromUint64(-v);
     else
         return floatFromUint64(v);
