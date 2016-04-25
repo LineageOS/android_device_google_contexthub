@@ -98,6 +98,16 @@ struct StmTim {
 #ifdef DEBUG_UART_UNITNO
 static struct usart mDbgUart;
 #endif
+
+#ifdef DEBUG_LOG_EVT
+#define EARLY_LOG_BUF_SIZE      1024
+#define HOSTINTF_HEADER_SIZE    4
+uint8_t *mEarlyLogBuffer;
+uint16_t mEarlyLogBufferCnt;
+uint16_t mEarlyLogBufferOffset;
+bool mLateBoot;
+#endif
+
 static uint64_t mTimeAccumulated = 0;
 static uint32_t mMaxJitterPpm = 0, mMaxDriftPpm = 0, mMaxErrTotalPpm = 0;
 static uint32_t mSleepDevsToKeepAlive = 0;
@@ -117,26 +127,57 @@ void platUninitialize(void)
 void *platLogAllocUserData()
 {
 #if defined(DEBUG_LOG_EVT)
-    struct HostIntfDataBuffer *userData;
+    struct HostIntfDataBuffer *userData = NULL;
 
-    userData = heapAlloc(sizeof(struct HostIntfDataBuffer));
+    if (mLateBoot) {
+        userData = heapAlloc(sizeof(struct HostIntfDataBuffer));
+    } else if (mEarlyLogBufferOffset < EARLY_LOG_BUF_SIZE - HOSTINTF_HEADER_SIZE) {
+        userData = (struct HostIntfDataBuffer *)(mEarlyLogBuffer + mEarlyLogBufferOffset);
+        mEarlyLogBufferOffset += HOSTINTF_HEADER_SIZE;
+    }
     if (userData) {
         userData->sensType = SENS_TYPE_INVALID;
         userData->length = 0;
         userData->dataType = HOSTINTF_DATA_TYPE_LOG;
         userData->interrupt = NANOHUB_INT_NONWAKEUP;
     }
-
     return userData;
 #else
     return NULL;
 #endif
 }
 
+#if defined(DEBUG_LOG_EVT)
+static void platEarlyLogFree(void *buf)
+{
+    struct HostIntfDataBuffer *userData = (struct HostIntfDataBuffer *)buf;
+    mEarlyLogBufferCnt += userData->length + HOSTINTF_HEADER_SIZE;
+    if (mEarlyLogBufferCnt >= mEarlyLogBufferOffset) {
+        heapFree(mEarlyLogBuffer);
+    }
+}
+#endif
+
+void platEarlyLogFlush(void)
+{
+#if defined(DEBUG_LOG_EVT)
+    uint16_t i = 0;
+    struct HostIntfDataBuffer *userData;
+
+    mLateBoot = true;
+
+    while (i < mEarlyLogBufferOffset) {
+        userData = (struct HostIntfDataBuffer *)(mEarlyLogBuffer + i);
+        osEnqueueEvt(EVENT_TYPE_BIT_DISCARDABLE | DEBUG_LOG_EVT, userData, platEarlyLogFree);
+        i += HOSTINTF_HEADER_SIZE + userData->length;
+    }
+#endif
+}
+
 void platLogFlush(void *userData)
 {
 #if defined(DEBUG_LOG_EVT)
-    if (userData) {
+    if (userData && mLateBoot) {
         if (!osEnqueueEvt(EVENT_TYPE_BIT_DISCARDABLE | DEBUG_LOG_EVT, userData, heapFree))
             heapFree(userData);
     }
@@ -157,7 +198,18 @@ bool platLogPutcharF(void *userData, char ch)
 
     if (userData) {
         buffer = userData;
-        buffer->buffer[buffer->length++] = ch;
+        if (buffer->length == sizeof(uint64_t) + HOSTINTF_SENSOR_DATA_MAX) {
+            buffer->buffer[buffer->length - 1] = '\n';
+        } else if (!mLateBoot) {
+            if (mEarlyLogBufferOffset == EARLY_LOG_BUF_SIZE) {
+                buffer->buffer[buffer->length - 1] = '\n';
+            } else {
+                buffer->buffer[buffer->length++] = ch;
+                mEarlyLogBufferOffset++;
+            }
+        } else {
+            buffer->buffer[buffer->length++] = ch;
+        }
     }
 #endif
     return true;
@@ -254,6 +306,12 @@ void platInitialize(void)
     extiEnableIntGpio(mShWakeupGpio, EXTI_TRIGGER_BOTH);
     mShWakeupIsr.func = platWakeupIsr;
     extiChainIsr(SH_EXTI_WAKEUP_IRQ, &mShWakeupIsr);
+
+#ifdef DEBUG_LOG_EVT
+    /* allocate buffer for early boot log message*/
+    mEarlyLogBuffer = heapAlloc(EARLY_LOG_BUF_SIZE);
+#endif
+
 }
 
 static uint64_t platsystickTicksToNs(uint32_t systickTicks)
