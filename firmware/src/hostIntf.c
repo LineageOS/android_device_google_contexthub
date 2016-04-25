@@ -1018,6 +1018,7 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
             osEventSubscribe(mHostIntfTid, EVT_APP_TO_HOST);
 #ifdef DEBUG_LOG_EVT
             osEventSubscribe(mHostIntfTid, DEBUG_LOG_EVT);
+            platEarlyLogFlush();
 #endif
             reason = pwrResetReason();
             data = alloca(sizeof(uint32_t) + sizeof(reason));
