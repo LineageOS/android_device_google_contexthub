@@ -26,6 +26,7 @@ struct SensorConfig {
     int listIndex;
     int type;
     int32_t rate;
+    int reportLatency;
     bool receivedEvent;
 };
 
@@ -39,7 +40,7 @@ int mNumSensorConfigs;
 
 void showHelp()
 {
-    printf("Usage: sensortest [-h] [-l] [-e <type> <rate_usecs>] [-c]\n");
+    printf("Usage: sensortest [-h] [-l] [-e <type> <rate_usecs>] [-b <type> <rate_usecs> <batch_usecs>] [-c]\n");
 }
 
 void printSensorList()
@@ -93,6 +94,7 @@ bool parseArguments(int argc, char **argv)
 {
     int currArgumentIndex = 1;
     int sensorIndex;
+    int existingSensorConfigIndex;
 
     mNumSensorConfigs = 0;
 
@@ -113,14 +115,61 @@ bool parseArguments(int argc, char **argv)
                 return false;
             }
 
-            mSensorConfigList[(mNumSensorConfigs)++] = {
-                .listIndex = sensorIndex,
-                .type = atoi(argv[currArgumentIndex+1]),
-                .rate = atoi(argv[currArgumentIndex+2]),
-                .receivedEvent = false
-            };
+            existingSensorConfigIndex = findSensorTypeInConfigList(atoi(argv[currArgumentIndex+1]));
+
+            if (existingSensorConfigIndex >= 0) {
+                printf("Replacing previous config for sensor type %d\n", atoi(argv[currArgumentIndex+1]));
+                mSensorConfigList[existingSensorConfigIndex] = {
+                    .listIndex = sensorIndex,
+                    .type = atoi(argv[currArgumentIndex+1]),
+                    .rate = atoi(argv[currArgumentIndex+2]),
+                    .reportLatency = 0,
+                    .receivedEvent = false
+                };
+            } else {
+                mSensorConfigList[(mNumSensorConfigs)++] = {
+                    .listIndex = sensorIndex,
+                    .type = atoi(argv[currArgumentIndex+1]),
+                    .rate = atoi(argv[currArgumentIndex+2]),
+                    .reportLatency = 0,
+                    .receivedEvent = false
+                };
+            }
 
             currArgumentIndex += 3;
+        } else if (!strcmp(argv[currArgumentIndex], "-b")) {
+            if (currArgumentIndex + 3 >= argc) {
+                printf ("Not enough arguments for batch option\n");
+                return false;
+            }
+
+            if ((sensorIndex = findSensorTypeInSensorList(atoi(argv[currArgumentIndex+1]))) < 0) {
+                printf ("No sensor found with type \"%d\"\n", atoi(argv[currArgumentIndex+1]));
+                return false;
+            }
+
+            existingSensorConfigIndex = findSensorTypeInConfigList(atoi(argv[currArgumentIndex+1]));
+
+            if (existingSensorConfigIndex >= 0) {
+                printf("Replacing previous config for sensor type %d\n", atoi(argv[currArgumentIndex+1]));
+                mSensorConfigList[existingSensorConfigIndex] = {
+                    .listIndex = sensorIndex,
+                    .type = atoi(argv[currArgumentIndex+1]),
+                    .rate = atoi(argv[currArgumentIndex+2]),
+                    .reportLatency = atoi(argv[currArgumentIndex+3]),
+                    .receivedEvent = false
+                };
+            } else {
+                mSensorConfigList[(mNumSensorConfigs)++] = {
+                    .listIndex = sensorIndex,
+                    .type = atoi(argv[currArgumentIndex+1]),
+                    .rate = atoi(argv[currArgumentIndex+2]),
+                    .reportLatency = atoi(argv[currArgumentIndex+3]),
+                    .receivedEvent = false
+                };
+            }
+
+            currArgumentIndex += 4;
         } else if (!strcmp(argv[currArgumentIndex], "-c")) {
             mContinuousMode = true;
             currArgumentIndex++;
@@ -164,12 +213,12 @@ int main(int argc, char **argv) {
     ASensorEventQueue *sensorEventQueue = ASensorManager_createEventQueue(mSensorManager, mLooper, 0, NULL, NULL);
 
     for (int i = 0; i < mNumSensorConfigs; i++) {
-        if (ASensorEventQueue_enableSensor(sensorEventQueue, mSensorList[mSensorConfigList[i].listIndex]) < 0) {
-            printf("Unable to enable sensor %d\n", mSensorConfigList[i].listIndex);
+        if (ASensorEventQueue_registerSensor(sensorEventQueue, mSensorList[mSensorConfigList[i].listIndex],
+                                             mSensorConfigList[i].rate, mSensorConfigList[i].reportLatency) < 0) {
+            printf("Unable to register sensor %d with rate %d and report latency %d\n", mSensorConfigList[i].listIndex,
+                   mSensorConfigList[i].rate, mSensorConfigList[i].reportLatency);
         }
-        if (ASensorEventQueue_setEventRate(sensorEventQueue, mSensorList[mSensorConfigList[i].listIndex], mSensorConfigList[i].rate) < 0) {
-            printf("Invalid rate \"%d\" for sensor %d\n", mSensorConfigList[i].rate, mSensorConfigList[i].listIndex);
-        }
+
     }
 
     while (mContinuousMode || !hasReceivedAllEvents()) {
