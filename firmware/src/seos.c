@@ -36,7 +36,8 @@
 #include <cpu.h>
 #include <crc.h>
 #include <util.h>
-
+#include <mpu.h>
+#include <nanohubPacket.h>
 
 /*
  * Since locking is difficult to do right for adding/removing listeners and such
@@ -92,6 +93,7 @@ union InternalThing {
 static struct EvtQueue *mEvtsInternal;
 static struct SlabAllocator* mMiscInternalThingsSlab;
 static struct Task mTasks[MAX_TASKS];
+static uint32_t mTaskCnt;
 static uint32_t mNextTidInfo = FIRST_VALID_TID;
 static TaggedPtr *mCurEvtEventFreeingInfo = NULL; //used as flag for retaining. NULL when none or already retained
 
@@ -99,7 +101,7 @@ static struct Task* osTaskFindByTid(uint32_t tid)
 {
     uint32_t i;
 
-    for(i = 0; i < MAX_TASKS; i++)
+    for(i = 0; i < mTaskCnt; i++)
         if (mTasks[i].tid && mTasks[i].tid == tid)
             return mTasks + i;
 
@@ -150,7 +152,7 @@ static struct Task* osTaskFindByAppID(uint64_t appID)
 {
     uint32_t i;
 
-    for (i = 0; i < MAX_TASKS; i++)
+    for (i = 0; i < mTaskCnt; i++)
         if (mTasks[i].appHdr && mTasks[i].appHdr->appId == appID)
             return mTasks + i;
 
@@ -169,114 +171,293 @@ static uint32_t osGetFreeTid(void)
     return mNextTidInfo;
 }
 
-static void osStartTasks(void)
-{
-    static const char magic[] = APP_HDR_MAGIC;
+struct ExtAppIterator {
+    const uint8_t *shared;
+    const uint8_t *sharedEnd;
     const struct AppHdr *app;
-    uint32_t i, nTasks = 0, nApps, sharedSz;
-    struct Task* task;
-    const uint8_t *shared, *sharedEnd;
-    int len, total_len;
+    uint32_t appLen;
+};
+
+static void osExtAppIteratorInit(struct ExtAppIterator *it)
+{
+    uint32_t sz;
+
+    it->shared = platGetSharedAreaInfo(&sz);
+    it->sharedEnd = it->shared + sz;
+    it->app = NULL;
+    it->appLen = 0;
+}
+
+static bool osExtAppIteratorNext(struct ExtAppIterator *it)
+{
+    struct AppHdr *app;
+    uint32_t len;
+    uint32_t total_len;
+    const uint8_t *p = it->shared;
     uint8_t id1, id2;
 
+    // 32-bit header: 1 byte MARK, 3-byte len (BE, in bytes), data is 32-bit aligned; 32-bit footer: CRC-32, including header
+    // both will soon be obsoleted; app header has enough data to find next app (app->rel_end)
+    do {
+        id1 = p[0] & 0x0F;
+        id2 = (p[0] >> 4) & 0x0F;
+        len = (p[1] << 16) | (p[2] << 8) | p[3];
+        total_len = sizeof(uint32_t) + ((len + 3) & ~3) + sizeof(uint32_t);
+        if ((p + total_len) > it->sharedEnd)
+            return false;
+        app = (struct AppHdr *)(&p[4]);
+        p += total_len;
+    } while (id1 != id2 && id1 != BL_FLASH_APP_ID);
+
+    it->shared = p;
+    it->appLen = len;
+    it->app = app;
+
+    return true;
+}
+
+static bool osExtAppIsValid(const struct AppHdr *app, uint32_t len)
+{
+    static const char magic[] = APP_HDR_MAGIC;
+
+    return len >= sizeof(struct AppHdr) &&
+           memcmp(magic, app->magic, sizeof(magic) - 1) == 0 &&
+           app->fmtVer == APP_HDR_VER_CUR &&
+           app->marker == APP_HDR_MARKER_VALID;
+}
+
+static bool osExtAppErase(const struct AppHdr *app)
+{
+    bool done;
+    uint16_t marker = APP_HDR_MARKER_DELETED;
+
+    mpuAllowRamExecution(true);
+    mpuAllowRomWrite(true);
+    done = BL.blProgramShared((uint8_t *)&app->marker, (uint8_t *)&marker, sizeof(marker), BL_FLASH_KEY1, BL_FLASH_KEY2);
+    mpuAllowRomWrite(false);
+    mpuAllowRamExecution(false);
+
+    return done;
+}
+
+static struct Task *osLoadApp(const struct AppHdr *app) {
+    struct Task *task;
+
+    if (mTaskCnt == MAX_TASKS) {
+        osLog(LOG_WARN, "External app id %016" PRIX64 " @ %p cannot be used as too many apps already exist.\n", app->appId, app);
+        return NULL;
+    }
+    task = &mTasks[mTaskCnt];
+    task->appHdr = app;
+    bool done = app->marker == APP_HDR_MARKER_INTERNAL ?
+                cpuInternalAppLoad(task->appHdr, &task->platInfo) :
+                cpuAppLoad(task->appHdr, &task->platInfo);
+
+    if (!done) {
+        osLog(LOG_WARN, "App @ %p ID %016" PRIX64 " failed to load\n", app, app->appId);
+        task = NULL;
+    } else {
+        mTaskCnt++;
+    }
+
+    return task;
+}
+
+static void osUnloadApp(struct Task *task)
+{
+    // this is called on task that has stopped running, or had never run
+    cpuAppUnload(task->appHdr, &task->platInfo);
+    struct Task *last = &mTasks[mTaskCnt-1];
+    if (last > task)
+        memcpy(task, last, sizeof(struct Task));
+    mTaskCnt--;
+}
+
+static bool osStartApp(const struct AppHdr *app)
+{
+    bool done = false;
+    struct Task *task;
+
+    if ((task = osLoadApp(app)) != NULL) {
+        task->subbedEvtListSz = MAX_EMBEDDED_EVT_SUBS;
+        task->subbedEvents = task->subbedEventsInt;
+        task->tid = osGetFreeTid();
+
+        done = cpuAppInit(task->appHdr, &task->platInfo, task->tid);
+
+        if (!done) {
+            osLog(LOG_WARN, "App @ %p ID %016" PRIX64 "failed to init\n", task->appHdr, task->appHdr->appId);
+            osUnloadApp(task);
+        }
+    }
+
+    return done;
+}
+
+static bool osStopTask(struct Task *task)
+{
+    if (!task)
+        return false;
+
+    cpuAppEnd(task->appHdr, &task->platInfo);
+    osUnloadApp(task);
+
+    return true;
+}
+
+static bool osExtAppFind(struct ExtAppIterator *it, uint64_t appId)
+{
+    uint64_t vendor = APP_ID_GET_VENDOR(appId);
+    uint64_t seqId = APP_ID_GET_SEQ_ID(appId);
+    uint64_t curAppId;
+    const struct AppHdr *app;
+
+    while (osExtAppIteratorNext(it)) {
+        app = it->app;
+        curAppId = app->appId;
+
+        if ((vendor == APP_VENDOR_ANY || vendor == APP_ID_GET_VENDOR(curAppId)) &&
+            (seqId == APP_SEQ_ID_ANY || seqId == APP_ID_GET_SEQ_ID(curAppId)))
+            return true;
+    }
+
+    return false;
+}
+
+static uint32_t osExtAppStopEraseApps(uint64_t appId, bool doErase)
+{
+    const struct AppHdr *app;
+    uint32_t len;
+    struct Task *task;
+    struct ExtAppIterator it;
+    uint32_t stopCount = 0;
+    uint32_t eraseCount = 0;
+    uint32_t appCount = 0;
+    uint32_t taskCount = 0;
+    struct MgmtStatus stat = { .value = 0 };
+
+    osExtAppIteratorInit(&it);
+    while (osExtAppFind(&it, appId)) {
+        app = it.app;
+        len = it.appLen;
+        if (!osExtAppIsValid(app, len))
+            continue;
+        appCount++;
+        task = osTaskFindByAppID(app->appId);
+        if (task)
+            taskCount++;
+        if (task && task->appHdr == app && app->marker == APP_HDR_MARKER_VALID) {
+            if (osStopTask(task))
+                stopCount++;
+            else
+                continue;
+            if (doErase && osExtAppErase(app))
+                eraseCount++;
+        }
+    }
+    SET_COUNTER(stat.app,   appCount);
+    SET_COUNTER(stat.task,  taskCount);
+    SET_COUNTER(stat.op,    stopCount);
+    SET_COUNTER(stat.erase, eraseCount);
+
+    return stat.value;
+}
+
+uint32_t osExtAppStopApps(uint64_t appId)
+{
+    return osExtAppStopEraseApps(appId, false);
+}
+
+uint32_t osExtAppEraseApps(uint64_t appId)
+{
+    return osExtAppStopEraseApps(appId, true);
+}
+
+uint32_t osExtAppStartApps(uint64_t appId)
+{
+    const struct AppHdr *app;
+    size_t len;
+    struct ExtAppIterator it;
+    struct ExtAppIterator checkIt;
+    uint32_t startCount = 0;
+    uint32_t eraseCount = 0;
+    uint32_t appCount = 0;
+    uint32_t taskCount = 0;
+    struct MgmtStatus stat = { .value = 0 };
+
+    osExtAppIteratorInit(&it);
+    while (osExtAppFind(&it, appId)) {
+        app = it.app;
+        len = it.appLen;
+
+        // skip erased or malformed apps
+        if (!osExtAppIsValid(app, len))
+            continue;
+
+        appCount++;
+        checkIt = it;
+        // find the most recent copy
+        while (osExtAppFind(&checkIt, app->appId)) {
+            if (osExtAppErase(app)) // erase the old one, so we skip it next time
+                eraseCount++;
+            app = checkIt.app;
+        }
+
+        if (osTaskFindByAppID(app->appId)) {
+            // this either the most recent external app with the same ID,
+            // or internal app with the same id; in both cases we do nothing
+            taskCount++;
+            continue;
+        }
+
+        if (osStartApp(app))
+            startCount++;
+    }
+    SET_COUNTER(stat.app,   appCount);
+    SET_COUNTER(stat.task,  taskCount);
+    SET_COUNTER(stat.op,    startCount);
+    SET_COUNTER(stat.erase, eraseCount);
+
+    return stat.value;
+}
+
+static void osStartTasks(void)
+{
+    const struct AppHdr *app;
+    uint32_t i, nApps;
+    struct Task* task;
+    uint32_t status = 0;
+
+    mTaskCnt = 0;
     /* first enum all internal apps, making sure to check for dupes */
-    osLog(LOG_DEBUG, "Reading internal app list...\n");
-    for (i = 0, app = platGetInternalAppList(&nApps); i < nApps && nTasks < MAX_TASKS  && app->fmtVer == APP_HDR_VER_CUR; i++, app++) {
+    osLog(LOG_DEBUG, "Starting internal apps...\n");
+    for (i = 0, app = platGetInternalAppList(&nApps); i < nApps; i++, app++) {
+        if (app->fmtVer != APP_HDR_VER_CUR) {
+            osLog(LOG_WARN, "Unexpected app @ %p ID %016" PRIX64 "header version: %d\n",
+                  app, app->appId, app->fmtVer);
+            continue;
+        }
 
         if (app->marker != APP_HDR_MARKER_INTERNAL) {
-            osLog(LOG_WARN, "Weird marker on internal app: [%p]=0x%04X\n", app, app->marker);
+            osLog(LOG_WARN, "Invalid marker on internal app: [%p]=0x%04X ID %016" PRIX64 "; ignored\n",
+                  app, app->marker, app->appId);
             continue;
         }
         if ((task = osTaskFindByAppID(app->appId))) {
-            osLog(LOG_WARN, "Internal app id %016" PRIX64 "@ %p attempting to update internal app @ %p. Ignored.\n", app->appId, app, task->appHdr);
+            osLog(LOG_WARN, "Internal app ID %016" PRIX64
+                            "@ %p attempting to update internal app @ %p; app @%p ignored.\n",
+                            app->appId, app, task->appHdr, app);
             continue;
         }
-        mTasks[nTasks++].appHdr = app;
+        osStartApp(app);
     }
+    nApps = mTaskCnt;
 
-    /* then enum all external apps, making sure to find the latest (by position in flash) and checking for conflicts with internal apps */
-    osLog(LOG_DEBUG, "Reading external app list...\n");
-    for (shared = platGetSharedAreaInfo(&sharedSz), sharedEnd = shared + sharedSz; shared < sharedEnd && shared[0] != 0xFF; shared += total_len) {
-        id1 = shared[0] & 0x0F;
-        id2 = (shared[0] >> 4) & 0x0F;
-        len = (shared[1] << 16) | (shared[2] << 8) | shared[3];
-        total_len = sizeof(uint32_t) + ((len + 3) & ~3) + sizeof(uint32_t);
+    osLog(LOG_DEBUG, "Starting external apps...\n");
+    status = osExtAppStartApps(APP_ID_ANY);
 
-        if (shared + total_len > sharedEnd)
-            break;
-
-        //skip over erased sections
-        if (id1 != id2 || id1 != BL_FLASH_APP_ID)
-            continue;
-
-        if (1 /*crc32(shared, total_len, ~0) == CRC_RESIDUE*/) {
-            app = (const struct AppHdr *)&shared[4];
-            if (len >= sizeof(struct AppHdr) && !memcmp(magic, app->magic, sizeof(magic) - 1) && app->fmtVer == APP_HDR_VER_CUR) {
-
-                if (app->marker != APP_HDR_MARKER_VALID)  //this may need more logic to handle partially-uploaded things
-                    osLog(LOG_WARN, "Weird marker on external app: [%p]=0x%04X\n", app, app->marker);
-                else if ((task = osTaskFindByAppID(app->appId))) {
-                    if (task->appHdr->marker == APP_HDR_MARKER_INTERNAL)
-                        osLog(LOG_WARN, "External app id %016" PRIX64 " @ %p attempting to update internal app @ %p. This is not allowed.\n", app->appId, app, task->appHdr);
-                    else {
-                        osLog(LOG_DEBUG, "External app id %016" PRIX64 " @ %p updating app @ %p\n", app->appId, app, task->appHdr);
-                        task->appHdr = app;
-                    }
-                }
-                else if (nTasks == MAX_TASKS)
-                    osLog(LOG_WARN, "External app id %016" PRIX64 " @ %p cannot be used as too many apps already exist.\n", app->appId, app);
-                else
-                    mTasks[nTasks++].appHdr = app;
-            }
-        }
-    }
-
-    osLog(LOG_DEBUG, "Enumerated %" PRIu32 " apps\n", nTasks);
-
-    /* Now that we have pointers to all the latest app headers, let's try loading then. */
-    /* Note that if a new version fails to init we will NOT try the old (no reason to assume this is safe) */
-    osLog(LOG_DEBUG, "Loading apps...\n");
-    for (i = 0; i < nTasks;) {
-
-        if (mTasks[i].appHdr->marker == APP_HDR_MARKER_INTERNAL) {
-            if (cpuInternalAppLoad(mTasks[i].appHdr, &mTasks[i].platInfo)) {
-                i++;
-                continue;
-            }
-        }
-        else {
-            if (cpuAppLoad(mTasks[i].appHdr, &mTasks[i].platInfo)) {
-                i++;
-                continue;
-            }
-        }
-
-        //if we're here, an app failed to load - remove it from the list
-        osLog(LOG_WARN, "App @ %p failed to load\n", mTasks[i].appHdr);
-        memcpy(mTasks + i, mTasks + --nTasks, sizeof(struct Task));
-    }
-
-    osLog(LOG_DEBUG, "Loaded %" PRIu32 " apps\n", nTasks);
-
-    /* now finish initing structs, assign tids, call init funcs */
-    osLog(LOG_DEBUG, "Starting apps...\n");
-    for (i = 0; i < nTasks;) {
-
-        mTasks[i].subbedEvtListSz = MAX_EMBEDDED_EVT_SUBS;
-        mTasks[i].subbedEvents = mTasks[i].subbedEventsInt;
-        mTasks[i].tid = osGetFreeTid();
-
-        if (cpuAppInit(mTasks[i].appHdr, &mTasks[i].platInfo, mTasks[i].tid))
-            i++;
-        else {
-            //if we're here, an app failed to init - unload & remove it from the list
-            osLog(LOG_WARN, "App @ %p failed to init\n", mTasks[i].appHdr);
-            cpuAppUnload(mTasks[i].appHdr, &mTasks[i].platInfo);
-            memcpy(mTasks + i, mTasks + --nTasks, sizeof(struct Task));
-        }
-    }
-
-    osLog(LOG_DEBUG, "Started %" PRIu32 " apps\n", nTasks);
+    osLog(LOG_DEBUG, "Started %" PRIu32 " internal apps; total %" PRIu32
+                     " apps; EXT status: %08" PRIX32 "\n", nApps, mTaskCnt, status);
 }
 
 static void osInternalEvtHandle(uint32_t evtType, void *evtData)
@@ -397,7 +578,7 @@ void osMainDequeueLoop(void)
     }
     else {
         /* send this event to all tasks who want it */
-        for (i = 0; i < MAX_TASKS; i++) {
+        for (i = 0; i < mTaskCnt; i++) {
             if (!mTasks[i].subbedEvents) /* only check real tasks */
                 continue;
             for (j = 0; j < mTasks[i].subbedEvtCount; j++) {
@@ -518,7 +699,7 @@ bool osTidById(uint64_t appId, uint32_t *tid)
 {
     uint32_t i;
 
-    for (i = 0; i < MAX_TASKS; i++) {
+    for (i = 0; i < mTaskCnt; i++) {
         if (mTasks[i].appHdr && mTasks[i].appHdr->appId == appId) {
             *tid = mTasks[i].tid;
             return true;
@@ -532,7 +713,7 @@ bool osAppInfoById(uint64_t appId, uint32_t *appIdx, uint32_t *appVer, uint32_t 
 {
     uint32_t i;
 
-    for (i = 0; i < MAX_TASKS; i++) {
+    for (i = 0; i < mTaskCnt; i++) {
         if (mTasks[i].appHdr && mTasks[i].appHdr->appId == appId) {
             *appIdx = i;
             *appVer = mTasks[i].appHdr->appVer;
@@ -546,7 +727,7 @@ bool osAppInfoById(uint64_t appId, uint32_t *appIdx, uint32_t *appVer, uint32_t 
 
 bool osAppInfoByIndex(uint32_t appIdx, uint64_t *appId, uint32_t *appVer, uint32_t *appSize)
 {
-    if (appIdx < MAX_TASKS && mTasks[appIdx].appHdr) {
+    if (appIdx < mTaskCnt && mTasks[appIdx].appHdr) {
         *appId = mTasks[appIdx].appHdr->appId;
         *appVer = mTasks[appIdx].appHdr->appVer;
         *appSize = mTasks[appIdx].appHdr->rel_end;
