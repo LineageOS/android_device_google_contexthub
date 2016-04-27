@@ -181,7 +181,7 @@ static void osStartTasks(void)
 
     /* first enum all internal apps, making sure to check for dupes */
     osLog(LOG_DEBUG, "Reading internal app list...\n");
-    for (i = 0, app = platGetInternalAppList(&nApps); i < nApps && nTasks < MAX_TASKS  && app->fmtVer == APP_HDR_VER_CUR; app++) {
+    for (i = 0, app = platGetInternalAppList(&nApps); i < nApps && nTasks < MAX_TASKS  && app->fmtVer == APP_HDR_VER_CUR; i++, app++) {
 
         if (app->marker != APP_HDR_MARKER_INTERNAL) {
             osLog(LOG_WARN, "Weird marker on internal app: [%p]=0x%04X\n", app, app->marker);
