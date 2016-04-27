@@ -53,7 +53,7 @@ extern "C" {
 #define BMM150_CALIB_HEX_LACKS              0x100000
 #define BMM150_MAG_OVERFLOW_OUTPUT_S32      ((int32_t)(-2147483647-1))
 
-typedef struct BMM150Task {
+struct MagTask {
     uint16_t dig_z1;
     int16_t dig_z2, dig_z3, dig_z4;
     uint16_t dig_xyz1;
@@ -61,13 +61,13 @@ typedef struct BMM150Task {
     int8_t dig_x1, dig_y1, dig_x2, dig_y2;
     uint8_t dig_xy1;
     int8_t dig_xy2;
-} MagTask_t;
+};
 
 #define MAG_I2C_ADDR 0x10
 #define MAG_REG_DATA BMM150_REG_DATA
 
-void bmm150SaveDigData(MagTask_t *magTask, uint8_t *data, size_t offset);
-void parseMagData(MagTask_t *magTask, uint8_t *buf, float *x, float *y, float *z);
+void bmm150SaveDigData(struct MagTask *magTask, uint8_t *data, size_t offset);
+void parseMagData(struct MagTask *magTask, uint8_t *buf, float *x, float *y, float *z);
 
 #ifdef __cplusplus
 }

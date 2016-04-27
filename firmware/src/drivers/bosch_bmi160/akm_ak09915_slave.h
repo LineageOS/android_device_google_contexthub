@@ -31,14 +31,14 @@ extern "C" {
 #define AKM_AK09915_REG_CNTL1     0x30
 #define AKM_AK09915_REG_CNTL2     0x31
 
-typedef struct AK09915Task {
+struct MagTask {
     int32_t dummy;
-} MagTask_t;
+};
 
 #define MAG_I2C_ADDR 0x0C
 #define MAG_REG_DATA AKM_AK09915_REG_DATA
 
-void parseMagData(MagTask_t *magTask, uint8_t *buf, float *x, float *y, float *z);
+void parseMagData(struct MagTask *magTask, uint8_t *buf, float *x, float *y, float *z);
 
 #ifdef __cplusplus
 }
