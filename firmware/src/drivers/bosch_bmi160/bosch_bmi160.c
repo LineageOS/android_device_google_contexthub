@@ -427,7 +427,7 @@ static uint8_t mRetryLeft;
 
 static struct SlabAllocator *mDataSlab;
 
-#ifdef MAG_I2C_ADDR
+#ifdef MAG_SLAVE_PRESENT
 static struct MagTask magTask;
 #endif
 
@@ -700,7 +700,7 @@ static void magConfigIf(void)
     SPI_WRITE(BMI160_REG_MAGIC, 0x80);
 
     // Config the MAG I2C device address
-#ifdef MAG_I2C_ADDR
+#ifdef MAG_SLAVE_PRESENT
     SPI_WRITE(BMI160_REG_MAG_IF_0, (MAG_I2C_ADDR << 1));
 #endif
 
@@ -783,7 +783,7 @@ static void magConfig(void)
         break;
     case MAG_SET_ADDR:
         // config MAG read data address to the first data register
-#ifdef MAG_I2C_ADDR
+#ifdef MAG_SLAVE_PRESENT
         SPI_WRITE(BMI160_REG_MAG_IF_2, MAG_REG_DATA);
 #endif
         mTask.mag_state = MAG_SET_DATA;
@@ -1647,22 +1647,17 @@ static void parseRawData(struct BMI160Sensor *mSensor, uint8_t *buf, float kScal
     }
 
     if (mSensor->idx == MAG) {
-#ifdef MAG_I2C_ADDR
+#ifdef MAG_SLAVE_PRESENT
         parseMagData(&magTask, &buf[0], &x, &y, &z);
-#endif
-
         BMM150_TO_ANDROID_COORDINATE(x, y, z);
 
-#ifdef MAG_SLAVE_PRESENT
         float xi, yi, zi;
-        magCalRemoveSoftiron(&mTask.moc,
-                x, y, z,
-                &xi, &yi, &zi);
+        magCalRemoveSoftiron(&mTask.moc, x, y, z, &xi, &yi, &zi);
 
-        newMagBias |= magCalUpdate(&mTask.moc,
-                sensorTime * kSensorTimerIntervalUs, xi, yi, zi);
-
+        newMagBias |= magCalUpdate(&mTask.moc, sensorTime * kSensorTimerIntervalUs, xi, yi, zi);
         magCalRemoveBias(&mTask.moc, xi, yi, zi, &x, &y, &z);
+#else
+        return;
 #endif
     } else {
         raw_x = (buf[0] | buf[1] << 8);
@@ -2584,7 +2579,7 @@ static void sensorInit(void)
         // Reset fifo
         SPI_WRITE(BMI160_REG_CMD, 0xB0, 10000);
 
-#ifdef MAG_I2C_ADDR
+#ifdef MAG_SLAVE_PRESENT
         mTask.init_state = INIT_MAG;
         mTask.mag_state = MAG_SET_START;
 #else
