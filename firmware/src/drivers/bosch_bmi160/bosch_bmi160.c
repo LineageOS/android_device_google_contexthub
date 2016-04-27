@@ -428,7 +428,7 @@ static uint8_t mRetryLeft;
 static struct SlabAllocator *mDataSlab;
 
 #ifdef MAG_I2C_ADDR
-static MagTask_t magTask;
+static struct MagTask magTask;
 #endif
 
 #define MAG_WRITE(addr, data)                                   \
