@@ -23,6 +23,7 @@
 #include <slab.h>
 #include <cpu.h>
 #include <util.h>
+#include <plat/inc/plat.h>
 
 
 struct EvtRecord {
