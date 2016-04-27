@@ -19,7 +19,7 @@
 
 #define kScale_mag 0.0625f         // 1.0f / 16.0f;
 
-void bmm150SaveDigData(MagTask_t *magTask, uint8_t *data, size_t offset)
+void bmm150SaveDigData(struct MagTask *magTask, uint8_t *data, size_t offset)
 {
     // magnetometer temperature calibration data is read in 3 bursts of 8 byte
     // length each.
@@ -45,8 +45,7 @@ void bmm150SaveDigData(MagTask_t *magTask, uint8_t *data, size_t offset)
     }
 }
 
-static int32_t bmm150TempCompensateX(
-       MagTask_t *magTask, int16_t mag_x, uint16_t rhall)
+static int32_t bmm150TempCompensateX(struct MagTask *magTask, int16_t mag_x, uint16_t rhall)
 {
     int32_t inter_retval = 0;
 
@@ -82,7 +81,7 @@ static int32_t bmm150TempCompensateX(
     return inter_retval;
 }
 
-static int32_t bmm150TempCompensateY(MagTask_t *magTask, int16_t mag_y, uint16_t rhall)
+static int32_t bmm150TempCompensateY(struct MagTask *magTask, int16_t mag_y, uint16_t rhall)
 {
     int32_t inter_retval = 0;
 
@@ -118,7 +117,7 @@ static int32_t bmm150TempCompensateY(MagTask_t *magTask, int16_t mag_y, uint16_t
     return inter_retval;
 }
 
-static int32_t bmm150TempCompensateZ(MagTask_t *magTask, int16_t mag_z, uint16_t rhall)
+static int32_t bmm150TempCompensateZ(struct MagTask *magTask, int16_t mag_z, uint16_t rhall)
 {
     int32_t retval = 0;
     if (mag_z != BMM150_MAG_HALL_OVERFLOW_ADCVAL) {
@@ -136,7 +135,7 @@ static int32_t bmm150TempCompensateZ(MagTask_t *magTask, int16_t mag_z, uint16_t
     return retval;
 }
 
-void parseMagData(MagTask_t *magTask, uint8_t *buf, float *x, float *y, float *z) {
+void parseMagData(struct MagTask *magTask, uint8_t *buf, float *x, float *y, float *z) {
     int32_t mag_x = (*(int16_t *)&buf[0]) >> 3;
     int32_t mag_y = (*(int16_t *)&buf[2]) >> 3;
     int32_t mag_z = (*(int16_t *)&buf[4]) >> 1;
