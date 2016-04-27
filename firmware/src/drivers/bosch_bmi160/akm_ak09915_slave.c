@@ -19,7 +19,7 @@
 
 #define kScale_mag 0.15f
 
-void parseMagData(MagTask_t *magTask, uint8_t *buf, float *x, float *y, float *z) {
+void parseMagData(struct MagTask *magTask, uint8_t *buf, float *x, float *y, float *z) {
     int32_t raw_x = (*(int16_t *)&buf[0]);
     int32_t raw_y = (*(int16_t *)&buf[2]);
     int32_t raw_z = (*(int16_t *)&buf[4]);
