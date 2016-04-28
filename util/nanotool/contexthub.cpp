@@ -31,6 +31,7 @@ namespace android {
 #define UNUSED_PARAM(param) (void) (param)
 
 constexpr int kCalibrationTimeoutMs(10000);
+constexpr int kBridgeVersionTimeoutMs(500);
 
 struct SensorTypeNames {
     SensorType sensor_type;
@@ -269,6 +270,55 @@ void ContextHub::PrintAllEvents(unsigned int limit) {
     ReadSensorEvents(event_printer);
 }
 
+bool ContextHub::PrintBridgeVersion() {
+    BridgeVersionInfoRequest request;
+    TransportResult result = WriteEvent(request);
+    if (result != TransportResult::Success) {
+        LOGE("Failed to send bridge version info request: %d",
+             static_cast<int>(result));
+        return false;
+    }
+
+    bool success = false;
+    auto event_handler = [&success](const AppToHostEvent &event) -> bool {
+        bool keep_going = true;
+        auto rsp = reinterpret_cast<const BrHostEventData *>(event.GetDataPtr());
+        if (event.GetAppId() != kAppIdBridge) {
+            LOGD("Ignored event from unexpected app");
+        } else if (event.GetDataLen() < sizeof(BrHostEventData)) {
+            LOGE("Got short app to host event from bridge: length %u, expected "
+                 "at least %zu", event.GetDataLen(), sizeof(BrHostEventData));
+        } else if (rsp->msgId != BRIDGE_HOST_EVENT_MSG_VERSION_INFO) {
+            LOGD("Ignored bridge event with unexpected message ID %u", rsp->msgId);
+        } else if (rsp->status) {
+            LOGE("Bridge version info request failed with status %u", rsp->status);
+            keep_going = false;
+        } else if (event.GetDataLen() < (sizeof(BrHostEventData) +
+                                         sizeof(BrVersionInfoRsp))) {
+            LOGE("Got successful version info response with short payload: "
+                 "length %u, expected at least %zu", event.GetDataLen(),
+                 (sizeof(BrHostEventData) + sizeof(BrVersionInfoRsp)));
+            keep_going = false;
+        } else {
+            auto ver = reinterpret_cast<const struct BrVersionInfoRsp *>(
+                rsp->payload);
+            printf("Bridge version info:\n"
+                   "  HW type:         0x%04x\n"
+                   "  OS version:      0x%04x\n"
+                   "  Variant version: 0x%08x\n"
+                   "  Bridge version:  0x%08x\n",
+                   ver->hwType, ver->osVer, ver->variantVer, ver->bridgeVer);
+            keep_going = false;
+            success = true;
+        }
+
+        return keep_going;
+    };
+
+    ReadAppEvents(event_handler, kBridgeVersionTimeoutMs);
+    return success;
+}
+
 void ContextHub::PrintSensorEvents(SensorType type, int limit) {
     bool continuous = (limit == 0);
     auto event_printer = [type, &limit, continuous](const SensorEvent& event) -> bool {
@@ -318,7 +368,7 @@ bool ContextHub::CalibrateSingleSensor(const SensorSpec& sensor) {
     }
 
     bool success = false;
-    auto calEventHandler = [this, &sensor, &success](const AppToHostEvent &event) -> bool {
+    auto cal_event_handler = [this, &sensor, &success](const AppToHostEvent &event) -> bool {
         if (event.IsCalibrationEventForSensor(sensor.sensor_type)) {
             success = HandleCalibrationResult(sensor, event);
             return false;
@@ -326,7 +376,7 @@ bool ContextHub::CalibrateSingleSensor(const SensorSpec& sensor) {
         return true;
     };
 
-    result = ReadAppEvents(calEventHandler, kCalibrationTimeoutMs);
+    result = ReadAppEvents(cal_event_handler, kCalibrationTimeoutMs);
     if (result != TransportResult::Success) {
       LOGE("Error reading calibration response %d", static_cast<int>(result));
       return false;
