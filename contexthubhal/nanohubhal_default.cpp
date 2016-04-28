@@ -37,15 +37,18 @@ namespace android {
 
 namespace nanohub {
 
+#define DEVICE "Default"
+#define DEVICE_TAG (DEVICE[0])
+
 static const connected_sensor_t mSensors[] = {
     {
-        .sensor_id = 12345,
+        .sensor_id = ((int)DEVICE_TAG << 8) + 1,
         .physical_sensor = {
             .name = "i'll get to this later",
         },
     },
     {
-        .sensor_id = 24680,
+        .sensor_id = ((int)DEVICE_TAG << 8) + 2,
         .physical_sensor = {
             .name = "i'll get to this later as well",
         },
@@ -53,7 +56,7 @@ static const connected_sensor_t mSensors[] = {
 };
 
 static const context_hub_t mHub = {
-    .name = "Google System Nanohub on Bullhead",
+    .name = "Google System Nanohub on " DEVICE,
     .vendor = "Google/StMicro",
     .toolchain = "gcc-arm-none-eabi",
     .platform_version = 1,
