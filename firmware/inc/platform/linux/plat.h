@@ -14,55 +14,19 @@
  * limitations under the License.
  */
 
-#include <plat/inc/rtc.h>
-#include <stdbool.h>
-#include <stdio.h>
-#include <string.h>
-#include <pthread.h>
-#include <unistd.h>
-#include <platform.h>
-#include <seos.h>
-#include <timer.h>
-#include <usart.h>
-#include <gpio.h>
-#include <seos.h>
-#include <mpu.h>
-#include <cpu.h>
+#ifndef _LINUX_PLAT_H_
+#define _LINUX_PLAT_H_
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 
-void platUninitialize(void)
+static inline void platWake(void)
 {
-    //TODO
 }
 
-void platSleep(void)
-{
-    //TODO
+#ifdef __cplusplus
 }
+#endif
 
-void platLogPutchar(char ch)
-{
-     putchar(ch);
-}
-
-void platInitialize(void)
-{
-    /* set up RTC */
-    rtcInit();
-
-    //TODO
-}
-
-uint64_t platGetTicks(void)
-{
-    //TODO
-
-    return 0;
-}
-
-int main(int argc, char** argv)
-{
-    osMain();
-
-    return 0;
-}
+#endif

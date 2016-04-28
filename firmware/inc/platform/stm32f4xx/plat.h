@@ -60,10 +60,12 @@ static inline uint8_t* platGetSharedAreaInfo(uint32_t *areaSzP)
 //used for dropbox
 void* platGetPersistentRamStore(uint32_t *bytes);
 
+static inline void platWake(void)
+{
+}
 
 #ifdef __cplusplus
 }
 #endif
 
 #endif
-
