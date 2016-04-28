@@ -64,6 +64,13 @@ static inline void platWake(void)
 {
 }
 
+// GCC aligns 64-bit types on an 8-byte boundary, but Cortex-M4 only requires
+// 4-byte alignment for these types. So limit the return value, as we're
+// interested in the minimum alignment requirement.
+#if defined(__GNUC__) && !defined(alignof)
+#define alignof(type) ((__alignof__(type) > 4) ? 4 : __alignof__(type))
+#endif
+
 #ifdef __cplusplus
 }
 #endif

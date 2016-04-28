@@ -25,6 +25,7 @@
 #include <seos.h>
 #include <cpu.h>
 #include <slab.h>
+#include <util.h>
 
 #define MAX_INTERNAL_EVENTS       32 //also used for external app timer() calls
 
@@ -215,5 +216,5 @@ void timInit(void)
 {
     atomicBitsetInit(mTimersValid, MAX_TIMERS);
 
-    mInternalEvents = slabAllocatorNew(sizeof(struct TimerEvent), 4, MAX_INTERNAL_EVENTS);
+    mInternalEvents = slabAllocatorNew(sizeof(struct TimerEvent), alignof(struct TimerEvent), MAX_INTERNAL_EVENTS);
 }
