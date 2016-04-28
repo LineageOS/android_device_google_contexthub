@@ -572,6 +572,41 @@ void HubConnection::waitOnNanohubLock() {
     }
 }
 
+void HubConnection::restoreSensorState()
+{
+    Mutex::Autolock autoLock(mLock);
+
+    sendCalibrationOffsets();
+
+    for (int i = 0; i < NUM_COMMS_SENSORS_PLUS_1; i++) {
+        if (mSensorState[i].sensorType && mSensorState[i].enable) {
+            struct ConfigCmd cmd;
+
+            initConfigCmd(&cmd, i);
+
+            ALOGI("restoring: sensor=%d, handle=%d, enable=%d, period=%" PRId64 ", latency=%" PRId64,
+                  cmd.sensorType, i, mSensorState[i].enable, frequency_q10_to_period_ns(mSensorState[i].rate),
+                  mSensorState[i].latency);
+
+            int ret = TEMP_FAILURE_RETRY(write(mFd, &cmd, sizeof(cmd)));
+            if (ret != sizeof(cmd)) {
+                ALOGE("failed to send config command to restore sensor %d\n", cmd.sensorType);
+            }
+
+            cmd.cmd = CONFIG_CMD_FLUSH;
+
+            for (int j = 0; j < mSensorState[i].flushCnt; j++) {
+                int ret = TEMP_FAILURE_RETRY(write(mFd, &cmd, sizeof(cmd)));
+                if (ret != sizeof(cmd)) {
+                    ALOGE("failed to send flush command to sensor %d\n", cmd.sensorType);
+                }
+            }
+        }
+    }
+
+    mStepCounterOffset = mLastStepCount;
+}
+
 ssize_t HubConnection::processBuf(uint8_t *buf, ssize_t len)
 {
     struct nAxisEvent *data = (struct nAxisEvent *)buf;
@@ -714,6 +749,12 @@ ssize_t HubConnection::processBuf(uint8_t *buf, ssize_t len)
             sensor = COMMS_SENSOR_DOUBLE_TAP;
             three = true;
             break;
+        case EVT_RESET_REASON:
+            uint32_t resetReason;
+            memcpy(&resetReason, data->buffer, sizeof(resetReason));
+            ALOGI("Observed hub reset: 0x%08" PRIx32, resetReason);
+            restoreSensorState();
+            return 0;
         default:
             return 0;
         }
@@ -781,14 +822,38 @@ ssize_t HubConnection::processBuf(uint8_t *buf, ssize_t len)
     return ret;
 }
 
-bool HubConnection::threadLoop() {
-    ssize_t ret, len, offset;
-    uint8_t recv[256];
+void HubConnection::sendCalibrationOffsets()
+{
     sp<JSONObject> settings;
     sp<JSONObject> saved_settings;
     int32_t accel[3], gyro[3], proximity, proximity_array[4];
     float barometer, mag[3], light;
 
+    loadSensorSettings(&settings, &saved_settings);
+
+    if (getCalibrationInt32(settings, "accel", accel, 3))
+        queueDataInternal(COMMS_SENSOR_ACCEL, accel, sizeof(accel));
+
+    if (getCalibrationInt32(settings, "gyro", gyro, 3))
+        queueDataInternal(COMMS_SENSOR_GYRO, gyro, sizeof(gyro));
+
+    if (settings->getFloat("barometer", &barometer))
+        queueDataInternal(COMMS_SENSOR_PRESSURE, &barometer, sizeof(barometer));
+
+    if (settings->getInt32("proximity", &proximity))
+        queueDataInternal(COMMS_SENSOR_PROXIMITY, &proximity, sizeof(proximity));
+
+    if (getCalibrationInt32(settings, "proximity", proximity_array, 4))
+        queueDataInternal(COMMS_SENSOR_PROXIMITY, proximity_array, sizeof(proximity_array));
+
+    if (settings->getFloat("light", &light))
+        queueDataInternal(COMMS_SENSOR_LIGHT, &light, sizeof(light));
+
+    if (getCalibrationFloat(saved_settings, "mag", mag))
+        queueDataInternal(COMMS_SENSOR_MAG, mag, sizeof(mag));
+}
+
+bool HubConnection::threadLoop() {
     ALOGI("threadLoop: starting");
 
     if (mFd < 0) {
@@ -797,30 +862,11 @@ bool HubConnection::threadLoop() {
     }
     waitOnNanohubLock();
 
-    loadSensorSettings(&settings, &saved_settings);
-
-    if (getCalibrationInt32(settings, "accel", accel, 3))
-        queueData(COMMS_SENSOR_ACCEL, accel, sizeof(accel));
-
-    if (getCalibrationInt32(settings, "gyro", gyro, 3))
-        queueData(COMMS_SENSOR_GYRO, gyro, sizeof(gyro));
-
-    if (settings->getFloat("barometer", &barometer))
-        queueData(COMMS_SENSOR_PRESSURE, &barometer, sizeof(barometer));
-
-    if (settings->getInt32("proximity", &proximity))
-        queueData(COMMS_SENSOR_PROXIMITY, &proximity, sizeof(proximity));
-
-    if (getCalibrationInt32(settings, "proximity", proximity_array, 4))
-        queueData(COMMS_SENSOR_PROXIMITY, proximity_array, sizeof(proximity_array));
-
-    if (settings->getFloat("light", &light))
-        queueData(COMMS_SENSOR_LIGHT, &light, sizeof(light));
-
-    if (getCalibrationFloat(saved_settings, "mag", mag))
-        queueData(COMMS_SENSOR_MAG, mag, sizeof(mag));
+    sendCalibrationOffsets();
 
     while (!Thread::exitPending()) {
+        ssize_t ret;
+
         do {
             ret = poll(mPollFds, mNumPollFds, -1);
         } while (ret < 0 && errno == EINTR);
@@ -843,9 +889,10 @@ bool HubConnection::threadLoop() {
 #endif // USB_MAG_BIAS_REPORTING_ENABLED
 
         if (mPollFds[0].revents & POLLIN) {
-            len = ::read(mFd, recv, sizeof(recv));
+            uint8_t recv[256];
+            ssize_t len = ::read(mFd, recv, sizeof(recv));
 
-            for (offset = 0; offset < len;) {
+            for (ssize_t offset = 0; offset < len;) {
                 ret = processBuf(recv + offset, len - offset);
 
                 if (ret > 0)
@@ -907,6 +954,8 @@ void HubConnection::queueActivate(int handle, bool enable)
     struct ConfigCmd cmd;
     int ret;
 
+    Mutex::Autolock autoLock(mLock);
+
     if (mSensorState[handle].sensorType) {
         mSensorState[handle].enable = enable;
 
@@ -925,6 +974,8 @@ void HubConnection::queueSetDelay(int handle, nsecs_t sampling_period_ns)
 {
     struct ConfigCmd cmd;
     int ret;
+
+    Mutex::Autolock autoLock(mLock);
 
     if (mSensorState[handle].sensorType) {
         if (sampling_period_ns > 0 &&
@@ -954,6 +1005,8 @@ void HubConnection::queueBatch(
     struct ConfigCmd cmd;
     int ret;
 
+    Mutex::Autolock autoLock(mLock);
+
     if (mSensorState[handle].sensorType) {
         if (sampling_period_ns > 0 &&
                 mSensorState[handle].rate != SENSOR_RATE_ONCHANGE &&
@@ -980,6 +1033,8 @@ void HubConnection::queueFlush(int handle)
     struct ConfigCmd cmd;
     int ret;
 
+    Mutex::Autolock autoLock(mLock);
+
     if (mSensorState[handle].sensorType) {
         mSensorState[handle].flushCnt++;
 
@@ -995,7 +1050,7 @@ void HubConnection::queueFlush(int handle)
     }
 }
 
-void HubConnection::queueData(int handle, void *data, size_t length)
+void HubConnection::queueDataInternal(int handle, void *data, size_t length)
 {
     struct ConfigCmd *cmd = (struct ConfigCmd *)malloc(sizeof(struct ConfigCmd) + length);
     size_t ret;
@@ -1013,6 +1068,12 @@ void HubConnection::queueData(int handle, void *data, size_t length)
     } else {
         ALOGI("queueData: unhandled handle=%d", handle);
     }
+}
+
+void HubConnection::queueData(int handle, void *data, size_t length)
+{
+    Mutex::Autolock autoLock(mLock);
+    queueDataInternal(handle, data, length);
 }
 
 void HubConnection::initNanohubLock() {
