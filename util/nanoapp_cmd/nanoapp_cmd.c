@@ -186,7 +186,9 @@ void parseInstalledAppInfo()
 
 struct AppInfo *findApp(uint64_t appId)
 {
-    for (uint8_t i = 0; i < appCount; i++) {
+    uint8_t i;
+
+    for (i = 0; i < appCount; i++) {
         if (apps[i].id == appId) {
             return &apps[i];
         }
@@ -254,6 +256,7 @@ void downloadApps()
 {
     int fd;
     ssize_t ret;
+    uint8_t i;
 
     fd = open("/sys/class/nanohub/nanohub/download_app", O_WRONLY);
     if (fd < 0) {
@@ -262,7 +265,7 @@ void downloadApps()
         return;
     }
 
-    for (uint8_t i = 0; i < installCnt; i++) {
+    for (i = 0; i < installCnt; i++) {
         printf("Downloading \"%s.napp\"...\n", appsToInstall[i]);
         ret = write(fd, appsToInstall[i], strlen(appsToInstall[i]));
         if (ret < 0) {
