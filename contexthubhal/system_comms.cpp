@@ -35,7 +35,6 @@
 
 #include <endian.h>
 
-#include <sstream>
 #include <vector>
 
 #include <utils/Log.h>
@@ -89,20 +88,6 @@ static void readNanohubMemInfo(MessageBuf &buf,  NanohubMemInfo &mi) {
     }
 }
 
-void SystemComm::dumpBuffer(const char *pfx, const void *data, size_t len, int status)
-{
-    std::ostringstream os;
-    const char *p = static_cast<const char *>(data);
-    os << ": [" << std::dec << len << "]:" << std::hex;
-    for (size_t i=0; i < len; ++i) {
-        os << " " << (int)p[i];
-    }
-    if (status) {
-        os << "; status=" << status;
-    }
-    ALOGI("%s%s", pfx, os.str().c_str());
-}
-
 NanohubRsp::NanohubRsp(MessageBuf &buf, bool no_status) {
     // all responses start with command
     // most of them have 4-byte status (result code)
@@ -117,8 +102,8 @@ NanohubRsp::NanohubRsp(MessageBuf &buf, bool no_status) {
 }
 
 int SystemComm::sendToSystem(const void *data, size_t len) {
-    if (getSystem()->messageTracingEnabled()) {
-        dumpBuffer("HAL -> SYS", data, len);
+    if (NanoHub::messageTracingEnabled()) {
+        dumpBuffer("HAL -> SYS", getSystem()->mHostIfAppName, 0, data, len);
     }
     return NanoHub::sendToDevice(&getSystem()->mHostIfAppName, data, len);
 }
@@ -373,7 +358,6 @@ int SystemComm::AppMgmtSession::handleTransfer(NanohubRsp &rsp)
             chunkSize = NANOHUB_UPLOAD_CHUNK_SZ_MAX;
         }
 
-
         buf.writeU8(NANOHUB_CONT_UPLOAD);
         buf.writeU32(mPos);
         buf.writeRaw(&mData[mPos], chunkSize);
@@ -393,21 +377,21 @@ int SystemComm::AppMgmtSession::handleFinish(NanohubRsp &rsp)
 
     int ret = 0;
     const bool success = rsp.status != 0;
-    uint8_t result = success ? NANOHUB_APP_LOADED : NANOHUB_APP_NOT_LOADED;
-
-    sendToApp(mCmd, &result, sizeof(result));
     mData.clear();
 
     if (success) {
         char data[MAX_RX_PACKET];
         MessageBuf buf(data, sizeof(data));
+        // until app header is passed, we don't know who to start, so we reboot
         buf.writeU8(NANOHUB_REBOOT);
         setState(RELOAD);
         ret = sendToSystem(buf.getData(), buf.getPos());
+    } else {
+        int32_t result = NANOHUB_APP_NOT_LOADED;
+
+        sendToApp(mCmd, &result, sizeof(result));
+        complete();
     }
-    // this is compatible with current FW and JNI code, but deviates from spec;
-    // should change soon
-    complete();
 
     return ret;
 }
@@ -415,8 +399,7 @@ int SystemComm::AppMgmtSession::handleFinish(NanohubRsp &rsp)
 /* reboot notification is not yet supported in FW; this code is for (near) future */
 int SystemComm::AppMgmtSession::handleReload(NanohubRsp &rsp)
 {
-    uint8_t result = NANOHUB_APPS_RUNNING;
-    Mutex::Autolock _l(mLock);
+    int32_t result = NANOHUB_APP_LOADED;
 
     ALOGI("Nanohub reboot status: %08" PRIX32, rsp.status);
 
@@ -511,13 +494,14 @@ int SystemComm::doHandleRx(const nano_message *msg)
         return -EINVAL;
     }
     MessageBuf buf(reinterpret_cast<const char*>(msg->data), msg->hdr.len);
-    if (messageTracingEnabled()) {
-        dumpBuffer("SYS -> HAL", buf.getData(), buf.getSize());
+    if (NanoHub::messageTracingEnabled()) {
+        dumpBuffer("SYS -> HAL", mHostIfAppName, 0, buf.getData(), buf.getSize());
     }
     int status = mSessions.handleRx(buf);
     if (status) {
         // provide default handler for any system message, that is not properly handled
-        dumpBuffer(status > 0 ? "HAL (not handled)" : "HAL (error)", buf.getData(), buf.getSize(), status);
+        dumpBuffer(status > 0 ? "HAL (not handled)" : "HAL (error)",
+                   mHostIfAppName, 0, buf.getData(), buf.getSize(), status);
         status = status > 0 ? 0 : status;
     }
 
