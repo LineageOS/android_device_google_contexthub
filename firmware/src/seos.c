@@ -114,7 +114,7 @@ static void handleEventFreeing(uint32_t evtType, void *evtData, uintptr_t evtFre
     if (taggedPtrIsPtr(evtFreeData))
         ((EventFreeF)taggedPtrToPtr(evtFreeData))(evtData);
     else {
-        struct AppEventFreeData fd = {evtType: evtType, evtData: evtData};
+        struct AppEventFreeData fd = {.evtType = evtType, .evtData = evtData};
         struct Task* task = osTaskFindByTid(taggedPtrToUint(evtFreeData));
 
         if (!task)
@@ -126,7 +126,6 @@ static void handleEventFreeing(uint32_t evtType, void *evtData, uintptr_t evtFre
 
 static void osInit(void)
 {
-    cpuInit();
     heapInit();
     platInitialize();
 
@@ -363,6 +362,7 @@ void osFreeRetainedEvent(uint32_t evtType, void *evtData, TaggedPtr *evtFreeingI
 
 void osMainInit(void)
 {
+    cpuInit();
     cpuIntsOff();
     osInit();
     timInit();
