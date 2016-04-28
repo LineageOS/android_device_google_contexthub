@@ -54,15 +54,12 @@ struct HubConnection : public Thread {
 
     void queueActivate(int handle, bool enable);
     void queueSetDelay(int handle, nsecs_t delayNs);
-
     void queueBatch(
             int handle,
             int flags,
             nsecs_t sampling_period_ns,
             nsecs_t max_report_latency_ns);
-
     void queueFlush(int handle);
-
     void queueData(int handle, void *data, size_t length);
 
     bool isWakeEvent(int32_t sensor);
@@ -95,6 +92,13 @@ private:
 
     static inline uint64_t period_ns_to_frequency_q10(nsecs_t period_ns) {
         return 1024000000000ULL / period_ns;
+    }
+
+    static inline nsecs_t frequency_q10_to_period_ns(uint64_t frequency_q10) {
+        if (frequency_q10)
+            return 1024000000000LL / frequency_q10;
+        else
+            return (nsecs_t)0;
     }
 
     enum
@@ -164,22 +168,33 @@ private:
         };
     } __attribute__((packed));
 
+    // The following structure should match struct HostIntfDataBuffer found in
+    // firmware/inc/hostIntf.h
     struct nAxisEvent
     {
         uint32_t evtType;
-        uint64_t referenceTime;
         union
         {
-            struct FirstSample firstSample;
-            struct OneAxisSample oneSamples[];
-            struct RawThreeAxisSample rawThreeSamples[];
-            struct ThreeAxisSample threeSamples[];
+            struct
+            {
+                uint64_t referenceTime;
+                union
+                {
+                    struct FirstSample firstSample;
+                    struct OneAxisSample oneSamples[];
+                    struct RawThreeAxisSample rawThreeSamples[];
+                    struct ThreeAxisSample threeSamples[];
+                };
+            };
+            uint8_t buffer[];
         };
     } __attribute__((packed));
 
     static Mutex sInstanceLock;
     static HubConnection *sInstance;
 
+    // This lock is used for synchronization between the write thread (from
+    // sensorservice) and the read thread polling from the nanohub driver.
     Mutex mLock;
 
     RingBuffer mRing;
@@ -212,10 +227,15 @@ private:
 
     void initConfigCmd(struct ConfigCmd *cmd, int handle);
 
+    void queueDataInternal(int handle, void *data, size_t length);
+
     void discardInotifyEvent();
     void waitOnNanohubLock();
 
     void initNanohubLock();
+
+    void restoreSensorState();
+    void sendCalibrationOffsets();
 
 #ifdef LID_STATE_REPORTING_ENABLED
     int mUinputFd;
