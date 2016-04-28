@@ -673,10 +673,6 @@ void platSleep(void)
     cpuIntsRestore(intState);
 }
 
-void platWake(void) {
-    // no-op; wake is implicit in interrupt handling
-}
-
 void* platGetPersistentRamStore(uint32_t *bytes)
 {
     *bytes = sizeof(uint32_t[RTC_NUM_BACKUP_REGS]);
