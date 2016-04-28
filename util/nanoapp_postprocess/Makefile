@@ -17,7 +17,7 @@
 APP = nanoapp_postprocess
 SRC = postprocess.c
 CC ?= gcc
-CC_FLAGS = -Wall -Wextra -Werror
+CC_FLAGS = -Wall -Wextra -Werror -I../../lib/include
 
 $(APP): $(SRC) Makefile
 	$(CC) $(CC_FLAGS) -o $(APP) -O2 $(SRC)
