@@ -30,6 +30,7 @@ namespace android {
  * host software.
  */
 enum class EventType {
+    AppFromHostEvent = 0x000000F8,
     FirstSensorEvent = 0x00000200,
     LastSensorEvent  = 0x000002FF,
     ConfigureSensor  = 0x00000300,
@@ -187,6 +188,14 @@ class ConfigureSensorRequest : public WriteEventRequest {
 
   private:
     std::vector<uint8_t> extra_data_;
+};
+
+class BridgeVersionInfoRequest : public WriteEventRequest {
+  public:
+    //BridgeVersionInfoRequest() {};
+    std::vector<uint8_t> GetBytes() const override;
+    EventType GetEventType() const override;
+    std::string ToString() const override;
 };
 
 }  // namespace android

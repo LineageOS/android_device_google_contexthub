@@ -170,6 +170,11 @@ class ContextHub : public NonCopyable {
     void PrintAllEvents(unsigned int limit);
 
     /*
+     * Requests bridge version information
+     */
+    bool PrintBridgeVersion();
+
+    /*
      * Prints up to <sample_limit> incoming sensor samples corresponding to the
      * given SensorType, ignoring other events. If sample_limit is 0, then
      * continues indefinitely.
