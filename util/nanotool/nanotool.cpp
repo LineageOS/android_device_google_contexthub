@@ -46,6 +46,7 @@ enum class NanotoolCommand {
     Poll,
     LoadCalibration,
     Flash,
+    GetBridgeVer,
 };
 
 struct ParsedArgs {
@@ -67,6 +68,7 @@ static NanotoolCommand StrToCommand(const char *command_name) {
         std::make_tuple("poll",        NanotoolCommand::Poll),
         std::make_tuple("load_cal",    NanotoolCommand::LoadCalibration),
         std::make_tuple("flash",       NanotoolCommand::Flash),
+        std::make_tuple("bridge_ver",  NanotoolCommand::GetBridgeVer),
     };
 
     if (!command_name) {
@@ -90,16 +92,20 @@ static void PrintUsage(const char *name) {
     const char *help_text =
         "options:\n"
         "  -x, --cmd          Argument must be one of:\n"
+        "                        bridge_ver: retrieve bridge version information (not\n"
+        "                           supported on all devices)\n"
         "                        disable: send a disable request for one sensor\n"
         "                        disable_all: send a disable request for all sensors\n"
         "                        calibrate: disable the sensor, then perform the sensor\n"
         "                           calibration routine\n"
+#ifndef __ANDROID__
+        "                        flash: load a new firmware image to the hub\n"
+#endif
         "                        load_cal: send data from calibration file to hub\n"
-        "                        read: output events for the given sensor, or all events\n"
-        "                           if no sensor specified\n"
         "                        poll (default): enable the sensor, output received\n"
         "                           events, then disable the sensor before exiting\n"
-        "                        flash: Load a new firmware image to the hub\n"
+        "                        read: output events for the given sensor, or all events\n"
+        "                           if no sensor specified\n"
         "\n"
         "  -s, --sensor       Specify sensor type, and parameters for the command.\n"
         "                     Format is sensor_type[:rate[:latency_ms]][=cal_ref].\n"
@@ -459,6 +465,10 @@ int main(int argc, char **argv) {
       }
       case NanotoolCommand::Flash: {
         success = hub->Flash(args->filename);
+        break;
+      }
+      case NanotoolCommand::GetBridgeVer: {
+        success = hub->PrintBridgeVersion();
         break;
       }
       default:

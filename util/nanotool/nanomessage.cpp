@@ -224,4 +224,31 @@ EventType ConfigureSensorRequest::GetEventType() const {
     return static_cast<EventType>(config.event_type);
 }
 
+/* BridgeVersionInfoRequest ***************************************************/
+
+std::vector<uint8_t> BridgeVersionInfoRequest::GetBytes() const {
+    struct VersionInfoRequestEvent : public Event {
+        struct BrHostEventTx event_data;
+    } __attribute__((packed));
+
+    std::vector<uint8_t> buffer(sizeof(VersionInfoRequestEvent));
+
+    std::fill(buffer.begin(), buffer.end(), 0);
+    auto event = reinterpret_cast<VersionInfoRequestEvent *>(buffer.data());
+    event->event_type = static_cast<uint32_t>(EventType::AppFromHostEvent);
+    event->event_data.hdr.appId   = kAppIdBridge;
+    event->event_data.hdr.dataLen = sizeof(BrHostEventData);
+    event->event_data.data.msgId  = BRIDGE_HOST_EVENT_MSG_VERSION_INFO;
+
+    return buffer;
+}
+
+EventType BridgeVersionInfoRequest::GetEventType() const {
+    return EventType::AppFromHostEvent;
+}
+
+std::string BridgeVersionInfoRequest::ToString() const {
+    return std::string("Bridge version info request\n");
+}
+
 }  // namespace android
