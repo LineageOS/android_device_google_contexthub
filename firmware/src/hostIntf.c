@@ -999,6 +999,23 @@ static void hostIntfNotifyReboot(uint32_t reason)
     }
 }
 
+static void queueFlush(struct ActiveSensor *sensor)
+{
+    if (sensor->buffer.length == 0) {
+        sensor->buffer.length = sizeof(sensor->buffer.referenceTime) + sizeof(struct SensorFirstSample);
+        sensor->buffer.referenceTime = 0ull;
+        if (sensor->interrupt == NANOHUB_INT_WAKEUP)
+            mWakeupBlocks++;
+        else if (sensor->interrupt == NANOHUB_INT_NONWAKEUP)
+            mNonWakeupBlocks++;
+        sensor->buffer.firstSample.numFlushes = 1;
+    } else {
+        sensor->buffer.firstSample.numFlushes++;
+    }
+    sensor->discard = false;
+    hostIntfSetInterrupt(sensor->interrupt);
+}
+
 static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
 {
     struct ConfigCmd *cmd;
@@ -1141,6 +1158,8 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
             } else if (cmd->cmd == CONFIG_CMD_CFG_DATA) {
                 for (i = 0; sensorFind(cmd->sensType, i, &tempSensorHandle) != NULL; i++)
                     sensorCfgData(tempSensorHandle, (void *)(cmd+1));
+            } else if (cmd->cmd == CONFIG_CMD_FLUSH) {
+                    queueFlush(sensor);
             }
         }
     } else if (evtType > EVT_NO_FIRST_SENSOR_EVENT && evtType < EVT_NO_SENSOR_CONFIG_EVENT && mSensorList[(evtType & 0xFF)-1] < MAX_REGISTERED_SENSORS) { // data
@@ -1148,19 +1167,7 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
 
         if (sensor->sensorHandle) {
             if (evtData == SENSOR_DATA_EVENT_FLUSH) {
-                if (sensor->buffer.length == 0) {
-                    sensor->buffer.length = sizeof(sensor->buffer.referenceTime) + sizeof(struct SensorFirstSample);
-                    sensor->buffer.referenceTime = 0ull;
-                    if (sensor->interrupt == NANOHUB_INT_WAKEUP)
-                        mWakeupBlocks++;
-                    else if (sensor->interrupt == NANOHUB_INT_NONWAKEUP)
-                        mNonWakeupBlocks++;
-                    sensor->buffer.firstSample.numFlushes = 1;
-                } else {
-                    sensor->buffer.firstSample.numFlushes++;
-                }
-                sensor->discard = false;
-                hostIntfSetInterrupt(sensor->interrupt);
+                queueFlush(sensor);
             } else {
                 if (sensor->buffer.length > 0) {
                     if (sensor->buffer.firstSample.numFlushes > 0) {
