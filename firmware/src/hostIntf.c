@@ -672,6 +672,10 @@ static bool initSensors()
     mActiveSensorTable = heapAlloc(mNumSensors * sizeof(struct ActiveSensor));
     memset(mActiveSensorTable, 0x00, mNumSensors * sizeof(struct ActiveSensor));
 
+    for (i = SENS_TYPE_INVALID; i < SENS_TYPE_LAST_USER; i++) {
+        mSensorList[i] = MAX_REGISTERED_SENSORS;
+    }
+
     for (i = SENS_TYPE_INVALID + 1, j = 0; i <= SENS_TYPE_LAST_USER && j < mNumSensors; i++) {
         if ((si = sensorFind(i, 0, &handle)) != NULL && !(si->flags1 & SENSOR_INFO_FLAGS1_LOCAL_ONLY)) {
             mSensorList[i - 1] = j;
@@ -712,8 +716,6 @@ static bool initSensors()
                 break;
             }
             j++;
-        } else if (mSensorList[i - 1] == 0) {
-            mSensorList[i - 1] = MAX_REGISTERED_SENSORS;
         }
     }
 
