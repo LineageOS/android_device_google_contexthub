@@ -14,15 +14,32 @@
 # limitations under the License.
 #
 
-APP = nanoapp_encr
-SRC = nanoapp_encr.c ../../lib/nanohub/aes.c ../../lib/nanohub/sha2.c
-CC ?= gcc
-CC_FLAGS = -Wall -Wextra -Werror
+LOCAL_PATH := $(call my-dir)
 
-$(APP): $(SRC) Makefile
-	$(CC) $(CC_FLAGS) -o $(APP) -O2 $(SRC) \
-	-I../../lib/include \
-	-DHOST_BUILD -DBOOTLOADER= -DBOOTLOADER_RO=
+include $(CLEAR_VARS)
 
-clean:
-	rm -f $(APP)
+
+LOCAL_SRC_FILES := \
+    ../../lib/nanohub/aes.c \
+    ../../lib/nanohub/sha2.c \
+    ../../lib/nanohub/nanoapp.c \
+    nanoapp_encr.c \
+
+
+LOCAL_CFLAGS := \
+        -Wall \
+        -Werror \
+        -Wextra \
+        -DHOST_BUILD \
+        -DBOOTLOADER= \
+        -DBOOTLOADER_RO= \
+
+
+LOCAL_C_INCLUDES := \
+        device/google/contexthub/lib/include \
+
+LOCAL_MODULE := nanoapp_encr
+
+LOCAL_MODULE_TAGS := optional
+
+include $(BUILD_HOST_EXECUTABLE)
