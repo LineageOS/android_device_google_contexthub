@@ -32,37 +32,37 @@ static struct SlabAllocator *mSlabAllocator;
 
 static void osExpApiEvtqSubscribe(uintptr_t *retValP, va_list args)
 {
-    uint32_t tid = va_arg(args, uint32_t);
+    (void)va_arg(args, uint32_t); // tid
     uint32_t evtType = va_arg(args, uint32_t);
 
-    *retValP = osEventSubscribe(tid, evtType);
+    *retValP = osEventSubscribe(0, evtType);
 }
 
 static void osExpApiEvtqUnsubscribe(uintptr_t *retValP, va_list args)
 {
-    uint32_t tid = va_arg(args, uint32_t);
+    (void)va_arg(args, uint32_t); // tid
     uint32_t evtType = va_arg(args, uint32_t);
 
-    *retValP = osEventUnsubscribe(tid, evtType);
+    *retValP = osEventUnsubscribe(0, evtType);
 }
 
 static void osExpApiEvtqEnqueue(uintptr_t *retValP, va_list args)
 {
     uint32_t evtType = va_arg(args, uint32_t);
     void *evtData = va_arg(args, void*);
-    uint32_t tid = va_arg(args, uint32_t);
+    (void)va_arg(args, uint32_t); // tid
 
-    *retValP = osEnqueueEvtAsApp(evtType, evtData, tid);
+    *retValP = osEnqueueEvtAsApp(evtType, evtData, 0);
 }
 
 static void osExpApiEvtqEnqueuePrivate(uintptr_t *retValP, va_list args)
 {
     uint32_t evtType = va_arg(args, uint32_t);
     void *evtData = va_arg(args, void*);
-    uint32_t freeTid = va_arg(args, uint32_t);
+    (void)va_arg(args, uint32_t); // tid
     uint32_t toTid = va_arg(args, uint32_t);
 
-    *retValP = osEnqueuePrivateEvtAsApp(evtType, evtData, freeTid, toTid);
+    *retValP = osEnqueuePrivateEvtAsApp(evtType, evtData, 0, toTid);
 }
 
 static void osExpApiEvtqRetainEvt(uintptr_t *retValP, va_list args)
@@ -106,11 +106,11 @@ static void osExpApiSensorSignal(uintptr_t *retValP, va_list args)
 static void osExpApiSensorReg(uintptr_t *retValP, va_list args)
 {
     const struct SensorInfo *si = va_arg(args, const struct SensorInfo*);
-    uint32_t tid = va_arg(args, uint32_t);
+    (void)va_arg(args, uint32_t); // tid
     void *cookie = va_arg(args, void *);
     bool initComplete = va_arg(args, int);
 
-    *retValP = (uintptr_t)sensorRegisterAsApp(si, tid, cookie, initComplete);
+    *retValP = (uintptr_t)sensorRegisterAsApp(si, 0, cookie, initComplete);
 }
 
 static void osExpApiSensorUnreg(uintptr_t *retValP, va_list args)
@@ -138,42 +138,42 @@ static void osExpApiSensorFind(uintptr_t *retValP, va_list args)
 
 static void osExpApiSensorReq(uintptr_t *retValP, va_list args)
 {
-    uint32_t clientId = va_arg(args, uint32_t);
+    (void)va_arg(args, uint32_t); // clientId == tid
     uint32_t sensorHandle = va_arg(args, uint32_t);
     uint32_t rate = va_arg(args, uint32_t);
     uint32_t latency_lo = va_arg(args, uint32_t);
     uint32_t latency_hi = va_arg(args, uint32_t);
     uint64_t latency = (((uint64_t)latency_hi) << 32) + latency_lo;
 
-    *retValP = sensorRequest(clientId, sensorHandle, rate, latency);
+    *retValP = sensorRequest(0, sensorHandle, rate, latency);
 }
 
 static void osExpApiSensorRateChg(uintptr_t *retValP, va_list args)
 {
-    uint32_t clientId = va_arg(args, uint32_t);
+    (void)va_arg(args, uint32_t); // clientId == tid
     uint32_t sensorHandle = va_arg(args, uint32_t);
     uint32_t newRate = va_arg(args, uint32_t);
     uint32_t newLatency_lo = va_arg(args, uint32_t);
     uint32_t newLatency_hi = va_arg(args, uint32_t);
     uint64_t newLatency = (((uint64_t)newLatency_hi) << 32) + newLatency_lo;
 
-    *retValP = sensorRequestRateChange(clientId, sensorHandle, newRate, newLatency);
+    *retValP = sensorRequestRateChange(0, sensorHandle, newRate, newLatency);
 }
 
 static void osExpApiSensorRel(uintptr_t *retValP, va_list args)
 {
-    uint32_t clientId = va_arg(args, uint32_t);
+    (void)va_arg(args, uint32_t); // clientId == tid
     uint32_t sensorHandle = va_arg(args, uint32_t);
 
-    *retValP = sensorRelease(clientId, sensorHandle);
+    *retValP = sensorRelease(0, sensorHandle);
 }
 
 static void osExpApiSensorTrigger(uintptr_t *retValP, va_list args)
 {
-    uint32_t clientId = va_arg(args, uint32_t);
+    (void)va_arg(args, uint32_t); // clientId == tid
     uint32_t sensorHandle = va_arg(args, uint32_t);
 
-    *retValP = sensorTriggerOndemand(clientId, sensorHandle);
+    *retValP = sensorTriggerOndemand(0, sensorHandle);
 }
 
 static void osExpApiSensorGetRate(uintptr_t *retValP, va_list args)
@@ -195,12 +195,12 @@ static void osExpApiTimSetTimer(uintptr_t *retValP, va_list args)
     uint32_t length_hi = va_arg(args, uint32_t);
     uint32_t jitterPpm = va_arg(args, uint32_t);
     uint32_t driftPpm = va_arg(args, uint32_t);
-    uint32_t tid = va_arg(args, uint32_t);
+    (void)va_arg(args, uint32_t); // tid
     void *cookie = va_arg(args, void *);
     bool oneshot = va_arg(args, int);
     uint64_t length = (((uint64_t)length_hi) << 32) + length_lo;
 
-    *retValP = timTimerSetAsApp(length, jitterPpm, driftPpm, tid, cookie, oneshot);
+    *retValP = timTimerSetAsApp(length, jitterPpm, driftPpm, 0, cookie, oneshot);
 }
 
 static void osExpApiTimCancelTimer(uintptr_t *retValP, va_list args)
@@ -255,12 +255,12 @@ static void osExpApiSlabFree(uintptr_t *retValP, va_list args)
     slabAllocatorFree(allocator, mem);
 }
 
-static union OsApiSlabItem* osExpApiI2cCbkInfoAlloc(uint32_t tid, void *cookie)
+static union OsApiSlabItem* osExpApiI2cCbkInfoAlloc(void *cookie)
 {
     union OsApiSlabItem *thing = slabAllocatorAlloc(mSlabAllocator);
 
     if (thing) {
-        thing->i2cAppCbkInfo.toTid = tid;
+        thing->i2cAppCbkInfo.toTid = osGetCurrentTid();
         thing->i2cAppCbkInfo.cookie = cookie;
     }
 
@@ -289,6 +289,7 @@ static void osExpApiI2cInternalCbk(void *cookie, size_t tx, size_t rx, int err)
     if (!osEnqueuePrivateEvt(EVT_APP_I2C_CBK, &thing->i2cAppCbkEvt, osExpApiI2cInternalEvtFreeF, tid)) {
         osLog(LOG_WARN, "Failed to send I2C evt to app. This might end badly for the app...");
         osExpApiI2cInternalEvtFreeF(thing);
+        // TODO: terminate app here: memory pressure is severe
     }
 }
 
@@ -375,9 +376,9 @@ static void osExpApiI2cMstTxRx(uintptr_t *retValP, va_list args)
     size_t txSize = va_arg(args, size_t);
     void *rxBuf = va_arg(args, void*);
     size_t rxSize = va_arg(args, size_t);
-    uint32_t tid = va_arg(args, uint32_t);
+    (void)va_arg(args, uint32_t); // tid
     void *cookie = va_arg(args, void *);
-    union OsApiSlabItem *cbkInfo = osExpApiI2cCbkInfoAlloc(tid, cookie);
+    union OsApiSlabItem *cbkInfo = osExpApiI2cCbkInfoAlloc(cookie);
 
     if (!cbkInfo)
         *retValP =  -ENOMEM;
@@ -408,9 +409,9 @@ static void osExpApiI2cSlvRxEn(uintptr_t *retValP, va_list args)
     uint32_t busId = va_arg(args, uint32_t);
     void *rxBuf = va_arg(args, void*);
     size_t rxSize = va_arg(args, size_t);
-    uint32_t tid = va_arg(args, uint32_t);
+    (void)va_arg(args, uint32_t); // tid
     void *cookie = va_arg(args, void *);
-    union OsApiSlabItem *cbkInfo = osExpApiI2cCbkInfoAlloc(tid, cookie);
+    union OsApiSlabItem *cbkInfo = osExpApiI2cCbkInfoAlloc(cookie);
 
     if (!cbkInfo)
         *retValP =  -ENOMEM;
@@ -425,9 +426,9 @@ static void osExpApiI2cSlvTxPre(uintptr_t *retValP, va_list args)
 {
     uint32_t busId = va_arg(args, uint32_t);
     uint8_t byte = va_arg(args, int);
-    uint32_t tid = va_arg(args, uint32_t);
+    (void)va_arg(args, uint32_t); // tid
     void *cookie = va_arg(args, void *);
-    union OsApiSlabItem *cbkInfo = osExpApiI2cCbkInfoAlloc(tid, cookie);
+    union OsApiSlabItem *cbkInfo = osExpApiI2cCbkInfoAlloc(cookie);
 
     if (!cbkInfo)
         *retValP =  -ENOMEM;
@@ -443,9 +444,9 @@ static void osExpApiI2cSlvTxPkt(uintptr_t *retValP, va_list args)
     uint32_t busId = va_arg(args, uint32_t);
     const void *txBuf = va_arg(args, const void*);
     size_t txSize = va_arg(args, size_t);
-    uint32_t tid = va_arg(args, uint32_t);
+    (void)va_arg(args, uint32_t); // tid
     void *cookie = va_arg(args, void *);
-    union OsApiSlabItem *cbkInfo = osExpApiI2cCbkInfoAlloc(tid, cookie);
+    union OsApiSlabItem *cbkInfo = osExpApiI2cCbkInfoAlloc(cookie);
 
     if (!cbkInfo)
         *retValP =  -ENOMEM;

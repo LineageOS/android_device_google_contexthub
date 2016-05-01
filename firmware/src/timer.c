@@ -81,7 +81,7 @@ static void timCallFunc(struct Timer *tim)
         if ((evt = slabAllocatorAlloc(mInternalEvents)) != 0) {
             evt->timerId = tim->id;
             evt->data = tim->callData;
-            if (!osEnqueuePrivateEvt(EVT_APP_TIMER, evt, timerCallFuncFreeF, taggedPtrToUint(callInfo)))
+            if (!osEnqueuePrivateEvt(EVT_APP_TIMER, evt, timerCallFuncFreeF, tim->tid))
                 slabAllocatorFree(mInternalEvents, evt);
         }
     }
@@ -155,7 +155,7 @@ static uint32_t timTimerSetEx(uint64_t length, uint32_t jitterPpm, uint32_t drif
 
     /* generate next timer ID */
     do {
-        timId = atomicAdd(&mNextTimerId, 1);
+        timId = atomicAdd32bits(&mNextTimerId, 1);
     } while (!timId || timFindTimerById(timId));
 
     /* grab our struct & fill it in */
@@ -185,7 +185,7 @@ uint32_t timTimerSet(uint64_t length, uint32_t jitterPpm, uint32_t driftPpm, Tim
 
 uint32_t timTimerSetAsApp(uint64_t length, uint32_t jitterPpm, uint32_t driftPpm, uint32_t tid, void* data, bool oneShot)
 {
-    return timTimerSetEx(length, jitterPpm, driftPpm, taggedPtrMakeFromUint(tid), data, oneShot);
+    return timTimerSetEx(length, jitterPpm, driftPpm, taggedPtrMakeFromUint(0), data, oneShot);
 }
 
 bool timTimerCancel(uint32_t timerId)
