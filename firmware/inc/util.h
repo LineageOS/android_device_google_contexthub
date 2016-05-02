@@ -16,6 +16,7 @@
 
 #ifndef __UTIL_H
 #define __UTIL_H
+#include <plat/inc/plat.h>
 #include "toolchain.h"
 #include <limits.h>
 #include <stdbool.h>
