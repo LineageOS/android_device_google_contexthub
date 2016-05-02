@@ -602,6 +602,9 @@ static int fillBuffer(void *tx, uint32_t totLength, uint32_t *wakeup, uint32_t *
             *nonwakeup = prevNonWakeup;
             break;
         }
+
+        prevWakeup = *wakeup;
+        prevNonWakeup = *nonwakeup;
     }
 
     return totLength;
