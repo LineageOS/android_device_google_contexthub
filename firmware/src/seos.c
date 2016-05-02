@@ -35,6 +35,7 @@
 #include <slab.h>
 #include <cpu.h>
 #include <crc.h>
+#include <util.h>
 
 
 /*
@@ -138,7 +139,7 @@ static void osInit(void)
         return;
     }
 
-    mMiscInternalThingsSlab = slabAllocatorNew(sizeof(union InternalThing), 4, 64 /* for now? */);
+    mMiscInternalThingsSlab = slabAllocatorNew(sizeof(union InternalThing), alignof(union InternalThing), 64 /* for now? */);
     if (!mMiscInternalThingsSlab) {
         osLog(LOG_INFO, "deferred actions list failed to init\n");
         return;

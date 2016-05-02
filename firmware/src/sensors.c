@@ -23,6 +23,7 @@
 #include <stdio.h>
 #include <slab.h>
 #include <seos.h>
+#include <util.h>
 
 #define MAX_INTERNAL_EVENTS       32 //also used for external app sensors' setRate() calls
 #define MAX_CLI_SENS_MATRIX_SZ    64 /* MAX(numClients * numSensors) */
@@ -83,11 +84,11 @@ bool sensorsInit(void)
 {
     atomicBitsetInit(mSensorsUsed, MAX_REGISTERED_SENSORS);
 
-    mInternalEvents = slabAllocatorNew(sizeof(struct SensorsInternalEvent), 4, MAX_INTERNAL_EVENTS);
+    mInternalEvents = slabAllocatorNew(sizeof(struct SensorsInternalEvent), alignof(struct SensorsInternalEvent), MAX_INTERNAL_EVENTS);
     if (!mInternalEvents)
         return false;
 
-    mCliSensMatrix = slabAllocatorNew(sizeof(struct SensorsClientRequest), 4, MAX_CLI_SENS_MATRIX_SZ);
+    mCliSensMatrix = slabAllocatorNew(sizeof(struct SensorsClientRequest), alignof(struct SensorsClientRequest), MAX_CLI_SENS_MATRIX_SZ);
     if (mCliSensMatrix)
         return true;
 
