@@ -35,7 +35,11 @@
 #define MAX_NUM_COMMS_EVENT_SAMPLES 15 // at most 15 samples can fit in one comms_event
 #define NUM_COMMS_EVENTS_IN_FIFO    2  // This controls how often the hub needs to wake up in batching
 #define FIFO_DEPTH                  (NUM_COMMS_EVENTS_IN_FIFO * MAX_NUM_COMMS_EVENT_SAMPLES)  // needs to be greater than max raw sensor rate ratio
-#define FIFO_MARGIN                 10 // max raw sensor rate ratio is 8:1, there can be 7 samples left in FIFO.
+/*
+ * FIFO_MARGIN: max raw sensor rate ratio is 8:1.
+ * If 2 batchs of high rate data comes before 1 low rate data, there can be at max 15 samples left in the FIFO
+ */
+#define FIFO_MARGIN                 15
 #define MAX_NUM_SAMPLES             (FIFO_MARGIN + FIFO_DEPTH) // actual input sample fifo depth
 #define EVT_SENSOR_ACC_DATA_RDY     sensorGetMyEventType(SENS_TYPE_ACCEL)
 #define EVT_SENSOR_GYR_DATA_RDY     sensorGetMyEventType(SENS_TYPE_GYRO)
