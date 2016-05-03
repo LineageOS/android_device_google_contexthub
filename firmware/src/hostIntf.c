@@ -1016,6 +1016,20 @@ static void queueFlush(struct ActiveSensor *sensor)
     hostIntfSetInterrupt(sensor->interrupt);
 }
 
+static void fakeFlush(struct ConfigCmd *cmd)
+{
+    struct HostIntfDataBuffer *buffer;
+    uint8_t size = sizeof(buffer->evtType) + sizeof(buffer->referenceTime) + sizeof(struct SensorFirstSample);
+    buffer = alloca(size);
+    memset(buffer, 0x00, size);
+
+    buffer->sensType = cmd->sensType;
+    buffer->length = sizeof(buffer->referenceTime) + sizeof(struct SensorFirstSample);
+    buffer->interrupt = NANOHUB_INT_WAKEUP;
+    buffer->firstSample.numFlushes = 1;
+    simpleQueueEnqueue(mOutputQ, buffer, size, false);
+}
+
 static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
 {
     struct ConfigCmd *cmd;
@@ -1161,6 +1175,10 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
             } else if (cmd->cmd == CONFIG_CMD_FLUSH) {
                     queueFlush(sensor);
             }
+        } else if (cmd->cmd == CONFIG_CMD_FLUSH && cmd->sensType > SENS_TYPE_INVALID) {
+            // if a flush event is for an unknown sensor, we just return a fake flush event.
+            osLog(LOG_INFO, "Flush request from unrecognized sensor, returning a fake flush\n");
+            fakeFlush(cmd);
         }
     } else if (evtType > EVT_NO_FIRST_SENSOR_EVENT && evtType < EVT_NO_SENSOR_CONFIG_EVENT && mSensorList[(evtType & 0xFF)-1] < MAX_REGISTERED_SENSORS) { // data
         sensor = mActiveSensorTable + mSensorList[(evtType & 0xFF) - 1];
