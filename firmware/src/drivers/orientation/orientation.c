@@ -263,20 +263,30 @@ static void fillSamples(struct TripleAxisDataEvent *ev, enum RawSensorType index
     mTask.last_time[index] = curr_time;
 }
 
+static bool allocateDataEvt(struct FusionSensor *mSensor, uint64_t time)
+{
+    mSensor->ev = slabAllocatorAlloc(mDataSlab);
+    if (mSensor->ev == NULL) {
+        // slab allocation failed
+        osLog(LOG_ERROR, "ORIENTATION: slabAllocatorAlloc() Failed\n");
+        return false;
+    }
+
+    // delta time for the first sample is sample count
+    memset(&mSensor->ev->samples[0].firstSample, 0x00, sizeof(struct SensorFirstSample));
+    mSensor->ev->referenceTime = time;
+    mSensor->prev_time = time;
+
+    return true;
+}
+
 static void addSample(struct FusionSensor *mSensor, uint64_t time, float x, float y, float z)
 {
     struct TripleAxisDataPoint *sample;
 
     if (mSensor->ev == NULL) {
-        mSensor->ev = slabAllocatorAlloc(mDataSlab);
-        if (mSensor->ev == NULL) {
-            // slaballocation failed
-            osLog(LOG_ERROR, "ORIENTATION: slabAllocatorAlloc() Failed\n");
+        if (!allocateDataEvt(mSensor, time))
             return;
-        }
-        mSensor->ev->samples[0].firstSample.numSamples = 0;
-        mSensor->ev->referenceTime = time;
-        mSensor->prev_time = time;
     }
 
     if (mSensor->ev->samples[0].firstSample.numSamples >= MAX_NUM_COMMS_EVENT_SAMPLES) {
