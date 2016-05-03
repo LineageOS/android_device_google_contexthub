@@ -1610,10 +1610,7 @@ static bool allocateDataEvt(struct BMI160Sensor *mSensor, uint64_t rtc_time)
     }
 
     // delta time for the first sample is sample count
-    mSensor->data_evt->samples[0].firstSample.numSamples = 0;
-    mSensor->data_evt->samples[0].firstSample.biasCurrent = 0;
-    mSensor->data_evt->samples[0].firstSample.biasPresent = 0;
-    mSensor->data_evt->samples[0].firstSample.biasSample = 0;
+    memset(&mSensor->data_evt->samples[0].firstSample, 0x00, sizeof(struct SensorFirstSample));
     mSensor->data_evt->referenceTime = rtc_time;
     mSensor->prev_rtc_time = rtc_time;
 
