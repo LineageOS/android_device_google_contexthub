@@ -17,8 +17,6 @@
 #ifndef _SENS_TYPE_H_
 #define _SENS_TYPE_H_
 
-#include <variant/inc/sensType.h>
-
 #ifdef __cplusplus
 extern "C" {
 #endif
