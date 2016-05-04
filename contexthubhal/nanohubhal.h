@@ -46,6 +46,8 @@ namespace android {
 
 namespace nanohub {
 
+void dumpBuffer(const char *pfx, const hub_app_name_t &appId, uint32_t evtId, const void *data, size_t len, int status = 0);
+
 struct nano_message_hdr {
     uint32_t event_id;
     hub_app_name_t app_name;
@@ -94,16 +96,39 @@ class NanoHub {
     int doSendToDevice(const hub_app_name_t *name, const void *data, uint32_t len);
     void doSendToApp(const hub_app_name_t *name, uint32_t typ, const void *data, uint32_t len);
 
+    static constexpr unsigned int FL_MESSAGE_TRACING = 1;
+
+    unsigned int mFlags = 0;
+
 public:
+
+    // debugging interface
+
+    static bool messageTracingEnabled() {
+        return hubInstance()->mFlags & FL_MESSAGE_TRACING;
+    }
+    static unsigned int getDebugFlags() {
+        return hubInstance()->mFlags;
+    }
+    static void setDebugFlags(unsigned int flags) {
+        hubInstance()->mFlags = flags;
+    }
+
+    // messaging interface
+
+    // define callback to invoke for APP messages
     static int subscribeMessages(uint32_t hub_id, context_hub_callback *cbk, void *cookie) {
         return hubInstance()->doSubscribeMessages(hub_id, cbk, cookie);
     }
+    // all messages from APP go here
     static int sendToNanohub(uint32_t hub_id, const hub_message_t *msg) {
         return hubInstance()->doSendToNanohub(hub_id, msg);
     }
+    // passes message to kernel driver directly
     static int sendToDevice(const hub_app_name_t *name, const void *data, uint32_t len) {
         return hubInstance()->doSendToDevice(name, data, len);
     }
+    // passes message to APP via callback
     static void sendToApp(const hub_app_name_t *name, uint32_t typ, const void *data, uint32_t len) {
         hubInstance()->doSendToApp(name, typ, data, len);
     }
