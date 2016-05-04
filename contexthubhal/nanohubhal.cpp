@@ -41,8 +41,11 @@
 #include <hardware/hardware.h>
 
 #include <utils/Log.h>
+#include <cutils/properties.h>
 
 #include <cinttypes>
+#include <iomanip>
+#include <sstream>
 
 #include "nanohub_perdevice.h"
 #include "system_comms.h"
@@ -55,6 +58,41 @@
 namespace android {
 
 namespace nanohub {
+
+inline std::ostream &operator << (std::ostream &os, const hub_app_name_t &appId)
+{
+    char vendor[6];
+    __be64 beAppId = htobe64(appId.id);
+    uint32_t seqId = appId.id & NANOAPP_VENDOR_ALL_APPS;
+
+    std::ios::fmtflags f(os.flags());
+    memcpy(vendor, (void*)&beAppId, sizeof(vendor) - 1);
+    vendor[sizeof(vendor) - 1] = 0;
+    if (strlen(vendor) == 5)
+        os << vendor << ", " << std::hex << std::setw(6)  << seqId;
+    else
+        os << "#" << std::hex << appId.id;
+    os.flags(f);
+
+    return os;
+}
+
+void dumpBuffer(const char *pfx, const hub_app_name_t &appId, uint32_t evtId, const void *data, size_t len, int status)
+{
+    std::ostringstream os;
+    const uint8_t *p = static_cast<const uint8_t *>(data);
+    os << pfx << ": [ID=" << appId << "; SZ=" << std::dec << len;
+    if (evtId)
+        os << "; EVT=" << std::hex << evtId;
+    os << "]:" << std::hex;
+    for (size_t i = 0; i < len; ++i) {
+        os << " "  << std::setfill('0') << std::setw(2) << p[i];
+    }
+    if (status) {
+        os << "; status=" << status << " [" << std::setfill('0') << std::setw(8) << status << "]";
+    }
+    ALOGI("%s", os.str().c_str());
+}
 
 static int rwrite(int fd, const void *buf, int len)
 {
@@ -177,6 +215,8 @@ void* NanoHub::doRun()
         hasInotify = true;
     }
 
+    setDebugFlags(property_get_int32("persist.nanohub.debug", 0));
+
     while (1) {
         int ret = poll(myFds, numPollFds, -1);
         if (ret <= 0) {
@@ -218,7 +258,11 @@ void* NanoHub::doRun()
             if (ret < 0) {
                 ALOGE("SystemComm::handleRx() returned %d", ret);
             } else if (ret) {
-                doSendToApp(&msg.hdr.app_name, msg.hdr.event_id, &msg.data[0], msg.hdr.len);
+                // event is always EVENT_ID_TO_HOST (0x401); we erase it, and send 0 to app
+                if (messageTracingEnabled()) {
+                    dumpBuffer("DEV -> APP", msg.hdr.app_name, 0, &msg.data[0], msg.hdr.len);
+                }
+                doSendToApp(&msg.hdr.app_name, 0, &msg.data[0], msg.hdr.len);
             }
         }
 
@@ -337,11 +381,17 @@ int NanoHub::doSendToNanohub(uint32_t hub_id, const hub_message_t *msg)
             ret = -EINVAL;
         } else if (get_hub_info()->os_app_name == msg->app_name) {
             //messages to the "system" app are special - hal handles them
+            if (messageTracingEnabled()) {
+                dumpBuffer("APP -> HAL", msg->app_name, msg->message_type, msg->message, msg->message_len);
+            }
             ret = SystemComm::handleTx(msg);
         } else if (msg->message_type || msg->message_len > MAX_RX_PACKET) {
             ALOGW("not sending invalid message 2");
             ret = -EINVAL;
         } else {
+            if (messageTracingEnabled()) {
+                dumpBuffer("APP -> DEV", msg->app_name, 0, msg->message, msg->message_len);
+            }
             ret = doSendToDevice(&msg->app_name, msg->message, msg->message_len);
         }
     }
