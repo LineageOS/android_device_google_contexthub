@@ -31,7 +31,6 @@
 #include <hostIntf.h>
 #include <nanohubPacket.h>
 #include <variant/inc/variant.h>
-#include <variant/inc/sensType.h>
 #include <cpu/inc/cpuMath.h>
 
 #include <seos.h>
