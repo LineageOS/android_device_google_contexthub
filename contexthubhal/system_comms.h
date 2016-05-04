@@ -61,9 +61,8 @@
 #define CONTEXT_HUB_LOAD_OS (CONTEXT_HUB_TYPE_PRIVATE_MSG_BASE + 1)
 
 
-#define NANOHUB_APP_NOT_LOADED  0
-#define NANOHUB_APP_LOADED      1
-#define NANOHUB_APPS_RUNNING    2
+#define NANOHUB_APP_NOT_LOADED  (-1)
+#define NANOHUB_APP_LOADED      (0)
 
 #define NANOHUB_UPLOAD_CHUNK_SZ_MAX 64
 #define NANOHUB_MEM_SZ_UNKNOWN      0xFFFFFFFFUL
@@ -291,18 +290,13 @@ private:
     int doHandleRx(const nano_message *rxMsg);
 
     static void sendToApp(uint32_t typ, const void *data, uint32_t len) {
+        if (NanoHub::messageTracingEnabled()) {
+            dumpBuffer("HAL -> APP", get_hub_info()->os_app_name, typ, data, len);
+        }
         NanoHub::sendToApp(&get_hub_info()->os_app_name, typ, data, len);
     }
     static int sendToSystem(const void *data, size_t len);
-    static void dumpBuffer(const char *pfx, const void *data, size_t len, int status = 0);
 
-    static constexpr unsigned int FL_MESSAGE_TRACING = 1;
-
-    bool messageTracingEnabled() const {
-        return mFlags & FL_MESSAGE_TRACING;
-    }
-
-    unsigned int mFlags = 0;
     KeyInfoSession mKeySession;
     AppMgmtSession mAppMgmtSession;
     AppInfoSession mAppInfoSession;
