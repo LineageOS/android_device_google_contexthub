@@ -58,6 +58,8 @@
 
 #define ACCEL_RAW_KSCALE        (8.0f * 9.81f / 32768.0f)
 
+#define OS_LOG_EVENT            0x474F4C41  // ascii: ALOG
+
 #ifdef LID_STATE_REPORTING_ENABLED
 const char LID_STATE_PROPERTY[] = "sensors.contexthub.lid_state";
 const char LID_STATE_UNKNOWN[]  = "unknown";
@@ -662,6 +664,31 @@ void HubConnection::restoreSensorState()
     mStepCounterOffset = mLastStepCount;
 }
 
+void HubConnection::postOsLog(uint8_t *buf, ssize_t len)
+{
+    // if len is less than 6, it's either an invalid or an empty log message.
+    if (len < 6)
+        return;
+
+    buf[len] = 0x00;
+    switch (buf[4]) {
+    case 'E':
+        ALOGE("osLog: %s", &buf[5]);
+        break;
+    case 'W':
+        ALOGW("osLog: %s", &buf[5]);
+        break;
+    case 'I':
+        ALOGI("osLog: %s", &buf[5]);
+        break;
+    case 'D':
+        ALOGD("osLog: %s", &buf[5]);
+        break;
+    default:
+        break;
+    }
+}
+
 ssize_t HubConnection::processBuf(uint8_t *buf, ssize_t len)
 {
     struct nAxisEvent *data = (struct nAxisEvent *)buf;
@@ -677,6 +704,9 @@ ssize_t HubConnection::processBuf(uint8_t *buf, ssize_t len)
         one = three = rawThree = false;
         bias = 0;
         switch (data->evtType) {
+        case OS_LOG_EVENT:
+            postOsLog(buf, len);
+            return 0;
         case SENS_TYPE_TO_EVENT(SENS_TYPE_ACCEL):
             type = SENSOR_TYPE_ACCELEROMETER;
             sensor = COMMS_SENSOR_ACCEL;
