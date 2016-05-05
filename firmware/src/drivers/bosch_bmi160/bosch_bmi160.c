@@ -14,33 +14,34 @@
  * limitations under the License.
  */
 
-#include <stdlib.h>
-#include <string.h>
-#include <timer.h>
-#include <sensors.h>
-#include <heap.h>
-#include <spi.h>
-#include <slab.h>
-#include <limits.h>
-#include <plat/inc/rtc.h>
-#include <plat/inc/gpio.h>
-#include <plat/inc/exti.h>
-#include <plat/inc/syscfg.h>
-#include <gpio.h>
-#include <isr.h>
-#include <hostIntf.h>
-#include <nanohubPacket.h>
-#include <variant/inc/variant.h>
-#include <variant/inc/sensType.h>
+#include <algos/time_sync.h>
+#include <atomic.h>
 #include <cpu/inc/cpuMath.h>
-
+#include <gpio.h>
+#include <heap.h>
+#include <hostIntf.h>
+#include <isr.h>
+#include <nanohub_math.h>
+#include <nanohubPacket.h>
+#include <plat/inc/exti.h>
+#include <plat/inc/gpio.h>
+#include <plat/inc/syscfg.h>
+#include <plat/inc/rtc.h>
+#include <sensors.h>
 #include <seos.h>
+#include <slab.h>
+#include <spi.h>
+#include <timer.h>
+#include <variant/inc/sensType.h>
+#include <variant/inc/variant.h>
 
 #ifdef MAG_SLAVE_PRESENT
 #include <algos/mag_cal.h>
 #endif
-#include <algos/time_sync.h>
-#include <nanohub_math.h>
+
+#include <limits.h>
+#include <stdlib.h>
+#include <string.h>
 
 #define INFO_PRINT(fmt, ...) do { \
         osLog(LOG_INFO, "%s " fmt, "[BMI160]", ##__VA_ARGS__); \
@@ -51,13 +52,23 @@
     } while (0);
 
 #define DEBUG_PRINT(fmt, ...) do { \
-        if (enable_debug) {  \
+        if (DBG_ENABLE) {  \
             INFO_PRINT(fmt,  ##__VA_ARGS__); \
         } \
     } while (0);
 
-static const bool enable_debug = 0;
+#define DEBUG_PRINT_IF(cond, fmt, ...) do { \
+        if ((cond) && DBG_ENABLE) {  \
+            INFO_PRINT(fmt,  ##__VA_ARGS__); \
+        } \
+    } while (0);
 
+#define DBG_ENABLE                0
+#define DBG_CHUNKED               0
+#define DBG_INT                   0
+#define DBG_SHALLOW_PARSE         0
+#define DBG_STATE                 0
+#define DBG_WM_CALC               0
 #define TIMESTAMP_DBG             0
 
 // fixme: to list required definitions for a slave mag
@@ -153,6 +164,15 @@ static const bool enable_debug = 0;
 #define INT_FIFO_WM     0x40
 #define INT_NO_MOTION   0x80
 
+#define BMI160_FRAME_HEADER_INVALID  0x80   // mark the end of valid data
+#define BMI160_FRAME_HEADER_SKIP     0x81   // not defined by hw, used for skip a byte in buffer
+
+#define WATERMARK_MIN                1
+#define WATERMARK_MAX                200    // must <= 255 (0xff)
+
+#define WATERMARK_MAX_SENSOR_RATE    400    // Accel and gyro are 400 Hz max
+#define WATERMARK_TIME_UNIT_NS       (1000000000ULL/(WATERMARK_MAX_SENSOR_RATE))
+
 #define gSPI    BMI160_SPI_BUS_ID
 
 #define ACCL_INT_LINE EXTI_LINE_P6
@@ -189,7 +209,8 @@ static const bool enable_debug = 0;
 #define kSensorTimerIntervalUs   39ull        // bmi160 clock increaments every 39000ns
 
 #define kMinRTCTimeIncrementNs   1250000ull // forced min rtc time increment, 1.25ms for 400Hz
-#define kMinSensorTimeIncrement  64         // forced min sensortime increment, 64 = 2.5 msec for 400Hz
+#define kMinSensorTimeIncrement  64         // forced min sensortime increment,
+                                            // 64 = 2.5 msec for 400Hz
 
 #define ACC_MIN_RATE    5
 #define GYR_MIN_RATE    6
@@ -207,9 +228,10 @@ static const bool enable_debug = 0;
 #define RETRY_CNT_MAG 30
 
 #define SPI_PACKET_SIZE 30
-#define FIFO_READ_SIZE 1028
-#define BUF_MARGIN 16   // some extra buffer for additional reg RW when a FIFO read happens
-#define SPI_BUF_SIZE (FIFO_READ_SIZE + BUF_MARGIN)
+#define FIFO_READ_SIZE  (1024+4)
+#define CHUNKED_READ_SIZE (64)
+#define BUF_MARGIN 32   // some extra buffer for additional reg RW when a FIFO read happens
+#define SPI_BUF_SIZE (FIFO_READ_SIZE + CHUNKED_READ_SIZE + BUF_MARGIN)
 
 enum SensorIndex {
     ACC = 0,
@@ -263,7 +285,18 @@ enum SensorState {
     SENSOR_STEP_CNT,
     SENSOR_TIME_SYNC,
     SENSOR_SAVE_CALIBRATION,
+    SENSOR_NUM_OF_STATE
 };
+static const char * getStateName(int32_t s) {
+#if DBG_STATE
+    static const char* const l[] = {"BOOT", "VERIFY_ID", "INIT", "IDLE", "PWR_UP",
+            "PWR-DN", "CFG_CHANGE", "INT1", "INT2", "CALIB", "STEP_CNT", "SYNC", "SAVE_CALIB"};
+    if (s >= 0 && s < SENSOR_NUM_OF_STATE) {
+        return l[s];
+    }
+#endif
+    return "???";
+}
 
 enum MagConfigState {
     MAG_SET_START,
@@ -364,13 +397,14 @@ struct BMI160Task {
     uint8_t txrxBuffer[SPI_BUF_SIZE];
 
     // states
+    volatile uint8_t state;  //task state, type enum SensorState, do NOT change this directly
     enum InitState init_state;
     enum MagConfigState mag_state;
-    enum SensorState state;
     enum CalibrationState calibration_state;
 
     // pending configs
     bool pending_int[2];
+    bool pending_step_cnt;
     bool pending_config[NUM_OF_SENSOR];
     bool pending_calibration_save;
     bool pending_time_sync;
@@ -378,6 +412,16 @@ struct BMI160Task {
     bool pending_dispatch;
     bool frame_sensortime_valid;
 
+    // FIFO setting
+    uint16_t chunkReadSize;
+    uint8_t  watermark;
+
+    // spi rw
+    struct SlabAllocator *mDataSlab;
+    uint16_t mWbufCnt;
+    uint8_t mRegCnt;
+    uint8_t mRetryLeft;
+    bool spiInUse;
 };
 
 static uint32_t AccRates[] = {
@@ -420,12 +464,6 @@ static uint32_t StepCntRates[] = {
 };
 
 static struct BMI160Task mTask;
-static uint16_t mWbufCnt = 0;
-static uint8_t mRegCnt = 0;
-
-static uint8_t mRetryLeft;
-
-static struct SlabAllocator *mDataSlab;
 
 #ifdef MAG_SLAVE_PRESENT
 static struct MagTask magTask;
@@ -467,17 +505,69 @@ static struct MagTask magTask;
     .flags1 = SENSOR_INFO_FLAGS1_BIAS, \
     .biasType = bias
 
+typedef struct BMI160Task _Task;
+#define TASK  _Task* const _task
+
+// To get rid of static variables all task functions should have a task structure pointer input.
+// This is an intermediate step.
+#define TDECL()  TASK = &mTask; (void)_task
+
+// Access task variables without explicitly specify the task structure pointer.
+#define T(v)  (_task->v)
+
+// Atomic get state
+#define GET_STATE() (atomicReadByte(&(_task->state)))
+
+// Atomic set state, this set the state to arbitrary value, use with caution
+#define SET_STATE(s) do{\
+        DEBUG_PRINT_IF(DBG_STATE, "set state %s\n", getStateName(s));\
+        atomicWriteByte(&(_task->state), (s));\
+    }while(0)
+
+// Atomic switch state from IDLE to desired state.
+static bool trySwitchState_(TASK, enum SensorState newState) {
+#if DBG_STATE
+    bool ret = atomicCmpXchgByte(&T(state), SENSOR_IDLE, newState);
+    uint8_t prevState = ret ? SENSOR_IDLE : GET_STATE();
+    DEBUG_PRINT("switch state %s->%s, %s\n",
+            getStateName(prevState), getStateName(newState), ret ? "ok" : "failed");
+    return ret;
+#else
+    return atomicCmpXchgByte(&T(state), SENSOR_IDLE, newState);
+#endif
+}
+// Short-hand
+#define trySwitchState(s) trySwitchState_(_task, (s))
+
+// Chunked FIFO read functions
+static void chunkedReadInit_(TASK, int index, int size);
+#define chunkedReadInit(a,b) chunkedReadInit_(_task, (a), (b))
+static void chunkedReadSpiCallback(void *cookie, int error);
+static void initiateFifoRead_(TASK, bool isInterruptContext);
+#define initiateFifoRead(a) initiateFifoRead_(_task, (a))
+static uint8_t* shallowParseFrame(uint8_t * buf, int size);
+
+// Watermark calculation
+static uint8_t calcWatermark2_(TASK);
+#define calcWatermark2() calcWatermark2_(_task)
+
 static const struct SensorInfo mSensorInfo[NUM_OF_SENSOR] =
 {
-    { DEC_INFO_RATE_RAW("Accelerometer", AccRates, SENS_TYPE_ACCEL, NUM_AXIS_THREE, NANOHUB_INT_NONWAKEUP, 3000, SENS_TYPE_ACCEL_RAW, 1.0/kScale_acc) },
-    { DEC_INFO_RATE("Gyroscope", GyrRates, SENS_TYPE_GYRO, NUM_AXIS_THREE, NANOHUB_INT_NONWAKEUP, 20) },
-    { DEC_INFO_RATE_BIAS("Magnetometer", MagRates, SENS_TYPE_MAG, NUM_AXIS_THREE, NANOHUB_INT_NONWAKEUP, 600, SENS_TYPE_MAG_BIAS) },
-    { DEC_INFO("Step Detector", SENS_TYPE_STEP_DETECT, NUM_AXIS_EMBEDDED, NANOHUB_INT_NONWAKEUP, 100) },
-    { DEC_INFO("Double Tap", SENS_TYPE_DOUBLE_TAP, NUM_AXIS_EMBEDDED, NANOHUB_INT_NONWAKEUP, 20) },
+    { DEC_INFO_RATE_RAW("Accelerometer", AccRates, SENS_TYPE_ACCEL, NUM_AXIS_THREE,
+            NANOHUB_INT_NONWAKEUP, 3000, SENS_TYPE_ACCEL_RAW, 1.0/kScale_acc) },
+    { DEC_INFO_RATE("Gyroscope", GyrRates, SENS_TYPE_GYRO, NUM_AXIS_THREE,
+            NANOHUB_INT_NONWAKEUP, 20) },
+    { DEC_INFO_RATE_BIAS("Magnetometer", MagRates, SENS_TYPE_MAG, NUM_AXIS_THREE,
+            NANOHUB_INT_NONWAKEUP, 600, SENS_TYPE_MAG_BIAS) },
+    { DEC_INFO("Step Detector", SENS_TYPE_STEP_DETECT, NUM_AXIS_EMBEDDED,
+            NANOHUB_INT_NONWAKEUP, 100) },
+    { DEC_INFO("Double Tap", SENS_TYPE_DOUBLE_TAP, NUM_AXIS_EMBEDDED,
+            NANOHUB_INT_NONWAKEUP, 20) },
     { DEC_INFO("Flat", SENS_TYPE_FLAT, NUM_AXIS_EMBEDDED, NANOHUB_INT_NONWAKEUP, 20) },
     { DEC_INFO("Any Motion", SENS_TYPE_ANY_MOTION, NUM_AXIS_EMBEDDED, NANOHUB_INT_NONWAKEUP, 20) },
     { DEC_INFO("No Motion", SENS_TYPE_NO_MOTION, NUM_AXIS_EMBEDDED, NANOHUB_INT_NONWAKEUP, 20) },
-    { DEC_INFO_RATE("Step Counter", StepCntRates, SENS_TYPE_STEP_COUNT, NUM_AXIS_EMBEDDED, NANOHUB_INT_NONWAKEUP, 20) },
+    { DEC_INFO_RATE("Step Counter", StepCntRates, SENS_TYPE_STEP_COUNT, NUM_AXIS_EMBEDDED,
+            NANOHUB_INT_NONWAKEUP, 20) },
 };
 
 static void time_init(void) {
@@ -511,19 +601,25 @@ static void minimize_sensortime_history(void) {
 
 static void dataEvtFree(void *ptr)
 {
+    TDECL();
     struct TripleAxisDataEvent *ev = (struct TripleAxisDataEvent *)ptr;
-    slabAllocatorFree(mDataSlab, ev);
+    slabAllocatorFree(T(mDataSlab), ev);
 }
 
 static void spiQueueWrite(uint8_t addr, uint8_t data, uint32_t delay)
 {
-    mTask.packets[mRegCnt].size = 2;
-    mTask.packets[mRegCnt].txBuf = &mTask.txrxBuffer[mWbufCnt];
-    mTask.packets[mRegCnt].rxBuf = &mTask.txrxBuffer[mWbufCnt];
-    mTask.packets[mRegCnt].delay = delay * 1000;
-    mTask.txrxBuffer[mWbufCnt++] = BMI160_SPI_WRITE | addr;
-    mTask.txrxBuffer[mWbufCnt++] = data;
-    mRegCnt++;
+    TDECL();
+    if (T(spiInUse)) {
+        ERROR_PRINT("SPI in use, cannot queue write\n");
+        return;
+    }
+    T(packets[T(mRegCnt)]).size = 2;
+    T(packets[T(mRegCnt)]).txBuf = &T(txrxBuffer[T(mWbufCnt)]);
+    T(packets[T(mRegCnt)]).rxBuf = &T(txrxBuffer[T(mWbufCnt)]);
+    T(packets[T(mRegCnt)]).delay = delay * 1000;
+    T(txrxBuffer[T(mWbufCnt++)]) = BMI160_SPI_WRITE | addr;
+    T(txrxBuffer[T(mWbufCnt++)]) = data;
+    T(mRegCnt)++;
 }
 
 /*
@@ -531,61 +627,72 @@ static void spiQueueWrite(uint8_t addr, uint8_t data, uint32_t delay)
  */
 static void spiQueueRead(uint8_t addr, size_t size, uint8_t **buf, uint32_t delay)
 {
-    *buf = &mTask.txrxBuffer[mWbufCnt];
-    mTask.packets[mRegCnt].size = size + 1;
-    mTask.packets[mRegCnt].txBuf = &mTask.txrxBuffer[mWbufCnt];
-    mTask.packets[mRegCnt].rxBuf = *buf;
-    mTask.packets[mRegCnt].delay = delay * 1000;
-    mTask.txrxBuffer[mWbufCnt++] = BMI160_SPI_READ | addr;
-    mWbufCnt += size;
-    mRegCnt++;
+    TDECL();
+    if (T(spiInUse)) {
+        ERROR_PRINT("SPI in use, cannot queue read %d %d\n", (int)addr, (int)size);
+        return;
+    }
+
+    *buf = &T(txrxBuffer[T(mWbufCnt)]);
+    T(packets[T(mRegCnt)]).size = size + 1; // first byte will not contain valid data
+    T(packets[T(mRegCnt)]).txBuf = &T(txrxBuffer[T(mWbufCnt)]);
+    T(packets[T(mRegCnt)]).rxBuf = *buf;
+    T(packets[T(mRegCnt)]).delay = delay * 1000;
+    T(txrxBuffer[T(mWbufCnt)++]) = BMI160_SPI_READ | addr;
+    T(mWbufCnt) += size;
+    T(mRegCnt)++;
 }
 
 static void spiBatchTxRx(struct SpiMode *mode,
-        SpiCbkF callback, void *cookie)
+        SpiCbkF callback, void *cookie, const char * src)
 {
-    if (mWbufCnt > SPI_BUF_SIZE) {
+    TDECL();
+    if (T(mWbufCnt) > SPI_BUF_SIZE) {
         ERROR_PRINT("NO enough SPI buffer space, dropping transaction.\n");
         return;
     }
-    if (mRegCnt > SPI_PACKET_SIZE) {
+    if (T(mRegCnt) > SPI_PACKET_SIZE) {
         ERROR_PRINT("spiBatchTxRx too many packets!\n");
         return;
     }
 
-    spiMasterRxTx(mTask.spiDev, mTask.cs,
-        mTask.packets, mRegCnt, mode, callback, cookie);
-    mRegCnt = 0;
-    mWbufCnt = 0;
+    T(spiInUse) = true;
+    spiMasterRxTx(T(spiDev), T(cs), T(packets), T(mRegCnt), mode, callback, cookie);
+    T(mRegCnt) = 0;
+    T(mWbufCnt) = 0;
 }
+
 
 static bool bmi160Isr1(struct ChainedIsr *isr)
 {
-    struct BMI160Task *data = container_of(isr, struct BMI160Task, Isr1);
+    TASK = container_of(isr, struct BMI160Task, Isr1);
 
-    if (!extiIsPendingGpio(data->Int1)) {
+    if (!extiIsPendingGpio(T(Int1))) {
         return false;
     }
-
-    osEnqueuePrivateEvt(EVT_SENSOR_INTERRUPT_1, data, NULL, mTask.tid);
-    extiClearPendingGpio(data->Int1);
+    DEBUG_PRINT_IF(DBG_INT, "i1\n");
+    initiateFifoRead(true /*isInterruptContext*/);
+    extiClearPendingGpio(T(Int1));
     return true;
 }
 
+
 static bool bmi160Isr2(struct ChainedIsr *isr)
 {
-    struct BMI160Task *data = container_of(isr, struct BMI160Task, Isr2);
+    TASK = container_of(isr, struct BMI160Task, Isr2);
 
-    if (!extiIsPendingGpio(data->Int2))
+    if (!extiIsPendingGpio(T(Int2)))
         return false;
 
-    osEnqueuePrivateEvt(EVT_SENSOR_INTERRUPT_2, data, NULL, mTask.tid);
-    extiClearPendingGpio(data->Int2);
+    DEBUG_PRINT_IF(DBG_INT, "i2\n");
+    osEnqueuePrivateEvt(EVT_SENSOR_INTERRUPT_2, _task, NULL, T(tid));
+    extiClearPendingGpio(T(Int2));
     return true;
 }
 
 static void sensorSpiCallback(void *cookie, int err)
 {
+    mTask.spiInUse = false;
     osEnqueuePrivateEvt(EVT_SPI_DONE, cookie, NULL, mTask.tid);
 }
 
@@ -802,56 +909,6 @@ static void magConfig(void)
     SPI_READ(BMI160_REG_STATUS, 1, &mTask.statusBuffer, 1000);
 }
 
-static uint8_t calcWatermark(void)
-{
-    int i;
-    uint64_t min_latency = ULONG_LONG_MAX;
-    uint32_t max_rate = 0;
-    uint8_t min_watermark = 6;
-    uint8_t max_watermark = 200;
-    uint8_t watermark;
-    uint32_t temp_cnt, total_cnt = 0;
-    uint32_t header_cnt = ULONG_MAX;
-
-    for (i = ACC; i <= MAG; i++) {
-        if (mTask.sensors[i].configed && mTask.sensors[i].latency != SENSOR_LATENCY_NODATA) {
-            min_latency = mTask.sensors[i].latency < min_latency ? mTask.sensors[i].latency : min_latency;
-            max_rate = mTask.sensors[i].rate > max_rate ? mTask.sensors[i].rate : max_rate;
-        }
-    }
-
-    // if max_rate is less than or equal to 50Hz, we lower the minimum watermark level
-    if (max_rate <= SENSOR_HZ(50.0f)) {
-        min_watermark = 3;
-    }
-
-    // if any sensor request no batching, we set a minimum watermark
-    // of 24 bytes (12 bytes if all rates are below 50Hz).
-    if (min_latency == 0) {
-        return min_watermark;
-    }
-
-    // each accel and gyro sample are 6 bytes
-    // each mag samlpe is 8 bytes
-    // the total number of header byte is estimated by the min samples
-    // the actual number of header byte may exceed this estimate but it's ok to
-    // batch a bit faster.
-    for (i = ACC; i <= MAG; i++) {
-        if (mTask.sensors[i].configed && mTask.sensors[i].latency != SENSOR_LATENCY_NODATA) {
-
-            temp_cnt = (uint32_t)U64_DIV_BY_U64_CONSTANT(min_latency * (mTask.sensors[i].rate / 1024), 1000000000ull);
-            header_cnt = temp_cnt < header_cnt ? temp_cnt : header_cnt;
-            total_cnt += temp_cnt * (i == MAG ? 8 : 6);
-        }
-    }
-    total_cnt += header_cnt;
-    watermark = ((total_cnt / 4) < 0xff) ? (total_cnt / 4) : 0xff; // 4 bytes per count in the watermark register.
-    watermark = watermark < min_watermark ? min_watermark : watermark;
-    watermark = watermark > max_watermark ? max_watermark : watermark;
-
-    return watermark;
-}
-
 static inline bool anyFifoEnabled(void)
 {
     return (mTask.fifo_enabled[ACC] || mTask.fifo_enabled[GYR] || mTask.fifo_enabled[MAG]);
@@ -859,6 +916,7 @@ static inline bool anyFifoEnabled(void)
 
 static void configFifo(void)
 {
+    TDECL();
     int i;
     uint8_t val = 0x12;
     bool any_fifo_enabled_prev = anyFifoEnabled();
@@ -909,7 +967,9 @@ static void configFifo(void)
 
     // calculate the new watermark level
     if (anyFifoEnabled()) {
-        SPI_WRITE(BMI160_REG_FIFO_CONFIG_0, calcWatermark());
+        mTask.watermark = calcWatermark2_(_task);
+        DEBUG_PRINT("wm=%d", mTask.watermark);
+        SPI_WRITE(BMI160_REG_FIFO_CONFIG_0, mTask.watermark);
     }
 
     // config the fifo register
@@ -928,24 +988,21 @@ static void configFifo(void)
 
 static bool accPower(bool on, void *cookie)
 {
-    INFO_PRINT("accPower: on=%d, state=%d\n", on, mTask.state);
+    TDECL();
 
-    if (mTask.state == SENSOR_IDLE) {
+    INFO_PRINT("accPower: on=%d, state=%s\n", on, getStateName(GET_STATE()));
+    if (trySwitchState(on ? SENSOR_POWERING_UP : SENSOR_POWERING_DOWN)) {
         if (on) {
-            mTask.state = SENSOR_POWERING_UP;
-
             // set ACC power mode to NORMAL
             SPI_WRITE(BMI160_REG_CMD, 0x11, 50000);
         } else {
-            mTask.state = SENSOR_POWERING_DOWN;
-
             // set ACC power mode to SUSPEND
             mTask.sensors[ACC].configed = false;
             configFifo();
             SPI_WRITE(BMI160_REG_CMD, 0x10, 5000);
         }
         mTask.sensors[ACC].powered = on;
-        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[ACC]);
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[ACC], __FUNCTION__);
     } else {
         mTask.pending_config[ACC] = true;
         mTask.sensors[ACC].pConfig.enable = on;
@@ -955,21 +1012,18 @@ static bool accPower(bool on, void *cookie)
 
 static bool gyrPower(bool on, void *cookie)
 {
-    INFO_PRINT("gyrPower: on=%d, state=%d\n", on, mTask.state);
+    TDECL();
+    INFO_PRINT("gyrPower: on=%d, state=%s\n", on, getStateName(GET_STATE()));
 
-    if (mTask.state == SENSOR_IDLE) {
+    if (trySwitchState(on ? SENSOR_POWERING_UP : SENSOR_POWERING_DOWN)) {
         if (on) {
-            mTask.state = SENSOR_POWERING_UP;
-
             // set GYR power mode to NORMAL
             SPI_WRITE(BMI160_REG_CMD, 0x15, 50000);
         } else {
-            mTask.state = SENSOR_POWERING_DOWN;
-
             // set GYR power mode to SUSPEND
             mTask.sensors[GYR].configed = false;
             configFifo();
-            SPI_WRITE(BMI160_REG_CMD, 0x14, 1000);
+            SPI_WRITE(BMI160_REG_CMD, 0x14, 5000);
         }
 
         if (anyFifoEnabled() && on != mTask.sensors[GYR].powered) {
@@ -980,7 +1034,7 @@ static bool gyrPower(bool on, void *cookie)
         }
 
         mTask.sensors[GYR].powered = on;
-        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[GYR]);
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[GYR], __FUNCTION__);
     } else {
         mTask.pending_config[GYR] = true;
         mTask.sensors[GYR].pConfig.enable = on;
@@ -990,24 +1044,20 @@ static bool gyrPower(bool on, void *cookie)
 
 static bool magPower(bool on, void *cookie)
 {
-    INFO_PRINT("magPower: on=%d, state=%d\n", on, mTask.state);
-
-    if (mTask.state == SENSOR_IDLE) {
+    TDECL();
+    INFO_PRINT("magPower: on=%d, state=%s\n", on, getStateName(GET_STATE()));
+    if (trySwitchState(on ? SENSOR_POWERING_UP : SENSOR_POWERING_DOWN)) {
         if (on) {
-            mTask.state = SENSOR_POWERING_UP;
-
             // set MAG power mode to NORMAL
             SPI_WRITE(BMI160_REG_CMD, 0x19, 10000);
         } else {
-            mTask.state = SENSOR_POWERING_DOWN;
-
             // set MAG power mode to SUSPEND
             mTask.sensors[MAG].configed = false;
             configFifo();
-            SPI_WRITE(BMI160_REG_CMD, 0x18, 1000);
+            SPI_WRITE(BMI160_REG_CMD, 0x18, 5000);
         }
         mTask.sensors[MAG].powered = on;
-        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[MAG]);
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[MAG], __FUNCTION__);
     } else {
         mTask.pending_config[MAG] = true;
         mTask.sensors[MAG].pConfig.enable = on;
@@ -1017,22 +1067,21 @@ static bool magPower(bool on, void *cookie)
 
 static bool stepPower(bool on, void *cookie)
 {
-    if (mTask.state == SENSOR_IDLE) {
+    TDECL();
+    if (trySwitchState(on ? SENSOR_POWERING_UP : SENSOR_POWERING_DOWN)) {
         // if step counter is powered, no need to change actual config of step
         // detector.
         // But we choose to perform one SPI_WRITE anyway to go down the code path
         // to state SENSOR_POWERING_UP/DOWN to update sensor manager.
         if (on) {
-            mTask.state = SENSOR_POWERING_UP;
             mTask.interrupt_enable_2 |= 0x08;
         } else {
-            mTask.state = SENSOR_POWERING_DOWN;
             mTask.interrupt_enable_2 &= ~0x08;
             mTask.sensors[STEP].configed = false;
         }
         mTask.sensors[STEP].powered = on;
         SPI_WRITE(BMI160_REG_INT_EN_2, mTask.interrupt_enable_2, 450);
-        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[STEP]);
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[STEP], __FUNCTION__);
     } else {
         mTask.pending_config[STEP] = true;
         mTask.sensors[STEP].pConfig.enable = on;
@@ -1042,18 +1091,17 @@ static bool stepPower(bool on, void *cookie)
 
 static bool flatPower(bool on, void *cookie)
 {
-    if (mTask.state == SENSOR_IDLE) {
+    TDECL();
+    if (trySwitchState(on ? SENSOR_POWERING_UP : SENSOR_POWERING_DOWN)) {
         if (on) {
-            mTask.state = SENSOR_POWERING_UP;
             mTask.interrupt_enable_0 |= 0x80;
         } else {
-            mTask.state = SENSOR_POWERING_DOWN;
             mTask.interrupt_enable_0 &= ~0x80;
             mTask.sensors[FLAT].configed = false;
         }
         mTask.sensors[FLAT].powered = on;
         SPI_WRITE(BMI160_REG_INT_EN_0, mTask.interrupt_enable_0, 450);
-        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[FLAT]);
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[FLAT], __FUNCTION__);
     } else {
         mTask.pending_config[FLAT] = true;
         mTask.sensors[FLAT].pConfig.enable = on;
@@ -1063,18 +1111,17 @@ static bool flatPower(bool on, void *cookie)
 
 static bool doubleTapPower(bool on, void *cookie)
 {
-    if (mTask.state == SENSOR_IDLE) {
+    TDECL();
+    if (trySwitchState(on ? SENSOR_POWERING_UP : SENSOR_POWERING_DOWN)) {
         if (on) {
-            mTask.state = SENSOR_POWERING_UP;
             mTask.interrupt_enable_0 |= 0x10;
         } else {
-            mTask.state = SENSOR_POWERING_DOWN;
             mTask.interrupt_enable_0 &= ~0x10;
             mTask.sensors[DTAP].configed = false;
         }
         mTask.sensors[DTAP].powered = on;
         SPI_WRITE(BMI160_REG_INT_EN_0, mTask.interrupt_enable_0, 450);
-        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[DTAP]);
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[DTAP], __FUNCTION__);
     } else {
         mTask.pending_config[DTAP] = true;
         mTask.sensors[DTAP].pConfig.enable = on;
@@ -1084,20 +1131,20 @@ static bool doubleTapPower(bool on, void *cookie)
 
 static bool anyMotionPower(bool on, void *cookie)
 {
-    DEBUG_PRINT("anyMotionPower: on=%d, oneshot_cnt %d, state=%d\n", on, mTask.active_oneshot_sensor_cnt, mTask.state);
+    TDECL();
+    DEBUG_PRINT("anyMotionPower: on=%d, oneshot_cnt %d, state=%s\n",
+            on, mTask.active_oneshot_sensor_cnt, getStateName(GET_STATE()));
 
-    if (mTask.state == SENSOR_IDLE) {
+    if (trySwitchState(on ? SENSOR_POWERING_UP : SENSOR_POWERING_DOWN)) {
         if (on) {
-            mTask.state = SENSOR_POWERING_UP;
             mTask.interrupt_enable_0 |= 0x07;
         } else {
-            mTask.state = SENSOR_POWERING_DOWN;
             mTask.interrupt_enable_0 &= ~0x07;
             mTask.sensors[ANYMO].configed = false;
         }
         mTask.sensors[ANYMO].powered = on;
         SPI_WRITE(BMI160_REG_INT_EN_0, mTask.interrupt_enable_0, 450);
-        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[ANYMO]);
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[ANYMO], __FUNCTION__);
     } else {
         mTask.pending_config[ANYMO] = true;
         mTask.sensors[ANYMO].pConfig.enable = on;
@@ -1107,20 +1154,19 @@ static bool anyMotionPower(bool on, void *cookie)
 
 static bool noMotionPower(bool on, void *cookie)
 {
-    DEBUG_PRINT("noMotionPower: on=%d, oneshot_cnt %d, state=%d\n", on, mTask.active_oneshot_sensor_cnt, mTask.state);
-
-    if (mTask.state == SENSOR_IDLE) {
+    TDECL();
+    DEBUG_PRINT("noMotionPower: on=%d, oneshot_cnt %d, state=%s\n",
+            on, mTask.active_oneshot_sensor_cnt, getStateName(GET_STATE()));
+    if (trySwitchState(on ? SENSOR_POWERING_UP : SENSOR_POWERING_DOWN)) {
         if (on) {
-            mTask.state = SENSOR_POWERING_UP;
             mTask.interrupt_enable_2 |= 0x07;
         } else {
-            mTask.state = SENSOR_POWERING_DOWN;
             mTask.interrupt_enable_2 &= ~0x07;
             mTask.sensors[NOMO].configed = false;
         }
         mTask.sensors[NOMO].powered = on;
         SPI_WRITE(BMI160_REG_INT_EN_2, mTask.interrupt_enable_2, 450);
-        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[NOMO]);
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[NOMO], __FUNCTION__);
     } else {
         mTask.pending_config[NOMO] = true;
         mTask.sensors[NOMO].pConfig.enable = on;
@@ -1130,9 +1176,9 @@ static bool noMotionPower(bool on, void *cookie)
 
 static bool stepCntPower(bool on, void *cookie)
 {
-    if (mTask.state == SENSOR_IDLE) {
+    TDECL();
+    if (trySwitchState(on ? SENSOR_POWERING_UP : SENSOR_POWERING_DOWN)) {
         if (on) {
-            mTask.state = SENSOR_POWERING_UP;
             if (!mTask.sensors[STEP].powered) {
                 mTask.interrupt_enable_2 |= 0x08;
                 SPI_WRITE(BMI160_REG_INT_EN_2, mTask.interrupt_enable_2, 450);
@@ -1140,7 +1186,6 @@ static bool stepCntPower(bool on, void *cookie)
             // set step_cnt_en bit
             SPI_WRITE(BMI160_REG_STEP_CONF_1, 0x08 | 0x03, 1000);
         } else {
-            mTask.state = SENSOR_POWERING_DOWN;
             if (!mTask.sensors[STEP].powered) {
                 mTask.interrupt_enable_2 &= ~0x08;
                 SPI_WRITE(BMI160_REG_INT_EN_2, mTask.interrupt_enable_2);
@@ -1151,7 +1196,7 @@ static bool stepCntPower(bool on, void *cookie)
             mTask.sensors[STEPCNT].configed = false;
         }
         mTask.sensors[STEPCNT].powered = on;
-        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[STEPCNT]);
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[STEPCNT], __FUNCTION__);
     } else {
         mTask.pending_config[STEPCNT] = true;
         mTask.sensors[STEPCNT].pConfig.enable = on;
@@ -1212,13 +1257,13 @@ static void configMotion(uint8_t odr) {
 
 static bool accSetRate(uint32_t rate, uint64_t latency, void *cookie)
 {
+    TDECL();
     int odr, osr = 0;
 
-    INFO_PRINT("accSetRate: rate=%ld, latency=%lld, state=%d\n", rate, latency, mTask.state);
+    INFO_PRINT("accSetRate: rate=%ld, latency=%lld, state=%s\n", rate, latency,
+            getStateName(GET_STATE()));
 
-    if (mTask.state == SENSOR_IDLE) {
-        mTask.state = SENSOR_CONFIG_CHANGING;
-
+    if (trySwitchState(SENSOR_CONFIG_CHANGING)) {
         odr = computeOdr(rate);
         if (!odr) {
             ERROR_PRINT("invalid acc rate\n");
@@ -1260,7 +1305,7 @@ static bool accSetRate(uint32_t rate, uint64_t latency, void *cookie)
         // flush the data and configure the fifo
         configFifo();
 
-        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[ACC]);
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[ACC], __FUNCTION__);
     } else {
         mTask.pending_config[ACC] = true;
         mTask.sensors[ACC].pConfig.enable = 1;
@@ -1272,13 +1317,12 @@ static bool accSetRate(uint32_t rate, uint64_t latency, void *cookie)
 
 static bool gyrSetRate(uint32_t rate, uint64_t latency, void *cookie)
 {
+    TDECL();
     int odr, osr = 0;
+    INFO_PRINT("gyrSetRate: rate=%ld, latency=%lld, state=%s\n", rate, latency,
+            getStateName(GET_STATE()));
 
-    INFO_PRINT("gyrSetRate: rate=%ld, latency=%lld, state=%d\n", rate, latency, mTask.state);
-
-    if (mTask.state == SENSOR_IDLE) {
-        mTask.state = SENSOR_CONFIG_CHANGING;
-
+    if (trySwitchState(SENSOR_CONFIG_CHANGING)) {
         odr = computeOdr(rate);
         if (!odr) {
             ERROR_PRINT("invalid gyr rate\n");
@@ -1317,7 +1361,7 @@ static bool gyrSetRate(uint32_t rate, uint64_t latency, void *cookie)
         // flush the data and configure the fifo
         configFifo();
 
-        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[GYR]);
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[GYR], __FUNCTION__);
     } else {
         mTask.pending_config[GYR] = true;
         mTask.sensors[GYR].pConfig.enable = 1;
@@ -1329,16 +1373,16 @@ static bool gyrSetRate(uint32_t rate, uint64_t latency, void *cookie)
 
 static bool magSetRate(uint32_t rate, uint64_t latency, void *cookie)
 {
+    TDECL();
     int odr;
 
     if (rate == SENSOR_RATE_ONCHANGE)
         rate = SENSOR_HZ(100);
 
-    INFO_PRINT("magSetRate: rate=%ld, latency=%lld, state=%d\n", rate, latency, mTask.state);
+    INFO_PRINT("magSetRate: rate=%ld, latency=%lld, state=%s\n", rate, latency,
+            getStateName(GET_STATE()));
 
-    if (mTask.state == SENSOR_IDLE) {
-        mTask.state = SENSOR_CONFIG_CHANGING;
-
+    if (trySwitchState(SENSOR_CONFIG_CHANGING)) {
         mTask.sensors[MAG].rate = rate;
         mTask.sensors[MAG].latency = latency;
         mTask.sensors[MAG].configed = true;
@@ -1359,7 +1403,7 @@ static bool magSetRate(uint32_t rate, uint64_t latency, void *cookie)
         // flush the data and configure the fifo
         configFifo();
 
-        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[MAG]);
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[MAG], __FUNCTION__);
     } else {
         mTask.pending_config[MAG] = true;
         mTask.sensors[MAG].pConfig.enable = 1;
@@ -1452,26 +1496,27 @@ static void sendFlushEvt(void)
     }
 }
 
-static void int1Evt(void);
-
 static bool accFlush(void *cookie)
 {
+    TDECL();
     mTask.sensors[ACC].flush++;
-    int1Evt();
+    initiateFifoRead(false /*isInterruptContext*/);
     return true;
 }
 
 static bool gyrFlush(void *cookie)
 {
+    TDECL();
     mTask.sensors[GYR].flush++;
-    int1Evt();
+    initiateFifoRead(false /*isInterruptContext*/);
     return true;
 }
 
 static bool magFlush(void *cookie)
 {
+    TDECL();
     mTask.sensors[MAG].flush++;
-    int1Evt();
+    initiateFifoRead(false /*isInterruptContext*/);
     return true;
 }
 
@@ -1500,13 +1545,15 @@ static bool noMotionFlush(void *cookie)
     return osEnqueueEvt(EVT_SENSOR_NO_MOTION, SENSOR_DATA_EVENT_FLUSH, NULL);
 }
 
-static void stepCntFlushGetData()
+static bool stepCntFlushGetData()
 {
-    if (mTask.state == SENSOR_IDLE) {
-        mTask.state = SENSOR_STEP_CNT;
+    TDECL();
+    if (trySwitchState(SENSOR_STEP_CNT)) {
         SPI_READ(BMI160_REG_STEP_CNT_0, 2, &mTask.dataBuffer);
-        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[STEPCNT]);
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[STEPCNT], __FUNCTION__);
+        return true;
     }
+    return false;
 }
 
 static bool stepCntFlush(void *cookie)
@@ -1596,13 +1643,16 @@ static bool flushData(struct BMI160Sensor *sensor, uint32_t eventId)
 static void flushAllData(void)
 {
     int i;
-    for (i = ACC; i <= MAG; i++)
-        flushData(&mTask.sensors[i], EVENT_TYPE_BIT_DISCARDABLE | sensorGetMyEventType(mSensorInfo[i].sensorType));
+    for (i = ACC; i <= MAG; i++) {
+        flushData(&mTask.sensors[i],
+                EVENT_TYPE_BIT_DISCARDABLE | sensorGetMyEventType(mSensorInfo[i].sensorType));
+    }
 }
 
 static bool allocateDataEvt(struct BMI160Sensor *mSensor, uint64_t rtc_time)
 {
-    mSensor->data_evt = slabAllocatorAlloc(mDataSlab);
+    TDECL();
+    mSensor->data_evt = slabAllocatorAlloc(T(mDataSlab));
     if (mSensor->data_evt == NULL) {
         // slab allocation failed
         ERROR_PRINT("slabAllocatorAlloc() failed\n");
@@ -1652,6 +1702,7 @@ static void parseRawData(struct BMI160Sensor *mSensor, uint8_t *buf, float kScal
         magCalRemoveSoftiron(&mTask.moc, x, y, z, &xi, &yi, &zi);
 
         newMagBias |= magCalUpdate(&mTask.moc, sensorTime * kSensorTimerIntervalUs, xi, yi, zi);
+
         magCalRemoveBias(&mTask.moc, xi, yi, zi, &x, &y, &z);
 #else
         return;
@@ -1681,7 +1732,8 @@ static void parseRawData(struct BMI160Sensor *mSensor, uint8_t *buf, float kScal
     if (mSensor->idx == MAG && (newMagBias || !mTask.magBiasPosted)) {
         if (mSensor->data_evt->samples[0].firstSample.numSamples > 0) {
             // flush existing samples so the bias appears after them
-            flushData(mSensor, EVENT_TYPE_BIT_DISCARDABLE | sensorGetMyEventType(mSensorInfo[MAG].sensorType));
+            flushData(mSensor,
+                    EVENT_TYPE_BIT_DISCARDABLE | sensorGetMyEventType(mSensorInfo[MAG].sensorType));
             if (!allocateDataEvt(mSensor, rtc_time))
                 return;
         }
@@ -1689,7 +1741,8 @@ static void parseRawData(struct BMI160Sensor *mSensor, uint8_t *buf, float kScal
             mTask.magBiasCurrent = true;
         mSensor->data_evt->samples[0].firstSample.biasCurrent = mTask.magBiasCurrent;
         mSensor->data_evt->samples[0].firstSample.biasPresent = 1;
-        mSensor->data_evt->samples[0].firstSample.biasSample = mSensor->data_evt->samples[0].firstSample.numSamples;
+        mSensor->data_evt->samples[0].firstSample.biasSample =
+                mSensor->data_evt->samples[0].firstSample.numSamples;
         sample = &mSensor->data_evt->samples[mSensor->data_evt->samples[0].firstSample.numSamples++];
 #ifdef MAG_SLAVE_PRESENT
         magCalGetBias(&mTask.moc, &sample->x, &sample->y, &sample->z);
@@ -1718,6 +1771,8 @@ static void parseRawData(struct BMI160Sensor *mSensor, uint8_t *buf, float kScal
 
     //DEBUG_PRINT("bmi160: x: %d, y: %d, z: %d\n", (int)(1000*x), (int)(1000*y), (int)(1000*z));
 
+    //TODO: This was added to prevent to much data of the same type accumulate in internal buffer.
+    //      It might no longer be necessary and can be removed.
     if (mSensor->data_evt->samples[0].firstSample.numSamples == MAX_NUM_COMMS_EVENT_SAMPLES) {
         flushAllData();
     }
@@ -1759,9 +1814,15 @@ static void dispatchData(void)
     }
 
     while (size > 0) {
-        if (buf[i] == 0x80) {
-            // header 0x80 means no more data
+        if (buf[i] == BMI160_FRAME_HEADER_INVALID) {
+            // reaching invalid header means no more data
             break;
+        } else if (buf[i] == BMI160_FRAME_HEADER_SKIP) {
+            // manually injected skip header
+            DEBUG_PRINT_IF(DBG_CHUNKED, "skip nop header");
+            i++;
+            size--;
+            continue;
         }
 
         fh_mode = buf[i] >> 6;
@@ -1786,17 +1847,19 @@ static void dispatchData(void)
             } else if (fh_param == 1) {
                 // sensortime frame
                 if (size >= 3) {
-                    // The active sensor with the highest odr/lowest delta is the one that determines
-                    // the sensor time increments.
+                    // The active sensor with the highest odr/lowest delta is the one that
+                    // determines the sensor time increments.
                     for (j = ACC; j <= MAG; j++) {
-                        if (mTask.sensors[j].configed && mTask.sensors[j].latency != SENSOR_LATENCY_NODATA) {
-                            min_delta = min_delta < mTask.time_delta[j] ? min_delta : mTask.time_delta[j];
+                        if (mTask.sensors[j].configed &&
+                                mTask.sensors[j].latency != SENSOR_LATENCY_NODATA) {
+                            min_delta = min_delta < mTask.time_delta[j] ? min_delta :
+                                    mTask.time_delta[j];
                         }
                     }
                     sensor_time24 = buf[i + 2] << 16 | buf[i + 1] << 8 | buf[i];
 
-                    // clear lower bits that measure time from taking the sample to reading the FIFO,
-                    // something we're not interested in.
+                    // clear lower bits that measure time from taking the sample to reading the
+                    // FIFO, something we're not interested in.
                     sensor_time24 &= ~(min_delta - 1);
 
                     full_sensor_time = parseSensortime(sensor_time24);
@@ -1836,12 +1899,11 @@ static void dispatchData(void)
                             mTask.time_delta[j] = saved_time_delta[j];
                         }
 
-#if TIMESTAMP_DBG
-                        DEBUG_PRINT("sensortime invalid: full, frame, task = %llu, %llu, %llu\n",
+                        DEBUG_PRINT_IF(TIMESTAMP_DBG,
+                                "sensortime invalid: full, frame, task = %llu, %llu, %llu\n",
                                 full_sensor_time,
                                 frame_sensor_time,
                                 mTask.frame_sensortime);
-#endif
 
                         // Parse again with known valid timing.
                         // This time the sensor events will be committed into event buffer.
@@ -1854,10 +1916,11 @@ static void dispatchData(void)
                     for (j = ACC; j <= MAG; j++) {
                         mTask.prev_frame_time[j] = observed[j] ? full_sensor_time : (ULONG_LONG_MAX - 1);
 
-                        // sensor can be disabled in the middle of the FIFO,
-                        // but wait till the FIFO end to invalidate prev_frame_time since it's still needed for parsing.
+                        // sensor can be disabled in the middle of the FIFO, but wait till the FIFO
+                        // end to invalidate prev_frame_time since it's still needed for parsing.
                         // Also invalidate pending delta just to be safe.
-                        if (!mTask.sensors[j].configed || mTask.sensors[j].latency == SENSOR_LATENCY_NODATA) {
+                        if (!mTask.sensors[j].configed ||
+                                mTask.sensors[j].latency == SENSOR_LATENCY_NODATA) {
                             mTask.prev_frame_time[j] = ULONG_LONG_MAX;
                             mTask.pending_delta[j] = false;
                         }
@@ -1878,7 +1941,8 @@ static void dispatchData(void)
                             mTask.pending_delta[j] = false;
                             mTask.time_delta[j] = mTask.next_delta[j];
 #if TIMESTAMP_DBG
-                            DEBUG_PRINT("%s new delta %u\n", mSensorInfo[j].sensorName, (unsigned int)mTask.time_delta[j]);
+                            DEBUG_PRINT("%s new delta %u\n", mSensorInfo[j].sensorName,
+                                    (unsigned int)mTask.time_delta[j]);
 #endif
                         }
                     }
@@ -1900,8 +1964,8 @@ static void dispatchData(void)
             // 3) The underestimated frame time of a newly enabled sensor will be corrected
             // as soon as it shows up in the same frame with another sensor.
             // 4) (prev_frame_time == ULONG_LONG_MAX) means the sensor wasn't enabled.
-            // 5) (prev_frame_time == ULONG_LONG_MAX -1) means the sensor didn't appear in the
-            // last data frame of the previous fifo read.  So it won't be used as a frame time reference.
+            // 5) (prev_frame_time == ULONG_LONG_MAX -1) means the sensor didn't appear in the last
+            // data frame of the previous fifo read.  So it won't be used as a frame time reference.
 
             tmp_frame_time = 0;
             for (j = ACC; j <= MAG; j++) {
@@ -1919,7 +1983,8 @@ static void dispatchData(void)
             if (fh_param & 4) { // have mag data
                 if (size >= 8) {
                     if (frame_sensor_time_valid) {
-                        parseRawData(&mTask.sensors[MAG], &buf[i], 0, tmp_frame_time); // scale not used
+                        // scale not used
+                        parseRawData(&mTask.sensors[MAG], &buf[i], 0, tmp_frame_time);
 #if TIMESTAMP_DBG
                         if (mTask.prev_frame_time[MAG] == ULONG_LONG_MAX) {
                             DEBUG_PRINT("mag enabled: frame %d time 0x%08x\n",
@@ -2000,7 +2065,7 @@ static void dispatchData(void)
         }
     }
 
-    // flush data events.
+    //flush data events.
     flushAllData();
 }
 
@@ -2013,6 +2078,7 @@ static void dispatchData(void)
  */
 static void int2Handling(void)
 {
+    TDECL();
     union EmbeddedDataPoint trigger_axies;
     uint8_t int_status_0 = mTask.statusBuffer[1];
     uint8_t int_status_1 = mTask.statusBuffer[2];
@@ -2022,9 +2088,7 @@ static void int2Handling(void)
             osEnqueueEvt(EVT_SENSOR_STEP, NULL, NULL);
         }
         if (mTask.sensors[STEPCNT].powered) {
-            mTask.state = SENSOR_STEP_CNT;
-            SPI_READ(BMI160_REG_STEP_CNT_0, 2, &mTask.dataBuffer);
-            spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[STEPCNT]);
+            T(pending_step_cnt) = true;
         }
     }
     if ((int_status_0 & INT_ANY_MOTION) && mTask.sensors[ANYMO].powered) {
@@ -2056,29 +2120,15 @@ static void int2Handling(void)
 
 static void int2Evt(void)
 {
-    if (mTask.state == SENSOR_IDLE) {
-        mTask.state = SENSOR_INT_2_HANDLING;
-
+    TDECL();
+    if (trySwitchState(SENSOR_INT_2_HANDLING)) {
         // Read the interrupt reg value to determine what interrupts
         SPI_READ(BMI160_REG_INT_STATUS_0, 4, &mTask.statusBuffer);
-        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask);
-    } else if (mTask.state != SENSOR_INT_2_HANDLING) {
-        // If we are not handling Int 2 right now, we need to put it to pending.
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask, __FUNCTION__);
+    } else {
+        // even if we are still in SENSOR_INT_2_HANDLING, the SPI may already finished and we need
+        // to issue another SPI read to get the latest status
         mTask.pending_int[1] = true;
-    }
-}
-
-static void int1Evt(void)
-{
-    if (mTask.state == SENSOR_IDLE) {
-        // read out fifo.
-        mTask.state = SENSOR_INT_1_HANDLING;
-        mTask.xferCnt = FIFO_READ_SIZE;
-        SPI_READ(BMI160_REG_FIFO_DATA, mTask.xferCnt, &mTask.dataBuffer);
-        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask);
-    } else if (mTask.state != SENSOR_INT_1_HANDLING) {
-        // If we are not handling Int 1 right now, we need to put it to pending.
-        mTask.pending_int[0] = true;
     }
 }
 
@@ -2102,25 +2152,32 @@ static uint8_t offset6Mode(void)
     return mode;
 }
 
-static void saveCalibration()
+static bool saveCalibration()
 {
-    mTask.state = SENSOR_SAVE_CALIBRATION;
-    if (mTask.sensors[ACC].offset_enable) {
-        SPI_WRITE(BMI160_REG_OFFSET_0, mTask.sensors[ACC].offset[0] & 0xFF, 450);
-        SPI_WRITE(BMI160_REG_OFFSET_0 + 1, mTask.sensors[ACC].offset[1] & 0xFF, 450);
-        SPI_WRITE(BMI160_REG_OFFSET_0 + 2, mTask.sensors[ACC].offset[2] & 0xFF, 450);
+    TDECL();
+    if (trySwitchState(SENSOR_SAVE_CALIBRATION)) {
+        if (mTask.sensors[ACC].offset_enable) {
+            SPI_WRITE(BMI160_REG_OFFSET_0, mTask.sensors[ACC].offset[0] & 0xFF, 450);
+            SPI_WRITE(BMI160_REG_OFFSET_0 + 1, mTask.sensors[ACC].offset[1] & 0xFF, 450);
+            SPI_WRITE(BMI160_REG_OFFSET_0 + 2, mTask.sensors[ACC].offset[2] & 0xFF, 450);
+        }
+        if (mTask.sensors[GYR].offset_enable) {
+            SPI_WRITE(BMI160_REG_OFFSET_3, mTask.sensors[GYR].offset[0] & 0xFF, 450);
+            SPI_WRITE(BMI160_REG_OFFSET_3 + 1, mTask.sensors[GYR].offset[1] & 0xFF, 450);
+            SPI_WRITE(BMI160_REG_OFFSET_3 + 2, mTask.sensors[GYR].offset[2] & 0xFF, 450);
+        }
+        SPI_WRITE(BMI160_REG_OFFSET_6, offset6Mode(), 450);
+        SPI_READ(BMI160_REG_OFFSET_0, 7, &mTask.dataBuffer);
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, NULL, __FUNCTION__);
+        return true;
+    } else {
+        DEBUG_PRINT("%s, state != IDLE", __FUNCTION__);
+        return false;
     }
-    if (mTask.sensors[GYR].offset_enable) {
-        SPI_WRITE(BMI160_REG_OFFSET_3, mTask.sensors[GYR].offset[0] & 0xFF, 450);
-        SPI_WRITE(BMI160_REG_OFFSET_3 + 1, mTask.sensors[GYR].offset[1] & 0xFF, 450);
-        SPI_WRITE(BMI160_REG_OFFSET_3 + 2, mTask.sensors[GYR].offset[2] & 0xFF, 450);
-    }
-    SPI_WRITE(BMI160_REG_OFFSET_6, offset6Mode(), 450);
-    SPI_READ(BMI160_REG_OFFSET_0, 7, &mTask.dataBuffer);
-    spiBatchTxRx(&mTask.mode, sensorSpiCallback, NULL);
 }
 
-static void sendCalibrationResult(uint8_t status, uint8_t sensorType, int32_t xBias, int32_t yBias, int32_t zBias) {
+static void sendCalibrationResult(uint8_t status, uint8_t sensorType,
+        int32_t xBias, int32_t yBias, int32_t zBias) {
     struct CalibrationData *data = heapAlloc(sizeof(struct CalibrationData));
     if (!data) {
         osLog(LOG_WARN, "Couldn't alloc cal result pkt");
@@ -2143,15 +2200,16 @@ static void sendCalibrationResult(uint8_t status, uint8_t sensorType, int32_t xB
 
 static void accCalibrationHandling(void)
 {
+    TDECL();
     switch (mTask.calibration_state) {
     case CALIBRATION_START:
-        mRetryLeft = RETRY_CNT_CALIBRATION;
+        T(mRetryLeft) = RETRY_CNT_CALIBRATION;
 
         // turn ACC to NORMAL mode
         SPI_WRITE(BMI160_REG_CMD, 0x11, 50000);
 
         mTask.calibration_state = CALIBRATION_FOC;
-        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[ACC]);
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[ACC], __FUNCTION__);
         break;
     case CALIBRATION_FOC:
 
@@ -2169,7 +2227,7 @@ static void accCalibrationHandling(void)
         SPI_READ(BMI160_REG_STATUS, 1, &mTask.statusBuffer, 50000);
 
         mTask.calibration_state = CALIBRATION_WAIT_FOC_DONE;
-        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[ACC]);
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[ACC], __FUNCTION__);
         break;
     case CALIBRATION_WAIT_FOC_DONE:
         // if the STATUS REG has bit 3 set, it means calbration is done.
@@ -2188,13 +2246,13 @@ static void accCalibrationHandling(void)
             // calibration hasn't finished yet, go back to wait for 50ms.
             SPI_READ(BMI160_REG_STATUS, 1, &mTask.statusBuffer, 50000);
             mTask.calibration_state = CALIBRATION_WAIT_FOC_DONE;
-            mRetryLeft--;
+            T(mRetryLeft)--;
         }
-        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[ACC]);
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[ACC], __FUNCTION__);
 
         // if calbration hasn't finished after 10 polling on the STATUS reg,
         // declare timeout.
-        if (mRetryLeft == 0) {
+        if (T(mRetryLeft) == 0) {
             mTask.calibration_state = CALIBRATION_TIMEOUT;
         }
         break;
@@ -2216,7 +2274,9 @@ static void accCalibrationHandling(void)
                 (unsigned int)mTask.sensors[ACC].offset[1],
                 (unsigned int)mTask.sensors[ACC].offset[2]);
 
-        sendCalibrationResult(SENSOR_APP_EVT_STATUS_SUCCESS, SENS_TYPE_ACCEL, mTask.sensors[ACC].offset[0], mTask.sensors[ACC].offset[1], mTask.sensors[ACC].offset[2]);
+        sendCalibrationResult(SENSOR_APP_EVT_STATUS_SUCCESS, SENS_TYPE_ACCEL,
+                mTask.sensors[ACC].offset[0], mTask.sensors[ACC].offset[1],
+                mTask.sensors[ACC].offset[2]);
 
         // Enable offset compensation for accel
         uint8_t mode = offset6Mode();
@@ -2226,7 +2286,7 @@ static void accCalibrationHandling(void)
         SPI_WRITE(BMI160_REG_CMD, 0x10, 5000);
 
         mTask.calibration_state = CALIBRATION_DONE;
-        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[ACC]);
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[ACC], __FUNCTION__);
         break;
     default:
         ERROR_PRINT("Invalid calibration state\n");
@@ -2236,16 +2296,16 @@ static void accCalibrationHandling(void)
 
 static bool accCalibration(void *cookie)
 {
-    if ((mTask.state != SENSOR_IDLE) || mTask.sensors[ACC].powered) {
+    TDECL();
+    if (!mTask.sensors[ACC].powered && trySwitchState(SENSOR_CALIBRATING)) {
+        mTask.calibration_state = CALIBRATION_START;
+        accCalibrationHandling();
+        return true;
+    } else {
         ERROR_PRINT("cannot calibrate accel because sensor is busy\n");
         sendCalibrationResult(SENSOR_APP_EVT_STATUS_BUSY, SENS_TYPE_ACCEL, 0, 0, 0);
         return false;
-    } else {
-        mTask.state = SENSOR_CALIBRATING;
-        mTask.calibration_state = CALIBRATION_START;
-        accCalibrationHandling();
     }
-    return true;
 }
 
 static bool accCfgData(void *data, void *cookie)
@@ -2257,27 +2317,28 @@ static bool accCfgData(void *data, void *cookie)
     mTask.sensors[ACC].offset[2] = values[2];
     mTask.sensors[ACC].offset_enable = true;
 
-    INFO_PRINT("accCfgData: data=%02lx, %02lx, %02lx\n", values[0] & 0xFF, values[1] & 0xFF, values[2] & 0xFF);
+    INFO_PRINT("accCfgData: data=%02lx, %02lx, %02lx\n",
+            values[0] & 0xFF, values[1] & 0xFF, values[2] & 0xFF);
 
-    if (mTask.state == SENSOR_IDLE)
-        saveCalibration();
-    else
+    if (!saveCalibration()) {
         mTask.pending_calibration_save = true;
+    }
 
     return true;
 }
 
 static void gyrCalibrationHandling(void)
 {
+    TDECL();
     switch (mTask.calibration_state) {
     case CALIBRATION_START:
-        mRetryLeft = RETRY_CNT_CALIBRATION;
+        T(mRetryLeft) = RETRY_CNT_CALIBRATION;
 
         // turn GYR to NORMAL mode
         SPI_WRITE(BMI160_REG_CMD, 0x15, 50000);
 
         mTask.calibration_state = CALIBRATION_FOC;
-        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[GYR]);
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[GYR], __FUNCTION__);
         break;
     case CALIBRATION_FOC:
 
@@ -2294,7 +2355,7 @@ static void gyrCalibrationHandling(void)
         SPI_READ(BMI160_REG_STATUS, 1, &mTask.statusBuffer, 50000);
 
         mTask.calibration_state = CALIBRATION_WAIT_FOC_DONE;
-        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[GYR]);
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[GYR], __FUNCTION__);
         break;
     case CALIBRATION_WAIT_FOC_DONE:
 
@@ -2314,13 +2375,13 @@ static void gyrCalibrationHandling(void)
             // calibration hasn't finished yet, go back to wait for 50ms.
             SPI_READ(BMI160_REG_STATUS, 1, &mTask.statusBuffer, 50000);
             mTask.calibration_state = CALIBRATION_WAIT_FOC_DONE;
-            mRetryLeft--;
+            T(mRetryLeft)--;
         }
-        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[GYR]);
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[GYR], __FUNCTION__);
 
         // if calbration hasn't finished after 10 polling on the STATUS reg,
         // declare timeout.
-        if (mRetryLeft == 0) {
+        if (T(mRetryLeft) == 0) {
             mTask.calibration_state = CALIBRATION_TIMEOUT;
         }
         break;
@@ -2342,7 +2403,9 @@ static void gyrCalibrationHandling(void)
                 (unsigned int)mTask.sensors[GYR].offset[1],
                 (unsigned int)mTask.sensors[GYR].offset[2]);
 
-        sendCalibrationResult(SENSOR_APP_EVT_STATUS_SUCCESS, SENS_TYPE_GYRO, mTask.sensors[GYR].offset[0], mTask.sensors[GYR].offset[1], mTask.sensors[GYR].offset[2]);
+        sendCalibrationResult(SENSOR_APP_EVT_STATUS_SUCCESS, SENS_TYPE_GYRO,
+                mTask.sensors[GYR].offset[0], mTask.sensors[GYR].offset[1],
+                mTask.sensors[GYR].offset[2]);
 
         // Enable offset compensation for gyro
         uint8_t mode = offset6Mode();
@@ -2352,7 +2415,7 @@ static void gyrCalibrationHandling(void)
         SPI_WRITE(BMI160_REG_CMD, 0x14, 1000);
 
         mTask.calibration_state = CALIBRATION_DONE;
-        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[GYR]);
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[GYR], __FUNCTION__);
         break;
     default:
         ERROR_PRINT("Invalid calibration state\n");
@@ -2362,16 +2425,16 @@ static void gyrCalibrationHandling(void)
 
 static bool gyrCalibration(void *cookie)
 {
-    if ((mTask.state != SENSOR_IDLE) || mTask.sensors[GYR].powered) {
+    TDECL();
+    if (!mTask.sensors[GYR].powered && trySwitchState(SENSOR_CALIBRATING)) {
+        mTask.calibration_state = CALIBRATION_START;
+        gyrCalibrationHandling();
+        return true;
+    } else {
         ERROR_PRINT("cannot calibrate gyro because sensor is busy\n");
         sendCalibrationResult(SENSOR_APP_EVT_STATUS_BUSY, SENS_TYPE_GYRO, 0, 0, 0);
         return false;
-    } else {
-        mTask.state = SENSOR_CALIBRATING;
-        mTask.calibration_state = CALIBRATION_START;
-        gyrCalibrationHandling();
     }
-    return true;
 }
 
 static bool gyrCfgData(void *data, void *cookie)
@@ -2383,12 +2446,12 @@ static bool gyrCfgData(void *data, void *cookie)
     mTask.sensors[GYR].offset[2] = values[2];
     mTask.sensors[GYR].offset_enable = true;
 
-    INFO_PRINT("gyrCfgData: data=%02lx, %02lx, %02lx\n", values[0] & 0xFF, values[1] & 0xFF, values[2] & 0xFF);
+    INFO_PRINT("gyrCfgData: data=%02lx, %02lx, %02lx\n",
+            values[0] & 0xFF, values[1] & 0xFF, values[2] & 0xFF);
 
-    if (mTask.state == SENSOR_IDLE)
-        saveCalibration();
-    else
+    if (!saveCalibration()) {
         mTask.pending_calibration_save = true;
+    }
 
     return true;
 }
@@ -2397,7 +2460,8 @@ static bool magCfgData(void *data, void *cookie)
 {
     float *values = data;
 
-    INFO_PRINT("magCfgData: %ld, %ld, %ld\n", (int32_t)(values[0] * 1000), (int32_t)(values[1] * 1000), (int32_t)(values[2] * 1000));
+    INFO_PRINT("magCfgData: %ld, %ld, %ld\n",
+            (int32_t)(values[0] * 1000), (int32_t)(values[1] * 1000), (int32_t)(values[2] * 1000));
 
 #ifdef MAG_SLAVE_PRESENT
     mTask.moc.x_bias = values[0];
@@ -2431,15 +2495,18 @@ static bool magCfgData(void *data, void *cookie)
 
 static const struct SensorOps mSensorOps[NUM_OF_SENSOR] =
 {
-    { DEC_OPS_CAL_CFG(accPower, accFirmwareUpload, accSetRate, accFlush, accCalibration, accCfgData) },
-    { DEC_OPS_CAL_CFG(gyrPower, gyrFirmwareUpload, gyrSetRate, gyrFlush, gyrCalibration, gyrCfgData) },
+    { DEC_OPS_CAL_CFG(accPower, accFirmwareUpload, accSetRate, accFlush, accCalibration,
+            accCfgData) },
+    { DEC_OPS_CAL_CFG(gyrPower, gyrFirmwareUpload, gyrSetRate, gyrFlush, gyrCalibration,
+            gyrCfgData) },
     { DEC_OPS_CFG(magPower, magFirmwareUpload, magSetRate, magFlush, magCfgData) },
     { DEC_OPS(stepPower, stepFirmwareUpload, stepSetRate, stepFlush) },
     { DEC_OPS(doubleTapPower, doubleTapFirmwareUpload, doubleTapSetRate, doubleTapFlush) },
     { DEC_OPS(flatPower, flatFirmwareUpload, flatSetRate, flatFlush) },
     { DEC_OPS(anyMotionPower, anyMotionFirmwareUpload, anyMotionSetRate, anyMotionFlush) },
     { DEC_OPS(noMotionPower, noMotionFirmwareUpload, noMotionSetRate, noMotionFlush) },
-    { DEC_OPS_SEND(stepCntPower, stepCntFirmwareUpload, stepCntSetRate, stepCntFlush, stepCntSendLastData) },
+    { DEC_OPS_SEND(stepCntPower, stepCntFirmwareUpload, stepCntSetRate, stepCntFlush,
+            stepCntSendLastData) },
 };
 
 static void configEvent(struct BMI160Sensor *mSensor, struct ConfigStat *ConfigData)
@@ -2458,6 +2525,7 @@ static void configEvent(struct BMI160Sensor *mSensor, struct ConfigStat *ConfigD
 
 static void timeSyncEvt(uint32_t evtGeneration, bool evtDataValid)
 {
+    TDECL();
     // not processing pending events
     if (evtDataValid) {
         // stale event
@@ -2467,22 +2535,22 @@ static void timeSyncEvt(uint32_t evtGeneration, bool evtDataValid)
         mTask.active_poll_generation = mTask.poll_generation;
     }
 
-    if (mTask.state != SENSOR_IDLE) {
-        mTask.pending_time_sync = true;
-    } else {
-        mTask.state = SENSOR_TIME_SYNC;
+    if (trySwitchState(SENSOR_TIME_SYNC)) {
         SPI_READ(BMI160_REG_SENSORTIME_0, 3, &mTask.sensorTimeBuffer);
         SPI_READ(BMI160_REG_TEMPERATURE_0, 2, &mTask.temperatureBuffer);
-        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask);
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask, __FUNCTION__);
+    } else {
+        mTask.pending_time_sync = true;
     }
 }
 
 static void processPendingEvt(void)
 {
+    TDECL();
     enum SensorIndex i;
     if (mTask.pending_int[0]) {
         mTask.pending_int[0] = false;
-        int1Evt();
+        initiateFifoRead(false /*isInterruptContext*/);
         return;
     }
     if (mTask.pending_int[1]) {
@@ -2502,19 +2570,19 @@ static void processPendingEvt(void)
             return;
         }
     }
-    if (mTask.sensors[STEPCNT].flush > 0) {
-        stepCntFlushGetData();
+    if (mTask.sensors[STEPCNT].flush > 0 || T(pending_step_cnt)) {
+        T(pending_step_cnt) = T(pending_step_cnt) && !stepCntFlushGetData();
         return;
     }
     if (mTask.pending_calibration_save) {
-        mTask.pending_calibration_save = false;
-        saveCalibration();
+        mTask.pending_calibration_save = !saveCalibration();
         return;
     }
 }
 
 static void sensorInit(void)
 {
+    TDECL();
     switch (mTask.init_state) {
     case RESET_BMI160:
         DEBUG_PRINT("Performing soft reset\n");
@@ -2524,7 +2592,7 @@ static void sensorInit(void)
         SPI_READ(BMI160_REG_MAGIC, 1, &mTask.dataBuffer, 100);
 
         mTask.init_state = INIT_BMI160;
-        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask);
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask, "sensorInit RESET" );
         break;
 
     case INIT_BMI160:
@@ -2583,30 +2651,30 @@ static void sensorInit(void)
         // no mag connected to secondary interface
         mTask.init_state = INIT_ON_CHANGE_SENSORS;
 #endif
-        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask);
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask, "sensorInit INIT");
         break;
 
     case INIT_MAG:
         // Don't check statusBuffer if we are just starting mag config
         if (mTask.mag_state == MAG_SET_START) {
-            mRetryLeft = RETRY_CNT_MAG;
+            T(mRetryLeft) = RETRY_CNT_MAG;
             magConfig();
         } else if (mTask.mag_state < MAG_SET_DATA && mTask.statusBuffer[1] & 0x04) {
             // fixme: poll_until to reduce states
             // fixme: check should be done before SPI_READ in MAG_READ
             SPI_READ(BMI160_REG_STATUS, 1, &mTask.statusBuffer, 1000);
-            if (--mRetryLeft == 0) {
+            if (--T(mRetryLeft) == 0) {
                 ERROR_PRINT("INIT_MAG failed\n");
                 // fixme: duplicate suspend mag here
                 mTask.mag_state = MAG_INIT_FAILED;
                 mTask.init_state = INIT_ON_CHANGE_SENSORS;
             }
         } else {
-            mRetryLeft = RETRY_CNT_MAG;
+            T(mRetryLeft) = RETRY_CNT_MAG;
             magConfig();
         }
 
-        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask);
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask, "sensorInit INIT_MAG");
         break;
 
     case INIT_ON_CHANGE_SENSORS:
@@ -2635,7 +2703,7 @@ static void sensorInit(void)
         SPI_WRITE(BMI160_REG_INT_FLAT_1, 0x14, 450);
 
         mTask.init_state = INIT_DONE;
-        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask);
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask, "sensorInit INIT_ONC");
         break;
 
     default:
@@ -2645,34 +2713,36 @@ static void sensorInit(void)
 
 static void handleSpiDoneEvt(const void* evtData)
 {
+    TDECL();
     struct BMI160Sensor *mSensor;
     uint64_t SensorTime;
     int16_t temperature16;
     int i;
+    bool returnIdle = false;
 
-    switch (mTask.state) {
+    switch (GET_STATE()) {
     case SENSOR_BOOT:
-        mRetryLeft = RETRY_CNT_ID;
-        mTask.state = SENSOR_VERIFY_ID;
+        T(mRetryLeft) = RETRY_CNT_ID;
+        SET_STATE(SENSOR_VERIFY_ID);
         // dummy reads after boot, wait 100us
         SPI_READ(BMI160_REG_MAGIC, 1, &mTask.statusBuffer, 100);
         // read the device ID for bmi160
         SPI_READ(BMI160_REG_ID, 1, &mTask.dataBuffer);
-        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask);
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask, "spiDone SENSOR_BOOT");
         break;
     case SENSOR_VERIFY_ID:
         if (mTask.dataBuffer[1] != BMI160_ID) {
-            mRetryLeft --;
+            T(mRetryLeft) --;
             ERROR_PRINT("failed id match: %02x\n", mTask.dataBuffer[1]);
-            if (mRetryLeft == 0)
+            if (T(mRetryLeft) == 0)
                 break;
             // For some reason the first ID read will fail to get the
             // correct value. need to retry a few times.
-            mTask.state = SENSOR_BOOT;
+            SET_STATE(SENSOR_BOOT);
             timTimerSet(100000000, 100, 100, sensorTimerCallback, NULL, true);
             break;
         } else {
-            mTask.state = SENSOR_INITIALIZING;
+            SET_STATE(SENSOR_INITIALIZING);
             mTask.init_state = RESET_BMI160;
             sensorInit();
             break;
@@ -2682,9 +2752,8 @@ static void handleSpiDoneEvt(const void* evtData)
             DEBUG_PRINT("Done initialzing, system IDLE\n");
             for (i=0; i<NUM_OF_SENSOR; i++)
                 sensorRegisterInitComplete(mTask.sensors[i].handle);
-            mTask.state = SENSOR_IDLE;
             // In case other tasks have already requested us before we finish booting up.
-            processPendingEvt();
+            returnIdle = true;
         } else {
             sensorInit();
         }
@@ -2698,8 +2767,7 @@ static void handleSpiDoneEvt(const void* evtData)
             //DEBUG_PRINT("oneshot on\n");
         }
         sensorSignalInternalEvt(mSensor->handle, SENSOR_INTERNAL_EVT_POWER_STATE_CHG, 1, 0);
-        mTask.state = SENSOR_IDLE;
-        processPendingEvt();
+        returnIdle = true;
         break;
     case SENSOR_POWERING_DOWN:
         mSensor = (struct BMI160Sensor *)evtData;
@@ -2710,55 +2778,44 @@ static void handleSpiDoneEvt(const void* evtData)
             //DEBUG_PRINT("oneshot off\n");
         }
         sensorSignalInternalEvt(mSensor->handle, SENSOR_INTERNAL_EVT_POWER_STATE_CHG, 0, 0);
-        mTask.state = SENSOR_IDLE;
 
         if (mTask.pending_dispatch) {
             mTask.pending_dispatch = false;
             dispatchData();
         }
-
-        mTask.state = SENSOR_IDLE;
-        processPendingEvt();
+        returnIdle = true;
         break;
     case SENSOR_INT_1_HANDLING:
         dispatchData();
         sendFlushEvt();
-        mTask.state = SENSOR_IDLE;
-        processPendingEvt();
+        returnIdle = true;
         break;
     case SENSOR_INT_2_HANDLING:
         int2Handling();
-        // If it is not step cnt, we are done.
-        if (mTask.state == SENSOR_INT_2_HANDLING) {
-            mTask.state = SENSOR_IDLE;
-            processPendingEvt();
-        }
+        returnIdle = true;
         break;
     case SENSOR_CONFIG_CHANGING:
         mSensor = (struct BMI160Sensor *)evtData;
         sensorSignalInternalEvt(mSensor->handle,
                 SENSOR_INTERNAL_EVT_RATE_CHG, mSensor->rate, mSensor->latency);
-        mTask.state = SENSOR_IDLE;
 
         if (mTask.pending_dispatch) {
             mTask.pending_dispatch = false;
             dispatchData();
         }
 
-        mTask.state = SENSOR_IDLE;
-        processPendingEvt();
+        returnIdle = true;
         break;
     case SENSOR_CALIBRATING:
         mSensor = (struct BMI160Sensor *)evtData;
         if (mTask.calibration_state == CALIBRATION_DONE) {
             DEBUG_PRINT("DONE calibration\n");
-            mTask.state = SENSOR_IDLE;
-            processPendingEvt();
+            returnIdle = true;
         } else if (mTask.calibration_state == CALIBRATION_TIMEOUT) {
             DEBUG_PRINT("Calibration TIMED OUT\n");
-            sendCalibrationResult(SENSOR_APP_EVT_STATUS_ERROR, (mSensor->idx == ACC) ? SENS_TYPE_ACCEL : SENS_TYPE_GYRO, 0, 0, 0);
-            mTask.state = SENSOR_IDLE;
-            processPendingEvt();
+            sendCalibrationResult(SENSOR_APP_EVT_STATUS_ERROR,
+                    (mSensor->idx == ACC) ? SENS_TYPE_ACCEL : SENS_TYPE_GYRO, 0, 0, 0);
+            returnIdle = true;
         } else if (mSensor->idx == ACC) {
             accCalibrationHandling();
         } else if (mSensor->idx == GYR) {
@@ -2767,11 +2824,11 @@ static void handleSpiDoneEvt(const void* evtData)
         break;
     case SENSOR_STEP_CNT:
         sendStepCnt();
-        mTask.state = SENSOR_IDLE;
-        processPendingEvt();
+        returnIdle = true;
         break;
     case SENSOR_TIME_SYNC:
-        SensorTime = parseSensortime(mTask.sensorTimeBuffer[1] | (mTask.sensorTimeBuffer[2] << 8) | (mTask.sensorTimeBuffer[3] << 16));
+        SensorTime = parseSensortime(mTask.sensorTimeBuffer[1] |
+                (mTask.sensorTimeBuffer[2] << 8) | (mTask.sensorTimeBuffer[3] << 16));
         map_sensortime_to_rtc_time(SensorTime, rtcGetTime());
 
         temperature16 = (mTask.temperatureBuffer[1] | (mTask.temperatureBuffer[2] << 8));
@@ -2784,31 +2841,38 @@ static void handleSpiDoneEvt(const void* evtData)
 
         if (mTask.active_poll_generation == mTask.poll_generation) {
             // attach the generation number to event
-            timTimerSet(kTimeSyncPeriodNs, 100, 100, timeSyncCallback, (void *)mTask.poll_generation, true);
+            timTimerSet(kTimeSyncPeriodNs, 100, 100, timeSyncCallback,
+                    (void *)mTask.poll_generation, true);
         }
 
-        mTask.state = SENSOR_IDLE;
-        processPendingEvt();
+        returnIdle = true;
         break;
     case SENSOR_SAVE_CALIBRATION:
-        DEBUG_PRINT("SENSOR_SAVE_CALIBRATION: %02x %02x %02x %02x %02x %02x %02x\n", mTask.dataBuffer[1], mTask.dataBuffer[2], mTask.dataBuffer[3], mTask.dataBuffer[4], mTask.dataBuffer[5], mTask.dataBuffer[6], mTask.dataBuffer[7]);
-        mTask.state = SENSOR_IDLE;
-        processPendingEvt();
+        DEBUG_PRINT("SENSOR_SAVE_CALIBRATION: %02x %02x %02x %02x %02x %02x %02x\n",
+                mTask.dataBuffer[1], mTask.dataBuffer[2], mTask.dataBuffer[3], mTask.dataBuffer[4],
+                mTask.dataBuffer[5], mTask.dataBuffer[6], mTask.dataBuffer[7]);
+        returnIdle = true;
         break;
     default:
         break;
+    }
+
+    if (returnIdle) {
+        SET_STATE(SENSOR_IDLE);
+        processPendingEvt();
     }
 }
 
 static void handleEvent(uint32_t evtType, const void* evtData)
 {
+    TDECL();
     uint64_t currTime;
     uint8_t *packet;
     float newMagBias;
 
     switch (evtType) {
     case EVT_APP_START:
-        mTask.state = SENSOR_BOOT;
+        SET_STATE(SENSOR_BOOT);
         osEventUnsubscribe(mTask.tid, EVT_APP_START);
 
         // wait 100ms for sensor to boot
@@ -2835,7 +2899,7 @@ static void handleEvent(uint32_t evtType, const void* evtData)
         break;
 
     case EVT_SENSOR_INTERRUPT_1:
-        int1Evt();
+        initiateFifoRead(false /*isInterruptContext*/);
         break;
     case EVT_SENSOR_INTERRUPT_2:
         int2Evt();
@@ -2864,6 +2928,7 @@ static void initSensorStruct(struct BMI160Sensor *sensor, enum SensorIndex idx)
 
 static bool startTask(uint32_t task_id)
 {
+    TDECL();
     DEBUG_PRINT("        IMU:  %ld\n", task_id);
 
     enum SensorIndex i;
@@ -2871,33 +2936,37 @@ static bool startTask(uint32_t task_id)
 
     time_init();
 
-    mTask.tid = task_id;
+    T(tid) = task_id;
 
-    mTask.Int1 = gpioRequest(BMI160_INT1_PIN);
-    mTask.Isr1.func = bmi160Isr1;
-    mTask.Int2 = gpioRequest(BMI160_INT2_PIN);
-    mTask.Isr2.func = bmi160Isr2;
-    mTask.pending_int[0] = false;
-    mTask.pending_int[1] = false;
-    mTask.pending_dispatch = false;
-    mTask.frame_sensortime_valid = false;
-    mTask.poll_generation = 0;
-    mTask.tempCelsius = kTempInvalid;
-    mTask.tempTime = 0;
+    T(Int1) = gpioRequest(BMI160_INT1_PIN);
+    T(Isr1).func = bmi160Isr1;
+    T(Int2) = gpioRequest(BMI160_INT2_PIN);
+    T(Isr2).func = bmi160Isr2;
+    T(pending_int[0]) = false;
+    T(pending_int[1]) = false;
+    T(pending_step_cnt) = false;
+    T(pending_dispatch) = false;
+    T(frame_sensortime_valid) = false;
+    T(poll_generation) = 0;
+    T(tempCelsius) = kTempInvalid;
+    T(tempTime) = 0;
 
-    mTask.mode.speed = BMI160_SPI_SPEED_HZ;
-    mTask.mode.bitsPerWord = 8;
-    mTask.mode.cpol = SPI_CPOL_IDLE_HI;
-    mTask.mode.cpha = SPI_CPHA_TRAILING_EDGE;
-    mTask.mode.nssChange = true;
-    mTask.mode.format = SPI_FORMAT_MSB_FIRST;
-    mTask.cs = GPIO_PB(12);
-    spiMasterRequest(BMI160_SPI_BUS_ID, &mTask.spiDev);
+    T(mode).speed = BMI160_SPI_SPEED_HZ;
+    T(mode).bitsPerWord = 8;
+    T(mode).cpol = SPI_CPOL_IDLE_HI;
+    T(mode).cpha = SPI_CPHA_TRAILING_EDGE;
+    T(mode).nssChange = true;
+    T(mode).format = SPI_FORMAT_MSB_FIRST;
+    T(cs) = GPIO_PB(12);
+
+    T(watermark) = 0;
+
+    spiMasterRequest(BMI160_SPI_BUS_ID, &T(spiDev));
 
     for (i = ACC; i < NUM_OF_SENSOR; i++) {
-        initSensorStruct(&mTask.sensors[i], i);
-        mTask.sensors[i].handle = sensorRegister(&mSensorInfo[i], &mSensorOps[i], NULL, false);
-        mTask.pending_config[i] = false;
+        initSensorStruct(&T(sensors[i]), i);
+        T(sensors[i]).handle = sensorRegister(&mSensorInfo[i], &mSensorOps[i], NULL, false);
+        T(pending_config[i]) = false;
     }
 
     osEventSubscribe(mTask.tid, EVT_APP_START);
@@ -2917,33 +2986,37 @@ static bool startTask(uint32_t task_id)
     // the fifo size is 1K.
     // 20 slabs because some slabs may only hold 1-2 samples.
     // XXX: this consumes too much memeory, need to optimize
-    mDataSlab = slabAllocatorNew(slabSize, 4, 20);
-    if (!mDataSlab) {
+    T(mDataSlab) = slabAllocatorNew(slabSize, 4, 20);
+    if (!T(mDataSlab)) {
         INFO_PRINT("slabAllocatorNew() failed\n");
         return false;
     }
+    T(mWbufCnt) = 0;
+    T(mRegCnt) = 0;
+    T(spiInUse) = false;
 
-    mTask.interrupt_enable_0 = 0x00;
-    mTask.interrupt_enable_2 = 0x00;
+    T(interrupt_enable_0) = 0x00;
+    T(interrupt_enable_2) = 0x00;
 
     // initialize the last bmi160 time to be ULONG_MAX, so that we know it's
     // not valid yet.
-    mTask.last_sensortime = 0;
-    mTask.frame_sensortime = ULONG_LONG_MAX;
+    T(last_sensortime) = 0;
+    T(frame_sensortime) = ULONG_LONG_MAX;
 
     // it's ok to leave interrupt open all the time.
-    enableInterrupt(mTask.Int1, &mTask.Isr1);
-    enableInterrupt(mTask.Int2, &mTask.Isr2);
+    enableInterrupt(T(Int1), &T(Isr1));
+    enableInterrupt(T(Int2), &T(Isr2));
 
     return true;
 }
 
 static void endTask(void)
 {
+    TDECL();
 #ifdef MAG_SLAVE_PRESENT
     destroy_mag_cal(&mTask.moc);
 #endif
-    slabAllocatorDestroy(mDataSlab);
+    slabAllocatorDestroy(T(mDataSlab));
     spiMasterRelease(mTask.spiDev);
 
     // disable and release interrupt.
@@ -2953,4 +3026,274 @@ static void endTask(void)
     gpioRelease(mTask.Int2);
 }
 
-INTERNAL_APP_INIT(BMI160_APP_ID, 1, startTask, endTask, handleEvent);
+/**
+ * Parse BMI160 FIFO frame without side effect.
+ *
+ * The major purpose of this function is to determine if FIFO content is received completely (start
+ * to see invalid headers). If not, return the pointer to the beginning last incomplete frame so
+ * additional read can use this pointer as start of read buffer.
+ *
+ * @param buf  buffer location
+ * @param size size of data to be parsed
+ *
+ * @return NULL if the FIFO is received completely; or pointer to the beginning of last incomplete
+ * frame for additional read.
+ */
+static uint8_t* shallowParseFrame(uint8_t * buf, int size) {
+    int i = 0;
+    int iLastFrame = 0; // last valid frame header index
+
+    DEBUG_PRINT_IF(DBG_SHALLOW_PARSE, "spf start %p: %x %x %x\n", buf, buf[0], buf[1], buf[2]);
+    while (size > 0) {
+        int fh_mode, fh_param;
+        iLastFrame = i;
+
+        if (buf[i] == BMI160_FRAME_HEADER_INVALID) {
+            // no more data
+            DEBUG_PRINT_IF(DBG_SHALLOW_PARSE, "spf:at%d=0x80\n", iLastFrame);
+            return NULL;
+        } else if (buf[i] == BMI160_FRAME_HEADER_SKIP) {
+            // artifically added nop frame header, skip
+            DEBUG_PRINT_IF(DBG_SHALLOW_PARSE, "at %d, skip header\n", i);
+            i++;
+            size--;
+            continue;
+        }
+
+        //++frame_num;
+
+        fh_mode = buf[i] >> 6;
+        fh_param = (buf[i] >> 2) & 0xf;
+
+        i++;
+        size--;
+
+        if (fh_mode == 1) {
+            // control frame.
+            if (fh_param == 0) {
+                // skip frame, we skip it (1 byte)
+                i++;
+                size--;
+                DEBUG_PRINT_IF(DBG_SHALLOW_PARSE, "at %d, a skip frame\n", iLastFrame);
+            } else if (fh_param == 1) {
+                // sensortime frame  (3 bytes)
+                i += 3;
+                size -= 3;
+                DEBUG_PRINT_IF(DBG_SHALLOW_PARSE, "at %d, a sensor_time frame\n", iLastFrame);
+            } else if (fh_param == 2) {
+                // fifo_input config frame (1byte)
+                i++;
+                size--;
+                DEBUG_PRINT_IF(DBG_SHALLOW_PARSE, "at %d, a fifo cfg frame\n", iLastFrame);
+            } else {
+                size = 0; // drop this batch
+                DEBUG_PRINT_IF(DBG_SHALLOW_PARSE, "Invalid fh_param in control frame!!\n");
+                // mark invalid
+                buf[iLastFrame] = BMI160_FRAME_HEADER_INVALID;
+                return NULL;
+            }
+        } else if (fh_mode == 2) {
+            // regular frame, dispatch data to each sensor's own fifo
+            if (fh_param & 4) { // have mag data
+                i += 8;
+                size -= 8;
+            }
+            if (fh_param & 2) { // have gyro data
+                i += 6;
+                size -= 6;
+            }
+            if (fh_param & 1) { // have accel data
+                i += 6;
+                size -= 6;
+            }
+            DEBUG_PRINT_IF(DBG_SHALLOW_PARSE, "at %d, a reg frame acc %d, gyro %d, mag %d\n",
+                       iLastFrame, fh_param &1 ? 1:0, fh_param&2?1:0, fh_param&4?1:0);
+        } else {
+            size = 0; // drop this batch
+            DEBUG_PRINT_IF(DBG_SHALLOW_PARSE, "spf: Invalid fh_mode %d!!\n", fh_mode);
+            //mark invalid
+            buf[iLastFrame] = BMI160_FRAME_HEADER_INVALID;
+            return NULL;
+        }
+    }
+
+    // there is a partial frame, return where to write next chunck of data
+    DEBUG_PRINT_IF(DBG_SHALLOW_PARSE, "partial frame ends %p\n", buf + iLastFrame);
+    return buf + iLastFrame;
+}
+
+/**
+ * Intialize the first read of chunked SPI read sequence.
+ *
+ * @param index starting index of the txrxBuffer in which the data will be write into.
+ */
+static void chunkedReadInit_(TASK, int index, int size) {
+
+    if (GET_STATE() != SENSOR_INT_1_HANDLING) {
+        ERROR_PRINT("chunkedReadInit in wrong mode");
+        return;
+    }
+
+    T(mWbufCnt) = index;
+    if (T(mWbufCnt) > FIFO_READ_SIZE) {
+        // drop data to prevent bigger issue
+        T(mWbufCnt) = 0;
+    }
+    T(chunkReadSize) = size > CHUNKED_READ_SIZE ? size : CHUNKED_READ_SIZE;
+
+    DEBUG_PRINT_IF(DBG_CHUNKED, "crd %d>>%d\n", T(chunkReadSize), index);
+    SPI_READ(BMI160_REG_FIFO_DATA, T(chunkReadSize), &T(dataBuffer));
+    spiBatchTxRx(&T(mode), chunkedReadSpiCallback, _task, __FUNCTION__);
+}
+
+/**
+ * Chunked SPI read callback.
+ *
+ * Handles the chunked read logic: issue additional read if necessary, or calls sensorSpiCallback()
+ * if the entire FIFO is read.
+ *
+ * @param cookie extra data
+ * @param err    error
+ *
+ * @see sensorSpiCallback()
+ */
+static void chunkedReadSpiCallback(void *cookie, int err) {
+    TASK = (_Task*) cookie;
+
+    T(spiInUse) = false;
+    DEBUG_PRINT_IF(err !=0 || GET_STATE() != SENSOR_INT_1_HANDLING,
+            "crcb,e:%d,s:%d", err, (int)GET_STATE());
+    bool int1 = gpioGet(T(Int1));
+    if (err != 0) {
+        DEBUG_PRINT_IF(DBG_CHUNKED, "crd retry");
+        // read full fifo length to be safe
+        chunkedReadInit(0, FIFO_READ_SIZE);
+        return;
+    }
+
+    *T(dataBuffer) = BMI160_FRAME_HEADER_SKIP; // fill the 0x00/0xff hole at the first byte
+    uint8_t* end = shallowParseFrame(T(dataBuffer), T(chunkReadSize));
+
+    if (end == NULL) {
+        // if interrupt is still set after read for some reason, set the pending interrupt
+        // to handle it immediately after data is handled.
+        T(pending_int[0]) = T(pending_int[0]) || int1;
+
+        // recover the buffer and valid data size to make it looks like a single read so that
+        // real frame parse works properly
+        T(dataBuffer) = T(txrxBuffer);
+        T(xferCnt) = FIFO_READ_SIZE;
+        sensorSpiCallback(cookie, err);
+    } else {
+        DEBUG_PRINT_IF(DBG_CHUNKED, "crd cont");
+        chunkedReadInit(end - T(txrxBuffer), CHUNKED_READ_SIZE);
+    }
+}
+
+/**
+ * Initiate read of sensor fifo.
+ *
+ * If task is in idle state, init chunked FIFO read; otherwise, submit an interrupt message or mark
+ * the read pending depending if it is called in interrupt context.
+ *
+ * @param isInterruptContext true if called from interrupt context; false otherwise.
+ *
+ */
+static void initiateFifoRead_(TASK, bool isInterruptContext) {
+    if (trySwitchState(SENSOR_INT_1_HANDLING)) {
+        // estimate first read size to be watermark + 1 more sample + some extra
+        int firstReadSize = T(watermark) * 4 + 32; // 1+6+6+8+1+3 + extra = 25 + extra = 32
+        if (firstReadSize < CHUNKED_READ_SIZE) {
+            firstReadSize = CHUNKED_READ_SIZE;
+        }
+        chunkedReadInit(0, firstReadSize);
+    } else {
+        if (isInterruptContext) {
+            // called from interrupt context, queue event
+            osEnqueuePrivateEvt(EVT_SENSOR_INTERRUPT_1, _task, NULL, T(tid));
+        } else {
+            // non-interrupt context, set pending flag, so next time it will be picked up after
+            // switching back to idle.
+            // Note: even if we are still in SENSOR_INT_1_HANDLING, the SPI may already finished and
+            // we need to issue another SPI read to get the latest status.
+            T(pending_int[0]) = true;
+        }
+    }
+}
+
+/**
+ * Calculate fifo size using normalized input.
+ *
+ * @param iPeriod normalized period vector
+ * @param iLatency normalized latency vector
+ * @param factor vector that contains size factor for each sensor
+ * @param n size of the vectors
+ *
+ * @return max size of FIFO to guarantee latency requirements of all sensors or SIZE_MAX if no
+ * sensor is active.
+ */
+static size_t calcFifoSize(const int* iPeriod, const int* iLatency, const int* factor, int n) {
+    int i;
+
+    int minLatency = INT_MAX;
+    for (i = 0; i < n; i++) {
+        if (iLatency[i] > 0) {
+            minLatency = iLatency[i] < minLatency ? iLatency[i] : minLatency;
+        }
+    }
+    DEBUG_PRINT_IF(DBG_WM_CALC, "cfifo: min latency %d unit", minLatency);
+
+    bool anyActive = false;
+    size_t s = 0;
+    size_t head = 0;
+    for (i = 0; i < n; i++) {
+        if (iPeriod[i] > 0) {
+            anyActive = true;
+            size_t t =  minLatency / iPeriod[i];
+            head = t > head ? t : head;
+            s += t * factor[i];
+            DEBUG_PRINT_IF(DBG_WM_CALC, "cfifo: %d, s+= %d*%d, head = %d", i, t, factor[i], head);
+        }
+    }
+
+    return anyActive ? head + s : SIZE_MAX;
+}
+
+/**
+ * Calculate the watermark setting from sensor registration information
+ *
+ * It is assumed  that all sensor period share a common denominator (true for BMI160) and the
+ * latency of sensor will be lower bounded by its sampling period.
+ *
+ * @return watermark register setting
+ */
+static uint8_t calcWatermark2_(TASK) {
+    int period[] = {-1, -1, -1};
+    int latency[] = {-1, -1, -1};
+    const int factor[] = {6, 6, 8};
+    int i;
+
+    for (i = ACC; i <= MAG; ++i) {
+        if (T(sensors[i]).configed) {
+            period[i - ACC] = SENSOR_HZ((float)WATERMARK_MAX_SENSOR_RATE) / T(sensors[i]).rate;
+            latency[i - ACC] = U64_DIV_BY_U64_CONSTANT(
+                    T(sensors[i]).latency + WATERMARK_TIME_UNIT_NS/2, WATERMARK_TIME_UNIT_NS);
+            DEBUG_PRINT_IF(DBG_WM_CALC, "cwm2: f %dHz, l %dus => T %d unit, L %d unit",
+                    (int) T(sensors[i]).rate/1024,
+                    (int) U64_DIV_BY_U64_CONSTANT(T(sensors[i]).latency, 1000),
+                    period[i-ACC], latency[i-ACC]);
+        }
+    }
+
+
+    size_t watermark = calcFifoSize(period, latency, factor, MAG - ACC + 1) / 4;
+    DEBUG_PRINT_IF(DBG_WM_CALC, "cwm2: wm = %d", watermark);
+    watermark = watermark < WATERMARK_MIN ? WATERMARK_MIN : watermark;
+    watermark = watermark > WATERMARK_MAX ? WATERMARK_MAX : watermark;
+
+    return watermark;
+}
+
+INTERNAL_APP_INIT(BMI160_APP_ID, 0, startTask, endTask, handleEvent);
+
+
