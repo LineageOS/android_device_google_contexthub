@@ -32,7 +32,8 @@
 struct Timer {
     uint64_t      expires; /* time of next expiration */
     uint64_t      period;  /* 0 for oneshot */
-    uint32_t      id;      /* 0 for disabled */
+    uint16_t      id;      /* 0 for disabled */
+    uint16_t      tid;     /* we need TID always, for system management */
     uint32_t      jitterPpm;
     uint32_t      driftPpm;
     TaggedPtr     callInfo;
@@ -67,22 +68,22 @@ static void timerCallFuncFreeF(void* event)
     slabAllocatorFree(mInternalEvents, event);
 }
 
-static void timCallFunc(TaggedPtr callInfo, uint32_t id, void *callData)
+static void timCallFunc(struct Timer *tim)
 {
     struct TimerEvent *evt;
+    TaggedPtr callInfo = tim->callInfo;
 
     if (taggedPtrIsPtr(callInfo)) {
-        ((TimTimerCbkF)taggedPtrToPtr(callInfo))(id, callData);
+        osSetCurrentTid(tim->tid);
+        ((TimTimerCbkF)taggedPtrToPtr(callInfo))(tim->id, tim->callData);
     } else {
-        if (!(evt = slabAllocatorAlloc(mInternalEvents)))
-            return;
-
-        evt->timerId = id;
-        evt->data = callData;
-        if (osEnqueuePrivateEvt(EVT_APP_TIMER, evt, timerCallFuncFreeF, taggedPtrToUint(callInfo)))
-            return;
-
-        slabAllocatorFree(mInternalEvents, evt);
+        osSetCurrentTid(OS_SYSTEM_TID);
+        if ((evt = slabAllocatorAlloc(mInternalEvents)) != 0) {
+            evt->timerId = tim->id;
+            evt->data = tim->callData;
+            if (!osEnqueuePrivateEvt(EVT_APP_TIMER, evt, timerCallFuncFreeF, taggedPtrToUint(callInfo)))
+                slabAllocatorFree(mInternalEvents, evt);
+        }
     }
 }
 
@@ -91,43 +92,40 @@ static bool timFireAsNeededAndUpdateAlarms(void)
     uint32_t maxDrift = 0, maxJitter = 0, maxErrTotal = 0;
     bool somethingDone, totalSomethingDone = false;
     uint64_t nextTimer;
-    TaggedPtr callInfo;
-    uint32_t i, id;
-    void *callData;
+    uint32_t i;
+    struct Timer *tim;
 
     // protect from concurrent execution [timIntHandler() and timTimerSetEx()]
     uint64_t intSta = cpuIntsOff();
+    uint16_t oldTid = osGetCurrentTid();
 
     do {
         somethingDone = false;
         nextTimer = 0;
 
-        for (i = 0; i < MAX_TIMERS; i++) {
-            if (!mTimers[i].id)
+        for (i = 0, tim = &mTimers[0]; i < MAX_TIMERS; i++, tim++) {
+            if (!tim->id)
                 continue;
 
-            if (mTimers[i].expires <= timGetTime()) {
+            if (tim->expires <= timGetTime()) {
                 somethingDone = true;
-                callInfo = mTimers[i].callInfo;
-                callData = mTimers[i].callData;
-                id = mTimers[i].id;
-                if (mTimers[i].period)
-                    mTimers[i].expires += mTimers[i].period;
+                if (tim->period)
+                    tim->expires += tim->period;
                 else {
-                    mTimers[i].id = 0;
+                    tim->id = 0;
                     atomicBitsetClearBit(mTimersValid, i);
                 }
-                timCallFunc(callInfo, id, callData);
+                timCallFunc(tim);
             }
             else {
-                if (mTimers[i].jitterPpm > maxJitter)
-                    maxJitter = mTimers[i].jitterPpm;
-                if (mTimers[i].driftPpm > maxDrift)
-                    maxDrift = mTimers[i].driftPpm;
-                if (mTimers[i].driftPpm + mTimers[i].jitterPpm > maxErrTotal)
-                    maxErrTotal = mTimers[i].driftPpm + mTimers[i].jitterPpm;
-                if (!nextTimer || nextTimer > mTimers[i].expires)
-                    nextTimer = mTimers[i].expires;
+                if (tim->jitterPpm > maxJitter)
+                    maxJitter = tim->jitterPpm;
+                if (tim->driftPpm > maxDrift)
+                    maxDrift = tim->driftPpm;
+                if (tim->driftPpm + tim->jitterPpm > maxErrTotal)
+                    maxErrTotal = tim->driftPpm + tim->jitterPpm;
+                if (!nextTimer || nextTimer > tim->expires)
+                    nextTimer = tim->expires;
             }
         }
 
@@ -139,6 +137,7 @@ static bool timFireAsNeededAndUpdateAlarms(void)
     if (!nextTimer)
         platSleepClockRequest(0, 0, 0, 0);
 
+    osSetCurrentTid(oldTid);
     cpuIntsRestore(intSta);
 
     return totalSomethingDone;
@@ -149,7 +148,7 @@ static uint32_t timTimerSetEx(uint64_t length, uint32_t jitterPpm, uint32_t drif
     uint64_t curTime = timGetTime();
     int32_t idx = atomicBitsetFindClearAndSet(mTimersValid);
     struct Timer *t;
-    uint32_t timId;
+    uint16_t timId;
 
     if (idx < 0) /* no free timers */
         return 0;
@@ -170,6 +169,7 @@ static uint32_t timTimerSetEx(uint64_t length, uint32_t jitterPpm, uint32_t drif
 
     /* as soon as we write timer Id, it becomes valid and might fire */
     t->id = timId;
+    t->tid = osGetCurrentTid();
 
     /* fire as needed & recalc alarms*/
     timFireAsNeededAndUpdateAlarms();
@@ -205,6 +205,26 @@ bool timTimerCancel(uint32_t timerId)
     }
 
     return false;
+}
+
+int timTimerCancelAll(uint32_t tid)
+{
+    uint64_t intState;
+    struct Timer *tim;
+    int i, count;
+
+    tim = &mTimers[0];
+    intState = cpuIntsOff();
+    for (i = 0, count = 0; i < MAX_TIMERS; ++i, ++tim) {
+        if (tim->tid != tid)
+            continue;
+        count++;
+        tim->id = 0; /* this disables it */
+        /* this frees struct */
+        atomicBitsetClearBit(mTimersValid, tim - mTimers);
+    }
+    cpuIntsRestore(intState);
+    return count;
 }
 
 bool timIntHandler(void)

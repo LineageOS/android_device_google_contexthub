@@ -22,7 +22,8 @@
 #include <stdint.h>
 
 
-#define EVENT_TYPE_BIT_DISCARDABLE    0x80000000 /* set for events we can afford to lose */
+#define EVENT_TYPE_BIT_DISCARDABLE_COMPAT    0x80000000 /* some external apps are using this one */
+#define EVENT_TYPE_BIT_DISCARDABLE               0x8000 /* set for events we can afford to lose */
 
 struct EvtQueue;
 

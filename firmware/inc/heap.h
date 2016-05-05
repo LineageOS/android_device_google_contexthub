@@ -30,6 +30,7 @@ extern "C" {
 bool heapInit(void);
 void* heapAlloc(uint32_t sz);
 void heapFree(void* ptr);
+int heapFreeAll(uint32_t tid);
 
 
 #ifdef __cplusplus

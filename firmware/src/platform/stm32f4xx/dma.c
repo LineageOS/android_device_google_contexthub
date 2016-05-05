@@ -86,6 +86,8 @@ struct StmDmaRegs {
 struct StmDmaStreamState {
     DmaCallbackF callback;
     void *cookie;
+    uint16_t tid;
+    uint16_t reserved;
 };
 
 struct StmDmaDev {
@@ -194,9 +196,11 @@ static void dmaIsrTeif(uint8_t busId, uint8_t stream)
     struct StmDmaStreamRegs *regs = dmaGetStreamRegs(busId, stream);
 
     dmaLogDebug("teif");
-
     dmaStop(busId, stream);
+
+    uint16_t oldTid = osSetCurrentTid(state->tid);
     state->callback(state->cookie, regs->NDTR, EIO);
+    osSetCurrentTid(oldTid);
 }
 
 static void dmaIsrTcif(uint8_t busId, uint8_t stream)
@@ -205,9 +209,11 @@ static void dmaIsrTcif(uint8_t busId, uint8_t stream)
     struct StmDmaStreamRegs *regs = dmaGetStreamRegs(busId, stream);
 
     dmaLogDebug("tcif");
-
     dmaStop(busId, stream);
+
+    uint16_t oldTid = osSetCurrentTid(state->tid);
     state->callback(state->cookie, regs->NDTR, 0);
+    osSetCurrentTid(oldTid);
 }
 
 static void dmaIsr(uint8_t busId, uint8_t stream)
@@ -238,6 +244,7 @@ int dmaStart(uint8_t busId, uint8_t stream, const void *buf, uint16_t size,
     struct StmDmaStreamState *state = dmaGetStreamState(busId, stream);
     state->callback = callback;
     state->cookie = cookie;
+    state->tid = osGetCurrentTid();
 
     pwrUnitClock(PERIPH_BUS_AHB1, STM_DMA_CLOCK_UNIT[busId], true);
 
@@ -276,7 +283,9 @@ uint16_t dmaBytesLeft(uint8_t busId, uint8_t stream)
 void dmaStop(uint8_t busId, uint8_t stream)
 {
     struct StmDmaStreamRegs *regs = dmaGetStreamRegs(busId, stream);
+    struct StmDmaStreamState *state = dmaGetStreamState(busId, stream);
 
+    state->tid = 0;
     dmaClearIsr(busId, stream, STM_DMA_ISR_TEIFx);
     dmaClearIsr(busId, stream, STM_DMA_ISR_TCIFx);
     NVIC_DisableIRQ(STM_DMA_IRQ[busId][stream]);
@@ -284,9 +293,27 @@ void dmaStop(uint8_t busId, uint8_t stream)
     regs->CR &= ~STM_DMA_CR_EN;
     while (regs->CR & STM_DMA_CR_EN)
         ;
+
 }
 
 const enum IRQn dmaIrq(uint8_t busId, uint8_t stream)
 {
     return STM_DMA_IRQ[busId][stream];
+}
+
+int dmaStopAll(uint32_t tid)
+{
+    int busId, stream, count = 0;
+
+    for (busId = 0; busId < STM_DMA_NUM_DEVS; ++busId) {
+        for (stream = 0; stream < STM_DMA_NUM_STREAMS; ++stream) {
+            struct StmDmaStreamState *state = dmaGetStreamState(busId, stream);
+            if (state->tid == tid) {
+                dmaStop(busId, stream);
+                count++;
+            }
+        }
+    }
+
+    return count;
 }
