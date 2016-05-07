@@ -38,7 +38,7 @@ typedef struct {
     uint64_t time2_base;
 
     bool estimate_valid;
-    float n1, n2, alpha;
+    float alpha, beta;
 
     uint8_t hold_count;
 
