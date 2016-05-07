@@ -94,14 +94,6 @@ bool time_sync_estimate_time1(time_sync_t *sync, uint64_t time2, uint64_t *time1
     *time1 = 0;
 
     if (!sync->estimate_valid) {
-        // compute normal vector (n1, n2) and offset alpha, so that
-        //
-        // sum_i (n1 x + n2 y - alpha)^2 min. for some ||(n1, n2)|| = 1.
-        //
-        // this involves normalizing x, y wrt their mean, after that the
-        // normal vector is the eigenvector corresponding to the smallest
-        // eigenvalue of (sum_x^2, sum_xy; sum_xy, sum_y^2).
-
         size_t n = sync->n;
 
         // Rewind to the oldest sample in the history.
@@ -116,27 +108,33 @@ bool time_sync_estimate_time1(time_sync_t *sync, uint64_t time2, uint64_t *time1
         uint64_t time1_base = sync->time1[i];
         uint64_t time2_base = sync->time2[i];
 
+        // Least-square linear regresison:
+        // Compute alpha and beta so that time1 = alpha + beta * time2.
+        // x = time2, y = time1
         float mean_x = 0.0f;
         float mean_y = 0.0f;
         float invN = 1.0f / n;
         size_t ii = i;
         for (j = 0; j < n; ++j) {
-            mean_x += floatFromUint64(sync->time1[ii] - time1_base) * invN;
-            mean_y += floatFromUint64(sync->time2[ii] - time2_base) * invN;
+            mean_y += floatFromUint64(sync->time1[ii] - time1_base) * invN;
+            mean_x += floatFromUint64(sync->time2[ii] - time2_base) * invN;
 
             if (++ii == NUM_TIME_SYNC_DATAPOINTS) {
                 ii = 0;
             }
         }
 
-        float sum_x2 = 0.0f, sum_y2 = 0.0f, sum_xy = 0.0f;
+        // Two-pass approach so that only values relative to mean are computed.
+        // Typically, |y| and |x| are smaller than 8e8 in nsec.
+        // So sum_x2 and sum_xy are smaller than 1e19.
+        // That leaves plenty of room for blocking tasks.
+        float sum_x2 = 0.0f, sum_xy = 0.0f;
         ii = i;
         for (j = 0; j < n; ++j) {
-            float x = floatFromUint64(sync->time1[ii] - time1_base) - mean_x;
-            float y = floatFromUint64(sync->time2[ii] - time2_base) - mean_y;
+            float y = floatFromUint64(sync->time1[ii] - time1_base) - mean_y;
+            float x = floatFromUint64(sync->time2[ii] - time2_base) - mean_x;
 
             sum_x2 += x * x;
-            sum_y2 += y * y;
             sum_xy += x * y;
 
             if (++ii == NUM_TIME_SYNC_DATAPOINTS) {
@@ -144,33 +142,18 @@ bool time_sync_estimate_time1(time_sync_t *sync, uint64_t time2, uint64_t *time1
             }
         }
 
-        float p = 0.5f * (sum_x2 + sum_y2);
+        float beta = sum_xy / sum_x2;
+        float alpha = mean_y - beta * mean_x;
 
-        float lambda = p - sqrtf(p * p - sum_x2 * sum_y2 + sum_xy * sum_xy);
-
-        // now find n for which, A n = lambda n
-
-        float a = sum_x2;
-        float c = sum_xy;
-
-        float n1 = 1.0f;
-        float n2 = (lambda * n1 - a * n1) / c;
-        float invNorm = 1.0f / sqrtf(n1 * n1 + n2 * n2);
-        n1 *= invNorm;
-        n2 *= invNorm;
-
-        float alpha = n1 * mean_x + n2 * mean_y;
-
-        sync->n1 = n1;
-        sync->n2 = n2;
         sync->alpha = alpha;
+        sync->beta = beta;
         sync->time1_base = time1_base;
         sync->time2_base = time2_base;
 
         sync->estimate_valid = true;
     }
 
-    *time1 = sync->time1_base + floatToInt64((sync->alpha - sync->n2 * floatFromInt64(time2 - sync->time2_base)) / sync->n1);
+    *time1 = sync->time1_base + floatToInt64(sync->alpha + sync->beta * floatFromInt64(time2 - sync->time2_base));
 
     return true;
 }
@@ -178,5 +161,3 @@ bool time_sync_estimate_time1(time_sync_t *sync, uint64_t time2, uint64_t *time1
 void time_sync_hold(time_sync_t *sync, uint8_t count) {
     sync->hold_count = count;
 }
-
-
