@@ -152,7 +152,7 @@ enum LogLevel {
 };
 
 void osLogv(enum LogLevel level, const char *str, va_list vl);
-void osLog(enum LogLevel level, const char *str, ...) PRINTF_ATTRIBUTE;
+void osLog(enum LogLevel level, const char *str, ...) PRINTF_ATTRIBUTE(2, 3);
 
 #ifndef INTERNAL_APP_INIT
 #define INTERNAL_APP_INIT(_id, _ver, _init, _end, _event)                                   \
