@@ -168,6 +168,8 @@ HubConnection::HubConnection()
     mSensorState[COMMS_SENSOR_DOUBLE_TWIST].rate = SENSOR_RATE_ONCHANGE;
     mSensorState[COMMS_SENSOR_DOUBLE_TAP].sensorType = SENS_TYPE_DOUBLE_TAP;
     mSensorState[COMMS_SENSOR_DOUBLE_TAP].rate = SENSOR_RATE_ONCHANGE;
+    mSensorState[COMMS_SENSOR_WRIST_TILT].sensorType = SENS_TYPE_WRIST_TILT;
+    mSensorState[COMMS_SENSOR_WRIST_TILT].rate = SENSOR_RATE_ONCHANGE;
 
 #ifdef LID_STATE_REPORTING_ENABLED
     initializeUinputNode();
@@ -411,6 +413,7 @@ void HubConnection::processSample(uint64_t timestamp, uint32_t type, uint32_t se
     case COMMS_SENSOR_SIGNIFICANT_MOTION:
     case COMMS_SENSOR_TILT:
     case COMMS_SENSOR_DOUBLE_TWIST:
+    case COMMS_SENSOR_WRIST_TILT:
         initEv(&nev[cnt++], timestamp, type, sensor)->data[0] = 1.0f;
         break;
     case COMMS_SENSOR_GESTURE:
@@ -833,6 +836,11 @@ ssize_t HubConnection::processBuf(uint8_t *buf, ssize_t len)
             type = SENSOR_TYPE_DOUBLE_TAP;
             sensor = COMMS_SENSOR_DOUBLE_TAP;
             three = true;
+            break;
+        case SENS_TYPE_TO_EVENT(SENS_TYPE_WRIST_TILT):
+            type = SENSOR_TYPE_WRIST_TILT_GESTURE;
+            sensor = COMMS_SENSOR_WRIST_TILT;
+            one = true;
             break;
         case EVT_RESET_REASON:
             uint32_t resetReason;
