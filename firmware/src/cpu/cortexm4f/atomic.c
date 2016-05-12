@@ -16,7 +16,7 @@
 
 #include <atomic.h>
 
-uint32_t atomicAdd(volatile uint32_t *val, uint32_t addend)
+uint32_t atomicAddByte(volatile uint8_t *byte, uint32_t addend)
 {
     uint32_t prevVal, storeFailed, tmp;
 
@@ -25,8 +25,26 @@ uint32_t atomicAdd(volatile uint32_t *val, uint32_t addend)
             "ldrexb %0,     [%4] \n"
             "add    %2, %0, %3   \n"
             "strexb %1, %2, [%4] \n"
-            :"=r"(prevVal), "=r"(storeFailed), "=r"(tmp), "=r"(addend), "=r"(val)
-            :"3"(addend), "4"(val)
+            :"=r"(prevVal), "=r"(storeFailed), "=r"(tmp), "=r"(addend), "=r"(byte)
+            :"3"(addend), "4"(byte)
+            :"memory"
+        );
+    } while (storeFailed);
+
+    return prevVal;
+}
+
+uint32_t atomicAdd32bits(volatile uint32_t *word, uint32_t addend)
+{
+    uint32_t prevVal, storeFailed, tmp;
+
+    do {
+        asm volatile(
+            "ldrex  %0,     [%4] \n"
+            "add    %2, %0, %3   \n"
+            "strex  %1, %2, [%4] \n"
+            :"=r"(prevVal), "=r"(storeFailed), "=r"(tmp), "=r"(addend), "=r"(word)
+            :"3"(addend), "4"(word)
             :"memory"
         );
     } while (storeFailed);

@@ -60,6 +60,11 @@ uint64_t platGetTicks(void)
     return 0;
 }
 
+uint32_t platFreeResources(uint32_t tid)
+{
+    return 0;
+}
+
 int main(int argc, char** argv)
 {
     osMain();
