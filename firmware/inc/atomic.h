@@ -32,7 +32,8 @@ bool atomicCmpXchgByte(volatile uint8_t *byte, uint32_t prevVal, uint32_t newVal
 bool atomicCmpXchg32bits(volatile uint32_t *word, uint32_t prevVal, uint32_t newVal);
 
 //returns old value
-uint32_t atomicAdd(volatile uint32_t *val, uint32_t addend);
+uint32_t atomicAddByte(volatile uint8_t *byte, uint32_t addend);
+uint32_t atomicAdd32bits(volatile uint32_t *word, uint32_t addend);
 
 //writes with barriers
 static inline uint32_t atomicReadByte(volatile uint8_t *byte)

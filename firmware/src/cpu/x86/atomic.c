@@ -16,13 +16,24 @@
 
 #include <atomic.h>
 
-uint32_t atomicAdd(volatile uint32_t *val, uint32_t addend)
+uint32_t atomicAdd32bits(volatile uint32_t *val, uint32_t addend)
 {
     uint32_t old;
 
     do {
         old = *val;
     } while (!atomicCmpXchg32bits(val, old, old + addend));
+
+    return old;
+}
+
+uint32_t atomicAddByte(volatile uint8_t *val, uint32_t addend)
+{
+    uint8_t old;
+
+    do {
+        old = *val;
+    } while (!atomicCmpXchgByte(val, old, old + addend));
 
     return old;
 }
