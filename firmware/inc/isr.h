@@ -23,6 +23,7 @@
 #include <cpu.h>
 #include <list.h>
 #include <util.h>
+#include <seos.h>
 
 struct ChainedInterrupt {
     link_t isrs;
@@ -34,6 +35,7 @@ struct ChainedInterrupt {
 struct ChainedIsr {
     link_t node;
     bool (*func)(struct ChainedIsr *);
+    uint16_t tid;
 };
 
 static inline void chainIsr(struct ChainedInterrupt *interrupt, struct ChainedIsr *isr)
@@ -46,6 +48,7 @@ static inline void chainIsr(struct ChainedInterrupt *interrupt, struct ChainedIs
 static inline void unchainIsr(struct ChainedInterrupt *interrupt, struct ChainedIsr *isr)
 {
     interrupt->disable(interrupt);
+    isr->tid = 0;
     list_delete(&isr->node);
     if (!list_is_empty(&interrupt->isrs))
         interrupt->enable(interrupt);
@@ -55,13 +58,34 @@ static inline bool dispatchIsr(struct ChainedInterrupt *interrupt)
 {
     struct link_t *cur, *tmp;
     bool handled = false;
+    uint16_t oldTid = osGetCurrentTid();
 
     list_iterate(&interrupt->isrs, cur, tmp) {
         struct ChainedIsr *curIsr = container_of(cur, struct ChainedIsr, node);
-        handled = handled || curIsr->func(curIsr);
+        osSetCurrentTid(curIsr->tid);
+        handled = curIsr->func(curIsr);
+        if (handled)
+            break;
     }
+    osSetCurrentTid(oldTid);
 
     return handled;
+}
+
+static inline int unchainIsrAll(struct ChainedInterrupt *interrupt, uint32_t tid)
+{
+    int count = 0;
+    struct link_t *cur, *tmp;
+
+    list_iterate(&interrupt->isrs, cur, tmp) {
+        struct ChainedIsr *curIsr = container_of(cur, struct ChainedIsr, node);
+        if (curIsr->tid == tid) {
+            unchainIsr(interrupt, curIsr);
+            count++;
+        }
+    }
+
+    return count;
 }
 
 #endif /* __ISR_H */

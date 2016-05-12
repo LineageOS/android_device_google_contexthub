@@ -21,6 +21,7 @@
 #include "toolchain.h"
 
 /* These define ranges of reserved events */
+// local events are 16-bit always
 #define EVT_NO_FIRST_USER_EVENT          0x00000100    //all events lower than this are reserved for the OS. all of them are nondiscardable necessarily!
 #define EVT_NO_FIRST_SENSOR_EVENT        0x00000200    //sensor type SENSOR_TYPE_x produces events of type EVT_NO_FIRST_SENSOR_EVENT + SENSOR_TYPE_x for all Google-defined sensors
 #define EVT_NO_SENSOR_CONFIG_EVENT       0x00000300    //event to configure sensors
@@ -28,6 +29,18 @@
 #define EVT_APP_TO_HOST                  0x00000401    //app data to host. Type is struct HostHubRawPacket
 #define EVT_MARSHALLED_SENSOR_DATA       0x00000402    //marshalled event data. Type is MarshalledUserEventData
 #define EVT_RESET_REASON                 0x00000403    //reset reason to host.
+#define EVT_DEBUG_LOG                    0x00007F01    // send message payload to Linux kernel log
+#define EVT_MASK                         0x0000FFFF
+
+// host-side events are 32-bit
+
+// DEBUG_LOG_EVT is normally undefined, or defined with a special value, recognized by nanohub driver: 0x3B474F4C
+// if defined with this value, the log message payload will appear in Linux kernel message log.
+// If defined with other value, it will still be sent to nanohub driver, and then forwarded to userland
+// verbatim, where it could be logged by nanohub HAL (by turning on it's logging via 'setprop persist.nanohub.debug 1'
+#ifdef DEBUG_LOG_EVT
+#define HOST_EVT_DEBUG_LOG               DEBUG_LOG_EVT
+#endif
 
 #define HOST_HUB_RAW_PACKET_MAX_LEN      128
 
