@@ -154,3 +154,14 @@ int extiUnchainIsr(IRQn_Type n, struct ChainedIsr *isr)
     unchainIsr(&exti->base, isr);
     return 0;
 }
+
+int extiUnchainAll(uint32_t tid)
+{
+    int i, count = 0;
+    struct ExtiInterrupt *exti = gInterrupts;
+
+    for (i = 0; i < ARRAY_SIZE(gInterrupts); ++i, ++exti)
+        count += unchainIsrAll(&exti->base, tid);
+
+    return count;
+}

@@ -44,6 +44,7 @@ typedef uint8_t TaskIndex;
 
 #define TASK_TID_BITS 16
 
+#define TASK_TID_MASK ((1 << TASK_TID_BITS) - 1)
 #define TASK_TID_INCREMENT (1 << TASK_IDX_BITS)
 #define TASK_TID_IDX_MASK ((1 << TASK_IDX_BITS) - 1)
 #define TASK_TID_COUNTER_MASK ((1 << TASK_TID_BITS) - TASK_TID_INCREMENT)
@@ -155,6 +156,8 @@ bool osDefer(OsDeferCbkF callback, void *cookie, bool urgent);
 bool osTidById(uint64_t appId, uint32_t *tid);
 bool osAppInfoById(uint64_t appId, uint32_t *appIdx, uint32_t *appVer, uint32_t *appSize);
 bool osAppInfoByIndex(uint32_t appIdx, uint64_t *appId, uint32_t *appVer, uint32_t *appSize);
+uint32_t osGetCurrentTid();
+uint32_t osSetCurrentTid(uint32_t);
 
 //event retaining support
 bool osRetainCurrentEvent(TaggedPtr *evtFreeingInfoP); //called from any apps' event handling to retain current event. Only valid for first app that tries. evtFreeingInfoP filled by call and used to free evt later
