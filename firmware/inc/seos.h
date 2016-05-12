@@ -31,17 +31,31 @@ extern "C" {
 #include "toolchain.h"
 
 #define MAX_TASKS                        16
-#define MAX_EMBEDDED_EVT_SUBS            6 /*tradeoff, no wrong answer */
+#define MAX_EMBEDDED_EVT_SUBS             6 /* tradeoff, no wrong answer */
+#define TASK_IDX_BITS                     8 /* should be big enough to hold MAX_TASKS, but still fit in TaskIndex */
 
+typedef uint8_t TaskIndex;
 
+/* NOTE: [TASK ID]
+ * TID is designed to be 16-bit; there is no reason for TID to become bigger than that on a system
+ * with typical RAM size of 64kB. However, in NO CASE TID values should overlap with TaggedPtr TAG mask,
+ * which is currently defined as 0x80000000.
+ */
 
+#define TASK_TID_BITS 16
+
+#define TASK_TID_INCREMENT (1 << TASK_IDX_BITS)
+#define TASK_TID_IDX_MASK ((1 << TASK_IDX_BITS) - 1)
+#define TASK_TID_COUNTER_MASK ((1 << TASK_TID_BITS) - TASK_TID_INCREMENT)
+
+#if MAX_TASKS > TASK_TID_IDX_MASK
+#error MAX_TASKS does not fit in TASK_TID_BITS
+#endif
+
+#define OS_SYSTEM_TID                    0
 #define OS_VER                           0x0000
 
 #define ENCR_KEY_GOOGLE_PREPOPULATED     1 // our key ID is 1
-
-#define FIRST_VALID_TID                  0x00000001
-#define LAST_VALID_TID                   0x0fffffff
-
 
 struct AppFuncs { /* do not rearrange */
     /* lifescycle */
