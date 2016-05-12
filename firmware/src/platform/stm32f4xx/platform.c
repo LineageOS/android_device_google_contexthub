@@ -23,6 +23,7 @@
 #include <plat/inc/plat.h>
 #include <plat/inc/exti.h>
 #include <plat/inc/syscfg.h>
+#include <plat/inc/dma.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
@@ -679,3 +680,10 @@ void* platGetPersistentRamStore(uint32_t *bytes)
     return rtcGetBackupStorage();
 }
 
+uint32_t platFreeResources(uint32_t tid)
+{
+    uint32_t dmaCount = dmaStopAll(tid);
+    uint32_t irqCount = extiUnchainAll(tid);
+
+    return (dmaCount << 8) | irqCount;
+}

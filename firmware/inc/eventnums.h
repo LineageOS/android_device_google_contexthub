@@ -93,7 +93,15 @@ SET_PACKED_STRUCT_MODE_OFF
 
 //for all apps
 #define EVT_APP_FREE_EVT_DATA            0x000000FF    //sent to an external app when its event has been marked for freeing. Data: struct AppEventFreeData
-
+// this event is never enqueued; it goes directly to the app.
+// It notifies app that hav outstanding IO, that is is about to end;
+// Expected app behavior is to not send any more events to system;
+// any events sent after this point will be silently ignored by the system;
+// any outstading events will be allowed to proceed to completion. (this is SIG_STOP)
+#define EVT_APP_STOP                     0x000000FE
+// Internal event, with task pointer as event data;
+// system ends the task unconditionally; no further checks performed (this is SIG_KILL)
+#define EVT_APP_END                      0x000000FD
 //for host comms
 #define EVT_APP_FROM_HOST                0x000000F8    //host data to an app. Type is struct HostHubRawPacket
 
