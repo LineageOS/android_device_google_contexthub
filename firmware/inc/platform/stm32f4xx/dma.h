@@ -58,5 +58,6 @@ int dmaStart(uint8_t busId, uint8_t stream, const void *buf, uint16_t size,
 uint16_t dmaBytesLeft(uint8_t busId, uint8_t stream);
 void dmaStop(uint8_t busId, uint8_t stream);
 const enum IRQn dmaIrq(uint8_t busId, uint8_t stream);
+int dmaStopAll(uint32_t tid);
 
 #endif /* _DMA_H */

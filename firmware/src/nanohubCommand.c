@@ -14,12 +14,18 @@
  * limitations under the License.
  */
 
-#include <plat/inc/taggedPtr.h>
-#include <plat/inc/rtc.h>
 #include <inttypes.h>
 #include <string.h>
 #include <stdint.h>
 #include <sys/endian.h>
+
+#include <variant/inc/variant.h>
+#include <eventnums.h>
+
+#include <plat/inc/taggedPtr.h>
+#include <plat/inc/rtc.h>
+#include <plat/inc/bl.h>
+#include <plat/inc/plat.h>
 
 #include <atomicBitset.h>
 #include <atomic.h>
@@ -39,9 +45,6 @@
 #include <rsa.h>
 #include <appSec.h>
 #include <cpu.h>
-#include <plat/inc/bl.h>
-#include <plat/inc/plat.h>
-#include <variant/inc/variant.h>
 
 #define NANOHUB_COMMAND(_reason, _fastHandler, _handler, _minReqType, _maxReqType) \
         { .reason = _reason, .fastHandler = _fastHandler, .handler = _handler, \
@@ -578,7 +581,7 @@ static int fillBuffer(void *tx, uint32_t totLength, uint32_t *wakeup, uint32_t *
                 break;
 #ifdef DEBUG_LOG_EVT
             case HOSTINTF_DATA_TYPE_LOG:
-                packet->evtType = htole32(DEBUG_LOG_EVT);
+                packet->evtType = htole32(HOST_EVT_DEBUG_LOG);
                 break;
 #endif
             default:

@@ -168,7 +168,7 @@ void platEarlyLogFlush(void)
 
     while (i < mEarlyLogBufferOffset) {
         userData = (struct HostIntfDataBuffer *)(mEarlyLogBuffer + i);
-        osEnqueueEvt(EVENT_TYPE_BIT_DISCARDABLE | DEBUG_LOG_EVT, userData, platEarlyLogFree);
+        osEnqueueEvt(EVENT_TYPE_BIT_DISCARDABLE | EVT_DEBUG_LOG, userData, platEarlyLogFree);
         i += HOSTINTF_HEADER_SIZE + userData->length;
     }
 #endif
@@ -178,7 +178,7 @@ void platLogFlush(void *userData)
 {
 #if defined(DEBUG_LOG_EVT)
     if (userData && mLateBoot) {
-        if (!osEnqueueEvt(EVENT_TYPE_BIT_DISCARDABLE | DEBUG_LOG_EVT, userData, heapFree))
+        if (!osEnqueueEvt(EVENT_TYPE_BIT_DISCARDABLE | EVT_DEBUG_LOG, userData, heapFree))
             heapFree(userData);
     }
 #endif

@@ -165,7 +165,9 @@ struct SensorOps {
 
     bool (*sensorSendOneDirectEvt)(void *, uint32_t tid); //resend last state (if known), only for onchange-supporting sensors, to bring on a new client
 
-    bool (*sensorMarshallData)(uint32_t yourEvtType, const void *yourEvtData, TaggedPtr *evtFreeingInfoP, void *); //marshall yourEvt for sending to host. Send a EVT_MARSHALLED_SENSOR_DATA event with marshalled data. Always send event, even on error, free the passed-in event using osFreeRetainedEvent
+    // Marshall yourEvt for sending to host. Send a EVT_MARSHALLED_SENSOR_DATA event with marshalled data.
+    // Always send event, even on error, free the passed-in event using osFreeRetainedEvent
+    bool (*sensorMarshallData)(uint32_t yourEvtType, const void *yourEvtData, TaggedPtr *evtFreeingInfoP, void *);
 };
 
 enum SensorInfoFlags1 {
@@ -206,7 +208,6 @@ struct SensorInfo {
     uint16_t minSamples; /* minimum host fifo size (in # of samples) */
     uint8_t biasType;
     uint8_t rawType;
-    uint16_t pad;
     float rawScale;
 };
 
@@ -266,7 +267,7 @@ uint32_t sensorGetCurRate(uint32_t sensorHandle);
 uint64_t sensorGetCurLatency(uint32_t sensorHandle);
 bool sensorGetInitComplete(uint32_t sensorHandle); // DO NOT poll on this value
 bool sensorMarshallEvent(uint32_t sensorHandle, uint32_t evtType, void *evtData, TaggedPtr *evtFreeingInfoP);
-
+int sensorUnregisterAll(uint32_t tid);
 
 /*
  * convenience funcs
