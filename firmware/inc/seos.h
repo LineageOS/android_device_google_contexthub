@@ -62,8 +62,12 @@ struct AppFuncs { /* do not rearrange */
 /* app ids are split into vendor and app parts. vendor parts are assigned by google. App parts are free for each vendor to assign at will */
 #define APP_ID_FIRST_USABLE        0x0100000000000000ULL //all app ids lower than this are reserved for google's internal use
 #define APP_ID_GET_VENDOR(appid)   ((appid) >> 24)
-#define APP_ID_MAKE(vendor, app)   ((((uint64_t)(vendor)) << 24) | ((app) & 0x00FFFFFF))
-#define APP_ID_VENDOR_GOOGLE       0x476f6f676cULL // "Googl"
+#define APP_ID_GET_SEQ_ID(appid)   ((appid) & 0xFFFFFF)
+#define APP_ID_MAKE(vendor, app)   ((((uint64_t)(vendor)) << 24) | ((app) & APP_SEQ_ID_ANY))
+#define APP_ID_VENDOR_GOOGLE       UINT64_C(0x476F6F676C) // "Googl"
+#define APP_VENDOR_ANY             UINT64_C(0xFFFFFFFFFF)
+#define APP_SEQ_ID_ANY             UINT64_C(0xFFFFFF)
+#define APP_ID_ANY                 UINT64_C(0xFFFFFFFFFFFFFFFF)
 
 struct AppHdr {
     char magic[13];
@@ -142,6 +146,9 @@ bool osAppInfoByIndex(uint32_t appIdx, uint64_t *appId, uint32_t *appVer, uint32
 bool osRetainCurrentEvent(TaggedPtr *evtFreeingInfoP); //called from any apps' event handling to retain current event. Only valid for first app that tries. evtFreeingInfoP filled by call and used to free evt later
 void osFreeRetainedEvent(uint32_t evtType, void *evtData, TaggedPtr *evtFreeingInfoP);
 
+uint32_t osExtAppStopApps(uint64_t appId);
+uint32_t osExtAppEraseApps(uint64_t appId);
+uint32_t osExtAppStartApps(uint64_t appId);
 
 /* Logging */
 enum LogLevel {
