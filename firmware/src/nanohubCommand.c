@@ -867,16 +867,41 @@ const struct NanohubCommand *nanohubFindCommand(uint32_t packetReason)
     return NULL;
 }
 
+static void halSendMgmtResponse(uint32_t cmd, uint32_t status)
+{
+    struct NanohubHalMgmtTx *resp;
+
+    resp = heapAlloc(sizeof(*resp));
+    if (resp) {
+        resp->hdr = (struct NanohubHalHdr) {
+            .appId = APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 0),
+            .len = sizeof(*resp) - sizeof(resp->hdr) + sizeof(resp->hdr.msg),
+            .msg = cmd,
+        };
+        resp->status = htole32(status);
+        osEnqueueEvtOrFree(EVT_APP_TO_HOST, resp, heapFree);
+    }
+}
+
 static void halExtAppsOn(void *rx, uint8_t rx_len)
 {
+    struct NanohubHalMgmtRx *req = rx;
+
+    halSendMgmtResponse(NANOHUB_HAL_EXT_APPS_ON, osExtAppStartApps(le64toh(req->appId)));
 }
 
 static void halExtAppsOff(void *rx, uint8_t rx_len)
 {
+    struct NanohubHalMgmtRx *req = rx;
+
+    halSendMgmtResponse(NANOHUB_HAL_EXT_APPS_OFF, osExtAppStopApps(le64toh(req->appId)));
 }
 
 static void halExtAppDelete(void *rx, uint8_t rx_len)
 {
+    struct NanohubHalMgmtRx *req = rx;
+
+    halSendMgmtResponse(NANOHUB_HAL_EXT_APP_DELETE, osExtAppEraseApps(le64toh(req->appId)));
 }
 
 static void halQueryMemInfo(void *rx, uint8_t rx_len)
