@@ -37,6 +37,9 @@ void platInitialize(void);
 void platUninitialize(void);
 void platReset(void);
 
+// free all platform-specific resources for TID, and return non-zero status if some cleanup was done
+uint32_t platFreeResources(uint32_t tid);
+
 /* Logging */
 void *platLogAllocUserData();
 void platLogFlush(void *userData);

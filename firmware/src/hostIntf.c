@@ -198,7 +198,7 @@ static void hostIntfPrintErrMsg(void *cookie)
 {
     struct hostIntfIntErrMsg *msg = (struct hostIntfIntErrMsg *)cookie;
     osLog(msg->level, "%s failed with: %d\n", msg->func, msg->reason);
-    atomicAdd(&mIntErrMsgCnt, -1UL);
+    atomicAdd32bits(&mIntErrMsgCnt, -1UL);
 }
 
 static void hostIntfDeferErrLog(enum LogLevel level, enum hostIntfIntErrReason reason, const char *func)
@@ -211,7 +211,7 @@ static void hostIntfDeferErrLog(enum LogLevel level, enum hostIntfIntErrReason r
     mIntErrMsg[mIntErrMsgIdx].reason = reason;
     mIntErrMsg[mIntErrMsgIdx].func = func;
     if (osDefer(hostIntfPrintErrMsg, &mIntErrMsg[mIntErrMsgIdx], false)) {
-        atomicAdd(&mIntErrMsgCnt, 1UL);
+        atomicAdd32bits(&mIntErrMsgCnt, 1UL);
         mIntErrMsgIdx = (mIntErrMsgIdx + 1) % HOSTINTF_MAX_ERR_MSG;
     }
 }
