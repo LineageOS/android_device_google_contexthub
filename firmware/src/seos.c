@@ -152,6 +152,35 @@ static struct Task *osSetCurrentTask(struct Task *task)
 
 // beyond this point, noone shall access mCurrentTask directly
 
+static inline bool osTaskTestFlags(struct Task *task, uint32_t mask)
+{
+    return (atomicReadByte(&task->flags) & mask) != 0;
+}
+
+static inline uint32_t osTaskClrSetFlags(struct Task *task, uint32_t clrMask, uint32_t setMask)
+{
+    while (true) {
+        uint8_t flags = atomicReadByte(&task->flags);
+        uint8_t newFlags = (flags & ~clrMask) | setMask;
+        if (atomicCmpXchgByte(&task->flags, flags, newFlags))
+            return newFlags;
+    }
+}
+
+static inline uint32_t osTaskAddIoCount(struct Task *task, int32_t delta)
+{
+    uint8_t count = atomicAddByte(&task->ioCount, delta);
+
+    count += delta; // old value is returned, so we add it again
+
+    return count;
+}
+
+static inline uint32_t osTaskGetIoCount(struct Task *task)
+{
+    return atomicReadByte(&task->ioCount);
+}
+
 static inline uint8_t osTaskIndex(struct Task *task)
 {
     // we don't need signed diff here: this way we simplify boundary check
@@ -271,14 +300,23 @@ static struct Task *osAllocTask()
 {
     struct Task *task = osTaskListPeekHead(&mFreeTasks);
 
-    osTaskListRemoveTask(&mFreeTasks, task);
+    if (task) {
+        osTaskListRemoveTask(&mFreeTasks, task);
+        uint16_t tid = task->tid;
+        memset(task, 0, sizeof(*task));
+        task->tid = tid;
+    }
 
     return task;
 }
 
 static void osFreeTask(struct Task *task)
 {
-    osTaskListAddTail(&mFreeTasks, task);
+    if (task) {
+        task->flags = 0;
+        task->ioCount = 0;
+        osTaskListAddTail(&mFreeTasks, task);
+    }
 }
 
 static void osRemoveTask(struct Task *task)
@@ -309,20 +347,25 @@ static inline bool osTaskInit(struct Task *task)
 static inline void osTaskEnd(struct Task *task)
 {
     struct Task *preempted = osSetCurrentTask(task);
+    uint16_t tid = task->tid;
+
     cpuAppEnd(task->appHdr, &task->platInfo);
+
+    // task was supposed to release it's resources,
+    // but we do our cleanup anyway
+    osSetCurrentTask(mSystemTask);
+    platFreeResources(tid); // HW resources cleanup (IRQ, DMA etc)
+    sensorUnregisterAll(tid);
+    timTimerCancelAll(tid);
+    heapFreeAll(tid);
+    // NOTE: we don't need to unsubscribe from events
     osSetCurrentTask(preempted);
 }
 
 static inline void osTaskHandle(struct Task *task, uint32_t evtType, const void* evtData)
 {
     struct Task *preempted = osSetCurrentTask(task);
-    struct Task *cur = osGetCurrentTask();
-    if (task != cur)
-        osLog(LOG_ERROR, "%s: [1] task=%p cur=%p\n", __func__, task, cur);
     cpuAppHandle(task->appHdr, &task->platInfo, evtType, evtData);
-    cur = osGetCurrentTask();
-    if (task != cur)
-        osLog(LOG_ERROR, "%s: [2] task=%p cur=%p\n", __func__, task, cur);
     osSetCurrentTask(preempted);
 }
 
@@ -504,15 +547,13 @@ static bool osStopTask(struct Task *task)
     if (!task)
         return false;
 
-    task->flags |= FL_TASK_STOPPED;
+    osTaskClrSetFlags(task, 0, FL_TASK_STOPPED);
     osRemoveTask(task);
 
-// TODO: enable when full implementation is done; keep this code as a reminder
-//    if (task->ioCount > 0) {
-//        osTaskHandle(task, EVT_APP_STOP, NULL);
-//        osEnqueueEvtOrFree(EVT_APP_END, task, NULL);
-//    } else
-    {
+    if (osTaskGetIoCount(task)) {
+        osTaskHandle(task, EVT_APP_STOP, NULL);
+        osEnqueueEvtOrFree(EVT_APP_END, task, NULL);
+    } else {
         osTaskEnd(task);
         osUnloadApp(task);
     }
@@ -725,6 +766,12 @@ static void osInternalEvtHandle(uint32_t evtType, void *evtData)
         }
         break;
 
+    case EVT_APP_END:
+        task = evtData;
+        osTaskEnd(task);
+        osUnloadApp(task);
+        break;
+
     case EVT_DEFERRED_CALLBACK:
         da->deferred.callback(da->deferred.cookie);
         break;
@@ -791,28 +838,30 @@ void osMainDequeueLoop(void)
     uint32_t evtType, j;
     void *evtData;
     struct Task *task;
+    uint16_t tid;
 
     /* get an event */
     if (!evtQueueDequeue(mEvtsInternal, &evtType, &evtData, &evtFreeingInfo, true))
         return;
 
     evtType = EVENT_GET_EVENT(evtType);
+    tid = EVENT_GET_ORIGIN(evtType);
+    task = osTaskFindByTid(tid);
+    if (task)
+        osTaskAddIoCount(task, -1);
 
     /* by default we free them when we're done with them */
     mCurEvtEventFreeingInfo = &evtFreeingInfo;
 
-    if (evtType < EVT_NO_FIRST_USER_EVENT) { /* no need for discardable check. all internal events arent discardable */
+    if (evtType < EVT_NO_FIRST_USER_EVENT) {
         /* handle deferred actions and other reserved events here */
         osInternalEvtHandle(evtType, evtData);
-    }
-    else {
+    } else {
         /* send this event to all tasks who want it */
         for_each_task(&mTasks, task) {
-            if (!task->subbedEvents) /* only check real tasks */
-                continue;
             for (j = 0; j < task->subbedEvtCount; j++) {
-                if (task->subbedEvents[j] == (evtType & ~EVENT_TYPE_BIT_DISCARDABLE)) {
-                    osTaskHandle(task, evtType & ~EVENT_TYPE_BIT_DISCARDABLE, evtData);
+                if (task->subbedEvents[j] == evtType) {
+                    osTaskHandle(task, evtType, evtData);
                     break;
                 }
             }
@@ -856,26 +905,33 @@ static bool osEventSubscribeUnsubscribe(uint32_t tid, uint32_t evtType, bool sub
 
 bool osEventSubscribe(uint32_t tid, uint32_t evtType)
 {
-    return osEventSubscribeUnsubscribe(tid, evtType, true);
+    (void)tid;
+    return osEventSubscribeUnsubscribe(osGetCurrentTid(), evtType, true);
 }
 
 bool osEventUnsubscribe(uint32_t tid, uint32_t evtType)
 {
-    return osEventSubscribeUnsubscribe(tid, evtType, false);
+    (void)tid;
+    return osEventSubscribeUnsubscribe(osGetCurrentTid(), evtType, false);
 }
 
-static inline bool osEnqueueEvtCommon(uint32_t evtType, void *evtData, TaggedPtr evtFreeInfo)
+static bool osEnqueueEvtCommon(uint32_t evtType, void *evtData, TaggedPtr evtFreeInfo)
 {
     struct Task *task = osGetCurrentTask();
 
-    if ((task->flags & FL_TASK_STOPPED) != 0) {
+    if (osTaskTestFlags(task, FL_TASK_STOPPED)) {
         handleEventFreeing(evtType, evtData, evtFreeInfo);
         return true;
     }
 
     evtType = EVENT_WITH_ORIGIN(evtType, osGetCurrentTid());
+    osTaskAddIoCount(task, 1);
 
-    return evtQueueEnqueue(mEvtsInternal, evtType, evtData, evtFreeInfo, false);
+    if (evtQueueEnqueue(mEvtsInternal, evtType, evtData, evtFreeInfo, false))
+        return true;
+
+    osTaskAddIoCount(task, -1);
+    return false;
 }
 
 bool osEnqueueEvt(uint32_t evtType, void *evtData, EventFreeF evtFreeF)
@@ -899,6 +955,7 @@ bool osEnqueueEvtAsApp(uint32_t evtType, void *evtData, uint32_t fromAppTid)
     if (evtType & EVENT_TYPE_BIT_DISCARDABLE_COMPAT)
         evtType |= EVENT_TYPE_BIT_DISCARDABLE;
 
+    (void)fromAppTid;
     return osEnqueueEvtCommon(evtType, evtData, taggedPtrMakeFromUint(osGetCurrentTid()));
 }
 
@@ -939,7 +996,8 @@ bool osEnqueuePrivateEvt(uint32_t evtType, void *evtData, EventFreeF evtFreeF, u
 
 bool osEnqueuePrivateEvtAsApp(uint32_t evtType, void *evtData, uint32_t fromAppTid, uint32_t toTid)
 {
-    return osEnqueuePrivateEvtEx(evtType, evtData, taggedPtrMakeFromUint(fromAppTid), toTid);
+    (void)fromAppTid;
+    return osEnqueuePrivateEvtEx(evtType, evtData, taggedPtrMakeFromUint(osGetCurrentTid()), toTid);
 }
 
 bool osTidById(uint64_t appId, uint32_t *tid)

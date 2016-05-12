@@ -501,7 +501,7 @@ static inline void stmI2cMasterTxRxDone(struct StmI2cDev *pdev, int err)
     stmI2cInvokeTxCallback(state, txOffst, rxOffst, 0);
 
     do {
-        id = atomicAdd(&pdev->next, 1);
+        id = atomicAdd32bits(&pdev->next, 1);
     } while (!id);
 
     for (i=0; i<I2C_MAX_QUEUE_DEPTH; i++) {
@@ -872,7 +872,7 @@ int i2cMasterTxRx(uint32_t busId, uint32_t addr,
         xfer->cookie = cookie;
 
         do {
-            id = atomicAdd(&pdev->last, 1);
+            id = atomicAdd32bits(&pdev->last, 1);
         } while (!id);
 
         // after this point the transfer can be picked up by the transfer
