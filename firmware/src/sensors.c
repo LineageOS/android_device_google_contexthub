@@ -35,6 +35,11 @@
 #define SENSOR_RATE_IMPOSSIBLE    0xFFFFFFF3UL /* used in rate calc to indicate impossible combinations */
 #define SENSOR_LATENCY_INVALID    0xFFFFFFFFFFFFFFFFULL
 
+#define HANDLE_TO_TID(handle) (((handle) >> (32 - TASK_TID_BITS)) & TASK_TID_MASK)
+#define EXT_APP_TID(s) taggedPtrToUint((s)->callInfo)
+#define LOCAL_APP_OPS(s) ((const struct SensorOps*)taggedPtrToPtr(s->callInfo))
+#define IS_LOCAL_APP(s) (taggedPtrIsPtr(s->callInfo))
+
 struct Sensor {
     const struct SensorInfo *si;
     uint32_t handle;         /* here 0 means invalid */
@@ -77,8 +82,10 @@ static uint32_t mNextSensorHandle;
 struct SingleAxisDataEvent singleAxisFlush = { .referenceTime = 0 };
 struct TripleAxisDataEvent tripleAxisFlush = { .referenceTime = 0 };
 
-
-
+static inline uint32_t newSensorHandle()
+{
+    return (osGetCurrentTid() << 16) | (atomicAdd(&mNextSensorHandle, 1) & 0xFFFF);
+}
 
 bool sensorsInit(void)
 {
@@ -118,10 +125,13 @@ static uint32_t sensorRegisterEx(const struct SensorInfo *si, TaggedPtr callInfo
     if (idx < 0)
         return 0;
 
-    /* grab a handle */
+    /* grab a handle:
+     * this is safe since nobody else could have "JUST" taken this handle,
+     * we'll need to circle around 16 bits before that happens, and have the same TID
+     */
     do {
-        handle = atomicAdd(&mNextSensorHandle, 1);
-    } while (!handle || sensorFindByHandle(handle)); /* this is safe since nobody else could have "JUST" taken this handle, we'll need to circle around 32bits before that happens */
+        handle = newSensorHandle();
+    } while (!handle || sensorFindByHandle(handle));
 
     /* fill the struct in and mark it valid (by setting handle) */
     s = mSensors + idx;
@@ -129,6 +139,7 @@ static uint32_t sensorRegisterEx(const struct SensorInfo *si, TaggedPtr callInfo
     s->currentRate = SENSOR_RATE_OFF;
     s->currentLatency = SENSOR_LATENCY_INVALID;
     s->callInfo = callInfo;
+    // TODO: is internal app, callinfo is OPS struct; shall we validate it here?
     s->callData = callData;
     s->initComplete = initComplete ? 1 : 0;
     mem_reorder_barrier();
@@ -193,11 +204,21 @@ static void sensorCallFuncPowerEvtFreeF(void* event)
     slabAllocatorFree(mInternalEvents, event);
 }
 
+#define INVOKE_AS_OWNER_AND_RETURN(func, ...)                       \
+{                                                                   \
+    if (!func)                                                      \
+        return false;                                               \
+    uint16_t oldTid = osSetCurrentTid(HANDLE_TO_TID(s->handle));    \
+    bool done = func(__VA_ARGS__);                                  \
+    osSetCurrentTid(oldTid);                                        \
+    return done;                                                    \
+}
+
 static bool sensorCallFuncPower(struct Sensor* s, bool on)
 {
-    if (taggedPtrIsPtr(s->callInfo))
-        return ((const struct SensorOps*)taggedPtrToPtr(s->callInfo))->sensorPower(on, s->callData);
-    else {
+    if (IS_LOCAL_APP(s)) {
+        INVOKE_AS_OWNER_AND_RETURN(LOCAL_APP_OPS(s)->sensorPower, on, s->callData);
+    } else {
         struct SensorsInternalEvent *evt = (struct SensorsInternalEvent*)slabAllocatorAlloc(mInternalEvents);
 
         if (!evt)
@@ -205,7 +226,9 @@ static bool sensorCallFuncPower(struct Sensor* s, bool on)
 
         evt->externalPowerEvt.on = on;
         evt->externalPowerEvt.callData = s->callData;
-        if (osEnqueuePrivateEvt(EVT_APP_SENSOR_POWER, &evt->externalPowerEvt, sensorCallFuncPowerEvtFreeF, taggedPtrToUint(s->callInfo)))
+
+        if (osEnqueuePrivateEvt(EVT_APP_SENSOR_POWER, &evt->externalPowerEvt,
+            sensorCallFuncPowerEvtFreeF, EXT_APP_TID(s)))
             return true;
 
         slabAllocatorFree(mInternalEvents, evt);
@@ -213,12 +236,18 @@ static bool sensorCallFuncPower(struct Sensor* s, bool on)
     }
 }
 
+// the most common callback goes as a helper function
+static bool sensorCallAsOwner(struct Sensor* s, bool (*callback)(void*))
+{
+    INVOKE_AS_OWNER_AND_RETURN(callback, s->callData);
+}
+
 static bool sensorCallFuncFwUpld(struct Sensor* s)
 {
-    if (taggedPtrIsPtr(s->callInfo))
-        return ((const struct SensorOps*)taggedPtrToPtr(s->callInfo))->sensorFirmwareUpload(s->callData);
+    if (IS_LOCAL_APP(s))
+        return sensorCallAsOwner(s, LOCAL_APP_OPS(s)->sensorFirmwareUpload);
     else
-        return osEnqueuePrivateEvt(EVT_APP_SENSOR_FW_UPLD, s->callData, NULL, taggedPtrToUint(s->callInfo));
+        return osEnqueuePrivateEvt(EVT_APP_SENSOR_FW_UPLD, s->callData, NULL, EXT_APP_TID(s));
 }
 
 static void sensorCallFuncExternalEvtFreeF(void* event)
@@ -228,9 +257,9 @@ static void sensorCallFuncExternalEvtFreeF(void* event)
 
 static bool sensorCallFuncSetRate(struct Sensor* s, uint32_t rate, uint64_t latency)
 {
-    if (taggedPtrIsPtr(s->callInfo))
-        return ((const struct SensorOps*)taggedPtrToPtr(s->callInfo))->sensorSetRate(rate, latency, s->callData);
-    else {
+    if (IS_LOCAL_APP(s)) {
+        INVOKE_AS_OWNER_AND_RETURN(LOCAL_APP_OPS(s)->sensorSetRate, rate, latency, s->callData);
+    } else {
         struct SensorsInternalEvent *evt = (struct SensorsInternalEvent*)slabAllocatorAlloc(mInternalEvents);
 
         if (!evt)
@@ -239,7 +268,8 @@ static bool sensorCallFuncSetRate(struct Sensor* s, uint32_t rate, uint64_t late
         evt->externalSetRateEvt.latency = latency;
         evt->externalSetRateEvt.rate = rate;
         evt->externalSetRateEvt.callData = s->callData;
-        if (osEnqueuePrivateEvt(EVT_APP_SENSOR_SET_RATE, &evt->externalSetRateEvt, sensorCallFuncExternalEvtFreeF, taggedPtrToUint(s->callInfo)))
+        if (osEnqueuePrivateEvt(EVT_APP_SENSOR_SET_RATE, &evt->externalSetRateEvt,
+            sensorCallFuncExternalEvtFreeF, EXT_APP_TID(s)))
             return true;
 
         slabAllocatorFree(mInternalEvents, evt);
@@ -249,25 +279,25 @@ static bool sensorCallFuncSetRate(struct Sensor* s, uint32_t rate, uint64_t late
 
 static bool sensorCallFuncCalibrate(struct Sensor* s)
 {
-    if (taggedPtrIsPtr(s->callInfo) && ((const struct SensorOps*)taggedPtrToPtr(s->callInfo))->sensorCalibrate)
-        return ((const struct SensorOps*)taggedPtrToPtr(s->callInfo))->sensorCalibrate(s->callData);
+    if (IS_LOCAL_APP(s))
+        return sensorCallAsOwner(s, LOCAL_APP_OPS(s)->sensorCalibrate);
     else
-        return osEnqueuePrivateEvt(EVT_APP_SENSOR_CALIBRATE, s->callData, NULL, taggedPtrToUint(s->callInfo));
+        return osEnqueuePrivateEvt(EVT_APP_SENSOR_CALIBRATE, s->callData, NULL, EXT_APP_TID(s));
 }
 
 static bool sensorCallFuncFlush(struct Sensor* s)
 {
-    if (taggedPtrIsPtr(s->callInfo))
-        return ((const struct SensorOps*)taggedPtrToPtr(s->callInfo))->sensorFlush(s->callData);
+    if (IS_LOCAL_APP(s))
+        return sensorCallAsOwner(s, LOCAL_APP_OPS(s)->sensorFlush);
     else
-        return osEnqueuePrivateEvt(EVT_APP_SENSOR_FLUSH, s->callData, NULL, taggedPtrToUint(s->callInfo));
+        return osEnqueuePrivateEvt(EVT_APP_SENSOR_FLUSH, s->callData, NULL, EXT_APP_TID(s));
 }
 
 static bool sensorCallFuncCfgData(struct Sensor* s, void* cfgData)
 {
-    if (taggedPtrIsPtr(s->callInfo) && ((const struct SensorOps*)taggedPtrToPtr(s->callInfo))->sensorCfgData)
-        return ((const struct SensorOps*)taggedPtrToPtr(s->callInfo))->sensorCfgData(cfgData, s->callData);
-    else {
+    if (IS_LOCAL_APP(s)) {
+        INVOKE_AS_OWNER_AND_RETURN(LOCAL_APP_OPS(s)->sensorCfgData, cfgData, s->callData);
+    } else {
         struct SensorsInternalEvent *evt = (struct SensorsInternalEvent*)slabAllocatorAlloc(mInternalEvents);
 
         if (!evt)
@@ -275,7 +305,8 @@ static bool sensorCallFuncCfgData(struct Sensor* s, void* cfgData)
 
         evt->externalCfgDataEvt.data = cfgData;
         evt->externalCfgDataEvt.callData = s->callData;
-        if (osEnqueuePrivateEvt(EVT_APP_SENSOR_CFG_DATA, &evt->externalCfgDataEvt, sensorCallFuncExternalEvtFreeF, taggedPtrToUint(s->callInfo)))
+        if (osEnqueuePrivateEvt(EVT_APP_SENSOR_CFG_DATA, &evt->externalCfgDataEvt,
+            sensorCallFuncExternalEvtFreeF, EXT_APP_TID(s)))
             return true;
 
         slabAllocatorFree(mInternalEvents, evt);
@@ -285,9 +316,9 @@ static bool sensorCallFuncCfgData(struct Sensor* s, void* cfgData)
 
 static bool sensorCallFuncMarshall(struct Sensor* s, uint32_t evtType, void *evtData, TaggedPtr *evtFreeingInfoP)
 {
-    if (taggedPtrIsPtr(s->callInfo) && ((const struct SensorOps*)taggedPtrToPtr(s->callInfo))->sensorCfgData)
-        return ((const struct SensorOps*)taggedPtrToPtr(s->callInfo))->sensorMarshallData(evtType, evtData, evtFreeingInfoP, s->callData);
-    else {
+    if (IS_LOCAL_APP(s)) {
+        INVOKE_AS_OWNER_AND_RETURN(LOCAL_APP_OPS(s)->sensorMarshallData, evtType, evtData, evtFreeingInfoP, s->callData);
+    } else {
         struct SensorsInternalEvent *evt = (struct SensorsInternalEvent*)slabAllocatorAlloc(mInternalEvents);
 
         if (!evt)
@@ -297,7 +328,8 @@ static bool sensorCallFuncMarshall(struct Sensor* s, uint32_t evtType, void *evt
         evt->externalMarshallEvt.origEvtData = evtData;
         evt->externalMarshallEvt.evtFreeingInfo = *evtFreeingInfoP;
         evt->externalMarshallEvt.callData = s->callData;
-        if (osEnqueuePrivateEvt(EVT_APP_SENSOR_MARSHALL, &evt->externalMarshallEvt, sensorCallFuncExternalEvtFreeF, taggedPtrToUint(s->callInfo)))
+        if (osEnqueuePrivateEvt(EVT_APP_SENSOR_MARSHALL, &evt->externalMarshallEvt,
+            sensorCallFuncExternalEvtFreeF, EXT_APP_TID(s)))
             return true;
 
         slabAllocatorFree(mInternalEvents, evt);
@@ -307,17 +339,17 @@ static bool sensorCallFuncMarshall(struct Sensor* s, uint32_t evtType, void *evt
 
 static bool sensorCallFuncTrigger(struct Sensor* s)
 {
-    if (taggedPtrIsPtr(s->callInfo))
-        return ((const struct SensorOps*)taggedPtrToPtr(s->callInfo))->sensorTriggerOndemand(s->callData);
+    if (IS_LOCAL_APP(s))
+        return sensorCallAsOwner(s, LOCAL_APP_OPS(s)->sensorTriggerOndemand);
     else
-        return osEnqueuePrivateEvt(EVT_APP_SENSOR_TRIGGER, s->callData, NULL, taggedPtrToUint(s->callInfo));
+        return osEnqueuePrivateEvt(EVT_APP_SENSOR_TRIGGER, s->callData, NULL, EXT_APP_TID(s));
 }
 
 static bool sensorCallFuncSendOneDirectEvt(struct Sensor* s, uint32_t tid)
 {
-    if (taggedPtrIsPtr(s->callInfo))
-        return ((const struct SensorOps*)taggedPtrToPtr(s->callInfo))->sensorSendOneDirectEvt(s->callData, tid);
-    else {
+    if (IS_LOCAL_APP(s)) {
+        INVOKE_AS_OWNER_AND_RETURN(LOCAL_APP_OPS(s)->sensorSendOneDirectEvt, s->callData, tid);
+    } else {
         struct SensorsInternalEvent *evt = (struct SensorsInternalEvent*)slabAllocatorAlloc(mInternalEvents);
 
         if (!evt)
@@ -325,7 +357,8 @@ static bool sensorCallFuncSendOneDirectEvt(struct Sensor* s, uint32_t tid)
 
         evt->externalSendDirectEvt.tid = tid;
         evt->externalSendDirectEvt.callData = s->callData;
-        if (osEnqueuePrivateEvt(EVT_APP_SENSOR_SEND_ONE_DIR_EVT, &evt->externalSendDirectEvt, sensorCallFuncExternalEvtFreeF, taggedPtrToUint(s->callInfo)))
+        if (osEnqueuePrivateEvt(EVT_APP_SENSOR_SEND_ONE_DIR_EVT, &evt->externalSendDirectEvt,
+            sensorCallFuncExternalEvtFreeF, EXT_APP_TID(s)))
             return true;
 
         slabAllocatorFree(mInternalEvents, evt);
@@ -660,7 +693,6 @@ bool sensorRequestRateChange(uint32_t clientTid, uint32_t sensorHandle, uint32_t
     if (!s)
         return false;
 
-
     /* get current rate */
     if (!sensorGetCurRequestorRate(sensorHandle, clientTid, &oldRate, &oldLatency))
         return false;
@@ -776,4 +808,17 @@ bool sensorMarshallEvent(uint32_t sensorHandle, uint32_t evtType, void *evtData,
         return false;
 
     return sensorCallFuncMarshall(s, evtType, evtData, evtFreeingInfoP);
+}
+
+int sensorUnregisterAll(uint32_t tid)
+{
+    int i, count = 0;
+
+    for (i = 0; i < MAX_REGISTERED_SENSORS; i++)
+        if (HANDLE_TO_TID(mSensors[i].handle) == tid) {
+            sensorUnregister(mSensors[i].handle);
+            count++;
+        }
+
+    return count;
 }
