@@ -19,14 +19,25 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <heap.h>
+#include <seos.h>
 
+#define TIDX_HEAP_EXTRA 2 // must be >= 0; best if > 0, don't make it > 7, since it unnecessarily limits max heap size we can manage
 
+#define TIDX_HEAP_BITS (TASK_IDX_BITS + TIDX_HEAP_EXTRA)
+
+#define TIDX_MASK ((1 << TIDX_HEAP_BITS) - 1)
+#define MAX_HEAP_ORDER (31 - TIDX_HEAP_BITS)
+
+#if MAX_HEAP_ORDER < 16
+# error Too little HEAP is available
+#endif
 
 struct HeapNode {
 
     struct HeapNode* prev;
-    uint32_t size:31;
+    uint32_t size: MAX_HEAP_ORDER;
     uint32_t used: 1;
+    uint32_t tidx: TIDX_HEAP_BITS; // TASK_IDX_BITS to uniquely identify task; + extra bits of redundant counter add extra protection
     uint8_t  data[];
 };
 
@@ -133,6 +144,7 @@ void* heapAlloc(uint32_t sz)
         node = (struct HeapNode*)(best->data + sz);
 
         node->used = 0;
+        node->tidx = 0;
         node->size = best->size - sz - sizeof(struct HeapNode);
         node->prev = best;
 
@@ -145,6 +157,7 @@ void* heapAlloc(uint32_t sz)
     }
 
     best->used = 1;
+    best->tidx = osGetCurrentTid();
     ret = best->data;
 
 out:
@@ -161,6 +174,7 @@ void heapFree(void* ptr)
 
     node = ((struct HeapNode*)ptr) - 1;
     node->used = 0;
+    node->tidx = 0;
 
     if (haveLock) {
 
@@ -182,5 +196,31 @@ void heapFree(void* ptr)
         gNeedFreeMerge = true;
 }
 
+int heapFreeAll(uint32_t tid)
+{
+    struct HeapNode *node;
+    bool haveLock;
+    int count = 0;
 
+    if (!tid)
+        return -1;
 
+    // this can only fail if called from interrupt
+    haveLock = trylockTryTake(&gHeapLock);
+    if (!haveLock)
+        return -1;
+
+    node = gHeapHead;
+    tid &= TIDX_MASK;
+    do {
+        if (node->tidx == tid) {
+            node->used = 0;
+            node->tidx = 0;
+            count++;
+        }
+    } while ((node = heapPrvGetNext(node)) != NULL);
+    gNeedFreeMerge = true;
+    trylockRelease(&gHeapLock);
+
+    return count;
+}

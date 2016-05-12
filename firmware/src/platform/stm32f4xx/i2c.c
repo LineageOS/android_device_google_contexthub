@@ -159,6 +159,7 @@ struct I2cStmState {
 
     // StmI2cSpiMasterState
     uint8_t masterState;
+    uint16_t tid;
 };
 
 struct StmI2cCfg {
@@ -350,13 +351,27 @@ static inline void stmI2cSlaveIdle(struct StmI2cDev *pdev)
     stmI2cIrqDisable(pdev, I2C_CR2_ITBUFEN | I2C_CR2_ITERREN);
 }
 
+static inline void stmI2cInvokeRxCallback(struct I2cStmState *state, size_t tx, size_t rx, int err)
+{
+    uint16_t oldTid = osSetCurrentTid(state->tid);
+    state->rx.callback(state->rx.cookie, tx, rx, err);
+    osSetCurrentTid(oldTid);
+}
+
+static inline void stmI2cInvokeTxCallback(struct I2cStmState *state, size_t tx, size_t rx, int err)
+{
+    uint16_t oldTid = osSetCurrentTid(state->tid);
+    state->tx.callback(state->tx.cookie, tx, rx, err);
+    osSetCurrentTid(oldTid);
+}
+
 static inline void stmI2cSlaveRxDone(struct StmI2cDev *pdev)
 {
     struct I2cStmState *state = &pdev->state;
     size_t rxOffst = state->rx.offset;
 
     state->rx.offset = 0;
-    state->rx.callback(state->rx.cookie, 0, rxOffst, 0);
+    stmI2cInvokeRxCallback(state, 0, rxOffst, 0);
 }
 
 static inline void stmI2cSlaveTxDone(struct StmI2cDev *pdev)
@@ -365,7 +380,7 @@ static inline void stmI2cSlaveTxDone(struct StmI2cDev *pdev)
     size_t txOffst = state->tx.offset;
 
     stmI2cSlaveIdle(pdev);
-    state->tx.callback(state->tx.cookie, txOffst, 0, 0);
+    stmI2cInvokeTxCallback(state, txOffst, 0, 0);
 }
 
 static void stmI2cSlaveTxNextByte(struct StmI2cDev *pdev)
@@ -382,7 +397,7 @@ static void stmI2cSlaveTxNextByte(struct StmI2cDev *pdev)
     } else {
         state->slaveState = STM_I2C_SLAVE_TX_ARMED;
         stmI2cIrqDisable(pdev, I2C_CR2_ITBUFEN);
-        state->tx.callback(state->tx.cookie, state->tx.offset, 0, 0);
+        stmI2cInvokeTxCallback(state, state->tx.offset, 0, 0);
     }
 }
 
@@ -483,7 +498,7 @@ static inline void stmI2cMasterTxRxDone(struct StmI2cDev *pdev, int err)
 
     state->tx.offset = 0;
     state->rx.offset = 0;
-    state->tx.callback(state->tx.cookie, txOffst, rxOffst, err);
+    stmI2cInvokeTxCallback(state, txOffst, rxOffst, 0);
 
     do {
         id = atomicAdd(&pdev->next, 1);
@@ -883,6 +898,7 @@ int i2cMasterTxRx(uint32_t busId, uint32_t addr,
                 state->rx.size = xfer->rxSize;
                 state->rx.callback = NULL;
                 state->rx.cookie = NULL;
+                state->tid = osGetCurrentTid();
                 if (pdev->board->sleepDev >= 0)
                     platRequestDevInSleepMode(pdev->board->sleepDev, 12);
                 stmI2cPutXfer(xfer);
@@ -961,6 +977,7 @@ void i2cSlaveEnableRx(uint32_t busId, void *rxBuf, size_t rxSize,
         state->rx.callback = callback;
         state->rx.cookie = cookie;
         state->slaveState = STM_I2C_SLAVE_RX_ARMED;
+        state->tid = osGetCurrentTid();
 
         pwrUnitClock(PERIPH_BUS_APB1, cfg->clock, true);
         pwrUnitReset(PERIPH_BUS_APB1, cfg->clock, true);
