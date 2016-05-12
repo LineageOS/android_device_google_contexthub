@@ -287,6 +287,41 @@ SET_PACKED_STRUCT_MODE_OFF
 #define NANOHUB_HAL_EXT_APPS_ON     0
 #define NANOHUB_HAL_EXT_APPS_OFF    1
 #define NANOHUB_HAL_EXT_APP_DELETE  2
+
+// this behaves more stable w.r.t. endianness than bit field
+// this is setting byte fields in MgmtStatus response
+// the high-order bit, if set, is indication of counter overflow
+#define SET_COUNTER(counter, val) (counter = (val & 0x7F) | (val > 0x7F ? 0x80 : 0))
+
+SET_PACKED_STRUCT_MODE_ON
+struct MgmtStatus {
+    union {
+        __le32 value;
+        // NOTE: union fields are accessed in CPU native mode
+        struct {
+            uint8_t app;
+            uint8_t task;
+            uint8_t op;
+            uint8_t erase;
+        } ATTRIBUTE_PACKED;
+    };
+} ATTRIBUTE_PACKED;
+SET_PACKED_STRUCT_MODE_OFF
+
+SET_PACKED_STRUCT_MODE_ON
+struct NanohubHalMgmtRx {
+    __le64 appId;
+    struct MgmtStatus stat;
+} ATTRIBUTE_PACKED;
+SET_PACKED_STRUCT_MODE_OFF
+
+SET_PACKED_STRUCT_MODE_ON
+struct NanohubHalMgmtTx {
+    struct NanohubHalHdr hdr;
+    __le32 status;
+} ATTRIBUTE_PACKED;
+SET_PACKED_STRUCT_MODE_OFF
+
 #define NANOHUB_HAL_QUERY_MEMINFO   3
 #define NANOHUB_HAL_QUERY_APPS      4
 
