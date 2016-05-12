@@ -63,6 +63,7 @@ enum comms_sensor_t {
     COMMS_SENSOR_DOUBLE_TWIST           = 29,
     COMMS_SENSOR_DOUBLE_TAP             = 30,
     COMMS_SENSOR_WINDOW_ORIENTATION     = 31,
+    COMMS_SENSOR_WRIST_TILT             = 32,
 
     NUM_COMMS_SENSORS_PLUS_1,
 
