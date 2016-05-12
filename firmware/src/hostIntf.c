@@ -20,8 +20,10 @@
 #include <string.h>
 #include <alloca.h>
 
-#include <plat/inc/pwr.h>
 #include <variant/inc/variant.h>
+#include <eventnums.h>
+
+#include <plat/inc/pwr.h>
 
 #include <platform.h>
 #include <cpu.h>
@@ -1050,7 +1052,7 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
             osEventSubscribe(mHostIntfTid, EVT_NO_SENSOR_CONFIG_EVENT);
             osEventSubscribe(mHostIntfTid, EVT_APP_TO_HOST);
 #ifdef DEBUG_LOG_EVT
-            osEventSubscribe(mHostIntfTid, DEBUG_LOG_EVT);
+            osEventSubscribe(mHostIntfTid, EVT_DEBUG_LOG);
             platEarlyLogFlush();
 #endif
             reason = pwrResetReason();
@@ -1082,7 +1084,7 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
             halCmd->handler((void *)&halMsg[2], halMsg[0] - 1);
     }
 #ifdef DEBUG_LOG_EVT
-    else if (evtType == DEBUG_LOG_EVT) {
+    else if (evtType == EVT_DEBUG_LOG) {
         data = (struct HostIntfDataBuffer *)evtData;
         if (data->sensType == SENS_TYPE_INVALID && data->dataType == HOSTINTF_DATA_TYPE_LOG) {
             simpleQueueEnqueue(mOutputQ, evtData, sizeof(uint32_t) + data->length, true);

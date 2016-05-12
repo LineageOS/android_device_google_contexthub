@@ -66,6 +66,7 @@ void extiClearPendingLine(const enum ExtiLine line);
 
 int extiChainIsr(IRQn_Type n, struct ChainedIsr *isr);
 int extiUnchainIsr(IRQn_Type n, struct ChainedIsr *isr);
+int extiUnchainAll(uint32_t tid);
 
 static inline void extiEnableIntGpio(const struct Gpio *__restrict gpioHandle, enum ExtiTrigger trigger)
 {
