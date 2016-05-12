@@ -39,23 +39,37 @@
 #include <mpu.h>
 #include <nanohubPacket.h>
 
+#define NO_NODE (TaskIndex)(-1)
+#define for_each_task(listHead, task) for (task = osTaskByIdx((listHead)->next); task; task = osTaskByIdx(task->list.next))
+#define MAKE_NEW_TID(task) task->tid = ((task->tid + TASK_TID_INCREMENT) & TASK_TID_COUNTER_MASK) | \
+                                       (osTaskIndex(task) & TASK_TID_IDX_MASK);
+#define TID_TO_TASK_IDX(tid) (tid & TASK_TID_IDX_MASK)
+
+#define FL_TASK_STOPPED 1
+
+#define EVT_SUBSCRIBE_TO_EVT         0x00000000
+#define EVT_UNSUBSCRIBE_TO_EVT       0x00000001
+#define EVT_DEFERRED_CALLBACK        0x00000002
+#define EVT_PRIVATE_EVT              0x00000003
+
+
 /*
  * Since locking is difficult to do right for adding/removing listeners and such
  * since it can happen in interrupt context and not, and one such operation can
  * interrupt another, and we do have a working event queue, we enqueue all the
  * requests and then deal with them in the main code only when the event bubbles
- * up to the front of the quque. This allows us to not need locks around the
+ * up to the front of the queue. This allows us to not need locks around the
  * data structures.
  */
 
+SET_PACKED_STRUCT_MODE_ON
+struct TaskList {
+    TaskIndex prev;
+    TaskIndex next;
+} ATTRIBUTE_PACKED;
+SET_PACKED_STRUCT_MODE_OFF
+
 struct Task {
-    /* pointers may become invalid. Tids do not. Zero tid -> not a valid task */
-    uint32_t tid;
-
-    uint16_t subbedEvtCount;
-    uint16_t subbedEvtListSz;
-    uint32_t *subbedEvents; /* NULL for invalid tasks */
-
     /* App entry points */
     const struct AppHdr *appHdr;
 
@@ -64,6 +78,24 @@ struct Task {
 
     /* for some basic number of subbed events, the array is stored directly here. after that, a heap chunk is used */
     uint32_t subbedEventsInt[MAX_EMBEDDED_EVT_SUBS];
+    uint32_t *subbedEvents; /* NULL for invalid tasks */
+
+    struct TaskList list;
+
+    /* task pointer will not change throughout task lifetime,
+     * however same task pointer may be reused for a new task; to eliminate the ambiguity,
+     * TID is maintained for each task such that new tasks will be guaranteed to receive different TID */
+    uint16_t tid;
+
+    uint8_t  subbedEvtCount;
+    uint8_t  subbedEvtListSz;
+    uint8_t  flags;
+    uint8_t  ioCount;
+
+};
+
+struct TaskPool {
+    struct Task data[MAX_TASKS];
 };
 
 union InternalThing {
@@ -84,28 +116,145 @@ union InternalThing {
     union OsApiSlabItem osApiItem;
 };
 
-#define EVT_SUBSCRIBE_TO_EVT         0x00000000
-#define EVT_UNSUBSCRIBE_TO_EVT       0x00000001
-#define EVT_DEFERRED_CALLBACK        0x00000002
-#define EVT_PRIVATE_EVT              0x00000003
-
-
+static struct TaskPool mTaskPool;
 static struct EvtQueue *mEvtsInternal;
 static struct SlabAllocator* mMiscInternalThingsSlab;
-static struct Task mTasks[MAX_TASKS];
-static uint32_t mTaskCnt;
-static uint32_t mNextTidInfo = FIRST_VALID_TID;
+static struct TaskList mFreeTasks;
+static struct TaskList mTasks;
+static struct Task *mSystemTask;
 static TaggedPtr *mCurEvtEventFreeingInfo = NULL; //used as flag for retaining. NULL when none or already retained
 
-static struct Task* osTaskFindByTid(uint32_t tid)
+static inline void list_init(struct TaskList *l)
 {
-    uint32_t i;
+    l->prev = l->next = NO_NODE;
+}
 
-    for(i = 0; i < mTaskCnt; i++)
-        if (mTasks[i].tid && mTasks[i].tid == tid)
-            return mTasks + i;
+static inline uint8_t osTaskIndex(struct Task *task)
+{
+    // we don't need signed diff here: this way we simplify boundary check
+    size_t idx = task - &mTaskPool.data[0];
+    return idx >= MAX_TASKS || &mTaskPool.data[idx] != task ? NO_NODE : idx;
+}
 
-    return NULL;
+static inline struct Task *osTaskByIdx(size_t idx)
+{
+    return idx >= MAX_TASKS ? NULL : &mTaskPool.data[idx];
+}
+
+static inline struct Task *osTaskListPeekHead(struct TaskList *listHead)
+{
+    TaskIndex idx = listHead->next;
+    return idx == NO_NODE ? NULL : &mTaskPool.data[idx];
+}
+
+#ifdef DEBUG
+static void dumpListItems(const char *p, struct TaskList *listHead)
+{
+    int i = 0;
+    struct Task *task;
+
+    osLog(LOG_ERROR, "List: %s (%p) [%u;%u]\n",
+          p,
+          listHead,
+          listHead ? listHead->prev : NO_NODE,
+          listHead ? listHead->next : NO_NODE
+    );
+    if (!listHead)
+        return;
+
+    for_each_task(listHead, task) {
+        osLog(LOG_ERROR, "  item %d: task=%p [%u;%u;%u]\n",
+              i,
+              task,
+              task->list.prev,
+              osTaskIndex(task),
+              task->list.next
+        );
+        ++i;
+    }
+}
+
+static void dumpTaskList(const char *f, struct Task *task, struct TaskList *listHead)
+{
+    osLog(LOG_ERROR, "%s: pool: %p; task=%p [%u;%u;%u]; listHead=%p [%u;%u]\n",
+          f,
+          &mTaskPool,
+          task,
+          task ? task->list.prev : NO_NODE,
+          osTaskIndex(task),
+          task ? task->list.next : NO_NODE,
+          listHead,
+          listHead ? listHead->prev : NO_NODE,
+          listHead ? listHead->next : NO_NODE
+    );
+    dumpListItems("Tasks", &mTasks);
+    dumpListItems("Free Tasks", &mFreeTasks);
+}
+#else
+#define dumpTaskList(a,b,c)
+#endif
+
+static inline void osTaskListRemoveTask(struct TaskList *listHead, struct Task *task)
+{
+    if (task && listHead) {
+        struct TaskList *cur = &task->list;
+        TaskIndex left_idx = cur->prev;
+        TaskIndex right_idx = cur->next;
+        struct TaskList *left =  left_idx == NO_NODE ? listHead : &mTaskPool.data[left_idx].list;
+        struct TaskList *right = right_idx == NO_NODE ? listHead : &mTaskPool.data[right_idx].list;
+        cur->prev = cur->next = NO_NODE;
+        left->next = right_idx;
+        right->prev = left_idx;
+    } else {
+        dumpTaskList(__func__, task, listHead);
+    }
+}
+
+static inline void osTaskListAddTail(struct TaskList *listHead, struct Task *task)
+{
+    if (task && listHead) {
+        struct TaskList *cur = &task->list;
+        TaskIndex last_idx = listHead->prev;
+        TaskIndex new_idx = osTaskIndex(task);
+        struct TaskList *last = last_idx == NO_NODE ? listHead : &mTaskPool.data[last_idx].list;
+        cur->prev = last_idx;
+        cur->next = NO_NODE;
+        last->next = new_idx;
+        listHead->prev = new_idx;
+    } else {
+        dumpTaskList(__func__, task, listHead);
+    }
+}
+
+static struct Task *osAllocTask()
+{
+    struct Task *task = osTaskListPeekHead(&mFreeTasks);
+
+    osTaskListRemoveTask(&mFreeTasks, task);
+
+    return task;
+}
+
+static void osFreeTask(struct Task *task)
+{
+    osTaskListAddTail(&mFreeTasks, task);
+}
+
+static void osRemoveTask(struct Task *task)
+{
+    osTaskListRemoveTask(&mTasks, task);
+}
+
+static void osAddTask(struct Task *task)
+{
+    osTaskListAddTail(&mTasks, task);
+}
+
+static inline struct Task* osTaskFindByTid(uint32_t tid)
+{
+    TaskIndex idx = TID_TO_TASK_IDX(tid);
+
+    return idx < MAX_TASKS ? &mTaskPool.data[idx] : NULL;
 }
 
 static void handleEventFreeing(uint32_t evtType, void *evtData, uintptr_t evtFreeData) // watch out, this is synchronous
@@ -150,25 +299,14 @@ static void osInit(void)
 
 static struct Task* osTaskFindByAppID(uint64_t appID)
 {
-    uint32_t i;
+    struct Task *task;
 
-    for (i = 0; i < mTaskCnt; i++)
-        if (mTasks[i].appHdr && mTasks[i].appHdr->appId == appID)
-            return mTasks + i;
+    for_each_task(&mTasks, task) {
+        if (task->appHdr && task->appHdr->appId == appID)
+            return task;
+    }
 
     return NULL;
-}
-
-static uint32_t osGetFreeTid(void)
-{
-    do {
-        if (mNextTidInfo == LAST_VALID_TID)
-            mNextTidInfo = FIRST_VALID_TID;
-        else
-            mNextTidInfo++;
-    } while (osTaskFindByTid(mNextTidInfo));
-
-    return mNextTidInfo;
 }
 
 struct ExtAppIterator {
@@ -243,11 +381,11 @@ static bool osExtAppErase(const struct AppHdr *app)
 static struct Task *osLoadApp(const struct AppHdr *app) {
     struct Task *task;
 
-    if (mTaskCnt == MAX_TASKS) {
+    task = osAllocTask();
+    if (!task) {
         osLog(LOG_WARN, "External app id %016" PRIX64 " @ %p cannot be used as too many apps already exist.\n", app->appId, app);
         return NULL;
     }
-    task = &mTasks[mTaskCnt];
     task->appHdr = app;
     bool done = app->marker == APP_HDR_MARKER_INTERNAL ?
                 cpuInternalAppLoad(task->appHdr, &task->platInfo) :
@@ -255,9 +393,8 @@ static struct Task *osLoadApp(const struct AppHdr *app) {
 
     if (!done) {
         osLog(LOG_WARN, "App @ %p ID %016" PRIX64 " failed to load\n", app, app->appId);
+        osFreeTask(task);
         task = NULL;
-    } else {
-        mTaskCnt++;
     }
 
     return task;
@@ -267,10 +404,7 @@ static void osUnloadApp(struct Task *task)
 {
     // this is called on task that has stopped running, or had never run
     cpuAppUnload(task->appHdr, &task->platInfo);
-    struct Task *last = &mTasks[mTaskCnt-1];
-    if (last > task)
-        memcpy(task, last, sizeof(struct Task));
-    mTaskCnt--;
+    osFreeTask(task);
 }
 
 static bool osStartApp(const struct AppHdr *app)
@@ -281,13 +415,15 @@ static bool osStartApp(const struct AppHdr *app)
     if ((task = osLoadApp(app)) != NULL) {
         task->subbedEvtListSz = MAX_EMBEDDED_EVT_SUBS;
         task->subbedEvents = task->subbedEventsInt;
-        task->tid = osGetFreeTid();
+        MAKE_NEW_TID(task);
 
         done = cpuAppInit(task->appHdr, &task->platInfo, task->tid);
 
         if (!done) {
             osLog(LOG_WARN, "App @ %p ID %016" PRIX64 "failed to init\n", task->appHdr, task->appHdr->appId);
             osUnloadApp(task);
+        } else {
+            osAddTask(task);
         }
     }
 
@@ -299,8 +435,18 @@ static bool osStopTask(struct Task *task)
     if (!task)
         return false;
 
-    cpuAppEnd(task->appHdr, &task->platInfo);
-    osUnloadApp(task);
+    task->flags |= FL_TASK_STOPPED;
+    osRemoveTask(task);
+
+// TODO: enable when full implementation is done; keep this code as a reminder
+//    if (task->ioCount > 0) {
+//        cpuAppHandle(task->appHdr, &task->platInfo, EVT_APP_STOP, NULL);
+//        osEnqueueEvtOrFree(EVT_APP_END, task, NULL);
+//    } else
+    {
+        cpuAppEnd(task->appHdr, &task->platInfo);
+        osUnloadApp(task);
+    }
 
     return true;
 }
@@ -427,8 +573,20 @@ static void osStartTasks(void)
     uint32_t i, nApps;
     struct Task* task;
     uint32_t status = 0;
+    uint32_t taskCnt = 0;
 
-    mTaskCnt = 0;
+    osLog(LOG_DEBUG, "Initializing task pool...\n");
+    list_init(&mTasks);
+    list_init(&mFreeTasks);
+    for (i = 0; i < MAX_TASKS; ++i) {
+        task = &mTaskPool.data[i];
+        list_init(&task->list);
+        osFreeTask(task);
+    }
+
+    mSystemTask = osAllocTask(); // this is a dummy task; holder of TID 0; all system code will run with TID 0
+    osLog(LOG_DEBUG, "System task is: %p\n", mSystemTask);
+
     /* first enum all internal apps, making sure to check for dupes */
     osLog(LOG_DEBUG, "Starting internal apps...\n");
     for (i = 0, app = platGetInternalAppList(&nApps); i < nApps; i++, app++) {
@@ -449,15 +607,14 @@ static void osStartTasks(void)
                             app->appId, app, task->appHdr, app);
             continue;
         }
-        osStartApp(app);
+        if (osStartApp(app))
+            taskCnt++;
     }
-    nApps = mTaskCnt;
 
     osLog(LOG_DEBUG, "Starting external apps...\n");
     status = osExtAppStartApps(APP_ID_ANY);
 
-    osLog(LOG_DEBUG, "Started %" PRIu32 " internal apps; total %" PRIu32
-                     " apps; EXT status: %08" PRIX32 "\n", nApps, mTaskCnt, status);
+    osLog(LOG_DEBUG, "Started %" PRIu32 " internal apps; EXT status: %08" PRIX32 "\n", taskCnt, status);
 }
 
 static void osInternalEvtHandle(uint32_t evtType, void *evtData)
@@ -562,8 +719,9 @@ void osMainInit(void)
 void osMainDequeueLoop(void)
 {
     TaggedPtr evtFreeingInfo;
-    uint32_t evtType, i, j;
+    uint32_t evtType, j;
     void *evtData;
+    struct Task *task;
 
     /* get an event */
     if (!evtQueueDequeue(mEvtsInternal, &evtType, &evtData, &evtFreeingInfo, true))
@@ -578,12 +736,12 @@ void osMainDequeueLoop(void)
     }
     else {
         /* send this event to all tasks who want it */
-        for (i = 0; i < mTaskCnt; i++) {
-            if (!mTasks[i].subbedEvents) /* only check real tasks */
+        for_each_task(&mTasks, task) {
+            if (!task->subbedEvents) /* only check real tasks */
                 continue;
-            for (j = 0; j < mTasks[i].subbedEvtCount; j++) {
-                if (mTasks[i].subbedEvents[j] == (evtType & ~EVENT_TYPE_BIT_DISCARDABLE)) {
-                    cpuAppHandle(mTasks[i].appHdr, &mTasks[i].platInfo, evtType & ~EVENT_TYPE_BIT_DISCARDABLE, evtData);
+            for (j = 0; j < task->subbedEvtCount; j++) {
+                if (task->subbedEvents[j] == (evtType & ~EVENT_TYPE_BIT_DISCARDABLE)) {
+                    cpuAppHandle(task->appHdr, &task->platInfo, evtType & ~EVENT_TYPE_BIT_DISCARDABLE, evtData);
                     break;
                 }
             }
@@ -697,11 +855,11 @@ bool osEnqueuePrivateEvtAsApp(uint32_t evtType, void *evtData, uint32_t fromAppT
 
 bool osTidById(uint64_t appId, uint32_t *tid)
 {
-    uint32_t i;
+    struct Task *task;
 
-    for (i = 0; i < mTaskCnt; i++) {
-        if (mTasks[i].appHdr && mTasks[i].appHdr->appId == appId) {
-            *tid = mTasks[i].tid;
+    for_each_task(&mTasks, task) {
+        if (task->appHdr && task->appHdr->appId == appId) {
+            *tid = task->tid;
             return true;
         }
     }
@@ -711,15 +869,18 @@ bool osTidById(uint64_t appId, uint32_t *tid)
 
 bool osAppInfoById(uint64_t appId, uint32_t *appIdx, uint32_t *appVer, uint32_t *appSize)
 {
-    uint32_t i;
+    uint32_t i = 0;
+    struct Task *task;
 
-    for (i = 0; i < mTaskCnt; i++) {
-        if (mTasks[i].appHdr && mTasks[i].appHdr->appId == appId) {
+    for_each_task(&mTasks, task) {
+        const struct AppHdr *app = task->appHdr;
+        if (app && app->appId == appId) {
             *appIdx = i;
-            *appVer = mTasks[i].appHdr->appVer;
-            *appSize = mTasks[i].appHdr->rel_end;
+            *appVer = app->appVer;
+            *appSize = app->rel_end;
             return true;
         }
+        i++;
     }
 
     return false;
@@ -727,11 +888,19 @@ bool osAppInfoById(uint64_t appId, uint32_t *appIdx, uint32_t *appVer, uint32_t 
 
 bool osAppInfoByIndex(uint32_t appIdx, uint64_t *appId, uint32_t *appVer, uint32_t *appSize)
 {
-    if (appIdx < mTaskCnt && mTasks[appIdx].appHdr) {
-        *appId = mTasks[appIdx].appHdr->appId;
-        *appVer = mTasks[appIdx].appHdr->appVer;
-        *appSize = mTasks[appIdx].appHdr->rel_end;
-        return true;
+    struct Task *task;
+    int i = 0;
+
+    for_each_task(&mTasks, task) {
+        if (i != appIdx) {
+            ++i;
+        } else {
+            const struct AppHdr *app = task->appHdr;
+            *appId = app->appId;
+            *appVer = app->appVer;
+            *appSize = app->rel_end;
+            return true;
+        }
     }
 
     return false;
@@ -806,7 +975,3 @@ const uint8_t __attribute__ ((section (".pubkeys"))) _RSA_KEY_GOOGLE_DEBUG[] = {
 
 
 PREPOPULATED_ENCR_KEY(google_encr_key, ENCR_KEY_GOOGLE_PREPOPULATED, 0xf1, 0x51, 0x9b, 0x2e, 0x26, 0x6c, 0xeb, 0xe7, 0xd6, 0xd6, 0x0d, 0x17, 0x11, 0x94, 0x99, 0x19, 0x1c, 0xfb, 0x71, 0x56, 0x53, 0xf7, 0xe0, 0x7d, 0x90, 0x07, 0x53, 0x68, 0x10, 0x95, 0x1b, 0x70);
-
-
-
-
