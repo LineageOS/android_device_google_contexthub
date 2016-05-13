@@ -272,6 +272,7 @@ enum CalibrationState {
 };
 
 enum SensorState {
+    // keep this in sync with getStateName
     SENSOR_BOOT,
     SENSOR_VERIFY_ID,
     SENSOR_INITIALIZING,
@@ -287,15 +288,21 @@ enum SensorState {
     SENSOR_SAVE_CALIBRATION,
     SENSOR_NUM_OF_STATE
 };
-static const char * getStateName(int32_t s) {
 #if DBG_STATE
+#define PRI_STATE "s"
+static const char * getStateName(int32_t s) {
+    // keep this in sync with SensorState
     static const char* const l[] = {"BOOT", "VERIFY_ID", "INIT", "IDLE", "PWR_UP",
             "PWR-DN", "CFG_CHANGE", "INT1", "INT2", "CALIB", "STEP_CNT", "SYNC", "SAVE_CALIB"};
     if (s >= 0 && s < SENSOR_NUM_OF_STATE) {
         return l[s];
     }
-#endif
     return "???";
+#else
+#define PRI_STATE PRIi32
+static int32_t getStateName(int32_t s) {
+    return s;
+#endif
 }
 
 enum MagConfigState {
@@ -522,7 +529,7 @@ typedef struct BMI160Task _Task;
 
 // Atomic set state, this set the state to arbitrary value, use with caution
 #define SET_STATE(s) do{\
-        DEBUG_PRINT_IF(DBG_STATE, "set state %s\n", getStateName(s));\
+        DEBUG_PRINT_IF(DBG_STATE, "set state %" PRI_STATE "\n", getStateName(s));\
         atomicWriteByte(&(_task->state), (s));\
     }while(0)
 
@@ -531,7 +538,7 @@ static bool trySwitchState_(TASK, enum SensorState newState) {
 #if DBG_STATE
     bool ret = atomicCmpXchgByte(&T(state), SENSOR_IDLE, newState);
     uint8_t prevState = ret ? SENSOR_IDLE : GET_STATE();
-    DEBUG_PRINT("switch state %s->%s, %s\n",
+    DEBUG_PRINT("switch state %" PRI_STATE "->%" PRI_STATE ", %s\n",
             getStateName(prevState), getStateName(newState), ret ? "ok" : "failed");
     return ret;
 #else
@@ -996,7 +1003,7 @@ static bool accPower(bool on, void *cookie)
 {
     TDECL();
 
-    INFO_PRINT("accPower: on=%d, state=%s\n", on, getStateName(GET_STATE()));
+    INFO_PRINT("accPower: on=%d, state=%" PRI_STATE "\n", on, getStateName(GET_STATE()));
     if (trySwitchState(on ? SENSOR_POWERING_UP : SENSOR_POWERING_DOWN)) {
         if (on) {
             // set ACC power mode to NORMAL
@@ -1019,7 +1026,7 @@ static bool accPower(bool on, void *cookie)
 static bool gyrPower(bool on, void *cookie)
 {
     TDECL();
-    INFO_PRINT("gyrPower: on=%d, state=%s\n", on, getStateName(GET_STATE()));
+    INFO_PRINT("gyrPower: on=%d, state=%" PRI_STATE "\n", on, getStateName(GET_STATE()));
 
     if (trySwitchState(on ? SENSOR_POWERING_UP : SENSOR_POWERING_DOWN)) {
         if (on) {
@@ -1052,7 +1059,7 @@ static bool gyrPower(bool on, void *cookie)
 static bool magPower(bool on, void *cookie)
 {
     TDECL();
-    INFO_PRINT("magPower: on=%d, state=%s\n", on, getStateName(GET_STATE()));
+    INFO_PRINT("magPower: on=%d, state=%" PRI_STATE "\n", on, getStateName(GET_STATE()));
     if (trySwitchState(on ? SENSOR_POWERING_UP : SENSOR_POWERING_DOWN)) {
         if (on) {
             // set MAG power mode to NORMAL
@@ -1140,7 +1147,7 @@ static bool doubleTapPower(bool on, void *cookie)
 static bool anyMotionPower(bool on, void *cookie)
 {
     TDECL();
-    DEBUG_PRINT("anyMotionPower: on=%d, oneshot_cnt %d, state=%s\n",
+    DEBUG_PRINT("anyMotionPower: on=%d, oneshot_cnt %d, state=%" PRI_STATE "\n",
             on, mTask.active_oneshot_sensor_cnt, getStateName(GET_STATE()));
 
     if (trySwitchState(on ? SENSOR_POWERING_UP : SENSOR_POWERING_DOWN)) {
@@ -1163,7 +1170,7 @@ static bool anyMotionPower(bool on, void *cookie)
 static bool noMotionPower(bool on, void *cookie)
 {
     TDECL();
-    DEBUG_PRINT("noMotionPower: on=%d, oneshot_cnt %d, state=%s\n",
+    DEBUG_PRINT("noMotionPower: on=%d, oneshot_cnt %d, state=%" PRI_STATE "\n",
             on, mTask.active_oneshot_sensor_cnt, getStateName(GET_STATE()));
     if (trySwitchState(on ? SENSOR_POWERING_UP : SENSOR_POWERING_DOWN)) {
         if (on) {
@@ -1268,7 +1275,7 @@ static bool accSetRate(uint32_t rate, uint64_t latency, void *cookie)
     TDECL();
     int odr, osr = 0;
 
-    INFO_PRINT("accSetRate: rate=%ld, latency=%lld, state=%s\n", rate, latency,
+    INFO_PRINT("accSetRate: rate=%ld, latency=%lld, state=%" PRI_STATE "\n", rate, latency,
             getStateName(GET_STATE()));
 
     if (trySwitchState(SENSOR_CONFIG_CHANGING)) {
@@ -1327,7 +1334,7 @@ static bool gyrSetRate(uint32_t rate, uint64_t latency, void *cookie)
 {
     TDECL();
     int odr, osr = 0;
-    INFO_PRINT("gyrSetRate: rate=%ld, latency=%lld, state=%s\n", rate, latency,
+    INFO_PRINT("gyrSetRate: rate=%ld, latency=%lld, state=%" PRI_STATE "\n", rate, latency,
             getStateName(GET_STATE()));
 
     if (trySwitchState(SENSOR_CONFIG_CHANGING)) {
@@ -1388,7 +1395,7 @@ static bool magSetRate(uint32_t rate, uint64_t latency, void *cookie)
     if (rate == SENSOR_RATE_ONCHANGE)
         rate = SENSOR_HZ(100);
 
-    INFO_PRINT("magSetRate: rate=%ld, latency=%lld, state=%s\n", rate, latency,
+    INFO_PRINT("magSetRate: rate=%ld, latency=%lld, state=%" PRI_STATE "\n", rate, latency,
             getStateName(GET_STATE()));
 
     if (trySwitchState(SENSOR_CONFIG_CHANGING)) {
