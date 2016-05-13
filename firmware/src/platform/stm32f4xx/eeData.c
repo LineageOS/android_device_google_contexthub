@@ -25,9 +25,9 @@ extern uint32_t __eedata_start[], __eedata_end[];
 
 //STM32F4xx eedata stores data in 4-byte aligned chunks
 
-static void* eeFind(uint32_t nameToFind, uint32_t startOffset, bool findFirst, uint32_t *szP)
+static void* eeFind(uint32_t nameToFind, uint32_t *offset, bool findFirst, uint32_t *szP)
 {
-    uint32_t *p = __eedata_start + startOffset;
+    uint32_t *p = __eedata_start + (offset ? *offset : 0);
     void *foundData = NULL;
 
     //find the last incarnation of "name" in flash area
@@ -54,6 +54,9 @@ static void* eeFind(uint32_t nameToFind, uint32_t startOffset, bool findFirst, u
             break;
     }
 
+    if (offset)
+        *offset = p - __eedata_start;
+
     return foundData;
 }
 
@@ -71,7 +74,7 @@ static bool eeDataGetEx(uint32_t name, uint32_t *offsetP, bool first, void *buf,
         return false;
 
     //find the data item
-    data = eeFind(name, *offsetP, first, &sz);
+    data = eeFind(name, offsetP, first, &sz);
     if (!data)
         return false;
 
@@ -83,8 +86,6 @@ static bool eeDataGetEx(uint32_t name, uint32_t *offsetP, bool first, void *buf,
     }
     else if (szP)        //get size
         *szP = sz;
-
-    *offsetP = (uint32_t)data + ((sz + 3) &~ 3);
 
     return true;
 }
@@ -122,7 +123,7 @@ bool eeDataSet(uint32_t name, const void *buf, uint32_t len)
         return false;
 
     //find the empty space at the end of everything and make sure it is really empty (size == EE_DATA_LEN_MAX)
-    space = eeFind(EE_DATA_NAME_MAX, 0, false, &sz);
+    space = eeFind(EE_DATA_NAME_MAX, NULL, false, &sz);
     if (!space || sz != EE_DATA_LEN_MAX)
         return false;
 
