@@ -448,6 +448,7 @@ static uint32_t GyrRates[] = {
     0,
 };
 
+#ifdef MAG_SLAVE_PRESENT
 static uint32_t MagRates[] = {
     SENSOR_HZ(25.0f/8.0f),
     SENSOR_HZ(25.0f/4.0f),
@@ -457,6 +458,7 @@ static uint32_t MagRates[] = {
     SENSOR_HZ(100.0f),
     0,
 };
+#endif
 
 static uint32_t StepCntRates[] = {
     SENSOR_RATE_ONCHANGE,
@@ -557,8 +559,10 @@ static const struct SensorInfo mSensorInfo[NUM_OF_SENSOR] =
             NANOHUB_INT_NONWAKEUP, 3000, SENS_TYPE_ACCEL_RAW, 1.0/kScale_acc) },
     { DEC_INFO_RATE("Gyroscope", GyrRates, SENS_TYPE_GYRO, NUM_AXIS_THREE,
             NANOHUB_INT_NONWAKEUP, 20) },
+#ifdef MAG_SLAVE_PRESENT
     { DEC_INFO_RATE_BIAS("Magnetometer", MagRates, SENS_TYPE_MAG, NUM_AXIS_THREE,
             NANOHUB_INT_NONWAKEUP, 600, SENS_TYPE_MAG_BIAS) },
+#endif
     { DEC_INFO("Step Detector", SENS_TYPE_STEP_DETECT, NUM_AXIS_EMBEDDED,
             NANOHUB_INT_NONWAKEUP, 100) },
     { DEC_INFO("Double Tap", SENS_TYPE_DOUBLE_TAP, NUM_AXIS_EMBEDDED,
@@ -720,12 +724,14 @@ static bool gyrFirmwareUpload(void *cookie)
     return true;
 }
 
+#ifdef MAG_SLAVE_PRESENT
 static bool magFirmwareUpload(void *cookie)
 {
     sensorSignalInternalEvt(mTask.sensors[MAG].handle,
             SENSOR_INTERNAL_EVT_FW_STATE_CHG, 1, 0);
     return true;
 }
+#endif
 
 static bool stepFirmwareUpload(void *cookie)
 {
@@ -1042,6 +1048,7 @@ static bool gyrPower(bool on, void *cookie)
     return true;
 }
 
+#ifdef MAG_SLAVE_PRESENT
 static bool magPower(bool on, void *cookie)
 {
     TDECL();
@@ -1064,6 +1071,7 @@ static bool magPower(bool on, void *cookie)
     }
     return true;
 }
+#endif
 
 static bool stepPower(bool on, void *cookie)
 {
@@ -1371,6 +1379,7 @@ static bool gyrSetRate(uint32_t rate, uint64_t latency, void *cookie)
     return true;
 }
 
+#ifdef MAG_SLAVE_PRESENT
 static bool magSetRate(uint32_t rate, uint64_t latency, void *cookie)
 {
     TDECL();
@@ -1412,6 +1421,7 @@ static bool magSetRate(uint32_t rate, uint64_t latency, void *cookie)
     }
     return true;
 }
+#endif
 
 static bool stepSetRate(uint32_t rate, uint64_t latency, void *cookie)
 {
@@ -1512,6 +1522,7 @@ static bool gyrFlush(void *cookie)
     return true;
 }
 
+#ifdef MAG_SLAVE_PRESENT
 static bool magFlush(void *cookie)
 {
     TDECL();
@@ -1519,6 +1530,7 @@ static bool magFlush(void *cookie)
     initiateFifoRead(false /*isInterruptContext*/);
     return true;
 }
+#endif
 
 static bool stepFlush(void *cookie)
 {
@@ -2456,6 +2468,7 @@ static bool gyrCfgData(void *data, void *cookie)
     return true;
 }
 
+#ifdef MAG_SLAVE_PRESENT
 static bool magCfgData(void *data, void *cookie)
 {
     float *values = data;
@@ -2463,16 +2476,15 @@ static bool magCfgData(void *data, void *cookie)
     INFO_PRINT("magCfgData: %ld, %ld, %ld\n",
             (int32_t)(values[0] * 1000), (int32_t)(values[1] * 1000), (int32_t)(values[2] * 1000));
 
-#ifdef MAG_SLAVE_PRESENT
     mTask.moc.x_bias = values[0];
     mTask.moc.y_bias = values[1];
     mTask.moc.z_bias = values[2];
-#endif
 
     mTask.magBiasPosted = false;
 
     return true;
 }
+#endif
 
 #define DEC_OPS(power, firmware, rate, flush) \
     .sensorPower = power, \
@@ -2499,7 +2511,9 @@ static const struct SensorOps mSensorOps[NUM_OF_SENSOR] =
             accCfgData) },
     { DEC_OPS_CAL_CFG(gyrPower, gyrFirmwareUpload, gyrSetRate, gyrFlush, gyrCalibration,
             gyrCfgData) },
+#ifdef MAG_SLAVE_PRESENT
     { DEC_OPS_CFG(magPower, magFirmwareUpload, magSetRate, magFlush, magCfgData) },
+#endif
     { DEC_OPS(stepPower, stepFirmwareUpload, stepSetRate, stepFlush) },
     { DEC_OPS(doubleTapPower, doubleTapFirmwareUpload, doubleTapSetRate, doubleTapFlush) },
     { DEC_OPS(flatPower, flatFirmwareUpload, flatSetRate, flatFlush) },
