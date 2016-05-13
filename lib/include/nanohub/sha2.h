@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-#ifndef _SHA2_H_
-#define _SHA2_H_
+#ifndef _NANOHUB_SHA2_H_
+#define _NANOHUB_SHA2_H_
 
 //this is neither the fastest nor the smallest. but it is simple and matches the spec. cool.
 
@@ -45,5 +45,5 @@ const uint32_t* sha2finish(struct Sha2state *state); //returned hash pointer is 
 
 
 
-#endif
+#endif // _NANOHUB_SHA2_H_
 

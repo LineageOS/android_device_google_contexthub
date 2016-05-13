@@ -34,7 +34,7 @@ struct ExtMsg
 static bool start_task(uint32_t myTid)
 {
     mMyTid = myTid;
-    cnt = 5;
+    cnt = 100;
 
     return eOsEventSubscribe(myTid, EVT_APP_START);
 }
@@ -74,8 +74,3 @@ static void handle_event(uint32_t evtType, const void* evtData)
 }
 
 APP_INIT(0, start_task, end_task, handle_event);
-
-
-
-
-

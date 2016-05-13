@@ -31,18 +31,6 @@ struct AesContext;
 struct AesSetupTempWorksSpace;
 struct AesCbcContext;
 
-
-#define OS_UPDT_MARKER_INPROGRESS     0xFF
-#define OS_UPDT_MARKER_DOWNLOADED     0xFE
-#define OS_UPDT_MARKER_VERIFIED       0xF0
-#define OS_UPDT_MARKER_INVALID        0x00
-#define OS_UPDT_MAGIC                 "Nanohub OS" //11 bytes incl terminator
-
-struct OsUpdateHdr {
-    char magic[11];
-    uint8_t marker; //OS_UPDT_MARKER_INPROGRESS -> OS_UPDT_MARKER_DOWNLOADED -> OS_UPDT_MARKER_VERIFIED / OS_UPDT_INVALID
-    uint32_t size;  //does not include the mandatory signature (using device key) that follows
-};
 #define OS_UPDT_SUCCESS                0
 #define OS_UPDT_HDR_CHECK_FAILED       1
 #define OS_UPDT_HDR_MARKER_INVALID     2
@@ -54,10 +42,6 @@ struct OsUpdateHdr {
 
 #define BL_VERSION_1        1
 #define BL_VERSION_CUR      BL_VERSION_1
-
-#define BL_FLASH_KERNEL_ID  0x1
-#define BL_FLASH_EEDATA_ID  0x2
-#define BL_FLASH_APP_ID     0x4
 
 #define BL_FLASH_KEY1       0x45670123
 #define BL_FLASH_KEY2       0xCDEF89AB

@@ -25,9 +25,10 @@
 
 #include <plat/inc/pwr.h>
 
+#include <nanohub/crc.h>
+
 #include <platform.h>
 #include <cpu.h>
-#include <crc.h>
 #include <hostIntf.h>
 #include <hostIntf_priv.h>
 #include <nanohubCommand.h>

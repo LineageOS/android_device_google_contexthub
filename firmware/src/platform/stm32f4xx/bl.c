@@ -16,17 +16,21 @@
 
 
 #include <variant/inc/variant.h>
+
 #include <plat/inc/cmsis.h>
 #include <plat/inc/gpio.h>
 #include <plat/inc/pwr.h>
 #include <plat/inc/bl.h>
+
+#include <nanohub/sha2.h>
+#include <nanohub/aes.h>
+#include <nanohub/rsa.h>
+#include <nanohub/nanohub.h>
+
 #include <printf.h>
 #include <string.h>
 #include <alloca.h>
 #include <gpio.h>
-#include <sha2.h>
-#include <aes.h>
-#include <rsa.h>
 
 static uint32_t blVerifyOsImage(const uint8_t *addr, struct OsUpdateHdr **start, uint32_t *size);
 
