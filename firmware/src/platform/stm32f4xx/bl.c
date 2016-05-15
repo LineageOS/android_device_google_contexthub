@@ -688,7 +688,7 @@ static void blApplyVerifiedUpdate(void) //only called if an update has been foun
     const struct OsUpdateHdr *updt = (const struct OsUpdateHdr*)__shared_start;
 
     //copy shared to code, and if successful, erase shared area
-    if (blProgramFlash(__code_start, (const uint8_t*)updt + 1, updt->size, BL_FLASH_KEY1, BL_FLASH_KEY2))
+    if (blProgramFlash(__code_start, (const uint8_t*)(updt + 1), updt->size, BL_FLASH_KEY1, BL_FLASH_KEY2))
         (void)blExtApiEraseSharedArea(BL_FLASH_KEY1, BL_FLASH_KEY2);
 }
 
@@ -713,12 +713,12 @@ static bool blUpdateVerify(void)
     struct Sha2state sha;
     struct RsaState rsa;
 
-
     //some basic sanity checking
     for (i = 0; i < sizeof(hdr->magic); i++) {
         if (hdr->magic[i] != mOsUpdateMagic[i])
             break;
     }
+
     if (i != sizeof(hdr->magic)) {
         //magic value is wrong -> DO NOTHING (shared area might contain something that is not an update but is useful & valid)!
         return false;
@@ -745,7 +745,7 @@ static bool blUpdateVerify(void)
     }
 
     if (hdr->size > __shared_end - __shared_start) {
-        //udpate would not fit in shared area if it were real
+        //update would not fit in shared area if it were real
         goto fail;
     }
 
@@ -761,7 +761,7 @@ static bool blUpdateVerify(void)
 
     //get pointers
     updateBinaryData = (const uint8_t*)(hdr + 1);
-    osSigHash = (const uint32_t*)updateBinaryData + hdr->size;
+    osSigHash = (const uint32_t*)(updateBinaryData + hdr->size);
     osSigPubkey = osSigHash + RSA_WORDS;
 
     //hash the update
@@ -779,7 +779,7 @@ static bool blUpdateVerify(void)
             break;
     }
 
-    if (i != numRsaKeys) {
+    if (i == numRsaKeys) {
         //signed with an unknown key -> fail
         goto fail;
     }
@@ -820,6 +820,13 @@ fail:
     //mark it appropriately
     blUpdateMark(OS_UPDT_MARKER_DOWNLOADED, isValid ? OS_UPDT_MARKER_VERIFIED : OS_UPDT_MARKER_INVALID);
     return isValid;
+}
+
+static void blSpiLoaderDrainRxFifo(struct StmSpi *spi)
+{
+    (void)spi->DR;
+    while (!(spi->SR & 1));
+    (void)spi->DR;
 }
 
 static uint8_t blSpiLoaderTxRxByte(struct StmSpi *spi, uint32_t val)
@@ -1016,7 +1023,7 @@ static void blSpiLoader(void)
                     if (addr && addr < sizeof(struct OsUpdateHdr))
                         break;
 
-                    //a write startnig at zero must be big enough to contain a full OS update header
+                    //a write starting at zero must be big enough to contain a full OS update header
                     if (!addr) {
                         const struct OsUpdateHdr *hdr = (const struct OsUpdateHdr*)data;
 
@@ -1034,6 +1041,7 @@ static void blSpiLoader(void)
 
                     //do it
                     ack = blProgramFlash(__shared_start + addr - BL_SHARED_AREA_FAKE_ADDR, data, len, BL_FLASH_KEY1, BL_FLASH_KEY2);
+                    blSpiLoaderDrainRxFifo(spi);
                     break;
 
                 case BL_CMD_ERASE:
@@ -1056,6 +1064,7 @@ static void blSpiLoader(void)
                     ack = blExtApiEraseSharedArea(BL_FLASH_KEY1, BL_FLASH_KEY2);
                     if (ack)
                         seenErase = true;
+                    blSpiLoaderDrainRxFifo(spi);
                     break;
 
                 case BL_CMD_GET_SIZES:

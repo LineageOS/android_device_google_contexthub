@@ -95,7 +95,7 @@ bool simpleQueueDequeue(struct SimpleQueue* sq, void *data)
     struct SimpleQueueEntry *e;
     uint32_t head;
 
-    if (sq->head == SIMPLE_QUEUE_IDX_NONE)
+    if (!sq || sq->head == SIMPLE_QUEUE_IDX_NONE)
         return false;
 
     head = sq->head;
