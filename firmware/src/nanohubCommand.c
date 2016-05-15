@@ -203,6 +203,14 @@ static AppSecErr aesKeyAccessCbk(uint64_t keyIdx, void *keyBuf)
     return APP_SEC_KEY_NOT_FOUND;
 }
 
+static void freeDownloadState()
+{
+    if (mDownloadState->appSecState)
+        appSecDeinit(mDownloadState->appSecState);
+    heapFree(mDownloadState);
+    mDownloadState = NULL;
+}
+
 static void resetDownloadState()
 {
     mAppSecStatus = APP_SEC_NO_ERROR;
@@ -352,8 +360,7 @@ static uint8_t firmwareFinish(bool valid)
 
     mpuAllowRomWrite(false);
     mpuAllowRamExecution(false);
-    heapFree(mDownloadState);
-    mDownloadState = NULL;
+    freeDownloadState();
 
     return NANOHUB_FIRMWARE_CHUNK_REPLY_ACCEPTED;
 }
@@ -388,8 +395,7 @@ static void firmwareWrite(void *cookie)
             mDownloadState->chunkReply = NANOHUB_FIRMWARE_CHUNK_REPLY_ACCEPTED;
         }
     } else {
-        heapFree(mDownloadState);
-        mDownloadState = NULL;
+        freeDownloadState();
     }
     hostIntfSetBusy(false);
 }
@@ -408,8 +414,7 @@ static uint32_t firmwareChunk(void *rx, uint8_t rx_len, void *tx, uint64_t times
         resp->chunkReply = NANOHUB_FIRMWARE_CHUNK_REPLY_CANCEL_NO_RETRY;
     } else if (mDownloadState->chunkReply != NANOHUB_FIRMWARE_CHUNK_REPLY_ACCEPTED) {
         resp->chunkReply = mDownloadState->chunkReply;
-        heapFree(mDownloadState);
-        mDownloadState = NULL;
+        freeDownloadState();
     } else if (mDownloadState->erase == true) {
         resp->chunkReply = NANOHUB_FIRMWARE_CHUNK_REPLY_WAIT;
         osDefer(firmwareErase, NULL, false);
