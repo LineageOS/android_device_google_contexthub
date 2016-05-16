@@ -86,7 +86,7 @@ void dumpBuffer(const char *pfx, const hub_app_name_t &appId, uint32_t evtId, co
         os << "; EVT=" << std::hex << evtId;
     os << "]:" << std::hex;
     for (size_t i = 0; i < len; ++i) {
-        os << " "  << std::setfill('0') << std::setw(2) << p[i];
+        os << " "  << std::setfill('0') << std::setw(2) << (unsigned int)p[i];
     }
     if (status) {
         os << "; status=" << status << " [" << std::setfill('0') << std::setw(8) << status << "]";
