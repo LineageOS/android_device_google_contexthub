@@ -109,13 +109,14 @@ static bool timFireAsNeededAndUpdateAlarms(void)
 
             if (tim->expires <= timGetTime()) {
                 somethingDone = true;
-                if (tim->period)
+                if (tim->period) {
                     tim->expires += tim->period;
-                else {
+                    timCallFunc(tim);
+                } else {
+                    timCallFunc(tim);
                     tim->id = 0;
                     atomicBitsetClearBit(mTimersValid, i);
                 }
-                timCallFunc(tim);
             }
             else {
                 if (tim->jitterPpm > maxJitter)
