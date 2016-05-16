@@ -258,11 +258,10 @@ void* NanoHub::doRun()
             if (ret < 0) {
                 ALOGE("SystemComm::handleRx() returned %d", ret);
             } else if (ret) {
-                // event is always EVENT_ID_TO_HOST (0x401); we erase it, and send 0 to app
                 if (messageTracingEnabled()) {
-                    dumpBuffer("DEV -> APP", msg.hdr.app_name, 0, &msg.data[0], msg.hdr.len);
+                    dumpBuffer("DEV -> APP", msg.hdr.app_name, msg.hdr.event_id, &msg.data[0], msg.hdr.len);
                 }
-                doSendToApp(&msg.hdr.app_name, 0, &msg.data[0], msg.hdr.len);
+                doSendToApp(&msg.hdr.app_name, msg.hdr.event_id, &msg.data[0], msg.hdr.len);
             }
         }
 
