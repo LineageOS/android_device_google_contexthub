@@ -369,7 +369,7 @@ static inline void osTaskHandle(struct Task *task, uint32_t evtType, const void*
     osSetCurrentTask(preempted);
 }
 
-static void handleEventFreeing(uint32_t evtType, void *evtData, uintptr_t evtFreeData) // watch out, this is synchronous
+static void handleEventFreeing(uint32_t evtType, void *evtData, TaggedPtr evtFreeData) // watch out, this is synchronous
 {
     if ((taggedPtrIsPtr(evtFreeData) && !taggedPtrToPtr(evtFreeData)) ||
         (taggedPtrIsUint(evtFreeData) && !taggedPtrToUint(evtFreeData)))
