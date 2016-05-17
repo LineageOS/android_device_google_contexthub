@@ -36,7 +36,7 @@
 #include <variant/inc/variant.h>
 
 #define AMS_TMD4903_APP_ID      APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 12)
-#define AMS_TMD4903_APP_VERSION 6
+#define AMS_TMD4903_APP_VERSION 7
 
 #ifndef PROX_INT_PIN
 #error "PROX_INT_PIN is not defined; please define in variant.h"
@@ -98,6 +98,8 @@
 
 #define AMS_TMD4903_DEFAULT_RATE               SENSOR_HZ(5)
 
+#define AMS_TMD4903_AGAIN                      4
+#define AMS_TMD4903_AGAIN_SETTING              0x01
 #define AMS_TMD4903_ATIME_SETTING              0xdc
 #define AMS_TMD4903_ATIME_MS                   ((256 - AMS_TMD4903_ATIME_SETTING) * 2.78) // in milliseconds
 #define AMS_TMD4903_PTIME_SETTING              0x11
@@ -304,12 +306,6 @@ static void alsTimerCallback(uint32_t timerId, void *cookie)
     osEnqueuePrivateEvt(EVT_SENSOR_ALS_TIMER, cookie, NULL, mTask.tid);
 }
 
-#define LUX_PER_COUNTS   (799.397f/AMS_TMD4903_ATIME_MS)
-#define C_COEFF           2.387f
-#define R_COEFF           -1.57f
-#define G_COEFF           2.69f
-#define B_COEFF           -3.307f
-
 static inline float getLuxFromAlsData(uint16_t c, uint16_t r, uint16_t g, uint16_t b)
 {
     // TODO (trevorbunker): need to check for c saturation
@@ -318,7 +314,10 @@ static inline float getLuxFromAlsData(uint16_t c, uint16_t r, uint16_t g, uint16
     // TODO (trevorbunker): You can use IR ratio (depends on light source) to
     // select between different R, G, and B coefficients
 
-    return LUX_PER_COUNTS * ((c * C_COEFF) + (r * R_COEFF) + (g * G_COEFF) + (b * B_COEFF)) * mTask.alsOffset;
+    return (ALS_GA_FACTOR *
+            ((c * ALS_C_COEFF) + (r * ALS_R_COEFF) + (g * ALS_G_COEFF) + (b * ALS_B_COEFF)) /
+            (AMS_TMD4903_ATIME_MS * AMS_TMD4903_AGAIN)) *
+        mTask.alsOffset;
 }
 
 static void sendCalibrationResultAls(uint8_t status, float offset) {
@@ -638,7 +637,7 @@ static void handle_i2c_event(int state)
         mTask.txrxBuf[14] = 0xa0;                                          // REG_CFG0 - reset value from datasheet
         mTask.txrxBuf[15] = AMS_TMD4903_PGCFG0_SETTING;                    // REG_PGCFG0
         mTask.txrxBuf[16] = AMS_TMD4903_PGCFG1_SETTING;                    // REG_PGCFG1
-        mTask.txrxBuf[17] = 0x00;                                          // REG_CFG1 - reset value from datasheet
+        mTask.txrxBuf[17] = AMS_TMD4903_AGAIN_SETTING;                     // REG_CFG1
         i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 18, &i2cCallback, (void *)SENSOR_STATE_INIT_0);
         break;
 
