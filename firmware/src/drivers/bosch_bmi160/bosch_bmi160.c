@@ -2346,6 +2346,12 @@ static bool accCfgData(void *data, void *cookie)
     return true;
 }
 
+static bool accSelfTest(void *cookie)
+{
+    // TODO: Implement this.
+    return true;
+}
+
 static void gyrCalibrationHandling(void)
 {
     TDECL();
@@ -2475,6 +2481,12 @@ static bool gyrCfgData(void *data, void *cookie)
     return true;
 }
 
+static bool gyrSelfTest(void *cookie)
+{
+    // TODO: Implement this.
+    return true;
+}
+
 #ifdef MAG_SLAVE_PRESENT
 static bool magCfgData(void *data, void *cookie)
 {
@@ -2503,10 +2515,11 @@ static bool magCfgData(void *data, void *cookie)
     DEC_OPS(power, firmware, rate, flush), \
     .sensorSendOneDirectEvt = send
 
-#define DEC_OPS_CAL_CFG(power, firmware, rate, flush, cal, cfg) \
+#define DEC_OPS_CAL_CFG_TEST(power, firmware, rate, flush, cal, cfg, test) \
     DEC_OPS(power, firmware, rate, flush), \
     .sensorCalibrate = cal, \
-    .sensorCfgData = cfg
+    .sensorCfgData = cfg, \
+    .sensorSelfTest = test,
 
 #define DEC_OPS_CFG(power, firmware, rate, flush, cfg) \
     DEC_OPS(power, firmware, rate, flush), \
@@ -2514,10 +2527,10 @@ static bool magCfgData(void *data, void *cookie)
 
 static const struct SensorOps mSensorOps[NUM_OF_SENSOR] =
 {
-    { DEC_OPS_CAL_CFG(accPower, accFirmwareUpload, accSetRate, accFlush, accCalibration,
-            accCfgData) },
-    { DEC_OPS_CAL_CFG(gyrPower, gyrFirmwareUpload, gyrSetRate, gyrFlush, gyrCalibration,
-            gyrCfgData) },
+    { DEC_OPS_CAL_CFG_TEST(accPower, accFirmwareUpload, accSetRate, accFlush, accCalibration,
+            accCfgData, accSelfTest) },
+    { DEC_OPS_CAL_CFG_TEST(gyrPower, gyrFirmwareUpload, gyrSetRate, gyrFlush, gyrCalibration,
+            gyrCfgData, gyrSelfTest) },
 #ifdef MAG_SLAVE_PRESENT
     { DEC_OPS_CFG(magPower, magFirmwareUpload, magSetRate, magFlush, magCfgData) },
 #endif

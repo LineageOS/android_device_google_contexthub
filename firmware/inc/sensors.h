@@ -168,6 +168,7 @@ struct SensorOps {
     // Marshall yourEvt for sending to host. Send a EVT_MARSHALLED_SENSOR_DATA event with marshalled data.
     // Always send event, even on error, free the passed-in event using osFreeRetainedEvent
     bool (*sensorMarshallData)(uint32_t yourEvtType, const void *yourEvtData, TaggedPtr *evtFreeingInfoP, void *);
+    bool (*sensorSelfTest)(void *);
 };
 
 enum SensorInfoFlags1 {
@@ -262,6 +263,7 @@ bool sensorRelease(uint32_t clientTid, uint32_t sensorHandle);
 bool sensorTriggerOndemand(uint32_t clientTid, uint32_t sensorHandle);
 bool sensorFlush(uint32_t sensorHandle);
 bool sensorCalibrate(uint32_t sensorHandle);
+bool sensorSelfTest(uint32_t sensorHandle);
 bool sensorCfgData(uint32_t sensorHandle, void* cfgData);
 uint32_t sensorGetCurRate(uint32_t sensorHandle);
 uint64_t sensorGetCurLatency(uint32_t sensorHandle);
