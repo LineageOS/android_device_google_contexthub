@@ -118,6 +118,7 @@ SET_PACKED_STRUCT_MODE_OFF
 #define EVT_APP_SENSOR_CFG_DATA          0x000000E9
 #define EVT_APP_SENSOR_SEND_ONE_DIR_EVT  0x000000E8
 #define EVT_APP_SENSOR_MARSHALL          0x000000E7    // for external sensors that send events of "user type"
+#define EVT_APP_SENSOR_SELF_TEST         0x000000E6
 
 //for timers
 #define EVT_APP_TIMER                    0x000000DF
