@@ -97,7 +97,7 @@ done
 signed_sz=$(du -b "$stage/raw" | cut -f1)
 
 #create the header (with the marker set for signing
-echo -ne "Nanohub OS\x00\xFE" > "$stage/hdr"
+echo -ne "Nanohub OS\x00\xFF" > "$stage/hdr"
 printhex $signed_sz >> "$stage/hdr"
 
 #concat the data to header
@@ -105,9 +105,6 @@ cat "$stage/hdr" "$stage/raw" > "$stage/with_hdr"
 
 #create the signature
 nanoapp_sign sign "$priv1" "$pub1" < "$stage/with_hdr" > "$stage/sig"
-
-#insert proper upload marker
-echo -ne "\xff" | dd bs=1 seek=11 count=1 conv=notrunc of="$stage/with_hdr" 2>/dev/null
 
 #produce signed output
 cat "$stage/with_hdr" "$stage/sig" "$pub1"
