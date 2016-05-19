@@ -98,24 +98,6 @@ struct NanoRelocEntry {
     uint8_t type;
 };
 
-uint8_t fixupAddress(uint32_t *addr) {
-    uint8_t type;
-
-    if (IS_IN_FLASH(*addr)) {
-        fprintf(stderr, "Fixup addr 0x%08X (flash) --> 0x%08X\n", *addr, *addr - FLASH_BASE);
-        *addr -= FLASH_BASE;
-        type = NANO_RELOC_TYPE_FLASH;
-    } else if (IS_IN_RAM(*addr)) {
-        fprintf(stderr, "Fixup addr 0x%08X (ram)   --> 0x%08X\n", *addr, *addr - RAM_BASE);
-        *addr -= RAM_BASE;
-        type = NANO_RELOC_TYPE_RAM;
-    } else {
-        fprintf(stderr, "Error: invalid address 0x%08X\n", *addr);
-        type = NANO_RELOC_LAST;
-    }
-
-    return type;
-}
 
 int main(int argc, char **argv)
 {
@@ -197,18 +179,6 @@ int main(int argc, char **argv)
     if (numSyms * sizeof(struct SymtabEntry) + hdr->__rel_end != bufUsed + FLASH_BASE) {
         fprintf(stderr, "Syms of nonstandard size\n");
         goto out;
-    }
-
-    if (verbose) {
-        fprintf(stderr, "Sections in app header (pre-conversion):\n"
-                        "  data : 0x%08X - 0x%08X (loadaddr 0x%08x)\n"
-                        "  bss  : 0x%08X - 0x%08X\n"
-                        "  got  : 0x%08X - 0x%08X\n"
-                        "  rel  : 0x%08X - 0x%08X\n",
-                hdr->__data_start, hdr->__data_end, hdr->__data_data,
-                hdr->__bss_start, hdr->__bss_end,
-                hdr->__got_start, hdr->__got_end,
-                hdr->__rel_start, hdr->__rel_end);
     }
 
     //show some info
@@ -342,40 +312,8 @@ int main(int argc, char **argv)
         outNumRelocs++;
     }
 
-    // If we don't have any relocations, generate them ourselves
-    if (!numRelocs) {
-        uint32_t *addr = (uint32_t *) (buf + hdr->__data_data - FLASH_BASE);
-        uint32_t addrCount = (hdr->__got_end - hdr->__data_start) / sizeof(uint32_t);
-        nanoRelocs = realloc(nanoRelocs, sizeof(struct NanoRelocEntry[addrCount]));
-        if (!nanoRelocs) {
-            fprintf(stderr, "Failed to reallocate nano-reloc table\n");
-            goto out;
-        }
-
-        fprintf(stderr, "Updating entry function pointers\n");
-        if (fixupAddress(&hdr->start_task) != NANO_RELOC_TYPE_FLASH ||
-                fixupAddress(&hdr->end_task) != NANO_RELOC_TYPE_FLASH ||
-                fixupAddress(&hdr->handle_event) != NANO_RELOC_TYPE_FLASH) {
-            fprintf(stderr, "Error: All in-header addresses must be in flash!\n");
-            goto out;
-        }
-
-        fprintf(stderr, "\nGenerating nanoRelocs for up to %u addresses\n", addrCount);
-        for (i = 0; i < addrCount; i++) {
-            if (addr[i]) {
-                fprintf(stderr, "[%3u] ", i);
-                nanoRelocs[outNumRelocs].type = fixupAddress(&addr[i]);
-                if (nanoRelocs[outNumRelocs].type == NANO_RELOC_LAST) {
-                    goto out;
-                }
-                nanoRelocs[outNumRelocs].ofstInRam = i * sizeof(uint32_t);
-                outNumRelocs++;
-            }
-        }
-    }
-
     //sort by type and then offset
-    for (i = 0; i < outNumRelocs; i++) {
+        for (i = 0; i < outNumRelocs; i++) {
         struct NanoRelocEntry t;
 
         for (k = i, j = k + 1; j < outNumRelocs; j++) {
@@ -395,7 +333,8 @@ int main(int argc, char **argv)
     //produce output nanorelocs in packed format
     packedNanoRelocs = malloc(outNumRelocs * 6); //definitely big enough
     packedNanoRelocSz = 0;
-    for (i = 0; i < outNumRelocs; i++) {
+        for (i = 0; i < outNumRelocs; i++) {
+
         uint32_t displacement;
 
         if (lastOutType != nanoRelocs[i].type) {  //output type if ti changed
