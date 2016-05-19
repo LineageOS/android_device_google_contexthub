@@ -63,6 +63,7 @@ enum ConfigCmds
     CONFIG_CMD_FLUSH        = 2,
     CONFIG_CMD_CFG_DATA     = 3,
     CONFIG_CMD_CALIBRATE    = 4,
+    CONFIG_CMD_SELF_TEST    = 5,
 };
 
 struct ConfigCmd
@@ -1171,6 +1172,9 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
             } else if (cmd->cmd == CONFIG_CMD_CALIBRATE) {
                 for (i = 0; sensorFind(cmd->sensType, i, &tempSensorHandle) != NULL; i++)
                     sensorCalibrate(tempSensorHandle);
+            } else if (cmd->cmd == CONFIG_CMD_SELF_TEST) {
+                for (i = 0; sensorFind(cmd->sensType, i, &tempSensorHandle) != NULL; i++)
+                    sensorSelfTest(tempSensorHandle);
             } else if (cmd->cmd == CONFIG_CMD_CFG_DATA) {
                 for (i = 0; sensorFind(cmd->sensType, i, &tempSensorHandle) != NULL; i++)
                     sensorCfgData(tempSensorHandle, (void *)(cmd+1));
