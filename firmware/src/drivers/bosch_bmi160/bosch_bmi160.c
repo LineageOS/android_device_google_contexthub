@@ -2863,14 +2863,14 @@ static void handleSpiDoneEvt(const void* evtData)
     case SENSOR_TIME_SYNC:
         SensorTime = parseSensortime(mTask.sensorTimeBuffer[1] |
                 (mTask.sensorTimeBuffer[2] << 8) | (mTask.sensorTimeBuffer[3] << 16));
-        map_sensortime_to_rtc_time(SensorTime, rtcGetTime());
+        map_sensortime_to_rtc_time(SensorTime, sensorGetTime());
 
         temperature16 = (mTask.temperatureBuffer[1] | (mTask.temperatureBuffer[2] << 8));
         if (temperature16 == 0x8000) {
             mTask.tempCelsius = kTempInvalid;
         } else {
             mTask.tempCelsius = 23.0f + temperature16 * kScale_temp;
-            mTask.tempTime = rtcGetTime();
+            mTask.tempTime = sensorGetTime();
         }
 
         if (mTask.active_poll_generation == mTask.poll_generation) {
