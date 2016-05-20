@@ -38,5 +38,6 @@ struct NanohubHalCommand {
 };
 
 const struct NanohubHalCommand *nanohubHalFindCommand(uint8_t msg);
+uint64_t hostGetTime(void);
 
 #endif /* __NANOHUBCOMMAND_H */

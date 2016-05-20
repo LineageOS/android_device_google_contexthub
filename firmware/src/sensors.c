@@ -15,6 +15,7 @@
  */
 
 #include <plat/inc/taggedPtr.h>
+#include <plat/inc/rtc.h>
 #include <cpu/inc/barrier.h>
 #include <atomicBitset.h>
 #include <inttypes.h>
@@ -759,6 +760,11 @@ uint64_t sensorGetCurLatency(uint32_t sensorHandle)
     struct Sensor* s = sensorFindByHandle(sensorHandle);
 
     return s ? s->currentLatency : SENSOR_LATENCY_INVALID;
+}
+
+uint64_t sensorGetTime(void)
+{
+    return rtcGetTime();
 }
 
 bool sensorGetInitComplete(uint32_t sensorHandle)
