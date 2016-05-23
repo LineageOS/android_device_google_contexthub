@@ -830,8 +830,6 @@ static void handle_i2c_event(int state)
 
 static bool init_app(uint32_t myTid)
 {
-    INFO_PRINT("task starting\n");
-
     /* Set up driver private data */
     mTask.tid = myTid;
     mTask.alsOn = false;
@@ -906,4 +904,3 @@ static void handle_event(uint32_t evtType, const void* evtData)
 }
 
 INTERNAL_APP_INIT(AMS_TMD4903_APP_ID, AMS_TMD4903_APP_VERSION, init_app, end_app, handle_event);
-
