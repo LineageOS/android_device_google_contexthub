@@ -71,6 +71,8 @@
 #define DBG_WM_CALC               0
 #define TIMESTAMP_DBG             0
 
+#define BMI160_APP_VERSION 1
+
 // fixme: to list required definitions for a slave mag
 #ifdef USE_BMM150
 #include "bosch_bmm150_slave.h"
@@ -2950,8 +2952,6 @@ static void initSensorStruct(struct BMI160Sensor *sensor, enum SensorIndex idx)
 static bool startTask(uint32_t task_id)
 {
     TDECL();
-    DEBUG_PRINT("        IMU:  %ld\n", task_id);
-
     enum SensorIndex i;
     size_t slabSize;
 
@@ -3315,6 +3315,4 @@ static uint8_t calcWatermark2_(TASK) {
     return watermark;
 }
 
-INTERNAL_APP_INIT(BMI160_APP_ID, 0, startTask, endTask, handleEvent);
-
-
+INTERNAL_APP_INIT(BMI160_APP_ID, BMI160_APP_VERSION, startTask, endTask, handleEvent);
