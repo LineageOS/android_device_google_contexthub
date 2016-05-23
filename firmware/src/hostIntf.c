@@ -356,7 +356,7 @@ void hostIntfRxPacket(bool wakeupActive)
 
 static void hostIntfRxDone(size_t rx, int err)
 {
-    mRxTimestamp = rtcGetTime();
+    mRxTimestamp = sensorGetTime();
     mRxSize = rx;
 
     if (err != 0) {
@@ -1037,7 +1037,7 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
 {
     struct ConfigCmd *cmd;
     uint32_t i, cnt;
-    uint64_t rtcTime;
+    uint64_t sensorTime;
     struct ActiveSensor *sensor;
     uint32_t tempSensorHandle;
     const struct HostHubRawPacket *hostMsg;
@@ -1094,12 +1094,12 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
     }
 #endif
     else if (evtType == EVT_LATENCY_TIMER) {
-        rtcTime = rtcGetTime();
+        sensorTime = sensorGetTime();
 
         for (i = 0, cnt = 0; i < mNumSensors && cnt < mLatencyCnt; i++) {
             if (mActiveSensorTable[i].latency > 0) {
                 cnt++;
-                if (mActiveSensorTable[i].firstTime && rtcTime >= mActiveSensorTable[i].firstTime + mActiveSensorTable[i].latency) {
+                if (mActiveSensorTable[i].firstTime && sensorTime >= mActiveSensorTable[i].firstTime + mActiveSensorTable[i].latency) {
                     hostIntfSetInterrupt(mActiveSensorTable[i].interrupt);
                 }
             }
@@ -1207,14 +1207,14 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
 
                 switch (sensor->numAxis) {
                 case NUM_AXIS_EMBEDDED:
-                    rtcTime = rtcGetTime();
-                    if (sensor->buffer.length > 0 && rtcTime - sensor->lastTime >= delta_time_max) {
+                    sensorTime = sensorGetTime();
+                    if (sensor->buffer.length > 0 && sensorTime - sensor->lastTime >= delta_time_max) {
                         simpleQueueEnqueue(mOutputQ, &sensor->buffer, sizeof(uint32_t) + sensor->buffer.length, sensor->discard);
                         resetBuffer(sensor);
                     }
                     if (sensor->buffer.length == 0) {
                         sensor->buffer.length = sizeof(struct SingleAxisDataEvent) + sizeof(struct SingleAxisDataPoint);
-                        sensor->lastTime = sensor->buffer.referenceTime = rtcTime;
+                        sensor->lastTime = sensor->buffer.referenceTime = sensorTime;
                         if (sensor->interrupt == NANOHUB_INT_WAKEUP)
                             mWakeupBlocks++;
                         else if (sensor->interrupt == NANOHUB_INT_NONWAKEUP)
@@ -1224,8 +1224,8 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
                         sensor->buffer.single[0].idata = (uint32_t)evtData;
                     } else {
                         sensor->buffer.length += sizeof(struct SingleAxisDataPoint);
-                        sensor->buffer.single[sensor->buffer.firstSample.numSamples].deltaTime = encodeDeltaTime(rtcTime - sensor->lastTime);
-                        sensor->lastTime = rtcTime;
+                        sensor->buffer.single[sensor->buffer.firstSample.numSamples].deltaTime = encodeDeltaTime(sensorTime - sensor->lastTime);
+                        sensor->lastTime = sensorTime;
                         sensor->buffer.single[sensor->buffer.firstSample.numSamples].idata = (uint32_t)evtData;
                         sensor->buffer.firstSample.numSamples++;
                     }
@@ -1246,12 +1246,12 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
                 }
             }
 
-            rtcTime = rtcGetTime();
+            sensorTime = sensorGetTime();
 
             if (sensor->firstTime &&
-                ((rtcTime >= sensor->firstTime + sensor->latency) ||
+                ((sensorTime >= sensor->firstTime + sensor->latency) ||
                  ((sensor->latency > sensorGetCurLatency(sensor->sensorHandle)) &&
-                  (rtcTime + sensorGetCurLatency(sensor->sensorHandle) > sensor->firstTime + sensor->latency)))) {
+                  (sensorTime + sensorGetCurLatency(sensor->sensorHandle) > sensor->firstTime + sensor->latency)))) {
                 interrupt = sensor->interrupt;
             } else if (mWakeupBlocks + mNonWakeupBlocks >= mTotalBlocks) {
                 interrupt = sensor->interrupt;

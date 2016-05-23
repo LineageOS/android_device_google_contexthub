@@ -267,6 +267,7 @@ bool sensorSelfTest(uint32_t sensorHandle);
 bool sensorCfgData(uint32_t sensorHandle, void* cfgData);
 uint32_t sensorGetCurRate(uint32_t sensorHandle);
 uint64_t sensorGetCurLatency(uint32_t sensorHandle);
+uint64_t sensorGetTime(void);
 bool sensorGetInitComplete(uint32_t sensorHandle); // DO NOT poll on this value
 bool sensorMarshallEvent(uint32_t sensorHandle, uint32_t evtType, void *evtData, TaggedPtr *evtFreeingInfoP);
 int sensorUnregisterAll(uint32_t tid);
