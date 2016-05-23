@@ -23,7 +23,6 @@
 #include <eventnums.h>
 
 #include <plat/inc/taggedPtr.h>
-#include <plat/inc/rtc.h>
 #include <plat/inc/bl.h>
 #include <plat/inc/plat.h>
 
@@ -1162,4 +1161,14 @@ const struct NanohubHalCommand *nanohubHalFindCommand(uint8_t msg)
             return cmd;
     }
     return NULL;
+}
+
+uint64_t hostGetTime(void)
+{
+    uint64_t delta = getAvgDelta(&mTimeSync);
+
+    if (!delta)
+        return 0ULL;
+    else
+        return sensorGetTime() + delta;
 }
