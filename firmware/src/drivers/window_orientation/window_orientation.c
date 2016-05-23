@@ -30,6 +30,8 @@
 #include <sensors.h>
 #include <limits.h>
 
+#define WINDOW_ORIENTATION_APP_VERSION  1
+
 #define ACCEL_MIN_RATE_HZ                  SENSOR_HZ(15) // 15 HZ
 #define ACCEL_MAX_LATENCY_NS               40000000ull   // 40 ms in nsec
 
@@ -574,8 +576,6 @@ static const struct SensorOps mSops =
 
 static bool window_orientation_start(uint32_t tid)
 {
-    osLog(LOG_INFO, "        WINDOW ORIENTATION:  %ld\n", tid);
-
     mTask.tid = tid;
 
     mTask.current_rotation = -1;
@@ -593,8 +593,7 @@ static void windowOrientationEnd()
 
 INTERNAL_APP_INIT(
         APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 3),
-        0,
+        WINDOW_ORIENTATION_APP_VERSION,
         window_orientation_start,
         windowOrientationEnd,
         windowOrientationHandleEvent);
-
