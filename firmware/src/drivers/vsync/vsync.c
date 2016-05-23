@@ -157,8 +157,6 @@ static void handleEvent(uint32_t evtType, const void* evtData)
 
 static bool startTask(uint32_t taskId)
 {
-    INFO_PRINT("task starting\n");
-
     mTask.id = taskId;
     mTask.sensorHandle = sensorRegister(&mSensorInfo, &mSensorOps, NULL, true);
     mTask.pin = gpioRequest(VSYNC_PIN);

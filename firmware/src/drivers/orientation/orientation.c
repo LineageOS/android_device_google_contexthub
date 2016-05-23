@@ -32,6 +32,8 @@
 #include <limits.h>
 #include <slab.h>
 
+#define ORIENTATION_APP_VERSION 1
+
 #define MAX_NUM_COMMS_EVENT_SAMPLES 15 // at most 15 samples can fit in one comms_event
 #define NUM_COMMS_EVENTS_IN_FIFO    2  // This controls how often the hub needs to wake up
                                        // in batching
@@ -776,7 +778,6 @@ static const struct SensorOps mSops =
 
 static bool fusionStart(uint32_t tid)
 {
-    osLog(LOG_INFO, "        ORIENTATION:  %ld\n", tid);
     size_t i, slabSize;
 
     mTask.tid = tid;
@@ -827,8 +828,7 @@ static void fusionEnd()
 
 INTERNAL_APP_INIT(
         APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 4),
-        0,
+        ORIENTATION_APP_VERSION,
         fusionStart,
         fusionEnd,
         fusionHandleEvent);
-
