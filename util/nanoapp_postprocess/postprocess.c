@@ -32,11 +32,11 @@
 #define APP_MAGIX_2    0x70416f6e
 #define APP_MAGIX_3    0xffff0070
 
-#define FLASH_BASE  0x10000000
-#define RAM_BASE    0x80000000
+#define FLASH_BASE  0x10000000u
+#define RAM_BASE    0x80000000u
 
-#define FLASH_SIZE  0x10000000  //256MB ought to be enough for everyone
-#define RAM_SIZE    0x10000000  //256MB ought to be enough for everyone
+#define FLASH_SIZE  0x10000000u  //256MB ought to be enough for everyone
+#define RAM_SIZE    0x10000000u  //256MB ought to be enough for everyone
 
 //caution: double evaluation
 #define IS_IN_RANGE_E(_val, _rstart, _rend) (((_val) >= (_rstart)) && ((_val) < (_rend)))
