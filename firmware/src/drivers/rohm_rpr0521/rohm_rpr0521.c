@@ -534,10 +534,10 @@ static void handle_i2c_event(int state)
     case SENSOR_STATE_INIT_OFFSETS:
         /* PS Threshold register */
         mTask.txrxBuf[0] = ROHM_RPR0521_REG_PS_TH_LSB;
-        mTask.txrxBuf[1] = (ROHM_RPR0521_THRESHOLD_ASSERT_NEAR && 0xFF);
-        mTask.txrxBuf[2] = (ROHM_RPR0521_THRESHOLD_ASSERT_NEAR && 0xFF00) >> 8;
-        mTask.txrxBuf[3] = (ROHM_RPR0521_THRESHOLD_DEASSERT_NEAR && 0xFF);
-        mTask.txrxBuf[4] = (ROHM_RPR0521_THRESHOLD_DEASSERT_NEAR && 0xFF00) >> 8;
+        mTask.txrxBuf[1] = (ROHM_RPR0521_THRESHOLD_ASSERT_NEAR & 0xFF);
+        mTask.txrxBuf[2] = (ROHM_RPR0521_THRESHOLD_ASSERT_NEAR & 0xFF00) >> 8;
+        mTask.txrxBuf[3] = (ROHM_RPR0521_THRESHOLD_DEASSERT_NEAR & 0xFF);
+        mTask.txrxBuf[4] = (ROHM_RPR0521_THRESHOLD_DEASSERT_NEAR & 0xFF00) >> 8;
         i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 5, &i2cCallback, (void *)SENSOR_STATE_INIT_THRESHOLDS);
         break;
 
@@ -703,5 +703,5 @@ static void handle_event(uint32_t evtType, const void* evtData)
     }
 }
 
-INTERNAL_APP_INIT(APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 10), 0, init_app, end_app, handle_event);
+INTERNAL_APP_INIT(APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 10), 1, init_app, end_app, handle_event);
 
