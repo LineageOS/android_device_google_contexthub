@@ -238,10 +238,8 @@ bool ContextHub::DisableSensors(const std::vector<SensorSpec>& sensors) {
 bool ContextHub::DisableAllSensors() {
     bool success = true;
 
-    for (int sensor_type = static_cast<int>(SensorType::Invalid_) + 1;
-            sensor_type < static_cast<int>(SensorType::Max_);
-            ++sensor_type) {
-        success &= DisableSensor(static_cast<SensorType>(sensor_type));
+    for (size_t i = 0; i < ARRAY_LEN(sensor_names_); i++) {
+        success &= DisableSensor(sensor_names_[i].sensor_type);
     }
 
     return success;
@@ -251,11 +249,9 @@ bool ContextHub::DisableActiveSensors() {
     bool success = true;
 
     LOGD("Disabling all active sensors");
-    for (int sensor_type = static_cast<int>(SensorType::Invalid_) + 1;
-            sensor_type < static_cast<int>(SensorType::Max_);
-            ++sensor_type) {
-        if (sensor_is_active_[sensor_type]) {
-            success &= DisableSensor(static_cast<SensorType>(sensor_type));
+    for (size_t i = 0; i < ARRAY_LEN(sensor_names_); i++) {
+        if (sensor_is_active_[static_cast<int>(sensor_names_[i].sensor_type)]) {
+            success &= DisableSensor(sensor_names_[i].sensor_type);
         }
     }
 
