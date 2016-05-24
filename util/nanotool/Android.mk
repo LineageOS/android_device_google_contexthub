@@ -26,6 +26,7 @@ LOCAL_SRC_FILES := \
     calibrationfile.cpp \
     contexthub.cpp \
     log.cpp \
+    logevent.cpp \
     nanomessage.cpp \
     nanotool.cpp \
     resetreasonevent.cpp \
