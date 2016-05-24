@@ -70,6 +70,7 @@ static const SensorTypeNames sensor_names_[] = {
     { SensorType::Hall,                 "hall" },
     { SensorType::Activity,             "activity" },
     { SensorType::Vsync,                "vsync" },
+    { SensorType::WristTilt,            "wrist_tilt" },
 };
 
 struct SensorTypeAlias {
