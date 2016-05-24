@@ -69,6 +69,7 @@ enum class SensorType {
     Activity,
     Vsync,
     CompressedAccel,
+    WristTilt = 39,
 
     Max_
 };
