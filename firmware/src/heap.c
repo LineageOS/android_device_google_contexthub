@@ -170,6 +170,12 @@ void heapFree(void* ptr)
     struct HeapNode *node, *t;
     bool haveLock;
 
+    if (ptr == NULL) {
+        // NULL is a valid reply from heapAlloc, and thus it is not an error for
+        // us to receive it here.  We just ignore it.
+        return;
+    }
+
     haveLock = trylockTryTake(&gHeapLock);
 
     node = ((struct HeapNode*)ptr) - 1;
