@@ -43,7 +43,7 @@
 #error "PROX_IRQ is not defined; please define in variant.h"
 #endif
 
-#define RPR0521_APP_VERSION 1
+#define RPR0521_APP_VERSION 2
 
 #define I2C_BUS_ID                              0
 #define I2C_SPEED                               400000
@@ -536,10 +536,10 @@ static void handle_i2c_event(int state)
     case SENSOR_STATE_INIT_OFFSETS:
         /* PS Threshold register */
         mTask.txrxBuf[0] = ROHM_RPR0521_REG_PS_TH_LSB;
-        mTask.txrxBuf[1] = (ROHM_RPR0521_THRESHOLD_ASSERT_NEAR && 0xFF);
-        mTask.txrxBuf[2] = (ROHM_RPR0521_THRESHOLD_ASSERT_NEAR && 0xFF00) >> 8;
-        mTask.txrxBuf[3] = (ROHM_RPR0521_THRESHOLD_DEASSERT_NEAR && 0xFF);
-        mTask.txrxBuf[4] = (ROHM_RPR0521_THRESHOLD_DEASSERT_NEAR && 0xFF00) >> 8;
+        mTask.txrxBuf[1] = (ROHM_RPR0521_THRESHOLD_ASSERT_NEAR & 0xFF);
+        mTask.txrxBuf[2] = (ROHM_RPR0521_THRESHOLD_ASSERT_NEAR & 0xFF00) >> 8;
+        mTask.txrxBuf[3] = (ROHM_RPR0521_THRESHOLD_DEASSERT_NEAR & 0xFF);
+        mTask.txrxBuf[4] = (ROHM_RPR0521_THRESHOLD_DEASSERT_NEAR & 0xFF00) >> 8;
         i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 5, &i2cCallback, (void *)SENSOR_STATE_INIT_THRESHOLDS);
         break;
 
