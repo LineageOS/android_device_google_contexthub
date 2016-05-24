@@ -14,33 +14,28 @@
  * limitations under the License.
  */
 
-#ifndef RESET_REASON_EVENT_H_
-#define RESET_REASON_EVENT_H_
+#ifndef LOG_EVENT_H_
+#define LOG_EVENT_H_
 
 #include "nanomessage.h"
 
 namespace android {
 
-/*
- * These classes represent events sent with event type EVT_RESET_REASON. The
- * platform-specific reset reason is sent at each boot of the sensor hub.
- */
-
-class ResetReasonEvent : public ReadEventResponse {
+class LogEvent : public ReadEventResponse {
   public:
     /*
-     * Constructs and populates a ResetReasonEvent instance. Returns nullptr if
+     * Constructs and populates a LogEvent instance. Returns nullptr if
      * the packet is malformed. The rest of the methods in this class are not
      * guaranteed to be safe unless the object is constructed from this
      * function.
      */
-    static std::unique_ptr<ResetReasonEvent> FromBytes(
+    static std::unique_ptr<LogEvent> FromBytes(
         const std::vector<uint8_t>& buffer);
 
-    // Returns the 32-bit field that contains the platform-specific reset reason
-    uint32_t GetReason() const;
+    // Returns a string containing the contents of the log message.
+    std::string GetMessage() const;
 };
 
 }  // namespace android
 
-#endif // RESET_REASON_EVENT_H_
+#endif  // LOG_EVENT_H_
