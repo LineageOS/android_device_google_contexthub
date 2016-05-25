@@ -19,98 +19,25 @@
 # Exit in error if we use an undefined variable (i.e. commit a typo).
 set -u
 
-terminate() { #cleanup and exit
-	rm -rf $stage
-	exit $1
-}
-
 usage () { #show usage and bail out
 	echo "USAGE:" >&2
-	echo "    $1 <PRIV_KEY_FILE> <PUB_KEY_FILE> < nanohub.update.bin > nanohub.update.signed.bin" >&2
-	terminate -1
+	echo "    $1 <PRIV_KEY_FILE> <PUB_KEY_FILE> nanohub.update.bin" >&2
+	exit 1
 }
 
-putchar() {
-	hexch="0123456789abcdef"
-	h=$[$1/16]
-	l=$[$1%16]
-	h=${hexch:$h:1}
-	l=${hexch:$l:1}
-	e="\x"$h$l
-	echo -ne $e
-}
-
-printhex() {
-	w3=$[$1/16777216]
-	t=$[$w3*16777216]
-	a=$[$1-$t]
-
-	w2=$[$a/65536]
-	t=$[$w2*65536]
-	a=$[$a-$t]
-
-	w1=$[$a/256]
-	w0=$[$a%256]
-
-	putchar $w0
-	putchar $w1
-	putchar $w2
-	putchar $w3
-}
-
-#create temp dir
-stage=$(mktemp -dt "$(basename $0).XXXXXXXXXX")
-
-
-#sanity checks (on the user)
-if [ -t 1 ]
-then
-	usage $0
+if [ $# != 3 ] ; then
+usage $0
 fi
 
-if [ -t 0 ]
-then
-	usage $0
-fi
+priv=$1
+pub=$2
+raw_image=$3
 
-#handle signing
-if [ $# -ne 2 ]
-then
-	usage $0
-fi
-priv1="$1"
-pub1="$2"
+# make signed image with header; suitable for BL
+# to be consumed by BL it has to be named nanohub.kernel.signed
+nanoapp_postprocess -n os -r ${raw_image} ${raw_image}.oshdr
+nanoapp_sign -s -e ${priv} -m ${pub} -r ${raw_image}.oshdr nanohub.kernel.signed
 
+# embed this image inside nanoapp container
 
-#save update to file in dir
-cat > "$stage/raw"
-
-#pad update to 4 byte boundary
-t=$(du -b "$stage/raw" | cut -f1)
-while [ $[$t%4] -ne 0 ]
-do
-	echo -ne "\0" >> "$stage/raw"
-	t=$(du -b "$stage/raw" | cut -f1)
-done
-
-#get and save the file size
-signed_sz=$(du -b "$stage/raw" | cut -f1)
-
-#create the header (with the marker set for signing
-echo -ne "Nanohub OS\x00\xFE" > "$stage/hdr"
-printhex $signed_sz >> "$stage/hdr"
-
-#concat the data to header
-cat "$stage/hdr" "$stage/raw" > "$stage/with_hdr"
-
-#create the signature
-nanoapp_sign sign "$priv1" "$pub1" < "$stage/with_hdr" > "$stage/sig"
-
-#insert proper upload marker
-echo -ne "\xff" | dd bs=1 seek=11 count=1 conv=notrunc of="$stage/with_hdr" 2>/dev/null
-
-#produce signed output
-cat "$stage/with_hdr" "$stage/sig" "$pub1"
-
-terminate 0
-
+nanoapp_postprocess -n os nanohub.kernel.signed ${raw_image}.napp

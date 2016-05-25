@@ -20,7 +20,6 @@
 #include <stdint.h>
 #include <eeData.h>
 
-
 extern uint32_t __eedata_start[], __eedata_end[];
 
 //STM32F4xx eedata stores data in 4-byte aligned chunks
@@ -65,7 +64,7 @@ static bool eeIsValidName(uint32_t name)
     return name && name < EE_DATA_NAME_MAX;
 }
 
-static bool eeDataGetEx(uint32_t name, uint32_t *offsetP, bool first, void *buf, uint32_t *szP)
+static void *eeDataGetEx(uint32_t name, uint32_t *offsetP, bool first, void *buf, uint32_t *szP)
 {
     uint32_t sz = 0;
     void *data;
@@ -76,7 +75,7 @@ static bool eeDataGetEx(uint32_t name, uint32_t *offsetP, bool first, void *buf,
     //find the data item
     data = eeFind(name, offsetP, first, &sz);
     if (!data)
-        return false;
+        return NULL;
 
     if (buf && szP) {    //get the data
         if (sz > *szP)
@@ -87,25 +86,22 @@ static bool eeDataGetEx(uint32_t name, uint32_t *offsetP, bool first, void *buf,
     else if (szP)        //get size
         *szP = sz;
 
-    return true;
+    return (uint32_t*)data - 1;
 }
 
 bool eeDataGet(uint32_t name, void *buf, uint32_t *szP)
 {
     uint32_t offset = 0;
 
-    return eeDataGetEx(name, &offset, false, buf, szP);
+    return eeDataGetEx(name, &offset, false, buf, szP) != NULL;
 }
 
-bool eeDataGetAllVersions(uint32_t name, void *buf, uint32_t *szP, void **stateP)
+void *eeDataGetAllVersions(uint32_t name, void *buf, uint32_t *szP, void **stateP)
 {
     uint32_t offset = *(uint32_t*)stateP;
-    bool ret;
-
-    ret = eeDataGetEx(name, &offset, true, buf, szP);
+    void *addr = eeDataGetEx(name, &offset, true, buf, szP);
     *(uint32_t*)stateP = offset;
-
-    return ret;
+    return addr;
 }
 
 static bool eeWrite(void *dst, const void *src, uint32_t len)
@@ -141,12 +137,16 @@ bool eeDataSet(uint32_t name, const void *buf, uint32_t len)
     return ret;
 }
 
-bool eeDataEraseOldVersion(uint32_t name, void *state)
+bool eeDataEraseOldVersion(uint32_t name, void *vaddr)
 {
-    uint32_t v = *(uint32_t*)state;
+    uint32_t *addr = (uint32_t*)vaddr;
+    uint32_t v;
 
-    if (!eeIsValidName(name))
+    // sanity check
+    if (!eeIsValidName(name) || addr < __eedata_start || addr >= (__eedata_end - 1))
         return false;
+
+    v = *addr;
 
     //verify name
     if ((v & EE_DATA_NAME_MAX) != name)
@@ -156,15 +156,5 @@ bool eeDataEraseOldVersion(uint32_t name, void *state)
     v &=~ EE_DATA_NAME_MAX;
 
     //store result
-    return eeWrite(state, &v, sizeof(v));
+    return eeWrite(addr, &v, sizeof(v));
 }
-
-
-
-
-
-
-
-
-
-

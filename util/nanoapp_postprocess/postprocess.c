@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 
-#include "../../firmware/inc/cpu/cortexm4f/appRelocFormat.h"
 #include <assert.h>
 #include <sys/types.h>
 #include <stdbool.h>
@@ -23,14 +22,14 @@
 #include <string.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stddef.h>
+#include <errno.h>
+
+#include <nanohub/nanohub.h>
+#include <nanohub/nanoapp.h>
+#include <nanohub/appRelocFormat.h>
 
 //This code assumes it is run on a LE CPU with unaligned access abilities. Sorry.
-
-
-#define APP_MAGIX_0    0x676f6f47
-#define APP_MAGIX_1    0x614e656c
-#define APP_MAGIX_2    0x70416f6e
-#define APP_MAGIX_3    0xffff0070
 
 #define FLASH_BASE  0x10000000u
 #define RAM_BASE    0x80000000u
@@ -49,32 +48,6 @@
 #define NANO_RELOC_TYPE_FLASH  1
 #define NANO_RELOC_LAST        2 //must be <= (RELOC_TYPE_MASK >> RELOC_TYPE_SHIFT)
 
-
-struct AppHeader {
-    uint32_t magic[4];
-
-    uint32_t appID[2];
-
-    uint32_t __data_start;
-    uint32_t __data_end;
-    uint32_t __data_data;
-
-    uint32_t __bss_start;
-    uint32_t __bss_end;
-
-    uint32_t __got_start;
-    uint32_t __got_end;
-    uint32_t __rel_start;
-    uint32_t __rel_end;
-
-    uint32_t version;
-    uint32_t rfu;
-
-    uint32_t start_task;
-    uint32_t end_task;
-    uint32_t handle_event;
-};
-
 struct RelocEntry {
     uint32_t where;
     uint32_t info;  //bottom 8 bits is type, top 24 is sym idx
@@ -91,92 +64,78 @@ struct SymtabEntry {
     uint32_t b, c;
 };
 
-
-
 struct NanoRelocEntry {
     uint32_t ofstInRam;
     uint8_t type;
 };
 
+static void fatalUsage(const char *name, const char *msg, const char *arg)
+{
+    if (msg && arg)
+        fprintf(stderr, "Error: %s: %s\n\n", msg, arg);
+    else if (msg)
+        fprintf(stderr, "Error: %s\n\n", msg);
 
-int main(int argc, char **argv)
+    fprintf(stderr, "USAGE: %s [-v] [-k <key id>] [-a <app id>] [-r] [-n <layout name>] [-i <layout id>] <input file> [<output file>]\n"
+                    "       -v               : be verbose\n"
+                    "       -n <layout name> : app, os, key\n"
+                    "       -i <layout id>   : 1 (app), 2 (key), 3 (os)\n"
+                    "       -f <layout flags>: 16-bit hex value, stored as layout-specific flags\n"
+                    "       -a <app ID>      : 64-bit hex number != 0\n"
+                    "       -k <key ID>      : 64-bit hex number != 0\n"
+                    "       -r               : bare (no AOSP header); used only for inner OS image generation\n"
+                    "       layout ID and layout name control the same parameter, so only one of them needs to be used\n"
+                    , name);
+    exit(1);
+}
+
+static int handleApp(uint8_t **pbuf, uint32_t bufUsed, FILE *out, uint32_t layoutFlags, uint64_t appId, bool verbose)
 {
     uint32_t i, numRelocs, numSyms, outNumRelocs = 0, packedNanoRelocSz, j, k, lastOutType = 0, origin = 0;
     struct NanoRelocEntry *nanoRelocs = NULL;
     struct RelocEntry *relocs;
     struct SymtabEntry *syms;
     uint8_t *packedNanoRelocs;
-    uint32_t t, bufUsed = 0;
-    struct AppHeader *hdr;
-    bool verbose = false;
-    uint8_t *buf = NULL;
-    uint32_t bufSz = 0;
-    uint64_t appId = 0;
-    int c, ret = -1;
+    uint32_t t;
+    struct BinHdr *bin;
+    int ret = -1;
+    struct SectInfo *sect;
+    struct AppInfo app;
+    uint8_t *buf = *pbuf;
+    uint32_t bufSz = bufUsed * 3 /2;
 
-
-    argc--;
-    assert(argc >= 0);
-    argv++;
-
-    for (i = 0; i < (uint32_t)argc; i++) {
-        if (!strcmp(argv[i], "-v")) {
-            verbose = true;
-            continue;
-        }
-        appId = strtoul(argv[i], NULL, 16);
-    }
-
-    if (!appId) {
-        fprintf(stderr, "USAGE: %s [-v] 0123456789abcdef < app.bin >app.ap\n\twhere 0123456789abcdef is app ID in hex\n", argv[-1]);
-        return -2;
-    }
-
-    // read file
-    while ((c = getchar()) != EOF) {
-        if (bufSz == bufUsed) {
-            uint8_t *t;
-            bufSz = (bufSz * 5) / 4 + 1;
-            t = realloc(buf, bufSz);
-            if (!t) {
-                fprintf(stderr, "Realloc to %u fails - you're SOL\n", (unsigned)bufSz);
-                goto out;
-            }
-            buf = t;
-        }
-        buf[bufUsed++] = c;
-    }
-
-    //make buffer bigger by 50% in case relocs grow out of hand
-    buf = realloc(buf, 3 * bufUsed / 2);
-    if (!buf) {
-        fprintf(stderr, "MEMERR\n");
-        exit(-7);
-    }
+    //make buffer 50% bigger than bufUsed in case relocs grow out of hand
+    buf = reallocOrDie(buf, bufSz);
+    *pbuf = buf;
 
     //sanity checks
-    hdr = (struct AppHeader*)buf;
-    if (bufUsed < sizeof(struct AppHeader)) {
+    bin = (struct BinHdr*)buf;
+    if (bufUsed < sizeof(*bin)) {
         fprintf(stderr, "File size too small\n");
         goto out;
     }
 
-    if (hdr->magic[0] != APP_MAGIX_0 || hdr->magic[1] != APP_MAGIX_1 || hdr->magic[2] != APP_MAGIX_2 || hdr->magic[3] != APP_MAGIX_3) {
-        fprintf(stderr, "Magic value wrong\n");
+    if (bin->hdr.magic != NANOAPP_FW_MAGIC) {
+        fprintf(stderr, "Magic value is wrong: found %08" PRIX32
+                        "; expected %08" PRIX32 "\n",
+                        bin->hdr.magic, NANOAPP_FW_MAGIC);
         goto out;
     }
+
+    sect = &bin->sect;
+
     //do some math
-    relocs = (struct RelocEntry*)(buf + hdr->__rel_start - FLASH_BASE);
-    syms = (struct SymtabEntry*)(buf + hdr->__rel_end - FLASH_BASE);
-    numRelocs = (hdr->__rel_end - hdr->__rel_start) / sizeof(struct RelocEntry);
-    numSyms = (bufUsed + FLASH_BASE - hdr->__rel_end) / sizeof(struct SymtabEntry);
+    relocs = (struct RelocEntry*)(buf + sect->rel_start - FLASH_BASE);
+    syms = (struct SymtabEntry*)(buf + sect->rel_end - FLASH_BASE);
+    numRelocs = (sect->rel_end - sect->rel_start) / sizeof(struct RelocEntry);
+    numSyms = (bufUsed + FLASH_BASE - sect->rel_end) / sizeof(struct SymtabEntry);
 
     //sanity
-    if (numRelocs * sizeof(struct RelocEntry) + hdr->__rel_start != hdr->__rel_end) {
+    if (numRelocs * sizeof(struct RelocEntry) + sect->rel_start != sect->rel_end) {
         fprintf(stderr, "Relocs of nonstandard size\n");
         goto out;
     }
-    if (numSyms * sizeof(struct SymtabEntry) + hdr->__rel_end != bufUsed + FLASH_BASE) {
+    if (numSyms * sizeof(struct SymtabEntry) + sect->rel_end != bufUsed + FLASH_BASE) {
         fprintf(stderr, "Syms of nonstandard size\n");
         goto out;
     }
@@ -206,24 +165,26 @@ int main(int argc, char **argv)
         }
 
         if (verbose) {
+            const char *seg;
 
             fprintf(stderr, "Reloc[%3u]:\n {@0x%08X, type %3d, -> sym[%3u]: {@0x%08x}, ",
                 i, relocs[i].where, relocs[i].info & 0xff, whichSym, syms[whichSym].addr);
 
-            if (IS_IN_RANGE_E(relocs[i].where, hdr->__bss_start, hdr->__bss_end))
-                fprintf(stderr, "in   .bss}\n");
-            else if (IS_IN_RANGE_E(relocs[i].where, hdr->__data_start, hdr->__data_end))
-                fprintf(stderr, "in  .data}\n");
-            else if (IS_IN_RANGE_E(relocs[i].where, hdr->__got_start, hdr->__got_end))
-                fprintf(stderr, "in   .got}\n");
-            else if (IS_IN_RANGE_E(relocs[i].where, FLASH_BASE, FLASH_BASE + sizeof(struct AppHeader)))
-                fprintf(stderr, "in APPHDR}\n");
+            if (IS_IN_RANGE_E(relocs[i].where, sect->bss_start, sect->bss_end))
+                seg = ".bss";
+            else if (IS_IN_RANGE_E(relocs[i].where, sect->data_start, sect->data_end))
+                seg = ".data";
+            else if (IS_IN_RANGE_E(relocs[i].where, sect->got_start, sect->got_end))
+                seg = ".got";
+            else if (IS_IN_RANGE_E(relocs[i].where, FLASH_BASE, FLASH_BASE + sizeof(struct BinHdr)))
+                seg = "APPHDR";
             else
-                fprintf(stderr, "in	???}\n");
+                seg = "???";
 
+            fprintf(stderr, "in   %s}\n", seg);
         }
         /* handle relocs inside the header */
-        if (IS_IN_FLASH(relocs[i].where) && relocs[i].where - FLASH_BASE < sizeof(struct AppHeader) && relocType == RELOC_TYPE_SECT) {
+        if (IS_IN_FLASH(relocs[i].where) && relocs[i].where - FLASH_BASE < sizeof(struct BinHdr) && relocType == RELOC_TYPE_SECT) {
             /* relocs in header are special - runtime corrects for them */
             if (syms[whichSym].addr) {
                 fprintf(stderr, "Weird in-header sect reloc %u to symbol %u with nonzero addr 0x%08x\n", i, whichSym, syms[whichSym].addr);
@@ -237,7 +198,12 @@ int main(int argc, char **argv)
                 goto out;
             }
 
-            *valThereP -= FLASH_BASE;
+            // binary header generated by objcopy, .napp header and final FW header in flash are of different size.
+            // we subtract binary header offset here, so all the entry points are relative to beginning of "sect".
+            // FW will use &sect as a base to call these vectors; no more problems with different header sizes;
+            // Assumption: offsets between sect & vec, vec & code are the same in all images (or, in a simpler words, { sect, vec, code }
+            // must go together). this is enforced by linker script, and maintained by all tools and FW download code in the OS.
+            *valThereP -= FLASH_BASE + BINARY_RELOC_OFFSET;
 
             if (verbose)
                 fprintf(stderr, "  -> Nano reloc skipped for in-header reloc\n");
@@ -251,7 +217,7 @@ int main(int argc, char **argv)
             goto out;
         }
 
-        valThereP = (uint32_t*)(buf + relocs[i].where + hdr-> __data_data - RAM_BASE - FLASH_BASE);
+        valThereP = (uint32_t*)(buf + relocs[i].where + sect->data_data - RAM_BASE - FLASH_BASE);
 
         nanoRelocs[outNumRelocs].ofstInRam = relocs[i].where - RAM_BASE;
 
@@ -263,7 +229,7 @@ int main(int argc, char **argv)
                 (*valThereP) += syms[whichSym].addr;
 
                 if (IS_IN_FLASH(syms[whichSym].addr)) {
-                    (*valThereP) -= FLASH_BASE;
+                    (*valThereP) -= FLASH_BASE + BINARY_RELOC_OFFSET;
                     nanoRelocs[outNumRelocs].type = NANO_RELOC_TYPE_FLASH;
                 }
                 else if (IS_IN_RAM(syms[whichSym].addr)) {
@@ -288,7 +254,7 @@ int main(int argc, char **argv)
 
                 if (IS_IN_FLASH(*valThereP)) {
                     nanoRelocs[outNumRelocs].type = NANO_RELOC_TYPE_FLASH;
-                    *valThereP -= FLASH_BASE;
+                    *valThereP -= FLASH_BASE + BINARY_RELOC_OFFSET;
                 }
                 else if (IS_IN_RAM(*valThereP)) {
                     nanoRelocs[outNumRelocs].type = NANO_RELOC_TYPE_RAM;
@@ -313,7 +279,7 @@ int main(int argc, char **argv)
     }
 
     //sort by type and then offset
-        for (i = 0; i < outNumRelocs; i++) {
+    for (i = 0; i < outNumRelocs; i++) {
         struct NanoRelocEntry t;
 
         for (k = i, j = k + 1; j < outNumRelocs; j++) {
@@ -333,8 +299,7 @@ int main(int argc, char **argv)
     //produce output nanorelocs in packed format
     packedNanoRelocs = malloc(outNumRelocs * 6); //definitely big enough
     packedNanoRelocSz = 0;
-        for (i = 0; i < outNumRelocs; i++) {
-
+    for (i = 0; i < outNumRelocs; i++) {
         uint32_t displacement;
 
         if (lastOutType != nanoRelocs[i].type) {  //output type if ti changed
@@ -408,74 +373,269 @@ int main(int argc, char **argv)
         }
     }
 
-    //put in app id
-    hdr->appID[0] = appId;
-    hdr->appID[1] = appId >> 32;
-
     //overwrite original relocs and symtab with nanorelocs and adjust sizes
     memcpy(relocs, packedNanoRelocs, packedNanoRelocSz);
     bufUsed -= sizeof(struct RelocEntry[numRelocs]);
     bufUsed -= sizeof(struct SymtabEntry[numSyms]);
     bufUsed += packedNanoRelocSz;
-    hdr->__rel_end = hdr->__rel_start + packedNanoRelocSz;
+    assertMem(bufUsed, bufSz);
+    sect->rel_end = sect->rel_start + packedNanoRelocSz;
 
     //sanity
-    if (hdr->__rel_end - FLASH_BASE != bufUsed) {
+    if (sect->rel_end - FLASH_BASE != bufUsed) {
         fprintf(stderr, "Relocs end and file end not coincident\n");
         goto out;
     }
 
     //adjust headers for easy access (RAM)
-    if (!IS_IN_RAM(hdr->__data_start) || !IS_IN_RAM(hdr->__data_end) || !IS_IN_RAM(hdr->__bss_start) || !IS_IN_RAM(hdr->__bss_end) || !IS_IN_RAM(hdr->__got_start) || !IS_IN_RAM(hdr->__got_end)) {
+    if (!IS_IN_RAM(sect->data_start) || !IS_IN_RAM(sect->data_end) || !IS_IN_RAM(sect->bss_start) ||
+        !IS_IN_RAM(sect->bss_end) || !IS_IN_RAM(sect->got_start) || !IS_IN_RAM(sect->got_end)) {
         fprintf(stderr, "data, bss, or got not in ram\n");
         goto out;
     }
-    hdr->__data_start -= RAM_BASE;
-    hdr->__data_end -= RAM_BASE;
-    hdr->__bss_start -= RAM_BASE;
-    hdr->__bss_end -= RAM_BASE;
-    hdr->__got_start -= RAM_BASE;
-    hdr->__got_end -= RAM_BASE;
+    sect->data_start -= RAM_BASE;
+    sect->data_end -= RAM_BASE;
+    sect->bss_start -= RAM_BASE;
+    sect->bss_end -= RAM_BASE;
+    sect->got_start -= RAM_BASE;
+    sect->got_end -= RAM_BASE;
 
     //adjust headers for easy access (FLASH)
-    if (!IS_IN_FLASH(hdr->__data_data) || !IS_IN_FLASH(hdr->__rel_start) || !IS_IN_FLASH(hdr->__rel_end)) {
-        fprintf(stderr, "data.data, or rel not in ram\n");
+    if (!IS_IN_FLASH(sect->data_data) || !IS_IN_FLASH(sect->rel_start) || !IS_IN_FLASH(sect->rel_end)) {
+        fprintf(stderr, "data.data, or rel not in flash\n");
         goto out;
     }
-    hdr->__data_data -= FLASH_BASE;
-    hdr->__rel_start -= FLASH_BASE;
-    hdr->__rel_end -= FLASH_BASE;
+    sect->data_data -= FLASH_BASE + BINARY_RELOC_OFFSET;
+    sect->rel_start -= FLASH_BASE + BINARY_RELOC_OFFSET;
+    sect->rel_end -= FLASH_BASE + BINARY_RELOC_OFFSET;
+
+    struct ImageHeader outHeader = {
+        .aosp = (struct nano_app_binary_t) {
+            .header_version = 1,
+            .magic = NANOAPP_AOSP_MAGIC,
+            .app_id = appId,
+            .app_version = bin->hdr.appVer,
+            .flags       = 0, // encrypted (1), signed (2) (will be set by other tools)
+        },
+        .layout = (struct ImageLayout) {
+            .magic = GOOGLE_LAYOUT_MAGIC,
+            .version = 1,
+            .payload = LAYOUT_APP,
+            .flags = layoutFlags,
+        },
+    };
+    uint32_t dataOffset = sizeof(outHeader) + sizeof(app);
+    uint32_t hdrDiff = dataOffset - sizeof(*bin);
+    app.sect = bin->sect;
+    app.vec  = bin->vec;
+
+    assertMem(bufUsed + hdrDiff, bufSz);
+
+    memmove(buf + dataOffset, buf + sizeof(*bin), bufUsed - sizeof(*bin));
+    bufUsed += hdrDiff;
+    memcpy(buf, &outHeader, sizeof(outHeader));
+    memcpy(buf + sizeof(outHeader), &app, sizeof(app));
+    sect = &app.sect;
 
     //if we have any bytes to output, show stats
     if (bufUsed) {
-        uint32_t codeAndRoDataSz = hdr->__data_data;
-        uint32_t relocsSz = hdr->__rel_end - hdr->__rel_start;
-        uint32_t gotSz = hdr->__got_end - hdr->__data_start;
-        uint32_t bssSz = hdr->__bss_end - hdr->__bss_start;
+        uint32_t codeAndRoDataSz = sect->data_data;
+        uint32_t relocsSz = sect->rel_end - sect->rel_start;
+        uint32_t gotSz = sect->got_end - sect->data_start;
+        uint32_t bssSz = sect->bss_end - sect->bss_start;
 
         fprintf(stderr,"Final binary size %u bytes\n", bufUsed);
         fprintf(stderr, "\n");
-        fprintf(stderr, "\tCode + RO data (flash):	     %6u bytes\n", (unsigned)codeAndRoDataSz);
-        fprintf(stderr, "\tRelocs (flash):		     %6u bytes\n", (unsigned)relocsSz);
-        fprintf(stderr, "\tGOT + RW data (flash & RAM): %6u bytes\n", (unsigned)gotSz);
-        fprintf(stderr, "\tBSS (RAM):		     %6u bytes\n", (unsigned)bssSz);
+        fprintf(stderr, "       FW header size (flash):      %6u bytes\n", (unsigned)FLASH_RELOC_OFFSET);
+        fprintf(stderr, "       Code + RO data (flash):      %6u bytes\n", (unsigned)codeAndRoDataSz);
+        fprintf(stderr, "       Relocs (flash):              %6u bytes\n", (unsigned)relocsSz);
+        fprintf(stderr, "       GOT + RW data (flash & RAM): %6u bytes\n", (unsigned)gotSz);
+        fprintf(stderr, "       BSS (RAM):                   %6u bytes\n", (unsigned)bssSz);
         fprintf(stderr, "\n");
-        fprintf(stderr,"Runtime flash use: %u bytes\n", codeAndRoDataSz + relocsSz + gotSz);
+        fprintf(stderr,"Runtime flash use: %u bytes\n", codeAndRoDataSz + relocsSz + gotSz + FLASH_RELOC_OFFSET);
         fprintf(stderr,"Runtime RAM use: %u bytes\n", gotSz + bssSz);
     }
 
-    //output the data
-    for (i = 0; i < bufUsed; i++)
-        putchar(buf[i]);
-
-    //success!
-    ret = 0;
+    ret = fwrite(buf, bufUsed, 1, out) == 1 ? 0 : 2;
+    if (ret)
+        fprintf(stderr, "Failed to write output file: %s\n", strerror(errno));
 
 out:
     free(nanoRelocs);
-    free(buf);
     return ret;
 }
 
+static int handleKey(uint8_t **pbuf, uint32_t bufUsed, FILE *out, uint32_t layoutFlags, uint64_t appId, uint64_t keyId)
+{
+    uint8_t *buf = *pbuf;
+    struct KeyInfo ki = { .data = keyId };
+    bool good = true;
 
+    struct ImageHeader outHeader = {
+        .aosp = (struct nano_app_binary_t) {
+            .header_version = 1,
+            .magic = NANOAPP_AOSP_MAGIC,
+            .app_id = appId,
+        },
+        .layout = (struct ImageLayout) {
+            .magic = GOOGLE_LAYOUT_MAGIC,
+            .version = 1,
+            .payload = LAYOUT_KEY,
+            .flags = layoutFlags,
+        },
+    };
 
+    good = good && fwrite(&outHeader, sizeof(outHeader), 1, out) == 1;
+    good = good && fwrite(&ki, sizeof(ki), 1, out) ==  1;
+    good = good && fwrite(buf, bufUsed, 1, out) == 1;
+
+    return good ? 0 : 2;
+}
+
+static int handleOs(uint8_t **pbuf, uint32_t bufUsed, FILE *out, uint32_t layoutFlags, bool bare)
+{
+    uint8_t *buf = *pbuf;
+    bool good;
+
+    struct OsUpdateHdr os = {
+        .magic = OS_UPDT_MAGIC,
+        .marker = OS_UPDT_MARKER_INPROGRESS,
+        .size = bufUsed
+    };
+
+    struct ImageHeader outHeader = {
+        .aosp = (struct nano_app_binary_t) {
+            .header_version = 1,
+            .magic = NANOAPP_AOSP_MAGIC,
+        },
+        .layout = (struct ImageLayout) {
+            .magic = GOOGLE_LAYOUT_MAGIC,
+            .version = 1,
+            .payload = LAYOUT_OS,
+            .flags = layoutFlags,
+        },
+    };
+
+    if (!bare)
+        good = fwrite(&outHeader, sizeof(outHeader), 1, out) == 1;
+    else
+        good = fwrite(&os, sizeof(os), 1, out) == 1;
+    good = good && fwrite(buf, bufUsed, 1, out) == 1;
+
+    return good ? 0 : 2;
+}
+
+int main(int argc, char **argv)
+{
+    uint32_t bufUsed = 0;
+    bool verbose = false;
+    uint8_t *buf = NULL;
+    uint64_t appId = 0;
+    uint64_t keyId = 0;
+    uint32_t layoutId = 0;
+    uint32_t layoutFlags = 0;
+    int ret = -1;
+    uint32_t *u32Arg = NULL;
+    uint64_t *u64Arg = NULL;
+    const char **strArg = NULL;
+    const char *appName = argv[0];
+    int posArgCnt = 0;
+    const char *posArg[2] = { NULL };
+    FILE *out = NULL;
+    const char *layoutName = "app";
+    const char *prev = NULL;
+    bool bareData = false;
+
+    for (int i = 1; i < argc; i++) {
+        char *end = NULL;
+        if (argv[i][0] == '-') {
+            prev = argv[i];
+            if (!strcmp(argv[i], "-v"))
+                verbose = true;
+            else if (!strcmp(argv[i], "-r"))
+                bareData = true;
+            else if (!strcmp(argv[i], "-a"))
+                u64Arg = &appId;
+            else if (!strcmp(argv[i], "-k"))
+                u64Arg = &keyId;
+            else if (!strcmp(argv[i], "-n"))
+                strArg = &layoutName;
+            else if (!strcmp(argv[i], "-i"))
+                u32Arg = &layoutId;
+            else if (!strcmp(argv[i], "-f"))
+                u32Arg = &layoutFlags;
+            else
+                fatalUsage(appName, "unknown argument", argv[i]);
+        } else {
+            if (u64Arg) {
+                uint64_t tmp = strtoull(argv[i], &end, 16);
+                if (*end == '\0')
+                    *u64Arg = tmp;
+                u64Arg = NULL;
+            } else if (u32Arg) {
+                uint32_t tmp = strtoul(argv[i], &end, 16);
+                if (*end == '\0')
+                    *u32Arg = tmp;
+                u32Arg = NULL;
+            } else if (strArg) {
+                    *strArg = argv[i];
+                strArg = NULL;
+            } else {
+                if (posArgCnt < 2)
+                    posArg[posArgCnt++] = argv[i];
+                else
+                    fatalUsage(appName, "too many positional arguments", argv[i]);
+            }
+            prev = NULL;
+        }
+    }
+    if (prev)
+        fatalUsage(appName, "missing argument after", prev);
+
+    if (!posArgCnt)
+        fatalUsage(appName, "missing input file name", NULL);
+
+    if (!layoutId) {
+        if (strcmp(layoutName, "app") == 0)
+            layoutId = LAYOUT_APP;
+        else if (strcmp(layoutName, "os") == 0)
+            layoutId = LAYOUT_OS;
+        else if (strcmp(layoutName, "key") == 0)
+            layoutId = LAYOUT_KEY;
+        else
+            fatalUsage(appName, "Invalid layout name", layoutName);
+    }
+
+    if (layoutId == LAYOUT_APP && !appId)
+        fatalUsage(appName, "App layout requires app ID", NULL);
+    if (layoutId == LAYOUT_KEY && !keyId)
+        fatalUsage(appName, "Key layout requires key ID", NULL);
+    if (layoutId == LAYOUT_OS && (keyId || appId))
+        fatalUsage(appName, "OS layout does not need any ID", NULL);
+
+    buf = loadFile(posArg[0], &bufUsed);
+    fprintf(stderr, "Read %" PRIu32 " bytes\n", bufUsed);
+
+    if (!posArg[1])
+        out = stdout;
+    else
+        out = fopen(posArg[1], "w");
+    if (!out)
+        fatalUsage(appName, "failed to create/open output file", posArg[1]);
+
+    switch(layoutId) {
+    case LAYOUT_APP:
+        ret = handleApp(&buf, bufUsed, out, layoutFlags, appId, verbose);
+        break;
+    case LAYOUT_KEY:
+        ret = handleKey(&buf, bufUsed, out, layoutFlags, appId, keyId);
+        break;
+    case LAYOUT_OS:
+        ret = handleOs(&buf, bufUsed, out, layoutFlags, bareData);
+        break;
+    }
+
+    free(buf);
+    fclose(out);
+    return ret;
+}

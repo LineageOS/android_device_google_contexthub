@@ -15,7 +15,7 @@
  */
 
 #include <stdint.h>
-#include <crc.h>
+#include <nanohub/crc.h>
 
 /* this implements crc32 as crc.h defines it. It is not a normal CRC by any measure, so be careful with it */
 

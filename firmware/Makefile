@@ -53,7 +53,7 @@ include $(MAKE_PLAT)
 include $(MAKE_CPU)
 include $(MAKE_VAR)
 
-FLAGS += -Wall -Werror -Iinc -Ilinks -Iexternal/freebsd/inc -fshort-double
+FLAGS += -Wall -Werror -Iinc -Ilinks -Iexternal/freebsd/inc -I../lib/include -fshort-double
 #help avoid commmon embedded C mistakes
 FLAGS += -Wmissing-declarations -Wlogical-op -Waddress -Wempty-body -Wpointer-arith -Wenum-compare -Wdouble-promotion -Wfloat-equal -Wshadow -fno-strict-aliasing
 
@@ -64,7 +64,7 @@ APPFLAGS += -Os
 FLAGS += $(DEBUG)
 
 #bootloader pieces
-SRCS_bl += src/sha2.c src/rsa.c src/aes.c src/seos.c
+SRCS_bl += ../lib/nanohub/sha2.c ../lib/nanohub/rsa.c ../lib/nanohub/aes.c src/seos.c
 
 #frameworks
 SRCS_os += src/printf.c src/timer.c src/seos.c src/heap.c src/slab.c src/spi.c src/trylock.c
@@ -75,7 +75,7 @@ SRCS_os += src/eventQ.c src/osApi.c src/appSec.c src/simpleQ.c src/floatRt.c
 SRCS_bl += src/printf.c
 
 ifndef PLATFORM_HAS_HARDWARE_CRC
-SRCS_os += src/softcrc.c
+SRCS_os += ../lib/nanohub/softcrc.c
 endif
 
 #app code
