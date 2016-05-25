@@ -52,6 +52,12 @@
 #define SYNC_DATAPOINTS 16
 #define SYNC_RESET      10000000000ULL /* 10 seconds, ~100us drift */
 
+// maximum number of bytes to feed into appSecRxData at once
+// The bigger the number, the more time we block other event processing
+// appSecRxData only feeds 16 bytes at a time into writeCbk, so large
+// numbers don't buy us that much
+#define MAX_APP_SEC_RX_DATA_LEN 64
+
 struct DownloadState
 {
     struct AppSecState *appSecState;
@@ -63,6 +69,7 @@ struct DownloadState
     uint32_t srcCrc;
     uint8_t  data[NANOHUB_PACKET_PAYLOAD_MAX];
     uint8_t  len;
+    uint8_t  lenLeft;
     uint8_t  chunkReply;
     uint8_t  type;
     bool     erase;
@@ -252,7 +259,8 @@ static uint32_t startFirmwareUpload(void *rx, uint8_t rx_len, void *tx, uint64_t
         total_len = sizeof(uint32_t) + ((len + 3) & ~3) + sizeof(uint32_t);
     }
 
-    if (shared + sizeof(uint32_t) + ((mDownloadState->size + 3) & ~3) + sizeof(uint32_t) < shared_end) {
+    if ((req->type == BL_FLASH_APP_ID && shared + sizeof(uint32_t) + ((mDownloadState->size + 3) & ~3) + sizeof(uint32_t) < shared_end) ||
+        (req->type == BL_FLASH_KERNEL_ID && shared == shared_start)) {
         mDownloadState->start = shared;
         mDownloadState->erase = false;
     } else {
@@ -279,27 +287,17 @@ static void firmwareErase(void *cookie)
     }
 }
 
-static AppSecErr giveAppSecTimeIfNeeded(struct AppSecState *state, AppSecErr prevRet)
-{
-    /* XXX: this will need to go away for real asynchronicity */
-
-    while (prevRet == APP_SEC_NEED_MORE_TIME)
-        prevRet = appSecDoSomeProcessing(state);
-
-    return prevRet;
-}
-
 static uint8_t firmwareFinish(bool valid)
 {
     uint8_t buffer[7];
     int padlen;
     uint32_t crc;
     uint16_t marker;
+    uint8_t osmarker;
     static const char magic[] = APP_HDR_MAGIC;
+    static const char osmagic[] = OS_UPDT_MAGIC;
     const struct AppHdr *app;
-
-    mAppSecStatus = appSecRxDataOver(mDownloadState->appSecState);
-    mAppSecStatus = giveAppSecTimeIfNeeded(mDownloadState->appSecState, mAppSecStatus);
+    const struct OsUpdateHdr *os;
 
     if (mAppSecStatus == APP_SEC_NO_ERROR && valid && mDownloadState->type == BL_FLASH_APP_ID) {
         app = (const struct AppHdr *)&mDownloadState->start[4];
@@ -323,8 +321,26 @@ static uint8_t firmwareFinish(bool valid)
             return NANOHUB_FIRMWARE_CHUNK_REPLY_RESEND;
         }
     } else {
+        os = (const struct OsUpdateHdr *)&mDownloadState->start[4];
+
+        if (os->marker != OS_UPDT_MARKER_INPROGRESS ||
+                mDownloadState->size < sizeof(uint32_t) + sizeof(struct OsUpdateHdr) ||
+                memcmp(osmagic, os->magic, sizeof(osmagic)-1)) {
+
+            osmarker = OS_UPDT_MARKER_INVALID;
+        } else {
+            osmarker = OS_UPDT_MARKER_DOWNLOADED;
+        }
+
+        osLog(LOG_INFO, "Loaded %s kernel: %ld bytes @ %p\n", osmarker == OS_UPDT_MARKER_DOWNLOADED ? "valid" : "invalid", mDownloadState->size, mDownloadState->start);
+
         mpuAllowRamExecution(true);
         mpuAllowRomWrite(true);
+        if (!BL.blProgramShared((uint8_t *)&os->marker, (uint8_t *)&osmarker, sizeof(osmarker), BL_FLASH_KEY1, BL_FLASH_KEY2)) {
+            mpuAllowRomWrite(false);
+            mpuAllowRamExecution(false);
+            return NANOHUB_FIRMWARE_CHUNK_REPLY_RESEND;
+        }
     }
 
     if (mAppSecStatus == APP_SEC_NO_ERROR && valid)
@@ -343,7 +359,7 @@ static uint8_t firmwareFinish(bool valid)
     }
 
     crc = ~crc32(mDownloadState->start, mDownloadState->dstOffset, ~0);
-    padlen =  (4 - (mDownloadState->dstOffset & 3)) & 3;
+    padlen = (4 - (mDownloadState->dstOffset & 3)) & 3;
     memset(buffer, 0x00, padlen);
     memcpy(&buffer[padlen], &crc, sizeof(uint32_t));
     mDownloadState->size = mDownloadState->dstOffset + padlen + sizeof(uint32_t);
@@ -364,36 +380,55 @@ static uint8_t firmwareFinish(bool valid)
 static void firmwareWrite(void *cookie)
 {
     uint32_t reply;
+    struct NanohubHalContUploadTx *resp = cookie;
 
-    if (mDownloadState->type == BL_FLASH_APP_ID) {
-        /* XXX: this will need to change for real asynchronicity */
-        const uint8_t *data = mDownloadState->data;
-        uint32_t len = mDownloadState->len, lenLeft;
-        mAppSecStatus = APP_SEC_NO_ERROR;
+    if (mAppSecStatus == APP_SEC_NEED_MORE_TIME) {
+        mAppSecStatus = appSecDoSomeProcessing(mDownloadState->appSecState);
+    } else if (mDownloadState->lenLeft) {
+        const uint8_t *data = mDownloadState->data + mDownloadState->len - mDownloadState->lenLeft;
+        uint32_t len = mDownloadState->lenLeft, lenLeft, lenRem = 0;
 
-        while (len) {
-            mAppSecStatus = appSecRxData(mDownloadState->appSecState, data, len, &lenLeft);
-            data += len - lenLeft;
-            len = lenLeft;
-
-            mAppSecStatus = giveAppSecTimeIfNeeded(mDownloadState->appSecState, mAppSecStatus);
+        if (len > MAX_APP_SEC_RX_DATA_LEN) {
+            lenRem = len - MAX_APP_SEC_RX_DATA_LEN;
+            len = MAX_APP_SEC_RX_DATA_LEN;
         }
-    }
-    else
-        mAppSecStatus = writeCbk(mDownloadState->data, mDownloadState->len);
 
-    if (mAppSecStatus == APP_SEC_NO_ERROR) {
-        if (mDownloadState->srcOffset == mDownloadState->size && mDownloadState->crc == ~mDownloadState->srcCrc) {
-            reply = firmwareFinish(true);
-            if (mDownloadState)
-                mDownloadState->chunkReply = reply;
+        mAppSecStatus = appSecRxData(mDownloadState->appSecState, data, len, &lenLeft);
+        mDownloadState->lenLeft = lenLeft + lenRem;
+    } else {
+        mAppSecStatus = writeCbk(mDownloadState->data, mDownloadState->len);
+    }
+
+    if (mAppSecStatus == APP_SEC_NEED_MORE_TIME || mDownloadState->lenLeft) {
+        osDefer(firmwareWrite, cookie, false);
+        return;
+    } else if (mAppSecStatus == APP_SEC_NO_ERROR) {
+        if (mDownloadState->srcOffset == mDownloadState->size) {
+            if (mDownloadState->type == BL_FLASH_APP_ID)
+                mAppSecStatus = appSecRxDataOver(mDownloadState->appSecState);
+            if (mAppSecStatus == APP_SEC_NEED_MORE_TIME) {
+                osDefer(firmwareWrite, cookie, false);
+                return;
+            } else {
+                reply = firmwareFinish(true);
+                if (mDownloadState)
+                    mDownloadState->chunkReply = reply;
+            }
         } else {
             mDownloadState->chunkReply = NANOHUB_FIRMWARE_CHUNK_REPLY_ACCEPTED;
         }
     } else {
         freeDownloadState();
     }
-    hostIntfSetBusy(false);
+
+    if (resp) {
+        if (mDownloadState)
+            resp->success = mDownloadState->chunkReply;
+        else
+            resp->success = NANOHUB_FIRMWARE_CHUNK_REPLY_ACCEPTED;
+        resp->success = !resp->success;
+        osEnqueueEvtOrFree(EVT_APP_TO_HOST, resp, heapFree);
+    }
 }
 
 static uint32_t firmwareChunk(void *rx, uint8_t rx_len, void *tx, uint64_t timestamp)
@@ -408,6 +443,8 @@ static uint32_t firmwareChunk(void *rx, uint8_t rx_len, void *tx, uint64_t times
 
     if (!mDownloadState) {
         resp->chunkReply = NANOHUB_FIRMWARE_CHUNK_REPLY_CANCEL_NO_RETRY;
+    } else if (mAppSecStatus == APP_SEC_NEED_MORE_TIME || mDownloadState->lenLeft) {
+        resp->chunkReply = NANOHUB_FIRMWARE_CHUNK_REPLY_RESEND;
     } else if (mDownloadState->chunkReply != NANOHUB_FIRMWARE_CHUNK_REPLY_ACCEPTED) {
         resp->chunkReply = mDownloadState->chunkReply;
         freeDownloadState();
@@ -426,8 +463,11 @@ static uint32_t firmwareChunk(void *rx, uint8_t rx_len, void *tx, uint64_t times
         } else {
             memcpy(mDownloadState->data, req->data, len);
             mDownloadState->len = len;
+            if (mDownloadState->type == BL_FLASH_APP_ID)
+                mDownloadState->lenLeft = len;
+            else
+                mDownloadState->lenLeft = 0;
             resp->chunkReply = NANOHUB_FIRMWARE_CHUNK_REPLY_ACCEPTED;
-            hostIntfSetBusy(true);
             osDefer(firmwareWrite, NULL, false);
         }
     }
@@ -435,46 +475,54 @@ static uint32_t firmwareChunk(void *rx, uint8_t rx_len, void *tx, uint64_t times
     return sizeof(*resp);
 }
 
+static uint32_t appSecErrToNanohubReply(AppSecErr status)
+{
+    uint32_t reply;
+
+    switch (status) {
+    case APP_SEC_NO_ERROR:
+        reply = NANOHUB_FIRMWARE_UPLOAD_SUCCESS;
+        break;
+    case APP_SEC_KEY_NOT_FOUND:
+        reply = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_KEY_NOT_FOUND;
+        break;
+    case APP_SEC_HEADER_ERROR:
+        reply = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_HEADER_ERROR;
+        break;
+    case APP_SEC_TOO_MUCH_DATA:
+        reply = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_TOO_MUCH_DATA;
+        break;
+    case APP_SEC_TOO_LITTLE_DATA:
+        reply = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_TOO_LITTLE_DATA;
+        break;
+    case APP_SEC_SIG_VERIFY_FAIL:
+        reply = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_SIG_VERIFY_FAIL;
+        break;
+    case APP_SEC_SIG_DECODE_FAIL:
+        reply = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_SIG_DECODE_FAIL;
+        break;
+    case APP_SEC_SIG_ROOT_UNKNOWN:
+        reply = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_SIG_ROOT_UNKNOWN;
+        break;
+    case APP_SEC_MEMORY_ERROR:
+        reply = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_MEMORY_ERROR;
+        break;
+    case APP_SEC_INVALID_DATA:
+        reply = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_INVALID_DATA;
+        break;
+    default:
+        reply = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_BAD;
+        break;
+    }
+    return reply;
+}
+
 static uint32_t finishFirmwareUpload(void *rx, uint8_t rx_len, void *tx, uint64_t timestamp)
 {
     struct NanohubFinishFirmwareUploadResponse *resp = tx;
 
     if (!mDownloadState) {
-        switch (mAppSecStatus) {
-        case APP_SEC_NO_ERROR:
-            resp->uploadReply = NANOHUB_FIRMWARE_UPLOAD_SUCCESS;
-            break;
-        case APP_SEC_KEY_NOT_FOUND:
-            resp->uploadReply = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_KEY_NOT_FOUND;
-            break;
-        case APP_SEC_HEADER_ERROR:
-            resp->uploadReply = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_HEADER_ERROR;
-            break;
-        case APP_SEC_TOO_MUCH_DATA:
-            resp->uploadReply = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_TOO_MUCH_DATA;
-            break;
-        case APP_SEC_TOO_LITTLE_DATA:
-            resp->uploadReply = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_TOO_LITTLE_DATA;
-            break;
-        case APP_SEC_SIG_VERIFY_FAIL:
-            resp->uploadReply = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_SIG_VERIFY_FAIL;
-            break;
-        case APP_SEC_SIG_DECODE_FAIL:
-            resp->uploadReply = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_SIG_DECODE_FAIL;
-            break;
-        case APP_SEC_SIG_ROOT_UNKNOWN:
-            resp->uploadReply = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_SIG_ROOT_UNKNOWN;
-            break;
-        case APP_SEC_MEMORY_ERROR:
-            resp->uploadReply = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_MEMORY_ERROR;
-            break;
-        case APP_SEC_INVALID_DATA:
-            resp->uploadReply = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_INVALID_DATA;
-            break;
-        default:
-            resp->uploadReply = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_BAD;
-            break;
-        }
+        resp->uploadReply = appSecErrToNanohubReply(mAppSecStatus);
     } else if (mDownloadState->srcOffset == mDownloadState->size) {
         resp->uploadReply = NANOHUB_FIRMWARE_UPLOAD_PROCESSING;
     } else {
@@ -1023,13 +1071,9 @@ static void halContUpload(void *rx, uint8_t rx_len)
     } else if (mDownloadState->srcOffset + len <= mDownloadState->size) {
         mDownloadState->srcOffset += len;
         memcpy(mDownloadState->data, req->data, len);
-        mDownloadState->len = len;
-        hostIntfSetBusy(true);
-        firmwareWrite(NULL);
-        if (mDownloadState)
-            resp->success = mDownloadState->chunkReply;
-        else
-            resp->success = NANOHUB_FIRMWARE_CHUNK_REPLY_ACCEPTED;
+        mDownloadState->lenLeft = mDownloadState->len = len;
+        osDefer(firmwareWrite, resp, false);
+        return;
     } else {
         resp->success = NANOHUB_FIRMWARE_CHUNK_REPLY_CANCEL_NO_RETRY;
     }

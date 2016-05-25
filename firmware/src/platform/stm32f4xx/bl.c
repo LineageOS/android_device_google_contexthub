@@ -426,8 +426,7 @@ static bool blProgramFlash(uint8_t *dst, const uint8_t *src, uint32_t length, ui
 {
     struct StmFlash *flash = (struct StmFlash *)FLASH_BASE;
     const uint32_t sector_cnt = sizeof(mBlFlashTable) / sizeof(struct blFlashTable);
-    uint32_t acr_cache, cr_cache, offset, i, j = 0, int_state = 0, erase_cnt = 0;
-    uint8_t erase_mask[sector_cnt];
+    uint32_t acr_cache, cr_cache, offset, i, j = 0, int_state = 0;
     uint8_t *ptr;
 
     if (((length == 0)) ||
@@ -438,15 +437,6 @@ static bool blProgramFlash(uint8_t *dst, const uint8_t *src, uint32_t length, ui
         return false;
     }
 
-    // disable interrupts
-    // otherwise an interrupt during flash write/erase will stall the processor
-    // until the write/erase completes
-    int_state = blDisableInts();
-
-    // figure out which (if any) blocks we have to erase
-    for (i = 0; i < sector_cnt; i++)
-        erase_mask[i] = 0;
-
     // compute which flash block we are starting from
     for (i = 0; i < sector_cnt; i++) {
         if (dst >= mBlFlashTable[i].address &&
@@ -456,7 +446,7 @@ static bool blProgramFlash(uint8_t *dst, const uint8_t *src, uint32_t length, ui
     }
 
     // now loop through all the flash blocks and see if we have to do any
-    // 0 -> 1 transitions of a bit. If so, we must erase that block
+    // 0 -> 1 transitions of a bit. If so, return false
     // 1 -> 0 transitions of a bit do not require an erase
     offset = (uint32_t)(dst - mBlFlashTable[i].address);
     ptr = mBlFlashTable[i].address;
@@ -468,15 +458,17 @@ static bool blProgramFlash(uint8_t *dst, const uint8_t *src, uint32_t length, ui
         }
 
         if ((ptr[offset] & src[j]) != src[j]) {
-            erase_mask[i] = 1;
-            erase_cnt++;
-            j += mBlFlashTable[i].length - offset;
-            offset = mBlFlashTable[i].length;
+            return false;
         } else {
             j++;
             offset++;
         }
     }
+
+    // disable interrupts
+    // otherwise an interrupt during flash write will stall the processor
+    // until the write completes
+    int_state = blDisableInts();
 
     // wait for flash to not be busy (should never be set at this point)
     while (flash->SR & FLASH_SR_BSY);
@@ -504,9 +496,6 @@ static bool blProgramFlash(uint8_t *dst, const uint8_t *src, uint32_t length, ui
     flash->ACR &= ~(FLASH_ACR_DCEN | FLASH_ACR_ICEN);
     flash->ACR |= (FLASH_ACR_DCRST | FLASH_ACR_ICRST);
 
-    if (erase_cnt)
-        blEraseSectors(sector_cnt, erase_mask);
-
     blWriteBytes(dst, src, length);
 
     flash->ACR = acr_cache;
@@ -517,7 +506,7 @@ static bool blProgramFlash(uint8_t *dst, const uint8_t *src, uint32_t length, ui
     return !memcmp(dst, src, length);
 }
 
-static bool blProgramTypedArea(uint8_t *dst, const uint8_t *src, uint32_t length, uint32_t key1, uint32_t key2, uint32_t type)
+static bool blProgramTypedArea(uint8_t *dst, const uint8_t *src, uint32_t length, uint32_t type, uint32_t key1, uint32_t key2)
 {
     const uint32_t sector_cnt = sizeof(mBlFlashTable) / sizeof(struct blFlashTable);
     uint32_t i;
@@ -538,12 +527,12 @@ static bool blProgramTypedArea(uint8_t *dst, const uint8_t *src, uint32_t length
 
 static bool blExtApiProgramSharedArea(uint8_t *dst, const uint8_t *src, uint32_t length, uint32_t key1, uint32_t key2)
 {
-    return blProgramTypedArea(dst, src, length, key1, key2, BL_FLASH_SHARED);
+    return blProgramTypedArea(dst, src, length, BL_FLASH_SHARED, key1, key2);
 }
 
 static bool blExtApiProgramEe(uint8_t *dst, const uint8_t *src, uint32_t length, uint32_t key1, uint32_t key2)
 {
-    return blProgramTypedArea(dst, src, length, key1, key2, BL_FLASH_EEDATA);
+    return blProgramTypedArea(dst, src, length, BL_FLASH_EEDATA, key1, key2);
 }
 
 static bool blEraseTypedArea(uint32_t type, uint32_t key1, uint32_t key2)
@@ -712,15 +701,16 @@ const struct BlVecTable __attribute__((section(".blvec"))) __BL_VECTORS =
 static void blApplyVerifiedUpdate(const struct OsUpdateHdr *os) //only called if an update has been found to exist and be valid, signed, etc!
 {
     //copy shared to code, and if successful, erase shared area
-    if (blProgramFlash(__code_start, (const uint8_t*)(os + 1), os->size, BL_FLASH_KEY1, BL_FLASH_KEY2))
-        (void)blExtApiEraseSharedArea(BL_FLASH_KEY1, BL_FLASH_KEY2);
+    if (blEraseTypedArea(BL_FLASH_KERNEL, BL_FLASH_KEY1, BL_FLASH_KEY2))
+        if (blProgramTypedArea(__code_start, (const uint8_t*)(os + 1), os->size, BL_FLASH_KERNEL, BL_FLASH_KEY1, BL_FLASH_KEY2))
+            (void)blExtApiEraseSharedArea(BL_FLASH_KEY1, BL_FLASH_KEY2);
 }
 
 static void blWriteMark(struct OsUpdateHdr *hdr, uint32_t mark)
 {
     uint8_t dstVal = mark;
 
-    (void)blProgramFlash(&hdr->marker, &dstVal, sizeof(hdr->marker), BL_FLASH_KEY1, BL_FLASH_KEY2);
+    (void)blExtApiProgramSharedArea(&hdr->marker, &dstVal, sizeof(hdr->marker), BL_FLASH_KEY1, BL_FLASH_KEY2);
 }
 
 static void blUpdateMark(uint32_t old, uint32_t new)
@@ -1067,7 +1057,7 @@ static void blSpiLoader(bool force)
                         break;
 
                     //do it
-                    ack = blProgramFlash(__shared_start + addr, data, len, BL_FLASH_KEY1, BL_FLASH_KEY2);
+                    ack = blExtApiProgramSharedArea(__shared_start + addr, data, len, BL_FLASH_KEY1, BL_FLASH_KEY2);
                     blSpiLoaderDrainRxFifo(spi);
                     nextAddr += len;
                     break;
