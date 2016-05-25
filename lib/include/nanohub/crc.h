@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-#ifndef __CRC_H
-#define __CRC_H
+#ifndef _NANOHUB_CRC_H_
+#define _NANOHUB_CRC_H_
 
 #include <stddef.h>
 #include <stdint.h>
@@ -38,4 +38,4 @@
  */
 uint32_t crc32(const void *buf, size_t size, uint32_t crc);
 
-#endif /* __CRC_H */
+#endif /* _NANOHUB_CRC_H_ */

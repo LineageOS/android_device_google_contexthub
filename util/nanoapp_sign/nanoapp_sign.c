@@ -19,25 +19,30 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <stdio.h>
-#include <sha2.h>
-#include <rsa.h>
+#include <endian.h>
 
+#include <nanohub/nanohub.h>
+#include <nanohub/nanoapp.h>
+#include <nanohub/sha2.h>
+#include <nanohub/rsa.h>
 
 static FILE* urandom = NULL;
 
 //read exactly one hex-encoded byte from a file, skipping all the fluff
-static int getHexEncodedByte(void)
+static int getHexEncodedByte(uint8_t *buf, uint32_t *ppos, uint32_t size)
 {
     int c, i;
+    uint32_t pos = *ppos;
     uint8_t val = 0;
 
     //for first byte
     for (i = 0; i < 2; i++) {
         val <<= 4;
         while(1) {
-            c = getchar();
-            if (c == EOF)
+            if (pos == size)
                 return -1;
+            c = buf[pos++];
+            *ppos = pos;
 
             if (c >= '0' && c <= '9')
                 val += c - '0';
@@ -58,31 +63,6 @@ static int getHexEncodedByte(void)
     }
 
     return val;
-}
-
-static bool readRsaDataFile(const char *fileName, uint32_t *buf)
-{
-    uint32_t sz = sizeof(uint32_t[RSA_LIMBS]);
-    FILE *f = fopen(fileName, "rb");
-    bool ret = false;
-
-    if (!f)
-        goto out_noclose;
-
-    if (sz != fread(buf, 1, sz, f))
-        goto out;
-
-    //verify file is empty
-    if (fread(&sz, 1, 1, f))
-        goto out;
-
-    ret = true;
-
-out:
-    fclose(f);
-
-out_noclose:
-    return ret;
 }
 
 //provide a random number for which the following property is true ((ret & 0xFF000000) && (ret & 0xFF0000) && (ret & 0xFF00) && (ret & 0xFF))
@@ -119,251 +99,429 @@ static void cleanup(void)
         fclose(urandom);
 }
 
-int main(int argc, char **argv)
-{
-    const char *selfExeName = argv[0];
-    const uint32_t *hash, *rsaResult;
-    uint32_t rsanum[RSA_LIMBS];
+struct RsaData {
+    uint32_t num[RSA_LIMBS];
     uint32_t exponent[RSA_LIMBS];
     uint32_t modulus[RSA_LIMBS];
-    struct Sha2state shaState;
-    struct RsaState rsaState;
-    uint8_t buf[RSA_BYTES];
-    uint64_t fileSz = 0;
-    bool verbose = false;
-    int c, ret = -1;
-    unsigned int i;
+    struct RsaState state;
+};
 
-    argc--;
-    argv++;
+static bool validateSignature(uint8_t *sigPack, struct RsaData *rsa, bool verbose, uint32_t *refHash, bool preset)
+{
+    int i;
+    const uint32_t *rsaResult;
+    const uint32_t *le32SigPack = (const uint32_t*)sigPack;
+    //convert to native uint32_t; ignore possible alignment issues
+    for (i = 0; i < RSA_LIMBS; i++)
+        rsa->num[i] = le32toh(le32SigPack[i]);
+    //update the user
+    if (verbose)
+        printHashRev(stderr, "RSA cyphertext", rsa->num, RSA_LIMBS);
+    if (!preset)
+        memcpy(rsa->modulus, sigPack + RSA_BYTES, RSA_BYTES);
 
-    if (argc >= 1 && !strcmp(argv[0], "-v")) {
-        verbose = true;
-        argc--;
-        argv++;
+    //do rsa op
+    rsaResult = rsaPubOp(&rsa->state, rsa->num, rsa->modulus);
+
+    //update the user
+    if (verbose)
+        printHashRev(stderr, "RSA plaintext", rsaResult, RSA_LIMBS);
+
+    //verify padding is appropriate and valid
+    if ((rsaResult[RSA_LIMBS - 1] & 0xffff0000) != 0x00020000) {
+        fprintf(stderr, "Padding header is invalid\n");
+        return false;
     }
 
-    if (argc < 1)
-        goto usage;
-
-    if (!strcmp(argv[0], "txt2bin")) {
-
-        bool  haveNonzero = false;
-        uint32_t v;
-
-        for (i = 0; i < RSA_BYTES; i++) {
-
-            //get a byte, skipping all zeroes (openssl likes to prepend one at times)
-            do {
-                c = getHexEncodedByte();
-            } while (c == 0 && !haveNonzero);
-            haveNonzero = true;
-            if (c < 0) {
-                fprintf(stderr, "Invalid text RSA input data\n");
-                goto usage;
-            }
-
-            buf[i] = c;
-        }
-
-        for (i = 0; i < RSA_LIMBS; i++) {
-            for (v = 0, c = 0; c < 4; c++)
-                v = (v << 8) | buf[i * 4 + c];
-            rsanum[RSA_LIMBS - i - 1] = v;
-        }
-
-        //output in our binary format (little-endina)
-        fwrite(rsanum, 1, sizeof(uint32_t[RSA_LIMBS]), stdout);
-    }
-    else if (!strcmp(argv[0], "sigdecode")) {
-        if (argc < 2)
-            goto usage;
-
-        //get modulus
-        if (!readRsaDataFile(argv[1], modulus)) {
-            fprintf(stderr, "failed to read RSA modulus\n");
-            goto usage;
-        }
-
-        //update the user
-        if (verbose) {
-            fprintf(stderr, "RSA modulus: 0x");
-            for (i = 0; i < RSA_LIMBS; i++)
-                fprintf(stderr, "%08lx", (unsigned long)modulus[RSA_LIMBS - i - 1]);
-            fprintf(stderr, "\n");
-        }
-
-        //read input data as bytes
-        i = 0;
-        while ((c = getchar()) != EOF) {
-            if (i == RSA_BYTES) {
-                fprintf(stderr, "too many signature bytes\n");
-                goto usage;
-            }
-            buf[i++] = c;
-        }
-        if (i != RSA_BYTES) {
-            fprintf(stderr, "too few signature bytes\n");
-            goto usage;
-        }
-
-        //convert into uint32_ts (just read as little endian and pack)
-        for (i = 0; i < RSA_LIMBS; i++) {
-            uint32_t v, j;
-
-            for (v = 0, j = 0; j < 4; j++)
-                v = (v << 8) | buf[i * 4 + 3 - j];
-
-            rsanum[i] = v;
-        }
-
-        //update the user
-        if (verbose) {
-            fprintf(stderr, "RSA cyphertext: 0x");
-            for (i = 0; i < RSA_LIMBS; i++)
-                fprintf(stderr, "%08lx", (unsigned long)rsanum[RSA_LIMBS - i - 1]);
-            fprintf(stderr, "\n");
-        }
-
-        //do rsa op
-        rsaResult = rsaPubOp(&rsaState, rsanum, modulus);
-
-        //update the user
-        if (verbose) {
-            fprintf(stderr, "RSA plaintext: 0x");
-            for (i = 0; i < RSA_LIMBS; i++)
-                fprintf(stderr, "%08lx", (unsigned long)rsaResult[RSA_LIMBS - i - 1]);
-            fprintf(stderr, "\n");
-        }
-
-        //verify padding is appropriate and valid
-        if ((rsaResult[RSA_LIMBS - 1] & 0xffff0000) != 0x00020000) {
-            fprintf(stderr, "Padding header is invalid\n");
-            goto out;
-        }
-
-        //verify first two bytes of padding
-        if (!(rsaResult[RSA_LIMBS - 1] & 0xff00) || !(rsaResult[RSA_LIMBS - 1] & 0xff)) {
-            fprintf(stderr, "Padding bytes 0..1 are invalid\n");
-            goto out;
-        }
-
-        //verify last 3 bytes of padding and the zero terminator
-        if (!(rsaResult[8] & 0xff000000) || !(rsaResult[8] & 0xff0000) || !(rsaResult[8] & 0xff00) || (rsaResult[8] & 0xff)) {
-            fprintf(stderr, "Padding last bytes & terminator invalid\n");
-            goto out;
-        }
-
-        //verify middle padding bytes
-        for (i = 9; i < RSA_LIMBS - 1; i++) {
-            if (!(rsaResult[i] & 0xff000000) || !(rsaResult[i] & 0xff0000) || !(rsaResult[i] & 0xff00) || !(rsaResult[i] & 0xff)) {
-                fprintf(stderr, "Padding word %d invalid\n", i);
-                goto out;
-            }
-        }
-
-        //show the hash
-        for (i = 0; i < 8; i++)
-            printf("%08lx", (unsigned long)rsaResult[i]);
-        printf("\n");
-        ret = 0;
-    }
-    else if (!strcmp(argv[0], "sign")) {
-        if (argc != 3)
-            goto usage;
-
-        //it might not matter, but we still like to try to cleanup after ourselves
-        (void)atexit(cleanup);
-
-        //prepare & get RSA info
-        if (!readRsaDataFile(argv[1], exponent)) {
-            fprintf(stderr, "failed to read RSA private exponent\n");
-            goto usage;
-        }
-
-        if (!readRsaDataFile(argv[2], modulus)) {
-            fprintf(stderr, "failed to read RSA modulus\n");
-            goto usage;
-        }
-
-        //update the user
-        if (verbose) {
-            fprintf(stderr, "RSA modulus: 0x");
-            for (i = 0; i < RSA_LIMBS; i++)
-                fprintf(stderr, "%08lx", (unsigned long)modulus[RSA_LIMBS - i - 1]);
-            fprintf(stderr, "\n");
-        }
-
-        //hash input
-        sha2init(&shaState);
-        fprintf(stderr, "Reading data to sign...");
-        while ((c = getchar()) != EOF) {  //this is slow but our data is small, so deal with it!
-            uint8_t byte = c;
-            sha2processBytes(&shaState, &byte, 1);
-            fileSz++;
-        }
-        fprintf(stderr, " read %llu bytes\n", (unsigned long long)fileSz);
-
-        //update the user on the progress
-        hash = sha2finish(&shaState);
-        if (verbose) {
-            fprintf(stderr, "SHA2 hash: 0x");
-            for (i = 0; i < 8; i++)
-                fprintf(stderr, "%08lx", (unsigned long)hash[i]);
-            fprintf(stderr, "\n");
-        }
-
-        //write into our "data to sign" area
-        for (i = 0; i < 8; i++)
-            rsanum[i] = hash[i];
-
-        //write padding
-        rsanum[i++] = rand32_no_zero_bytes() << 8; //low byte here must be zero as per padding spec
-        for (;i < RSA_LIMBS - 1; i++)
-            rsanum[i] = rand32_no_zero_bytes();
-        rsanum[i] = (rand32_no_zero_bytes() >> 16) | 0x00020000; //as per padding spec
-
-        //update the user
-        if (verbose) {
-            fprintf(stderr, "RSA plaintext: 0x");
-            for (i = 0; i < RSA_LIMBS; i++)
-                fprintf(stderr, "%08lx", (unsigned long)rsanum[RSA_LIMBS - i - 1]);
-            fprintf(stderr, "\n");
-        }
-
-        //do the RSA thing
-        fprintf(stderr, "Retriculating splines...");
-        rsaResult = rsaPrivOp(&rsaState, rsanum, exponent, modulus);
-        fprintf(stderr, "DONE\n");
-
-        //update the user
-        if (verbose) {
-            fprintf(stderr, "RSA cyphertext: 0x");
-            for (i = 0; i < RSA_LIMBS; i++)
-                fprintf(stderr, "%08lx", (unsigned long)rsaResult[RSA_LIMBS - i - 1]);
-            fprintf(stderr, "\n");
-        }
-
-        //output in a format that our microcontroller will be able to digest easily & directly (an array of bytes representing little-endian 32-bit words)
-        fwrite(rsaResult, 1, sizeof(uint32_t[RSA_LIMBS]), stdout);
-
-        fprintf(stderr, "success\n");
-        ret = 0;
+    //verify first two bytes of padding
+    if (!(rsaResult[RSA_LIMBS - 1] & 0xff00) || !(rsaResult[RSA_LIMBS - 1] & 0xff)) {
+        fprintf(stderr, "Padding bytes 0..1 are invalid\n");
+        return false;
     }
 
-out:
-    return ret;
+    //verify last 3 bytes of padding and the zero terminator
+    if (!(rsaResult[8] & 0xff000000) || !(rsaResult[8] & 0xff0000) || !(rsaResult[8] & 0xff00) || (rsaResult[8] & 0xff)) {
+        fprintf(stderr, "Padding last bytes & terminator invalid\n");
+        return false;
+    }
 
-usage:
-    fprintf(stderr, "USAGE: %s [-v] sign <BINARY_PRIVATE_EXPONENT_FILE> <BINARY_MODULUS_FILE> < data_to_sign > signature_out\n"
-                    "       %s [-v] sigdecode <BINARY_MODULUS_FILE> < signature_out > expected_sha2\n"
-                    "       %s [-v] txt2bin < TEXT_RSA_FILE > BINARY_RSA_FILE\n"
-                    "\t<BINARY_PRIVATE_EXPONENT> and <BINARY_MODULUS> files contain RSA numbers, binary little endian format\n"
-                    "\t<TEXT_RSA_FILE> file contain RSA numbers, text, big-endian format as exported by 'openssl rsa -in YOURKEY -text -noout'\n",
-                    selfExeName, selfExeName, selfExeName);
-    return -1;
+    //verify middle padding bytes
+    for (i = 9; i < RSA_LIMBS - 1; i++) {
+        if (!(rsaResult[i] & 0xff000000) || !(rsaResult[i] & 0xff0000) || !(rsaResult[i] & 0xff00) || !(rsaResult[i] & 0xff)) {
+            fprintf(stderr, "Padding word %d invalid\n", i);
+            return false;
+        }
+    }
+    if (verbose) {
+        printHash(stderr, "Recovered hash ", rsaResult, SHA2_HASH_WORDS);
+        printHash(stderr, "Calculated hash", refHash, SHA2_HASH_WORDS);
+    }
+
+    if (!preset) {
+        // we're doing full verification, with key extracted from signature pack
+        if (memcmp(rsaResult, refHash, SHA2_HASH_SIZE)) {
+            fprintf(stderr, "hash mismatch\n");
+            return false;
+        }
+    } else {
+        // we just decode the signature with key passed as an argument
+        // in this case we return recovered hash
+        memcpy(refHash, rsaResult, SHA2_HASH_SIZE);
+    }
+    return true;
 }
 
+#define SIGNATURE_BLOCK_SIZE    (2 * RSA_BYTES)
 
+static int handleConvertKey(uint8_t **pbuf, uint32_t bufUsed, FILE *out, struct RsaData *rsa)
+{
+    bool  haveNonzero = false;
+    uint8_t *buf = *pbuf;
+    int i, c;
+    uint32_t pos = 0;
+    int ret;
 
+    for (i = 0; i < (int)RSA_BYTES; i++) {
 
+        //get a byte, skipping all zeroes (openssl likes to prepend one at times)
+        do {
+            c = getHexEncodedByte(buf, &pos, bufUsed);
+        } while (c == 0 && !haveNonzero);
+        haveNonzero = true;
+        if (c < 0) {
+            fprintf(stderr, "Invalid text RSA input data\n");
+            return 2;
+        }
+
+        buf[i] = c;
+    }
+
+    // change form BE to native; ignore alignment
+    uint32_t *be32Buf = (uint32_t*)buf;
+    for (i = 0; i < RSA_LIMBS; i++)
+        rsa->num[RSA_LIMBS - i - 1] = be32toh(be32Buf[i]);
+
+    //output in our binary format (little-endian)
+    ret = fwrite(rsa->num, 1, RSA_BYTES, out) == RSA_BYTES ? 0 : 2;
+    fprintf(stderr, "Conversion status: %d\n", ret);
+
+    return ret;
+}
+
+static int handleVerify(uint8_t **pbuf, uint32_t bufUsed, struct RsaData *rsa, bool verbose, bool bareData)
+{
+    struct Sha2state shaState;
+    uint8_t *buf = *pbuf;
+    uint32_t masterPubKey[RSA_LIMBS];
+
+    memcpy(masterPubKey, rsa->modulus, RSA_BYTES);
+    if (!bareData) {
+        struct ImageHeader *image = (struct ImageHeader *)buf;
+        struct AppSecSignHdr *secHdr = (struct AppSecSignHdr *)&image[1];
+        int block = 0;
+        uint8_t *sigPack;
+        bool trusted = false;
+        bool lastTrusted = false;
+        int sigData;
+
+        if (verbose)
+            fprintf(stderr, "Original Data len=%d b; file size=%d b; diff=%d b\n", secHdr->appDataLen, bufUsed, bufUsed - secHdr->appDataLen);
+
+        if (!(image->aosp.flags & NANOAPP_SIGNED_FLAG)) {
+            fprintf(stderr, "image is not marked as signed, can not verify\n");
+            return 2;
+        }
+        sigData = bufUsed - (secHdr->appDataLen + sizeof(*image) + sizeof(*secHdr));
+        if (sigData <= 0 || (sigData % SIGNATURE_BLOCK_SIZE) != 0) {
+            fprintf(stderr, "Invalid signature header: data size mismatch\n");
+            return 2;
+        }
+
+        sha2init(&shaState);
+        sha2processBytes(&shaState, buf, bufUsed - sigData);
+        int nSig = sigData / SIGNATURE_BLOCK_SIZE;
+        sigPack = buf + bufUsed - sigData;
+        for (block = 0; block < nSig; ++block) {
+            if (!validateSignature(sigPack, rsa, verbose, (uint32_t*)sha2finish(&shaState), false)) {
+                fprintf(stderr, "Signature verification failed: signature block #%d\n", block);
+                return 2;
+            }
+            if (memcmp(masterPubKey, rsa->modulus, RSA_BYTES) == 0) {
+                fprintf(stderr, "Key in block %d is trusted\n", block);
+                trusted = true;
+                lastTrusted = true;
+            } else {
+                lastTrusted = false;
+            }
+            sha2init(&shaState);
+            sha2processBytes(&shaState, sigPack+RSA_BYTES, RSA_BYTES);
+            sigPack += SIGNATURE_BLOCK_SIZE;
+        }
+        if (trusted && !lastTrusted) {
+            fprintf(stderr, "Trusted key is not the last in key sequence\n");
+        }
+        return trusted ? 0 : 2;
+    } else {
+        uint8_t *sigPack = buf + bufUsed - SIGNATURE_BLOCK_SIZE;
+        uint32_t *hash;
+        // can not do signature chains in bare mode
+        if (bufUsed > SIGNATURE_BLOCK_SIZE) {
+            sha2init(&shaState);
+            sha2processBytes(&shaState, buf, bufUsed - SIGNATURE_BLOCK_SIZE);
+            hash = (uint32_t*)sha2finish(&shaState);
+            printHash(stderr, "File hash", hash, SHA2_HASH_WORDS);
+            if (verbose)
+                printHashRev(stderr, "File PubKey", (uint32_t *)(sigPack + RSA_BYTES), RSA_LIMBS);
+            if (!validateSignature(sigPack, rsa, verbose, hash, false)) {
+                fprintf(stderr, "Signature verification failed on raw data\n");
+                return 2;
+            }
+            if (memcmp(masterPubKey, sigPack + RSA_BYTES, RSA_BYTES) == 0) {
+                fprintf(stderr, "Signature verification passed and the key is trusted\n");
+                return 0;
+            } else {
+                fprintf(stderr, "Signature verification passed but the key is not trusted\n");
+                return 2;
+            }
+        } else {
+            fprintf(stderr, "Not enough raw data to extract signature from\n");
+            return 2;
+        }
+    }
+
+    return 0;
+}
+
+static int handleSign(uint8_t **pbuf, uint32_t bufUsed, FILE *out, struct RsaData *rsa, bool verbose, bool bareData)
+{
+    struct Sha2state shaState;
+    uint8_t *buf = *pbuf;
+    uint32_t i;
+    const uint32_t *hash;
+    const uint32_t *rsaResult;
+    int ret;
+
+    if (!bareData) {
+        struct ImageHeader *image = (struct ImageHeader *)buf;
+        struct AppSecSignHdr *secHdr = (struct AppSecSignHdr *)&image[1];
+        uint32_t grow = sizeof(*secHdr);
+        if (!(image->aosp.flags & NANOAPP_SIGNED_FLAG)) {
+            // this is the 1st signature in the chain; inject header, set flag
+            buf = reallocOrDie(buf, bufUsed + grow);
+            *pbuf = buf;
+            image = (struct ImageHeader *)buf;
+            secHdr = (struct AppSecSignHdr *)&image[1];
+
+            fprintf(stderr, "Generating signature header\n");
+            image->aosp.flags |= NANOAPP_SIGNED_FLAG;
+            memmove((uint8_t*)&image[1] + grow, &image[1], bufUsed - sizeof(*image));
+            secHdr->appDataLen = bufUsed - sizeof(*image);
+            bufUsed += grow;
+            fprintf(stderr, "Rehashing file\n");
+            sha2init(&shaState);
+            sha2processBytes(&shaState, buf, bufUsed);
+        } else {
+            int sigSz = bufUsed - sizeof(*image) - sizeof(*secHdr) - secHdr->appDataLen;
+            int numSigs = sigSz / SIGNATURE_BLOCK_SIZE;
+            if ((numSigs * SIGNATURE_BLOCK_SIZE) != sigSz) {
+                fprintf(stderr, "Invalid signature block(s) detected\n");
+                return 2;
+            } else {
+                fprintf(stderr, "Found %d appended signature(s)\n", numSigs);
+                // generating SHA256 of the last PubKey in chain
+                fprintf(stderr, "Hashing last signature's PubKey\n");
+                sha2init(&shaState);
+                sha2processBytes(&shaState, buf + bufUsed- RSA_BYTES, RSA_BYTES);
+            }
+        }
+    } else {
+        fprintf(stderr, "Signing raw data\n");
+        sha2init(&shaState);
+        sha2processBytes(&shaState, buf, bufUsed);
+    }
+
+    //update the user on the progress
+    hash = sha2finish(&shaState);
+    if (verbose)
+        printHash(stderr, "SHA2 hash", hash, SHA2_HASH_WORDS);
+
+    memcpy(rsa->num, hash, SHA2_HASH_SIZE);
+
+    i = SHA2_HASH_WORDS;
+    //write padding
+    rsa->num[i++] = rand32_no_zero_bytes() << 8; //low byte here must be zero as per padding spec
+    for (;i < RSA_LIMBS - 1; i++)
+        rsa->num[i] = rand32_no_zero_bytes();
+    rsa->num[i] = (rand32_no_zero_bytes() >> 16) | 0x00020000; //as per padding spec
+
+    //update the user
+    if (verbose)
+        printHashRev(stderr, "RSA plaintext", rsa->num, RSA_LIMBS);
+
+    //do the RSA thing
+    fprintf(stderr, "Retriculating splines...");
+    rsaResult = rsaPrivOp(&rsa->state, rsa->num, rsa->exponent, rsa->modulus);
+    fprintf(stderr, "DONE\n");
+
+    //update the user
+    if (verbose)
+        printHashRev(stderr, "RSA cyphertext", rsaResult, RSA_LIMBS);
+
+    // output in a format that our microcontroller will be able to digest easily & directly
+    // (an array of bytes representing little-endian 32-bit words)
+    fwrite(buf, 1, bufUsed, out);
+    fwrite(rsaResult, 1, sizeof(uint32_t[RSA_LIMBS]), out);
+    ret = (fwrite(rsa->modulus, 1, RSA_BYTES, out) == RSA_BYTES) ? 0 : 2;
+
+    fprintf(stderr, "Status: %s (%d)\n", ret == 0 ? "success" : "failed", ret);
+    return ret;
+
+}
+
+static void fatalUsage(const char *name, const char *msg, const char *arg)
+{
+    if (msg && arg)
+        fprintf(stderr, "Error: %s: %s\n\n", msg, arg);
+    else if (msg)
+        fprintf(stderr, "Error: %s\n\n", msg);
+
+    fprintf(stderr, "USAGE: %s [-v] [-e <pvt key>] [-m <pub key>] [-t] [-s] [-b] <input file> [<output file>]\n"
+                    "       -v : be verbose\n"
+                    "       -b : generate binary key from text file created by OpenSSL\n"
+                    "       -s : sign post-processed file\n"
+                    "       -t : verify signature of signed post-processed file\n"
+                    "       -e : RSA binary private key\n"
+                    "       -m : RSA binary public key\n"
+                    "       -r : do not parse headers, do not generate headers (with -t, -s)\n"
+                    , name);
+    exit(1);
+}
+
+int main(int argc, char **argv)
+{
+    uint32_t bufUsed = 0;
+    uint8_t *buf = NULL;
+    int ret = -1;
+    const char **strArg = NULL;
+    const char *appName = argv[0];
+    const char *posArg[2] = { NULL };
+    uint32_t posArgCnt = 0;
+    FILE *out = NULL;
+    const char *prev = NULL;
+    bool verbose = false;
+    bool sign = false;
+    bool verify = false;
+    bool txt2bin = false;
+    bool bareData = false;
+    const char *keyPvtFile = NULL;
+    const char *keyPubFile = NULL;
+    int multi = 0;
+    struct RsaData rsa;
+    struct ImageHeader *image;
+
+    //it might not matter, but we still like to try to cleanup after ourselves
+    (void)atexit(cleanup);
+
+    for (int i = 1; i < argc; i++) {
+        if (argv[i][0] == '-') {
+            prev = argv[i];
+            if (!strcmp(argv[i], "-v"))
+                verbose = true;
+            else if (!strcmp(argv[i], "-s"))
+                sign = true;
+            else if (!strcmp(argv[i], "-t"))
+                verify = true;
+            else if (!strcmp(argv[i], "-b"))
+                txt2bin = true;
+            else if (!strcmp(argv[i], "-e"))
+                strArg = &keyPvtFile;
+            else if (!strcmp(argv[i], "-m"))
+                strArg = &keyPubFile;
+            else if (!strcmp(argv[i], "-r"))
+                bareData = true;
+            else
+                fatalUsage(appName, "unknown argument", argv[i]);
+        } else {
+            if (strArg) {
+                    *strArg = argv[i];
+                strArg = NULL;
+            } else {
+                if (posArgCnt < 2)
+                    posArg[posArgCnt++] = argv[i];
+                else
+                    fatalUsage(appName, "too many positional arguments", argv[i]);
+            }
+            prev = 0;
+        }
+    }
+    if (prev)
+        fatalUsage(appName, "missing argument after", prev);
+
+    if (!posArgCnt)
+        fatalUsage(appName, "missing input file name", NULL);
+
+    if (sign)
+        multi++;
+    if (verify)
+        multi++;
+    if (txt2bin)
+        multi++;
+
+    if (multi != 1)
+        fatalUsage(appName, "select either -s, -t, or -b", NULL);
+
+    memset(&rsa, 0, sizeof(rsa));
+
+    if (sign && !(keyPvtFile && keyPubFile))
+        fatalUsage(appName, "We need both PUB (-m) and PVT (-e) keys for signing", NULL);
+
+    if (verify && (!keyPubFile || keyPvtFile))
+        fatalUsage(appName, "We only need PUB (-m)  key for signature checking", NULL);
+
+    if (keyPvtFile) {
+        if (!readFile(rsa.exponent, sizeof(rsa.exponent), keyPvtFile))
+            fatalUsage(appName, "Can't read PVT key from", keyPvtFile);
+        else if (verbose)
+            printHashRev(stderr, "RSA exponent", rsa.exponent, RSA_LIMBS);
+    }
+
+    if (keyPubFile) {
+        if (!readFile(rsa.modulus, sizeof(rsa.modulus), keyPubFile))
+            fatalUsage(appName, "Can't read PUB key from", keyPubFile);
+        else if (verbose)
+            printHashRev(stderr, "RSA modulus", rsa.modulus, RSA_LIMBS);
+    }
+
+    buf = loadFile(posArg[0], &bufUsed);
+    fprintf(stderr, "Read %" PRIu32 " bytes\n", bufUsed);
+
+    image = (struct ImageHeader *)buf;
+    if (!bareData && !txt2bin) {
+        if (image->aosp.header_version == 1 &&
+            image->aosp.magic == NANOAPP_AOSP_MAGIC &&
+            image->layout.magic == GOOGLE_LAYOUT_MAGIC) {
+            fprintf(stderr, "Found AOSP header\n");
+        } else {
+            fprintf(stderr, "Unknown binary format\n");
+            return 2;
+        }
+    }
+
+    if (!posArg[1])
+        out = stdout;
+    else
+        out = fopen(posArg[1], "w");
+    if (!out)
+        fatalUsage(appName, "failed to create/open output file", posArg[1]);
+
+    if (sign)
+        ret = handleSign(&buf, bufUsed, out, &rsa, verbose, bareData);
+    else if (verify)
+        ret = handleVerify(&buf, bufUsed, &rsa, verbose, bareData);
+    else if (txt2bin)
+        ret = handleConvertKey(&buf, bufUsed, out, &rsa);
+
+    free(buf);
+    fclose(out);
+    return ret;
+}

@@ -34,11 +34,13 @@
 #include <heap.h>
 #include <slab.h>
 #include <cpu.h>
-#include <crc.h>
 #include <util.h>
 #include <mpu.h>
 #include <nanohubPacket.h>
 #include <atomic.h>
+
+#include <nanohub/nanohub.h>
+#include <nanohub/crc.h>
 
 #define NO_NODE (TaskIndex)(-1)
 #define for_each_task(listHead, task) for (task = osTaskByIdx((listHead)->next); task; task = osTaskByIdx(task->list.next))
@@ -75,7 +77,7 @@ SET_PACKED_STRUCT_MODE_OFF
 
 struct Task {
     /* App entry points */
-    const struct AppHdr *appHdr;
+    const struct AppHdr *app;
 
     /* per-platform app info */
     struct PlatAppInfo platInfo;
@@ -339,7 +341,7 @@ static inline struct Task* osTaskFindByTid(uint32_t tid)
 static inline bool osTaskInit(struct Task *task)
 {
     struct Task *preempted = osSetCurrentTask(task);
-    bool done = cpuAppInit(task->appHdr, &task->platInfo, task->tid);
+    bool done = cpuAppInit(task->app, &task->platInfo, task->tid);
     osSetCurrentTask(preempted);
     return done;
 }
@@ -349,7 +351,7 @@ static inline void osTaskEnd(struct Task *task)
     struct Task *preempted = osSetCurrentTask(task);
     uint16_t tid = task->tid;
 
-    cpuAppEnd(task->appHdr, &task->platInfo);
+    cpuAppEnd(task->app, &task->platInfo);
 
     // task was supposed to release it's resources,
     // but we do our cleanup anyway
@@ -365,7 +367,7 @@ static inline void osTaskEnd(struct Task *task)
 static inline void osTaskHandle(struct Task *task, uint32_t evtType, const void* evtData)
 {
     struct Task *preempted = osSetCurrentTask(task);
-    cpuAppHandle(task->appHdr, &task->platInfo, evtType, evtData);
+    cpuAppHandle(task->app, &task->platInfo, evtType, evtData);
     osSetCurrentTask(preempted);
 }
 
@@ -414,80 +416,239 @@ static struct Task* osTaskFindByAppID(uint64_t appID)
     struct Task *task;
 
     for_each_task(&mTasks, task) {
-        if (task->appHdr && task->appHdr->appId == appID)
+        if (task->app && task->app->hdr.appId == appID)
             return task;
     }
 
     return NULL;
 }
 
-struct ExtAppIterator {
-    const uint8_t *shared;
-    const uint8_t *sharedEnd;
-    const struct AppHdr *app;
-    uint32_t appLen;
-};
-
-static void osExtAppIteratorInit(struct ExtAppIterator *it)
+void osSegmentIteratorInit(struct SegmentIterator *it)
 {
     uint32_t sz;
+    uint8_t *start = platGetSharedAreaInfo(&sz);
 
-    it->shared = platGetSharedAreaInfo(&sz);
-    it->sharedEnd = it->shared + sz;
-    it->app = NULL;
-    it->appLen = 0;
+    it->shared    = (const struct Segment *)(start);
+    it->sharedEnd = (const struct Segment *)(start + sz);
+    it->seg       = NULL;
 }
 
-static bool osExtAppIteratorNext(struct ExtAppIterator *it)
-{
-    struct AppHdr *app;
-    uint32_t len;
-    uint32_t total_len;
-    const uint8_t *p = it->shared;
-    uint8_t id1, id2;
-
-    // 32-bit header: 1 byte MARK, 3-byte len (BE, in bytes), data is 32-bit aligned; 32-bit footer: CRC-32, including header
-    // both will soon be obsoleted; app header has enough data to find next app (app->rel_end)
-    do {
-        id1 = p[0] & 0x0F;
-        id2 = (p[0] >> 4) & 0x0F;
-        len = (p[1] << 16) | (p[2] << 8) | p[3];
-        total_len = sizeof(uint32_t) + ((len + 3) & ~3) + sizeof(uint32_t);
-        if ((p + total_len) > it->sharedEnd)
-            return false;
-        app = (struct AppHdr *)(&p[4]);
-        p += total_len;
-    } while (id1 != id2 && id1 != BL_FLASH_APP_ID);
-
-    it->shared = p;
-    it->appLen = len;
-    it->app = app;
-
-    return true;
-}
-
-static bool osExtAppIsValid(const struct AppHdr *app, uint32_t len)
-{
-    static const char magic[] = APP_HDR_MAGIC;
-
-    return len >= sizeof(struct AppHdr) &&
-           memcmp(magic, app->magic, sizeof(magic) - 1) == 0 &&
-           app->fmtVer == APP_HDR_VER_CUR &&
-           app->marker == APP_HDR_MARKER_VALID;
-}
-
-static bool osExtAppErase(const struct AppHdr *app)
+bool osAppSegmentSetState(const struct AppHdr *app, uint32_t segState)
 {
     bool done;
-    uint16_t marker = APP_HDR_MARKER_DELETED;
+    struct Segment *seg = osGetSegment(app);
+    uint8_t state = segState;
+
+    if (!seg)
+        return false;
 
     mpuAllowRamExecution(true);
     mpuAllowRomWrite(true);
-    done = BL.blProgramShared((uint8_t *)&app->marker, (uint8_t *)&marker, sizeof(marker), BL_FLASH_KEY1, BL_FLASH_KEY2);
+    done = BL.blProgramShared(&seg->state, &state, sizeof(state), BL_FLASH_KEY1, BL_FLASH_KEY2);
     mpuAllowRomWrite(false);
     mpuAllowRamExecution(false);
 
     return done;
+}
+
+bool osSegmentSetSize(struct Segment *seg, uint32_t size)
+{
+    bool ret = true;
+
+    if (!seg)
+        return false;
+
+    if (size > SEG_SIZE_MAX) {
+        seg->state = SEG_ST_ERASED;
+        size = SEG_SIZE_MAX;
+        ret = false;
+    }
+    seg->size[0] = size;
+    seg->size[1] = size >> 8;
+    seg->size[2] = size >> 16;
+
+    return ret;
+}
+
+struct Segment *osSegmentGetEnd()
+{
+    uint32_t size;
+    uint8_t *start = platGetSharedAreaInfo(&size);
+    return (struct Segment *)(start + size);
+}
+
+struct Segment *osGetSegment(const struct AppHdr *app)
+{
+    uint32_t size;
+    uint8_t *start = platGetSharedAreaInfo(&size);
+
+    return (struct Segment *)((uint8_t*)app &&
+                              (uint8_t*)app >= start &&
+                              (uint8_t*)app < (start + size) ?
+                              (uint8_t*)app - sizeof(struct Segment) : NULL);
+}
+
+bool osEraseShared()
+{
+    mpuAllowRamExecution(true);
+    mpuAllowRomWrite(true);
+    (void)BL.blEraseShared(BL_FLASH_KEY1, BL_FLASH_KEY2);
+    mpuAllowRomWrite(false);
+    mpuAllowRamExecution(false);
+    return true;
+}
+
+bool osWriteShared(void *dest, const void *src, uint32_t len)
+{
+    bool ret;
+
+    mpuAllowRamExecution(true);
+    mpuAllowRomWrite(true);
+    ret = BL.blProgramShared(dest, src, len, BL_FLASH_KEY1, BL_FLASH_KEY2);
+    mpuAllowRomWrite(false);
+    mpuAllowRamExecution(false);
+
+    return ret;
+}
+
+struct AppHdr *osAppSegmentCreate(uint32_t size)
+{
+    struct SegmentIterator it;
+    const struct Segment *storageSeg = NULL;
+    struct AppHdr *app;
+
+    osSegmentIteratorInit(&it);
+    while (osSegmentIteratorNext(&it)) {
+        if (osSegmentGetState(it.seg) == SEG_ST_EMPTY) {
+            storageSeg = it.seg;
+            break;
+        }
+    }
+    if (!storageSeg || osSegmentSizeGetNext(storageSeg, size) > it.sharedEnd)
+        return NULL;
+
+    app = osSegmentGetData(storageSeg);
+    osAppSegmentSetState(app, SEG_ST_RESERVED);
+
+    return app;
+}
+
+bool osAppSegmentClose(struct AppHdr *app, uint32_t segDataSize, uint32_t segState)
+{
+    struct Segment seg;
+
+    // this is enough for holding padding to uint32_t and the footer
+    uint8_t footer[sizeof(uint32_t) + FOOTER_SIZE];
+    int footerLen;
+    bool ret;
+    uint32_t totalSize;
+    uint8_t *start = platGetSharedAreaInfo(&totalSize);
+    uint8_t *end = start + totalSize;
+    int32_t fullSize = segDataSize + sizeof(seg); // without footer or padding
+    struct Segment *storageSeg = osGetSegment(app);
+
+    // sanity check
+    if (segDataSize >= SEG_SIZE_MAX)
+        return false;
+
+    // physical limits check
+    if (osSegmentSizeAlignedWithFooter(segDataSize) + sizeof(struct Segment) > totalSize)
+        return false;
+
+    // available space check: we could truncate size, instead of disallowing it,
+    // but we know that we performed validation on the size before, in *Create call,
+    // and it was fine, so this must be a programming error, and so we fail.
+    // on a side note: size may grow or shrink compared to original estimate.
+    // typically it shrinks, since we skip some header info and padding, as well
+    // as signature blocks, but it is possible that at some point we may produce
+    // more data for some reason. At that time the logic here may need to change
+    if (osSegmentSizeGetNext(storageSeg, segDataSize) > (struct Segment*)end)
+        return false;
+
+    seg.state = segState;
+    osSegmentSetSize(&seg, segDataSize);
+
+    ret = osWriteShared((uint8_t*)storageSeg, (uint8_t*)&seg, sizeof(seg));
+
+    footerLen = (-fullSize) & 3;
+    memset(footer, 0x00, footerLen);
+
+#ifdef SEGMENT_CRC_SUPPORT
+    struct SegmentFooter segFooter {
+        .crc = ~crc32(storageSeg, fullSize, ~0),
+    };
+    memcpy(&footer[footerLen], &segFooter, sizeof(segFooter));
+    footerLen += sizeof(segFooter);
+#endif
+
+    if (ret && footerLen)
+        ret = osWriteShared((uint8_t*)storageSeg + fullSize, footer, footerLen);
+
+    return ret;
+}
+
+bool osAppWipeData(struct AppHdr *app)
+{
+    struct Segment *seg = osGetSegment(app);
+    int32_t size = osSegmentGetSize(seg);
+    uint8_t *p = (uint8_t*)app;
+    uint32_t state = osSegmentGetState(seg);
+    uint8_t buf[256];
+    bool done = true;
+
+    if (!seg || size == SEG_SIZE_INVALID || state == SEG_ST_EMPTY) {
+        osLog(LOG_ERROR, "%s: can't erase segment: app=%p; seg=%p"
+                         "; size=%" PRIu32
+                         "; state=%" PRIu32
+                         "\n",
+                         __func__, app, seg, size, state);
+        return false;
+    }
+
+    size = osSegmentSizeAlignedWithFooter(size);
+
+    memset(buf, 0, sizeof(buf));
+    while (size > 0) {
+        uint32_t flashSz = size > sizeof(buf) ? sizeof(buf) : size;
+        // keep trying to zero-out stuff even in case of intermittent failures.
+        // flash write may occasionally fail on some byte, but it is not good enough
+        // reason to not rewrite other bytes
+        bool res = osWriteShared(p, buf, flashSz);
+        done = done && res;
+        size -= flashSz;
+        p += flashSz;
+    }
+
+    return done;
+}
+
+static inline bool osAppIsValid(const struct AppHdr *app)
+{
+    return app->hdr.magic == APP_HDR_MAGIC &&
+           app->hdr.fwVer == APP_HDR_VER_CUR &&
+           (app->hdr.fwFlags & FL_APP_HDR_APPLICATION) != 0 &&
+           app->hdr.payInfoType == LAYOUT_APP;
+}
+
+static bool osExtAppIsValid(const struct AppHdr *app, uint32_t len)
+{
+    //TODO: when CRC support is ready, add CRC check here
+    return  osAppIsValid(app) &&
+            len >= sizeof(*app) &&
+            osAppSegmentGetState(app) == SEG_ST_VALID &&
+            !(app->hdr.fwFlags & FL_APP_HDR_INTERNAL);
+}
+
+static bool osIntAppIsValid(const struct AppHdr *app)
+{
+    return  osAppIsValid(app) &&
+            osAppSegmentGetState(app) == SEG_STATE_INVALID &&
+            (app->hdr.fwFlags & FL_APP_HDR_INTERNAL) != 0;
+}
+
+static inline bool osExtAppErase(const struct AppHdr *app)
+{
+    return osAppSegmentSetState(app, SEG_ST_ERASED);
 }
 
 static struct Task *osLoadApp(const struct AppHdr *app) {
@@ -495,16 +656,16 @@ static struct Task *osLoadApp(const struct AppHdr *app) {
 
     task = osAllocTask();
     if (!task) {
-        osLog(LOG_WARN, "External app id %016" PRIX64 " @ %p cannot be used as too many apps already exist.\n", app->appId, app);
+        osLog(LOG_WARN, "External app id %016" PRIX64 " @ %p cannot be used as too many apps already exist.\n", app->hdr.appId, app);
         return NULL;
     }
-    task->appHdr = app;
-    bool done = app->marker == APP_HDR_MARKER_INTERNAL ?
-                cpuInternalAppLoad(task->appHdr, &task->platInfo) :
-                cpuAppLoad(task->appHdr, &task->platInfo);
+    task->app = app;
+    bool done = (app->hdr.fwFlags & FL_APP_HDR_INTERNAL) ?
+                cpuInternalAppLoad(task->app, &task->platInfo) :
+                cpuAppLoad(task->app, &task->platInfo);
 
     if (!done) {
-        osLog(LOG_WARN, "App @ %p ID %016" PRIX64 " failed to load\n", app, app->appId);
+        osLog(LOG_WARN, "App @ %p ID %016" PRIX64 " failed to load\n", app, app->hdr.appId);
         osFreeTask(task);
         task = NULL;
     }
@@ -515,7 +676,7 @@ static struct Task *osLoadApp(const struct AppHdr *app) {
 static void osUnloadApp(struct Task *task)
 {
     // this is called on task that has stopped running, or had never run
-    cpuAppUnload(task->appHdr, &task->platInfo);
+    cpuAppUnload(task->app, &task->platInfo);
     osFreeTask(task);
 }
 
@@ -532,7 +693,7 @@ static bool osStartApp(const struct AppHdr *app)
         done = osTaskInit(task);
 
         if (!done) {
-            osLog(LOG_WARN, "App @ %p ID %016" PRIX64 "failed to init\n", task->appHdr, task->appHdr->appId);
+            osLog(LOG_WARN, "App @ %p ID %016" PRIX64 "failed to init\n", task->app, task->app->hdr.appId);
             osUnloadApp(task);
         } else {
             osAddTask(task);
@@ -561,16 +722,22 @@ static bool osStopTask(struct Task *task)
     return true;
 }
 
-static bool osExtAppFind(struct ExtAppIterator *it, uint64_t appId)
+static bool osExtAppFind(struct SegmentIterator *it, uint64_t appId)
 {
     uint64_t vendor = APP_ID_GET_VENDOR(appId);
     uint64_t seqId = APP_ID_GET_SEQ_ID(appId);
     uint64_t curAppId;
     const struct AppHdr *app;
+    const struct Segment *seg;
 
-    while (osExtAppIteratorNext(it)) {
-        app = it->app;
-        curAppId = app->appId;
+    while (osSegmentIteratorNext(it)) {
+        seg = it->seg;
+        if (seg->state == SEG_ST_EMPTY)
+            break;
+        if (seg->state != SEG_ST_VALID)
+            continue;
+        app = osSegmentGetData(seg);
+        curAppId = app->hdr.appId;
 
         if ((vendor == APP_VENDOR_ANY || vendor == APP_ID_GET_VENDOR(curAppId)) &&
             (seqId == APP_SEQ_ID_ANY || seqId == APP_ID_GET_SEQ_ID(curAppId)))
@@ -583,26 +750,26 @@ static bool osExtAppFind(struct ExtAppIterator *it, uint64_t appId)
 static uint32_t osExtAppStopEraseApps(uint64_t appId, bool doErase)
 {
     const struct AppHdr *app;
-    uint32_t len;
+    int32_t len;
     struct Task *task;
-    struct ExtAppIterator it;
+    struct SegmentIterator it;
     uint32_t stopCount = 0;
     uint32_t eraseCount = 0;
     uint32_t appCount = 0;
     uint32_t taskCount = 0;
     struct MgmtStatus stat = { .value = 0 };
 
-    osExtAppIteratorInit(&it);
+    osSegmentIteratorInit(&it);
     while (osExtAppFind(&it, appId)) {
-        app = it.app;
-        len = it.appLen;
+        app = osSegmentGetData(it.seg);
+        len = osSegmentGetSize(it.seg);
         if (!osExtAppIsValid(app, len))
             continue;
         appCount++;
-        task = osTaskFindByAppID(app->appId);
+        task = osTaskFindByAppID(app->hdr.appId);
         if (task)
             taskCount++;
-        if (task && task->appHdr == app && app->marker == APP_HDR_MARKER_VALID) {
+        if (task && task->app == app) {
             if (osStopTask(task))
                 stopCount++;
             else
@@ -629,22 +796,48 @@ uint32_t osExtAppEraseApps(uint64_t appId)
     return osExtAppStopEraseApps(appId, true);
 }
 
+static void osScanExternal()
+{
+    struct SegmentIterator it;
+    osSegmentIteratorInit(&it);
+    while (osSegmentIteratorNext(&it)) {
+        switch (osSegmentGetState(it.seg)) {
+        case SEG_ST_EMPTY:
+            // everything looks good
+            osLog(LOG_INFO, "External area is good\n");
+            return;
+        case SEG_ST_ERASED:
+        case SEG_ST_VALID:
+            // this is valid stuff, ignore
+            break;
+        case SEG_ST_RESERVED:
+        default:
+            // something is wrong: erase everything
+            osLog(LOG_ERROR, "External area is damaged. Erasing\n");
+            osEraseShared();
+            return;
+        }
+    }
+}
+
 uint32_t osExtAppStartApps(uint64_t appId)
 {
     const struct AppHdr *app;
-    size_t len;
-    struct ExtAppIterator it;
-    struct ExtAppIterator checkIt;
+    int32_t len;
+    struct SegmentIterator it;
+    struct SegmentIterator checkIt;
     uint32_t startCount = 0;
     uint32_t eraseCount = 0;
     uint32_t appCount = 0;
     uint32_t taskCount = 0;
     struct MgmtStatus stat = { .value = 0 };
 
-    osExtAppIteratorInit(&it);
+    osScanExternal();
+
+    osSegmentIteratorInit(&it);
     while (osExtAppFind(&it, appId)) {
-        app = it.app;
-        len = it.appLen;
+        app = osSegmentGetData(it.seg);
+        len = osSegmentGetSize(it.seg);
 
         // skip erased or malformed apps
         if (!osExtAppIsValid(app, len))
@@ -653,13 +846,13 @@ uint32_t osExtAppStartApps(uint64_t appId)
         appCount++;
         checkIt = it;
         // find the most recent copy
-        while (osExtAppFind(&checkIt, app->appId)) {
+        while (osExtAppFind(&checkIt, app->hdr.appId)) {
             if (osExtAppErase(app)) // erase the old one, so we skip it next time
                 eraseCount++;
-            app = checkIt.app;
+            app = osSegmentGetData(checkIt.seg);
         }
 
-        if (osTaskFindByAppID(app->appId)) {
+        if (osTaskFindByAppID(app->hdr.appId)) {
             // this either the most recent external app with the same ID,
             // or internal app with the same id; in both cases we do nothing
             taskCount++;
@@ -701,21 +894,25 @@ static void osStartTasks(void)
     /* first enum all internal apps, making sure to check for dupes */
     osLog(LOG_DEBUG, "Starting internal apps...\n");
     for (i = 0, app = platGetInternalAppList(&nApps); i < nApps; i++, app++) {
-        if (app->fmtVer != APP_HDR_VER_CUR) {
-            osLog(LOG_WARN, "Unexpected app @ %p ID %016" PRIX64 "header version: %d\n",
-                  app, app->appId, app->fmtVer);
+        if (!osIntAppIsValid(app)) {
+            osLog(LOG_WARN, "Invalid internal app @ %p ID %016" PRIX64
+                            "header version: %" PRIu16
+                            "\n",
+                            app, app->hdr.appId, app->hdr.fwVer);
             continue;
         }
 
-        if (app->marker != APP_HDR_MARKER_INTERNAL) {
-            osLog(LOG_WARN, "Invalid marker on internal app: [%p]=0x%04X ID %016" PRIX64 "; ignored\n",
-                  app, app->marker, app->appId);
+        if (!(app->hdr.fwFlags & FL_APP_HDR_INTERNAL)) {
+            osLog(LOG_WARN, "Internal app is not marked: [%p]: flags: 0x%04" PRIX16
+                            "; ID: %016" PRIX64
+                            "; ignored\n",
+                            app, app->hdr.fwFlags, app->hdr.appId);
             continue;
         }
-        if ((task = osTaskFindByAppID(app->appId))) {
+        if ((task = osTaskFindByAppID(app->hdr.appId))) {
             osLog(LOG_WARN, "Internal app ID %016" PRIX64
                             "@ %p attempting to update internal app @ %p; app @%p ignored.\n",
-                            app->appId, app, task->appHdr, app);
+                            app->hdr.appId, app, task->app, app);
             continue;
         }
         if (osStartApp(app))
@@ -1005,7 +1202,7 @@ bool osTidById(uint64_t appId, uint32_t *tid)
     struct Task *task;
 
     for_each_task(&mTasks, task) {
-        if (task->appHdr && task->appHdr->appId == appId) {
+        if (task->app && task->app->hdr.appId == appId) {
             *tid = task->tid;
             return true;
         }
@@ -1020,11 +1217,11 @@ bool osAppInfoById(uint64_t appId, uint32_t *appIdx, uint32_t *appVer, uint32_t 
     struct Task *task;
 
     for_each_task(&mTasks, task) {
-        const struct AppHdr *app = task->appHdr;
-        if (app && app->appId == appId) {
+        const struct AppHdr *app = task->app;
+        if (app && app->hdr.appId == appId) {
             *appIdx = i;
-            *appVer = app->appVer;
-            *appSize = app->rel_end;
+            *appVer = app->hdr.appVer;
+            *appSize = app->sect.rel_end;
             return true;
         }
         i++;
@@ -1042,10 +1239,10 @@ bool osAppInfoByIndex(uint32_t appIdx, uint64_t *appId, uint32_t *appVer, uint32
         if (i != appIdx) {
             ++i;
         } else {
-            const struct AppHdr *app = task->appHdr;
-            *appId = app->appId;
-            *appVer = app->appVer;
-            *appSize = app->rel_end;
+            const struct AppHdr *app = task->app;
+            *appId = app->hdr.appId;
+            *appVer = app->hdr.appVer;
+            *appSize = app->sect.rel_end;
             return true;
         }
     }
@@ -1119,6 +1316,3 @@ const uint8_t __attribute__ ((section (".pubkeys"))) _RSA_KEY_GOOGLE_DEBUG[] = {
 };
 
 #endif
-
-
-PREPOPULATED_ENCR_KEY(google_encr_key, ENCR_KEY_GOOGLE_PREPOPULATED, 0xf1, 0x51, 0x9b, 0x2e, 0x26, 0x6c, 0xeb, 0xe7, 0xd6, 0xd6, 0x0d, 0x17, 0x11, 0x94, 0x99, 0x19, 0x1c, 0xfb, 0x71, 0x56, 0x53, 0xf7, 0xe0, 0x7d, 0x90, 0x07, 0x53, 0x68, 0x10, 0x95, 0x1b, 0x70);
