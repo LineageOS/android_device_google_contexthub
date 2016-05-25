@@ -26,7 +26,7 @@ APPFLAGS += $(EXTRA_FLAGS) -Wall -Werror
 
 define APPRULE
 $(APP_APP): $(APP_BIN)
-	nanoapp_postprocess -v $(APP_ID) < $(APP_BIN) > $(APP_APP)
+	nanoapp_postprocess -v -a $(APP_ID) $(APP_BIN) $(APP_APP)
 
 $(APP_BIN): $(APP_ELF)
 	$(OBJCOPY) -j.relocs -j.flash -j.data -j.dynsym -O binary $(APP_ELF) $(APP_BIN)

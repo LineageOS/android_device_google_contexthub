@@ -16,7 +16,7 @@
 
 #include <string.h>
 #include <stdint.h>
-#include <aes.h>
+#include <nanohub/aes.h>
 
 
 #define AES_NUM_ROUNDS    14

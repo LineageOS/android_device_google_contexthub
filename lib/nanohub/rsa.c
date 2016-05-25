@@ -17,7 +17,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
-#include <rsa.h>
+#include <nanohub/rsa.h>
 
 
 static bool biModIterative(uint32_t *num, const uint32_t *denum, uint32_t *tmp, uint32_t *state1, uint32_t *state2, uint32_t step)

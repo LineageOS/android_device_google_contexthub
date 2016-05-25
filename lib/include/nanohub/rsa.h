@@ -14,12 +14,12 @@
  * limitations under the License.
  */
 
-#ifndef _RSA_H_
-#define _RSA_H_
+#ifndef _NANOHUB_RSA_H_
+#define _NANOHUB_RSA_H_
 
 #include <stdint.h>
 
-#define RSA_LEN	    2048
+#define RSA_LEN     2048
 #define RSA_LIMBS   ((RSA_LEN + 31)/ 32)
 #define RSA_BYTES   sizeof(uint32_t[RSA_LIMBS])
 #define RSA_WORDS   (RSA_BYTES / sizeof(uint32_t)) //limbs may change in size, but words are always same :)
@@ -50,5 +50,5 @@ const uint32_t* rsaPubOp(struct RsaState* state, const uint32_t *a, const uint32
 #endif
 
 
-#endif
+#endif // _NANOHUB_RSA_H_
 
