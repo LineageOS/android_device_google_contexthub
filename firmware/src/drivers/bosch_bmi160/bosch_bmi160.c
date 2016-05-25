@@ -71,7 +71,7 @@
 #define DBG_WM_CALC               0
 #define TIMESTAMP_DBG             0
 
-#define BMI160_APP_VERSION 1
+#define BMI160_APP_VERSION 2
 
 // fixme: to list required definitions for a slave mag
 #ifdef USE_BMM150
@@ -236,10 +236,15 @@
 #define SPI_BUF_SIZE (FIFO_READ_SIZE + CHUNKED_READ_SIZE + BUF_MARGIN)
 
 enum SensorIndex {
-    ACC = 0,
+    FIRST_CONT_SENSOR = 0,
+    ACC = FIRST_CONT_SENSOR,
     GYR,
+#ifdef MAG_SLAVE_PRESENT
     MAG,
-    STEP,
+#endif
+    NUM_CONT_SENSOR,
+    FIRST_ONESHOT_SENSOR = NUM_CONT_SENSOR,
+    STEP = FIRST_ONESHOT_SENSOR,
     DTAP,
     FLAT,
     ANYMO,
@@ -363,9 +368,9 @@ struct BMI160Task {
     // time keeping.
     uint64_t last_sensortime;
     uint64_t frame_sensortime;
-    uint64_t prev_frame_time[3];
-    uint64_t time_delta[3];
-    uint64_t next_delta[3];
+    uint64_t prev_frame_time[NUM_CONT_SENSOR];
+    uint64_t time_delta[NUM_CONT_SENSOR];
+    uint64_t next_delta[NUM_CONT_SENSOR];
     uint64_t tempTime;
 
     // spi and interrupt
@@ -395,7 +400,7 @@ struct BMI160Task {
     uint8_t gyr_downsample;
     bool magBiasPosted;
     bool magBiasCurrent;
-    bool fifo_enabled[3];
+    bool fifo_enabled[NUM_CONT_SENSOR];
 
     // spi buffers
     int xferCnt;
@@ -417,7 +422,7 @@ struct BMI160Task {
     bool pending_config[NUM_OF_SENSOR];
     bool pending_calibration_save;
     bool pending_time_sync;
-    bool pending_delta[3];
+    bool pending_delta[NUM_CONT_SENSOR];
     bool pending_dispatch;
     bool frame_sensortime_valid;
 
@@ -926,7 +931,11 @@ static void magConfig(void)
 
 static inline bool anyFifoEnabled(void)
 {
-    return (mTask.fifo_enabled[ACC] || mTask.fifo_enabled[GYR] || mTask.fifo_enabled[MAG]);
+    bool anyFifoEnabled = mTask.fifo_enabled[ACC] || mTask.fifo_enabled[GYR];
+#ifdef MAG_SLAVE_PRESENT
+    anyFifoEnabled = anyFifoEnabled || mTask.fifo_enabled[MAG];
+#endif
+    return anyFifoEnabled;
 }
 
 static void configFifo(void)
@@ -951,6 +960,7 @@ static void configFifo(void)
         mTask.fifo_enabled[GYR] = false;
     }
 
+#ifdef MAG_SLAVE_PRESENT
     // if MAG is configed, enable MAG bit in fifo_config reg.
     if (mTask.sensors[MAG].configed && mTask.sensors[MAG].latency != SENSOR_LATENCY_NODATA) {
         val |= 0x20;
@@ -958,6 +968,7 @@ static void configFifo(void)
     } else {
         mTask.fifo_enabled[MAG] = false;
     }
+#endif
 
     // if this is the first data sensor fifo to enable, start to
     // sync the sensor time and rtc time
@@ -994,7 +1005,7 @@ static void configFifo(void)
     if (!anyFifoEnabled()) {
         SPI_WRITE(BMI160_REG_CMD, 0xb0);
         mTask.frame_sensortime_valid = false;
-        for (i = ACC; i <= MAG; i++) {
+        for (i = FIRST_CONT_SENSOR; i < NUM_CONT_SENSOR; i++) {
             mTask.pending_delta[i] = false;
             mTask.prev_frame_time[i] = ULONG_LONG_MAX;
         }
@@ -1510,10 +1521,12 @@ static void sendFlushEvt(void)
         osEnqueueEvt(EVT_SENSOR_GYR_DATA_RDY, SENSOR_DATA_EVENT_FLUSH, NULL);
         mTask.sensors[GYR].flush--;
     }
+#ifdef MAG_SLAVE_PRESENT
     while (mTask.sensors[MAG].flush > 0) {
         osEnqueueEvt(EVT_SENSOR_MAG_DATA_RDY, SENSOR_DATA_EVENT_FLUSH, NULL);
         mTask.sensors[MAG].flush--;
     }
+#endif
 }
 
 static bool accFlush(void *cookie)
@@ -1665,7 +1678,7 @@ static bool flushData(struct BMI160Sensor *sensor, uint32_t eventId)
 static void flushAllData(void)
 {
     int i;
-    for (i = ACC; i <= MAG; i++) {
+    for (i = FIRST_CONT_SENSOR; i < NUM_CONT_SENSOR; i++) {
         flushData(&mTask.sensors[i],
                 EVENT_TYPE_BIT_DISCARDABLE | sensorGetMyEventType(mSensorInfo[i].sensorType));
     }
@@ -1696,7 +1709,9 @@ static void parseRawData(struct BMI160Sensor *mSensor, uint8_t *buf, float kScal
     struct TripleAxisDataPoint *sample;
     uint32_t delta_time;
     uint64_t rtc_time;
+#ifdef MAG_SLAVE_PRESENT
     bool newMagBias = false;
+#endif
 
     if (!sensortime_to_rtc_time(sensorTime, &rtc_time)) {
         return;
@@ -1715,8 +1730,8 @@ static void parseRawData(struct BMI160Sensor *mSensor, uint8_t *buf, float kScal
         rtc_time = mSensor->prev_rtc_time + kMinRTCTimeIncrementNs;
     }
 
-    if (mSensor->idx == MAG) {
 #ifdef MAG_SLAVE_PRESENT
+    if (mSensor->idx == MAG) {
         parseMagData(&magTask, &buf[0], &x, &y, &z);
         BMM150_TO_ANDROID_COORDINATE(x, y, z);
 
@@ -1726,10 +1741,9 @@ static void parseRawData(struct BMI160Sensor *mSensor, uint8_t *buf, float kScal
         newMagBias |= magCalUpdate(&mTask.moc, sensorTime * kSensorTimerIntervalUs, xi, yi, zi);
 
         magCalRemoveBias(&mTask.moc, xi, yi, zi, &x, &y, &z);
-#else
-        return;
+    } else
 #endif
-    } else {
+    {
         raw_x = (buf[0] | buf[1] << 8);
         raw_y = (buf[2] | buf[3] << 8);
         raw_z = (buf[4] | buf[5] << 8);
@@ -1751,6 +1765,7 @@ static void parseRawData(struct BMI160Sensor *mSensor, uint8_t *buf, float kScal
         return;
     }
 
+#ifdef MAG_SLAVE_PRESENT
     if (mSensor->idx == MAG && (newMagBias || !mTask.magBiasPosted)) {
         if (mSensor->data_evt->samples[0].firstSample.numSamples > 0) {
             // flush existing samples so the bias appears after them
@@ -1766,9 +1781,7 @@ static void parseRawData(struct BMI160Sensor *mSensor, uint8_t *buf, float kScal
         mSensor->data_evt->samples[0].firstSample.biasSample =
                 mSensor->data_evt->samples[0].firstSample.numSamples;
         sample = &mSensor->data_evt->samples[mSensor->data_evt->samples[0].firstSample.numSamples++];
-#ifdef MAG_SLAVE_PRESENT
         magCalGetBias(&mTask.moc, &sample->x, &sample->y, &sample->z);
-#endif
         // bias is non-discardable, if we fail to enqueue, don't clear new_mag_bias
         if (flushData(mSensor, sensorGetMyEventType(mSensorInfo[MAG].biasType)))
             mTask.magBiasPosted = true;
@@ -1776,6 +1789,7 @@ static void parseRawData(struct BMI160Sensor *mSensor, uint8_t *buf, float kScal
         if (!allocateDataEvt(mSensor, rtc_time))
             return;
     }
+#endif
 
     sample = &mSensor->data_evt->samples[mSensor->data_evt->samples[0].firstSample.numSamples++];
 
@@ -1812,14 +1826,17 @@ static void dispatchData(void)
     uint32_t sensor_time24;
     uint64_t full_sensor_time;
     uint64_t frame_sensor_time = mTask.frame_sensortime;
-    bool observed[3] = {false, false, false};
-    uint64_t tmp_frame_time, tmp_time[3];
+    bool observed[NUM_CONT_SENSOR];
+    uint64_t tmp_frame_time, tmp_time[NUM_CONT_SENSOR];
     bool frame_sensor_time_valid = mTask.frame_sensortime_valid;
-    bool saved_pending_delta[3];
-    uint64_t saved_time_delta[3];
+    bool saved_pending_delta[NUM_CONT_SENSOR];
+    uint64_t saved_time_delta[NUM_CONT_SENSOR];
 #if TIMESTAMP_DBG
     int frame_num = -1;
 #endif
+
+    for (j = FIRST_CONT_SENSOR; j < NUM_CONT_SENSOR; j++)
+        observed[j] = false;
 
     if (!mTask.frame_sensortime_valid) {
         // This is the first FIFO delivery after any sensor is enabled in
@@ -1829,7 +1846,7 @@ static void dispatchData(void)
         frame_sensor_time = 0ull;
 
         // Save these states for future recovery by the end of dry run.
-        for (j = ACC; j <= MAG; j++) {
+        for (j = FIRST_CONT_SENSOR; j < NUM_CONT_SENSOR; j++) {
             saved_pending_delta[j] = mTask.pending_delta[j];
             saved_time_delta[j] = mTask.time_delta[j];
         }
@@ -1871,7 +1888,7 @@ static void dispatchData(void)
                 if (size >= 3) {
                     // The active sensor with the highest odr/lowest delta is the one that
                     // determines the sensor time increments.
-                    for (j = ACC; j <= MAG; j++) {
+                    for (j = FIRST_CONT_SENSOR; j < NUM_CONT_SENSOR; j++) {
                         if (mTask.sensors[j].configed &&
                                 mTask.sensors[j].latency != SENSOR_LATENCY_NODATA) {
                             min_delta = min_delta < mTask.time_delta[j] ? min_delta :
@@ -1911,7 +1928,7 @@ static void dispatchData(void)
                         mTask.frame_sensortime = full_sensor_time - frame_sensor_time;
 
                         // recover states
-                        for (j = ACC; j <= MAG; j++) {
+                        for (j = FIRST_CONT_SENSOR; j < NUM_CONT_SENSOR; j++) {
                             // reset all prev_frame_time to invalid values
                             // they should be so anyway at the first FIFO
                             mTask.prev_frame_time[j] = ULONG_LONG_MAX;
@@ -1935,7 +1952,7 @@ static void dispatchData(void)
                     // Invalidate sensor timestamp that didn't get corrected by full_sensor_time,
                     // so it can't be used as a reference at next FIFO read.
                     // Use (ULONG_LONG_MAX - 1) to indicate this.
-                    for (j = ACC; j <= MAG; j++) {
+                    for (j = FIRST_CONT_SENSOR; j < NUM_CONT_SENSOR; j++) {
                         mTask.prev_frame_time[j] = observed[j] ? full_sensor_time : (ULONG_LONG_MAX - 1);
 
                         // sensor can be disabled in the middle of the FIFO, but wait till the FIFO
@@ -1958,7 +1975,7 @@ static void dispatchData(void)
                 DEBUG_PRINT("frame %d config change 0x%02x\n", frame_num, buf[i]);
 #endif
                 if (size >= 1) {
-                    for (j = ACC; j <= MAG; j++) {
+                    for (j = FIRST_CONT_SENSOR; j < NUM_CONT_SENSOR; j++) {
                         if (buf[i] & (0x01 << (j << 1)) && mTask.pending_delta[j]) {
                             mTask.pending_delta[j] = false;
                             mTask.time_delta[j] = mTask.next_delta[j];
@@ -1990,7 +2007,7 @@ static void dispatchData(void)
             // data frame of the previous fifo read.  So it won't be used as a frame time reference.
 
             tmp_frame_time = 0;
-            for (j = ACC; j <= MAG; j++) {
+            for (j = FIRST_CONT_SENSOR; j < NUM_CONT_SENSOR; j++) {
                 observed[j] = false; // reset at each data frame
                 tmp_time[j] = 0;
                 if ((mTask.prev_frame_time[j] < ULONG_LONG_MAX - 1) && (fh_param & (1 << j))) {
@@ -2002,6 +2019,7 @@ static void dispatchData(void)
                 ? (frame_sensor_time + kMinSensorTimeIncrement) : tmp_frame_time;
 
             // regular frame, dispatch data to each sensor's own fifo
+#ifdef MAG_SLAVE_PRESENT
             if (fh_param & 4) { // have mag data
                 if (size >= 8) {
                     if (frame_sensor_time_valid) {
@@ -2028,6 +2046,7 @@ static void dispatchData(void)
                     size = 0;
                 }
             }
+#endif
             if (fh_param & 2) { // have gyro data
                 if (size >= 6) {
                     if (frame_sensor_time_valid) {
@@ -2079,8 +2098,12 @@ static void dispatchData(void)
                 }
             }
 
-            if (observed[ACC] || observed[GYR] || observed[MAG])
+            if (observed[ACC] || observed[GYR])
                 frame_sensor_time = tmp_frame_time;
+#ifdef MAG_SLAVE_PRESENT
+            else if (observed[MAG])
+                frame_sensor_time = tmp_frame_time;
+#endif
         } else {
             size = 0; // drop this batch
             ERROR_PRINT("Invalid fh_mode\n");
@@ -2600,7 +2623,7 @@ static void processPendingEvt(void)
         timeSyncEvt(0, false);
         return;
     }
-    for (i = ACC; i < NUM_OF_SENSOR; i++) {
+    for (i = FIRST_CONT_SENSOR; i < NUM_OF_SENSOR; i++) {
         if (mTask.pending_config[i]) {
             mTask.pending_config[i] = false;
             configEvent(&mTask.sensors[i], &mTask.sensors[i].pConfig);
@@ -2797,7 +2820,7 @@ static void handleSpiDoneEvt(const void* evtData)
         break;
     case SENSOR_POWERING_UP:
         mSensor = (struct BMI160Sensor *)evtData;
-        if (mSensor->idx > MAG && ++mTask.active_oneshot_sensor_cnt == 1) {
+        if (mSensor->idx >= FIRST_ONESHOT_SENSOR && ++mTask.active_oneshot_sensor_cnt == 1) {
             // if this is the first one-shot sensor to enable, we need
             // to request the accel at 50Hz.
             sensorRequest(mTask.tid, mTask.sensors[ACC].handle, SENSOR_HZ(50), SENSOR_LATENCY_NODATA);
@@ -2808,7 +2831,7 @@ static void handleSpiDoneEvt(const void* evtData)
         break;
     case SENSOR_POWERING_DOWN:
         mSensor = (struct BMI160Sensor *)evtData;
-        if (mSensor->idx > MAG && --mTask.active_oneshot_sensor_cnt == 0) {
+        if (mSensor->idx >= FIRST_ONESHOT_SENSOR && --mTask.active_oneshot_sensor_cnt == 0) {
             // if this is the last one-shot sensor to disable, we need to
             // release the accel.
             sensorRelease(mTask.tid, mTask.sensors[ACC].handle);
@@ -2998,7 +3021,7 @@ static bool startTask(uint32_t task_id)
 
     spiMasterRequest(BMI160_SPI_BUS_ID, &T(spiDev));
 
-    for (i = ACC; i < NUM_OF_SENSOR; i++) {
+    for (i = FIRST_CONT_SENSOR; i < NUM_OF_SENSOR; i++) {
         initSensorStruct(&T(sensors[i]), i);
         T(sensors[i]).handle = sensorRegister(&mSensorInfo[i], &mSensorOps[i], NULL, false);
         T(pending_config[i]) = false;
@@ -3308,7 +3331,7 @@ static uint8_t calcWatermark2_(TASK) {
     const int factor[] = {6, 6, 8};
     int i;
 
-    for (i = ACC; i <= MAG; ++i) {
+    for (i = FIRST_CONT_SENSOR; i < NUM_CONT_SENSOR; ++i) {
         if (T(sensors[i]).configed) {
             period[i - ACC] = SENSOR_HZ((float)WATERMARK_MAX_SENSOR_RATE) / T(sensors[i]).rate;
             latency[i - ACC] = U64_DIV_BY_U64_CONSTANT(
@@ -3321,7 +3344,7 @@ static uint8_t calcWatermark2_(TASK) {
     }
 
 
-    size_t watermark = calcFifoSize(period, latency, factor, MAG - ACC + 1) / 4;
+    size_t watermark = calcFifoSize(period, latency, factor, NUM_CONT_SENSOR) / 4;
     DEBUG_PRINT_IF(DBG_WM_CALC, "cwm2: wm = %d", watermark);
     watermark = watermark < WATERMARK_MIN ? WATERMARK_MIN : watermark;
     watermark = watermark > WATERMARK_MAX ? WATERMARK_MAX : watermark;
