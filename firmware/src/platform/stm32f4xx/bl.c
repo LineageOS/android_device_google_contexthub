@@ -16,18 +16,23 @@
 
 
 #include <variant/inc/variant.h>
+
 #include <plat/inc/cmsis.h>
 #include <plat/inc/gpio.h>
 #include <plat/inc/pwr.h>
 #include <plat/inc/bl.h>
+
+#include <nanohub/sha2.h>
+#include <nanohub/aes.h>
+#include <nanohub/rsa.h>
+#include <nanohub/nanohub.h>
+
 #include <printf.h>
 #include <string.h>
 #include <alloca.h>
 #include <gpio.h>
-#include <sha2.h>
-#include <aes.h>
-#include <rsa.h>
 
+static uint32_t blVerifyOsImage(const uint8_t *addr, struct OsUpdateHdr **start, uint32_t *size);
 
 struct StmCrc
 {
@@ -516,7 +521,7 @@ static bool blProgramFlash(uint8_t *dst, const uint8_t *src, uint32_t length, ui
     return !memcmp(dst, src, length);
 }
 
-static bool blExtApiProgramTypedArea(uint8_t *dst, const uint8_t *src, uint32_t length, uint32_t key1, uint32_t key2, uint32_t type)
+static bool blProgramTypedArea(uint8_t *dst, const uint8_t *src, uint32_t length, uint32_t key1, uint32_t key2, uint32_t type)
 {
     const uint32_t sector_cnt = sizeof(mBlFlashTable) / sizeof(struct blFlashTable);
     uint32_t i;
@@ -537,15 +542,15 @@ static bool blExtApiProgramTypedArea(uint8_t *dst, const uint8_t *src, uint32_t 
 
 static bool blExtApiProgramSharedArea(uint8_t *dst, const uint8_t *src, uint32_t length, uint32_t key1, uint32_t key2)
 {
-    return blExtApiProgramTypedArea(dst, src, length, key1, key2, BL_FLASH_SHARED);
+    return blProgramTypedArea(dst, src, length, key1, key2, BL_FLASH_SHARED);
 }
 
 static bool blExtApiProgramEe(uint8_t *dst, const uint8_t *src, uint32_t length, uint32_t key1, uint32_t key2)
 {
-    return blExtApiProgramTypedArea(dst, src, length, key1, key2, BL_FLASH_EEDATA);
+    return blProgramTypedArea(dst, src, length, key1, key2, BL_FLASH_EEDATA);
 }
 
-static bool blExtApiEraseSharedArea(uint32_t key1, uint32_t key2)
+static bool blEraseTypedArea(uint32_t type, uint32_t key1, uint32_t key2)
 {
     struct StmFlash *flash = (struct StmFlash *)FLASH_BASE;
     const uint32_t sector_cnt = sizeof(mBlFlashTable) / sizeof(struct blFlashTable);
@@ -553,7 +558,7 @@ static bool blExtApiEraseSharedArea(uint32_t key1, uint32_t key2)
     uint8_t erase_mask[sector_cnt];
 
     for (i = 0; i < sector_cnt; i++) {
-        if (mBlFlashTable[i].type == BL_FLASH_SHARED) {
+        if (mBlFlashTable[i].type == type) {
             erase_mask[i] = 1;
             erase_cnt++;
         } else {
@@ -602,6 +607,30 @@ static bool blExtApiEraseSharedArea(uint32_t key1, uint32_t key2)
     blRestoreInts(int_state);
 
     return true; //we assume erase worked
+}
+
+static bool blExtApiEraseSharedArea(uint32_t key1, uint32_t key2)
+{
+    return blEraseTypedArea(BL_FLASH_SHARED, key1, key2);
+}
+
+static uint32_t blVerifyOsUpdate(struct OsUpdateHdr **start, uint32_t *size)
+{
+    uint32_t ret;
+    int i;
+
+    for (i = 0; i < BL_SCAN_OFFSET; i += 4) {
+        ret = blVerifyOsImage(__shared_start + i, start, size);
+        if (ret != OS_UPDT_HDR_CHECK_FAILED)
+            break;
+    }
+
+    return ret;
+}
+
+static uint32_t blExtApiVerifyOsUpdate(void)
+{
+    return blVerifyOsUpdate(NULL, NULL);
 }
 
 static void blSupirousIntHandler(void)
@@ -681,105 +710,79 @@ const struct BlVecTable __attribute__((section(".blvec"))) __BL_VECTORS =
     .blAesCbcEncr = &aesCbcEncr,
     .blAesCbcDecr = &aesCbcDecr,
     .blSigPaddingVerify = &blExtApiSigPaddingVerify,
+    .blVerifyOsUpdate = &blExtApiVerifyOsUpdate,
 };
 
-static void blApplyVerifiedUpdate(void) //only called if an update has been found to exist and be valid, signed, etc!
+static void blApplyVerifiedUpdate(const struct OsUpdateHdr *os) //only called if an update has been found to exist and be valid, signed, etc!
 {
-    const struct OsUpdateHdr *updt = (const struct OsUpdateHdr*)__shared_start;
-
     //copy shared to code, and if successful, erase shared area
-    if (blProgramFlash(__code_start, (const uint8_t*)(updt + 1), updt->size, BL_FLASH_KEY1, BL_FLASH_KEY2))
+    if (blProgramFlash(__code_start, (const uint8_t*)(os + 1), os->size, BL_FLASH_KEY1, BL_FLASH_KEY2))
         (void)blExtApiEraseSharedArea(BL_FLASH_KEY1, BL_FLASH_KEY2);
 }
 
-static void blUpdateMark(uint32_t from, uint32_t to)
+static void blWriteMark(struct OsUpdateHdr *hdr, uint32_t mark)
 {
-    struct OsUpdateHdr *hdr = (struct OsUpdateHdr*)__shared_start;
-    uint8_t dstVal = to;
+    uint8_t dstVal = mark;
 
-    if (hdr->marker != from)
-        return;
-
-    (void)blProgramFlash(&hdr->marker, &dstVal, 1, BL_FLASH_KEY1, BL_FLASH_KEY2);
+    (void)blProgramFlash(&hdr->marker, &dstVal, sizeof(hdr->marker), BL_FLASH_KEY1, BL_FLASH_KEY2);
 }
 
-static bool blUpdateVerify(void)
+static void blUpdateMark(uint32_t old, uint32_t new)
+{
+    struct OsUpdateHdr *hdr = (struct OsUpdateHdr *)__shared_start;
+
+    if (hdr->marker != old)
+        return;
+
+    blWriteMark(hdr, new);
+}
+
+static uint32_t blVerifyOsImage(const uint8_t *addr, struct OsUpdateHdr **start, uint32_t *size)
 {
     const uint32_t *rsaKey, *osSigHash, *osSigPubkey, *ourHash, *rsaResult, *expectedHash = NULL;
-    const struct OsUpdateHdr *hdr = (const struct OsUpdateHdr*)__shared_start;
-    uint32_t i, j, numRsaKeys = 0, rsaStateVar1, rsaStateVar2, rsaStep = 0;
+    struct OsUpdateHdr *hdr = (struct OsUpdateHdr*)addr;
+    struct OsUpdateHdr cpy;
+    uint32_t i, numRsaKeys = 0, rsaStateVar1, rsaStateVar2, rsaStep = 0;
     const uint8_t *updateBinaryData;
     bool isValid = false;
     struct Sha2state sha;
     struct RsaState rsa;
+    uint32_t ret = OS_UPDT_HDR_CHECK_FAILED;
+    const uint32_t overhead = sizeof(*hdr) + 2 * RSA_WORDS;
 
-    //some basic sanity checking
-    for (i = 0; i < sizeof(hdr->magic); i++) {
-        if (hdr->magic[i] != mOsUpdateMagic[i])
-            break;
-    }
+    // header does not fit or is not aligned
+    if (addr < __shared_start || addr > (__shared_end - overhead) || ((uintptr_t)addr & 3))
+        return OS_UPDT_HDR_CHECK_FAILED;
 
-    if (i != sizeof(hdr->magic)) {
-        //magic value is wrong -> DO NOTHING (shared area might contain something that is not an update but is useful & valid)!
-        return false;
-    }
+    // image does not fit
+    if (hdr->size > (__shared_end - addr - overhead))
+        return OS_UPDT_HDR_CHECK_FAILED;
 
-    if (hdr->marker == OS_UPDT_MARKER_INVALID) {
-        //it's already been checked and found invalid
-        return false;
-    }
+    // OS magic does not match
+    if (memcmp(hdr->magic, mOsUpdateMagic, sizeof(hdr->magic)) != 0)
+        return OS_UPDT_HDR_CHECK_FAILED;
 
-    if (hdr->marker == OS_UPDT_MARKER_VERIFIED) {
-        //it's been verified already
-        return true;
-    }
+    // we don't allow shortcuts on success path, but we want to fail quickly
+    if (hdr->marker == OS_UPDT_MARKER_INVALID)
+        return OS_UPDT_HDR_MARKER_INVALID;
 
-    if (hdr->marker != OS_UPDT_MARKER_DOWNLOADED) {
-        //it's not a fully downloaded update or is not an update
-        goto fail;
-    }
-
-    if (hdr->size & 3) {
-        //updates are always multiples of 4 bytes in size
-        goto fail;
-    }
-
-    if (hdr->size > __shared_end - __shared_start) {
-        //update would not fit in shared area if it were real
-        goto fail;
-    }
-
-    if (hdr->size > __code_end - __code_start) {
-        //udpate would not fit in code area
-        goto fail;
-    }
-
-    if (__shared_end - __shared_start - hdr->size < sizeof(struct OsUpdateHdr) + 2 * RSA_WORDS) {
-        //udpate + header + sig would not fit in shared area if it were real
-        goto fail;
-    }
+    // download did not finish
+    if (hdr->marker == OS_UPDT_MARKER_INPROGRESS)
+        return OS_UPDT_HDR_MARKER_INVALID;
 
     //get pointers
     updateBinaryData = (const uint8_t*)(hdr + 1);
     osSigHash = (const uint32_t*)(updateBinaryData + hdr->size);
     osSigPubkey = osSigHash + RSA_WORDS;
 
-    //hash the update
-    sha2init(&sha);
-    sha2processBytes(&sha, hdr, sizeof(const struct OsUpdateHdr) + hdr->size);
-    ourHash = sha2finish(&sha);
-
     //make sure the pub key is known
     for (i = 0, rsaKey = blExtApiGetRsaKeyInfo(&numRsaKeys); i < numRsaKeys; i++, rsaKey += RSA_WORDS) {
-        for (j = 0; j < RSA_WORDS; j++) {
-            if (rsaKey[j] != osSigPubkey[j])
-                break;
-        }
-        if (j == RSA_WORDS) //it matches
+        if (memcmp(rsaKey, osSigPubkey, RSA_BYTES) == 0)
             break;
     }
 
     if (i == numRsaKeys) {
+        ret = OS_UPDT_UNKNOWN_PUBKEY;
         //signed with an unknown key -> fail
         goto fail;
     }
@@ -791,6 +794,7 @@ static bool blUpdateVerify(void)
 
     if (!rsaResult) {
         //decode fails -> invalid sig
+        ret = OS_UPDT_INVALID_SIGNATURE;
         goto fail;
     }
 
@@ -799,27 +803,43 @@ static bool blUpdateVerify(void)
 
     if (!expectedHash) {
         //padding check fails -> invalid sig
+        ret = OS_UPDT_INVALID_SIGNATURE_HASH;
         goto fail;
     }
 
-    //verify hash match
-    for (i = 0; i < SHA2_HASH_WORDS; i++) {
-        if (expectedHash[i] != ourHash[i])
-            break;
-    }
+    //hash the update
+    sha2init(&sha);
 
-    if (i != SHA2_HASH_WORDS) {
+    memcpy(&cpy, hdr, sizeof(cpy));
+    cpy.marker = OS_UPDT_MARKER_INPROGRESS;
+    sha2processBytes(&sha, &cpy, sizeof(cpy));
+    sha2processBytes(&sha, (uint8_t*)(hdr + 1), hdr->size);
+    ourHash = sha2finish(&sha);
+
+    //verify hash match
+    if (memcmp(expectedHash, ourHash, SHA2_HASH_SIZE) != 0) {
         //hash does not match -> data tampered with
+        ret = OS_UPDT_INVALID_SIGNATURE_HASH; // same error; do not disclose nature of hash problem
         goto fail;
     }
 
     //it is valid
     isValid = true;
+    ret = OS_UPDT_SUCCESS;
+    if (start)
+        *start = hdr;
+    if (size)
+        *size = hdr->size;
 
 fail:
     //mark it appropriately
-    blUpdateMark(OS_UPDT_MARKER_DOWNLOADED, isValid ? OS_UPDT_MARKER_VERIFIED : OS_UPDT_MARKER_INVALID);
-    return isValid;
+    blWriteMark(hdr, isValid ? OS_UPDT_MARKER_VERIFIED : OS_UPDT_MARKER_INVALID);
+    return ret;
+}
+
+static inline bool blUpdateVerify()
+{
+    return blVerifyOsImage(__shared_start, NULL, NULL) == OS_UPDT_SUCCESS;
 }
 
 static void blSpiLoaderDrainRxFifo(struct StmSpi *spi)
@@ -858,7 +878,7 @@ static bool blSpiLoaderSendAck(struct StmSpi *spi, bool ack)
     return blSpiLoaderTxRxByte(spi, 0) == BL_ACK;
 }
 
-static void blSpiLoader(void)
+static void blSpiLoader(bool force)
 {
     const uint32_t intInPin = SH_INT_WAKEUP - GPIO_PA(0);
     struct StmGpio *gpioa = (struct StmGpio*)GPIOA_BASE;
@@ -866,6 +886,8 @@ static void blSpiLoader(void)
     struct StmRcc *rcc = (struct StmRcc*)RCC_BASE;
     uint32_t oldApb2State, oldAhb1State, nRetries;
     bool seenErase = false;
+    uint32_t nextAddr = 0;
+    uint32_t expectedSize = 0;
 
     if (SH_INT_WAKEUP < GPIO_PA(0) || SH_INT_WAKEUP > GPIO_PA(15)) {
 
@@ -894,7 +916,7 @@ static void blSpiLoader(void)
     gpioa->MODER = (gpioa->MODER & 0xffff00ff & ~(0x03 << (intInPin * 2))) | 0x0000aa00;
 
     //if int pin is not low, do not bother any further
-    if (!(gpioa->IDR & (1 << intInPin))) {
+    if (!(gpioa->IDR & (1 << intInPin)) || force) {
 
         //config SPI
         spi->CR1 = 0x00000040; //spi is on, configured same as bootloader would
@@ -998,8 +1020,14 @@ static void blSpiLoader(void)
                     }
 
                     //reject addresses outside of our fake area or on invalid checksum
-                    if (blSpiLoaderTxRxByte(spi, 0) != checksum || addr < BL_SHARED_AREA_FAKE_ADDR || addr - BL_SHARED_AREA_FAKE_ADDR > __shared_end - __shared_start)
-                       break;
+                    if (blSpiLoaderTxRxByte(spi, 0) != checksum ||
+                        addr < BL_SHARED_AREA_FAKE_ADDR ||
+                        addr - BL_SHARED_AREA_FAKE_ADDR > __shared_end - __shared_start)
+                        break;
+
+                    addr -= BL_SHARED_AREA_FAKE_ADDR;
+                    if (addr != nextAddr)
+                        break;
 
                     //ack the address
                     (void)blSpiLoaderSendAck(spi, true);
@@ -1016,12 +1044,12 @@ static void blSpiLoader(void)
                     }
 
                     //reject writes that takes out outside fo shared area or invalid checksums
-                    if (blSpiLoaderTxRxByte(spi, 0) != checksum || addr + len - BL_SHARED_AREA_FAKE_ADDR > __shared_end - __shared_start)
+                    if (blSpiLoaderTxRxByte(spi, 0) != checksum || addr + len > __shared_end - __shared_start)
                        break;
 
-                    //a write anywhere where the OS header will be must start at 0
-                    if (addr && addr < sizeof(struct OsUpdateHdr))
-                        break;
+                    // OBSOLETE: superseded by sequential contiguous write requirement
+                    //if (addr && addr < sizeof(struct OsUpdateHdr))
+                    //    break;
 
                     //a write starting at zero must be big enough to contain a full OS update header
                     if (!addr) {
@@ -1037,11 +1065,15 @@ static void blSpiLoader(void)
                         //verify magic check passed & marker is properly set to inprogress
                         if (i != sizeof(hdr->magic) || hdr->marker != OS_UPDT_MARKER_INPROGRESS)
                             break;
+                        expectedSize = sizeof(*hdr) + hdr->size + 2 * RSA_BYTES;
                     }
+                    if (addr + len > expectedSize)
+                        break;
 
                     //do it
-                    ack = blProgramFlash(__shared_start + addr - BL_SHARED_AREA_FAKE_ADDR, data, len, BL_FLASH_KEY1, BL_FLASH_KEY2);
+                    ack = blProgramFlash(__shared_start + addr, data, len, BL_FLASH_KEY1, BL_FLASH_KEY2);
                     blSpiLoaderDrainRxFifo(spi);
+                    nextAddr += len;
                     break;
 
                 case BL_CMD_ERASE:
@@ -1062,8 +1094,11 @@ static void blSpiLoader(void)
 
                     //do it
                     ack = blExtApiEraseSharedArea(BL_FLASH_KEY1, BL_FLASH_KEY2);
-                    if (ack)
+                    if (ack) {
                         seenErase = true;
+                        nextAddr = 0;
+                        expectedSize = 0;
+                    }
                     blSpiLoaderDrainRxFifo(spi);
                     break;
 
@@ -1076,7 +1111,6 @@ static void blSpiLoader(void)
                     break;
 
                 case BL_CMD_UPDATE_FINISHED:
-
                     blUpdateMark(OS_UPDT_MARKER_INPROGRESS, OS_UPDT_MARKER_DOWNLOADED);
                     ack = blUpdateVerify();
                     break;
@@ -1099,6 +1133,7 @@ void __blEntry(void)
 {
     extern char __bss_end[], __bss_start[], __data_end[], __data_start[], __data_data[];
     uint32_t appBase = ((uint32_t)&__code_start) & ~1;
+    bool forceLoad = false;
 
     //make sure we're the vector table and no ints happen (BL does not use them)
     blDisableInts();
@@ -1112,11 +1147,19 @@ void __blEntry(void)
     blLog("NanohubOS bootloader up @ %p\n", &__blEntry);
 
     //enter SPI loader if requested
-    blSpiLoader();
+    do {
+        uint32_t res;
+        struct OsUpdateHdr *os;
 
-    //try to run main app
-    if (blUpdateVerify())
-        blApplyVerifiedUpdate();
+        blSpiLoader(forceLoad);
+        res = blVerifyOsUpdate(&os, NULL);
+        if (res == OS_UPDT_SUCCESS)
+            blApplyVerifiedUpdate(os);
+        else if (res != OS_UPDT_HDR_CHECK_FAILED)
+            blExtApiEraseSharedArea(BL_FLASH_KEY1, BL_FLASH_KEY2);
+
+        forceLoad = true;
+    } while (*(volatile uint32_t*)appBase == 0xFFFFFFFF);
 
     //call main app with ints off
     blDisableInts();
@@ -1132,17 +1175,3 @@ void __blEntry(void)
     //we should never return here
     while(1);
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-

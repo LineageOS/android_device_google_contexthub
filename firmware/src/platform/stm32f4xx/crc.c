@@ -16,7 +16,7 @@
 
 #include <string.h>
 
-#include <crc.h>
+#include <nanohub/crc.h>
 #include <seos.h>
 
 #include <plat/inc/pwr.h>

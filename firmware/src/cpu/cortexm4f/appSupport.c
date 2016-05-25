@@ -14,7 +14,8 @@
  * limitations under the License.
  */
 
-#include <cpu/inc/appRelocFormat.h>
+#include <nanohub/appRelocFormat.h>
+
 #include <string.h>
 #include <stdint.h>
 #include <heap.h>
@@ -27,6 +28,9 @@
 #define NANO_RELOC_TYPE_RAM	0
 #define NANO_RELOC_TYPE_FLASH	1
 
+#define APP_FLASH_RELOC(_base, _offset) ((uint32_t)(_base) + FLASH_RELOC_OFFSET + (_offset))
+#define APP_FLASH_RELOC_BASE(_base) APP_FLASH_RELOC(_base, 0)
+#define APP_VEC(_app) ((struct AppFuncs*)&((_app)->vec))
 
 static bool handleRelNumber(uint32_t *ofstP, uint32_t type, uint32_t flashAddr, uint32_t ramAddr, uint32_t *mem, uint32_t value)
 {
@@ -105,7 +109,7 @@ static bool handleRelocs(const uint8_t *relStart, const uint8_t *relEnd, uint32_
             rel += MIN_RUN_LEN;
             while (rel--)
                 if (!handleRelNumber(&ofst, type, flashStart, ramStart, mem, 0))
-                	return false;
+                    return false;
             break;
 
         case TOKEN_RELOC_TYPE_CHG:
@@ -134,26 +138,27 @@ bool cpuInternalAppLoad(const struct AppHdr *appHdr, struct PlatAppInfo *platInf
     return true;
 }
 
-bool cpuAppLoad(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo)
+bool cpuAppLoad(const struct AppHdr *app, struct PlatAppInfo *platInfo)
 {
-    const uint8_t *relocsStart = (const uint8_t*)(((uint8_t*)appHdr) + appHdr->rel_start);
-    const uint8_t *relocsEnd = (const uint8_t*)(((uint8_t*)appHdr) + appHdr->rel_end);
-    uint8_t *mem = heapAlloc(appHdr->bss_end);
+    const struct SectInfo *sect = &app->sect;
+    const uint8_t *relocsStart = (const uint8_t*)APP_FLASH_RELOC(app, sect->rel_start);
+    const uint8_t *relocsEnd = (const uint8_t*)APP_FLASH_RELOC(app, sect->rel_end);
+    uint8_t *mem = heapAlloc(sect->bss_end);
 
     if (!mem)
         return false;
 
     //calcualte and assign got
-    platInfo->got = mem + appHdr->data_start;
+    platInfo->got = mem + sect->data_start;
 
     //clear bss
-    memset(mem + appHdr->bss_start, 0, appHdr->bss_end - appHdr->bss_start);
+    memset(mem + sect->bss_start, 0, sect->bss_end - sect->bss_start);
 
     //copy initialized data and initialized got
-    memcpy(mem + appHdr->data_start, ((uint8_t*)appHdr) + appHdr->data_data, appHdr->got_end - appHdr->data_start);
+    memcpy(mem + sect->data_start, (uint8_t*)APP_FLASH_RELOC(app, sect->data_data), sect->got_end - sect->data_start);
 
     //perform relocs
-    if (!handleRelocs(relocsStart, relocsEnd, (uintptr_t)appHdr, (uintptr_t)mem, (void*)mem)) {
+    if (!handleRelocs(relocsStart, relocsEnd, (uintptr_t)APP_FLASH_RELOC_BASE(app), (uintptr_t)mem, (void*)mem)) {
         osLog(LOG_ERROR, "Relocs are invalid in this app. Aborting app load\n");
         heapFree(mem);
         return false;
@@ -162,13 +167,13 @@ bool cpuAppLoad(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo)
     return true;
 }
 
-void cpuAppUnload(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo)
+void cpuAppUnload(const struct AppHdr *app, struct PlatAppInfo *platInfo)
 {
     if (platInfo->got)
-        heapFree((uint8_t*)platInfo->got - appHdr->got_start);
+        heapFree((uint8_t*)platInfo->got - app->sect.got_start);
 }
 
-static uintptr_t __attribute__((naked)) callWithR9(const struct AppHdr *appHdr, void *funcOfst, void *got, uintptr_t arg1, uintptr_t arg2)
+static uintptr_t __attribute__((naked)) callWithR9(const void *base, uint32_t offset, void *got, uintptr_t arg1, uintptr_t arg2)
 {
     asm volatile (
         "add  r12, r0, r1  \n"
@@ -183,28 +188,26 @@ static uintptr_t __attribute__((naked)) callWithR9(const struct AppHdr *appHdr, 
     return 0; //dummy to fool gcc
 }
 
-bool cpuAppInit(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo, uint32_t tid)
+bool cpuAppInit(const struct AppHdr *app, struct PlatAppInfo *platInfo, uint32_t tid)
 {
     if (platInfo->got)
-        return callWithR9(appHdr, appHdr->funcs.init, platInfo->got, tid, 0);
+        return callWithR9((const void*)APP_FLASH_RELOC_BASE(app), app->vec.init, platInfo->got, tid, 0);
     else
-        return appHdr->funcs.init(tid);
+        return APP_VEC(app)->init(tid);
 }
 
-void cpuAppEnd(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo)
+void cpuAppEnd(const struct AppHdr *app, struct PlatAppInfo *platInfo)
 {
     if (platInfo->got)
-        (void)callWithR9(appHdr, appHdr->funcs.end, platInfo->got, 0, 0);
+        (void)callWithR9((const void*)APP_FLASH_RELOC_BASE(app), app->vec.end, platInfo->got, 0, 0);
     else
-        appHdr->funcs.end();
+        APP_VEC(app)->end();
 }
 
-void cpuAppHandle(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo, uint32_t evtType, const void* evtData)
+void cpuAppHandle(const struct AppHdr *app, struct PlatAppInfo *platInfo, uint32_t evtType, const void* evtData)
 {
     if (platInfo->got)
-        (void)callWithR9(appHdr, appHdr->funcs.handle, platInfo->got, evtType, (uintptr_t)evtData);
+        (void)callWithR9((const void*)APP_FLASH_RELOC_BASE(app), app->vec.handle, platInfo->got, evtType, (uintptr_t)evtData);
     else
-        appHdr->funcs.handle(evtType, evtData);
+        APP_VEC(app)->handle(evtType, evtData);
 }
-
-
