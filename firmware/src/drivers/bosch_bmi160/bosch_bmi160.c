@@ -1093,7 +1093,8 @@ static bool stepPower(bool on, void *cookie)
         if (on) {
             mTask.interrupt_enable_2 |= 0x08;
         } else {
-            mTask.interrupt_enable_2 &= ~0x08;
+            if (!mTask.sensors[STEPCNT].powered)
+                mTask.interrupt_enable_2 &= ~0x08;
             mTask.sensors[STEP].configed = false;
         }
         mTask.sensors[STEP].powered = on;
