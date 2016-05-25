@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-#ifndef _AES_H_
-#define _AES_H_
+#ifndef _NANOHUB_AES_H_
+#define _NANOHUB_AES_H_
 
 #include <stdint.h>
 
@@ -29,7 +29,7 @@ struct AesSetupTempWorksSpace { //unsed temporarily for aesInitForDecr() only, n
 
 #define AES_KEY_WORDS     8
 #define AES_BLOCK_WORDS   4
-
+#define AES_BLOCK_SIZE    16 // in bytes
 
 //basic AES block ops
 void aesInitForEncr(struct AesContext *ctx, const uint32_t *k);
@@ -51,5 +51,5 @@ void aesCbcDecr(struct AesCbcContext *ctx, const uint32_t *src, uint32_t *dst); 
 
 
 
-#endif
+#endif // _NANOHUB_AES_H_
 

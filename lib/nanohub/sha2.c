@@ -15,7 +15,7 @@
  */
 
 #include <string.h>
-#include <sha2.h>
+#include <nanohub/sha2.h>
 
 
 void sha2init(struct Sha2state *state)
