@@ -29,6 +29,13 @@ LOCAL_C_INCLUDES += \
 
 LOCAL_MODULE := nanoapp_postprocess
 
+# libelf needed for ELF parsing support, libz required by libelf
+LOCAL_STATIC_LIBRARIES := libelf libz
+
+# Statically linking libc++ so this binary can be copied out of the tree and
+# still work (needed by dependencies)
+LOCAL_CXX_STL := libc++_static
+
 LOCAL_MODULE_TAGS := optional
 
 include $(BUILD_HOST_EXECUTABLE)
