@@ -141,10 +141,10 @@ static int handleApp(uint8_t **pbuf, uint32_t bufUsed, FILE *out, uint32_t layou
     }
 
     //show some info
-    fprintf(stderr, "\nRead %u bytes of binary.\n", (unsigned)bufUsed);
+    fprintf(stderr, "\nRead %" PRIu32 " bytes of binary.\n", bufUsed);
 
     if (verbose)
-        fprintf(stderr, "Found %u relocs and a %u-entry symbol table\n", numRelocs, numSyms);
+        fprintf(stderr, "Found %" PRIu32 " relocs and a %" PRIu32 "-entry symbol table\n", numRelocs, numSyms);
 
     //handle relocs
     nanoRelocs = malloc(sizeof(struct NanoRelocEntry[numRelocs]));
@@ -159,7 +159,11 @@ static int handleApp(uint8_t **pbuf, uint32_t bufUsed, FILE *out, uint32_t layou
         uint32_t *valThereP;
 
         if (whichSym >= numSyms) {
-            fprintf(stderr, "Reloc %u references a nonexistent symbol!\nINFO:\n\tWhere: 0x%08X\n\ttype: %u\n\tsym: %u\n",
+            fprintf(stderr, "Reloc %" PRIu32 " references a nonexistent symbol!\n"
+                            "INFO:\n"
+                            "        Where: 0x%08" PRIX32 "\n"
+                            "        type: %" PRIu32 "\n"
+                            "        sym: %" PRIu32 "\n",
                 i, relocs[i].where, relocs[i].info & 0xff, whichSym);
             goto out;
         }
@@ -167,7 +171,7 @@ static int handleApp(uint8_t **pbuf, uint32_t bufUsed, FILE *out, uint32_t layou
         if (verbose) {
             const char *seg;
 
-            fprintf(stderr, "Reloc[%3u]:\n {@0x%08X, type %3d, -> sym[%3u]: {@0x%08x}, ",
+            fprintf(stderr, "Reloc[%3" PRIu32 "]:\n {@0x%08" PRIX32 ", type %3" PRIu32 ", -> sym[%3" PRIu32 "]: {@0x%08" PRIX32 "}, ",
                 i, relocs[i].where, relocs[i].info & 0xff, whichSym, syms[whichSym].addr);
 
             if (IS_IN_RANGE_E(relocs[i].where, sect->bss_start, sect->bss_end))
@@ -187,14 +191,19 @@ static int handleApp(uint8_t **pbuf, uint32_t bufUsed, FILE *out, uint32_t layou
         if (IS_IN_FLASH(relocs[i].where) && relocs[i].where - FLASH_BASE < sizeof(struct BinHdr) && relocType == RELOC_TYPE_SECT) {
             /* relocs in header are special - runtime corrects for them */
             if (syms[whichSym].addr) {
-                fprintf(stderr, "Weird in-header sect reloc %u to symbol %u with nonzero addr 0x%08x\n", i, whichSym, syms[whichSym].addr);
+                fprintf(stderr, "Weird in-header sect reloc %" PRIu32 " to symbol %" PRIu32 " with nonzero addr 0x%08" PRIX32 "\n",
+                        i, whichSym, syms[whichSym].addr);
                 goto out;
             }
 
             valThereP = (uint32_t*)(buf + relocs[i].where - FLASH_BASE);
             if (!IS_IN_FLASH(*valThereP)) {
-                fprintf(stderr, "In-header reloc %u of location 0x%08X is outside of FLASH!\nINFO:\n\ttype: %u\n\tsym: %u\n\tSym Addr: 0x%08X\n",
-                    i, relocs[i].where, relocType, whichSym, syms[whichSym].addr);
+                fprintf(stderr, "In-header reloc %" PRIu32 " of location 0x%08" PRIX32 " is outside of FLASH!\n"
+                                "INFO:\n"
+                                "        type: %" PRIu32 "\n"
+                                "        sym: %" PRIu32 "\n"
+                                "        Sym Addr: 0x%08" PRIX32 "\n",
+                                i, relocs[i].where, relocType, whichSym, syms[whichSym].addr);
                 goto out;
             }
 
@@ -212,8 +221,12 @@ static int handleApp(uint8_t **pbuf, uint32_t bufUsed, FILE *out, uint32_t layou
         }
 
         if (!IS_IN_RAM(relocs[i].where)) {
-            fprintf(stderr, "Reloc %u of location 0x%08X is outside of RAM!\nINFO:\n\ttype: %u\n\tsym: %u\n\tSym Addr: 0x%08X\n",
-                i, relocs[i].where, relocType, whichSym, syms[whichSym].addr);
+            fprintf(stderr, "In-header reloc %" PRIu32 " of location 0x%08" PRIX32 " is outside of RAM!\n"
+                            "INFO:\n"
+                            "        type: %" PRIu32 "\n"
+                            "        sym: %" PRIu32 "\n"
+                            "        Sym Addr: 0x%08" PRIX32 "\n",
+                            i, relocs[i].where, relocType, whichSym, syms[whichSym].addr);
             goto out;
         }
 
@@ -237,16 +250,18 @@ static int handleApp(uint8_t **pbuf, uint32_t bufUsed, FILE *out, uint32_t layou
                     nanoRelocs[outNumRelocs].type = NANO_RELOC_TYPE_RAM;
                 }
                 else {
-                    fprintf(stderr, "Weird reloc %u to symbol %u in unknown memory space (addr 0x%08x)\n", i, whichSym, syms[whichSym].addr);
+                    fprintf(stderr, "Weird reloc %" PRIu32 " to symbol %" PRIu32 " in unknown memory space (addr 0x%08" PRIX32 ")\n",
+                            i, whichSym, syms[whichSym].addr);
                     goto out;
                 }
                 if (verbose)
-                    fprintf(stderr, "  -> Abs reference fixed up 0x%08X -> 0x%08X\n", t, *valThereP);
+                    fprintf(stderr, "  -> Abs reference fixed up 0x%08" PRIX32 " -> 0x%08" PRIX32 "\n", t, *valThereP);
                 break;
 
             case RELOC_TYPE_SECT:
                 if (syms[whichSym].addr) {
-                    fprintf(stderr, "Weird sect reloc %u to symbol %u with nonzero addr 0x%08x\n", i, whichSym, syms[whichSym].addr);
+                    fprintf(stderr, "Weird sect reloc %" PRIu32 " to symbol %" PRIu32 " with nonzero addr 0x%08" PRIX32 "\n",
+                            i, whichSym, syms[whichSym].addr);
                     goto out;
                 }
 
@@ -261,20 +276,22 @@ static int handleApp(uint8_t **pbuf, uint32_t bufUsed, FILE *out, uint32_t layou
                     *valThereP -= RAM_BASE;
                 }
                 else {
-                    fprintf(stderr, "Weird sec reloc %u to symbol %u in unknown memory space (addr 0x%08x)\n", i, whichSym, *valThereP);
+                    fprintf(stderr, "Weird sec reloc %" PRIu32 " to symbol %" PRIu32
+                                    " in unknown memory space (addr 0x%08" PRIX32 ")\n",
+                                    i, whichSym, *valThereP);
                     goto out;
                 }
                 if (verbose)
-                    fprintf(stderr, "  -> Sect reference fixed up 0x%08X -> 0x%08X\n", t, *valThereP);
+                    fprintf(stderr, "  -> Sect reference fixed up 0x%08" PRIX32 " -> 0x%08" PRIX32 "\n", t, *valThereP);
                 break;
 
             default:
-                fprintf(stderr, "Weird reloc %u type %u to symbol %u\n", i, relocType, whichSym);
+                fprintf(stderr, "Weird reloc %" PRIX32 " type %" PRIX32 " to symbol %" PRIX32 "\n", i, relocType, whichSym);
                 goto out;
         }
 
         if (verbose)
-            fprintf(stderr, "  -> Nano reloc calculated as 0x%08X,0x%02x\n", nanoRelocs[i].ofstInRam, nanoRelocs[i].type);
+            fprintf(stderr, "  -> Nano reloc calculated as 0x%08" PRIX32 ",0x%02" PRIX8 "\n", nanoRelocs[i].ofstInRam, nanoRelocs[i].type);
         outNumRelocs++;
     }
 
@@ -293,7 +310,7 @@ static int handleApp(uint8_t **pbuf, uint32_t bufUsed, FILE *out, uint32_t layou
         memcpy(nanoRelocs + k, &t, sizeof(struct NanoRelocEntry));
 
         if (verbose)
-            fprintf(stderr, "SortedReloc[%3u] = {0x%08X,0x%02X}\n", i, nanoRelocs[i].ofstInRam, nanoRelocs[i].type);
+            fprintf(stderr, "SortedReloc[%3" PRIu32 "] = {0x%08" PRIX32 ",0x%02" PRIX8 "}\n", i, nanoRelocs[i].ofstInRam, nanoRelocs[i].type);
     }
 
     //produce output nanorelocs in packed format
@@ -306,13 +323,13 @@ static int handleApp(uint8_t **pbuf, uint32_t bufUsed, FILE *out, uint32_t layou
             if (nanoRelocs[i].type - lastOutType == 1) {
                 packedNanoRelocs[packedNanoRelocSz++] = TOKEN_RELOC_TYPE_NEXT;
                 if (verbose)
-                    fprintf(stderr, "Out: RelocTC (1) // to 0x%02X\n", nanoRelocs[i].type);
+                    fprintf(stderr, "Out: RelocTC (1) // to 0x%02" PRIX8 "\n", nanoRelocs[i].type);
             }
             else {
                 packedNanoRelocs[packedNanoRelocSz++] = TOKEN_RELOC_TYPE_CHG;
                 packedNanoRelocs[packedNanoRelocSz++] = nanoRelocs[i].type - lastOutType - 1;
                 if (verbose)
-                    fprintf(stderr, "Out: RelocTC (0x%02X)  // to 0x%02X\n", nanoRelocs[i].type - lastOutType - 1, nanoRelocs[i].type);
+                    fprintf(stderr, "Out: RelocTC (0x%02" PRIX8 ")  // to 0x%02" PRIX8 "\n", (uint8_t)(nanoRelocs[i].type - lastOutType - 1), nanoRelocs[i].type);
             }
             lastOutType = nanoRelocs[i].type;
             origin = 0;
@@ -330,7 +347,7 @@ static int handleApp(uint8_t **pbuf, uint32_t bufUsed, FILE *out, uint32_t layou
             for (j = 1; j + i < outNumRelocs && j < MAX_RUN_LEN && nanoRelocs[j + i].type == lastOutType && nanoRelocs[j + i].ofstInRam - nanoRelocs[j + i - 1].ofstInRam == 4; j++);
             if (j >= MIN_RUN_LEN) {
                 if (verbose)
-                    fprintf(stderr, "Out: Reloc0  x%u\n", j);
+                    fprintf(stderr, "Out: Reloc0  x%" PRIX32 "\n", j);
                 packedNanoRelocs[packedNanoRelocSz++] = TOKEN_CONSECUTIVE;
                 packedNanoRelocs[packedNanoRelocSz++] = j - MIN_RUN_LEN;
                 origin = nanoRelocs[j + i - 1].ofstInRam + 4;  //reset origin to last one
@@ -342,12 +359,12 @@ static int handleApp(uint8_t **pbuf, uint32_t bufUsed, FILE *out, uint32_t layou
         //produce output
         if (displacement <= MAX_8_BIT_NUM) {
             if (verbose)
-                fprintf(stderr, "Out: Reloc8  0x%02X\n", displacement);
+                fprintf(stderr, "Out: Reloc8  0x%02" PRIX32 "\n", displacement);
             packedNanoRelocs[packedNanoRelocSz++] = displacement;
         }
         else if (displacement <= MAX_16_BIT_NUM) {
             if (verbose)
-                fprintf(stderr, "Out: Reloc16 0x%06X\n", displacement);
+                fprintf(stderr, "Out: Reloc16 0x%06" PRIX32 "\n", displacement);
                         displacement -= MAX_8_BIT_NUM;
             packedNanoRelocs[packedNanoRelocSz++] = TOKEN_16BIT_OFST;
             packedNanoRelocs[packedNanoRelocSz++] = displacement;
@@ -355,7 +372,7 @@ static int handleApp(uint8_t **pbuf, uint32_t bufUsed, FILE *out, uint32_t layou
         }
         else if (displacement <= MAX_24_BIT_NUM) {
             if (verbose)
-                fprintf(stderr, "Out: Reloc24 0x%08X\n", displacement);
+                fprintf(stderr, "Out: Reloc24 0x%08" PRIX32 "\n", displacement);
                         displacement -= MAX_16_BIT_NUM;
             packedNanoRelocs[packedNanoRelocSz++] = TOKEN_24BIT_OFST;
             packedNanoRelocs[packedNanoRelocSz++] = displacement;
@@ -364,7 +381,7 @@ static int handleApp(uint8_t **pbuf, uint32_t bufUsed, FILE *out, uint32_t layou
         }
         else  {
             if (verbose)
-                fprintf(stderr, "Out: Reloc32 0x%08X\n", displacement);
+                fprintf(stderr, "Out: Reloc32 0x%08" PRIX32 "\n", displacement);
             packedNanoRelocs[packedNanoRelocSz++] = TOKEN_32BIT_OFST;
             packedNanoRelocs[packedNanoRelocSz++] = displacement;
             packedNanoRelocs[packedNanoRelocSz++] = displacement >> 8;
@@ -444,16 +461,16 @@ static int handleApp(uint8_t **pbuf, uint32_t bufUsed, FILE *out, uint32_t layou
         uint32_t gotSz = sect->got_end - sect->data_start;
         uint32_t bssSz = sect->bss_end - sect->bss_start;
 
-        fprintf(stderr,"Final binary size %u bytes\n", bufUsed);
+        fprintf(stderr,"Final binary size %" PRIu32 " bytes\n", bufUsed);
         fprintf(stderr, "\n");
-        fprintf(stderr, "       FW header size (flash):      %6u bytes\n", (unsigned)FLASH_RELOC_OFFSET);
-        fprintf(stderr, "       Code + RO data (flash):      %6u bytes\n", (unsigned)codeAndRoDataSz);
-        fprintf(stderr, "       Relocs (flash):              %6u bytes\n", (unsigned)relocsSz);
-        fprintf(stderr, "       GOT + RW data (flash & RAM): %6u bytes\n", (unsigned)gotSz);
-        fprintf(stderr, "       BSS (RAM):                   %6u bytes\n", (unsigned)bssSz);
+        fprintf(stderr, "       FW header size (flash):      %6zu bytes\n", FLASH_RELOC_OFFSET);
+        fprintf(stderr, "       Code + RO data (flash):      %6" PRIu32 " bytes\n", codeAndRoDataSz);
+        fprintf(stderr, "       Relocs (flash):              %6" PRIu32 " bytes\n", relocsSz);
+        fprintf(stderr, "       GOT + RW data (flash & RAM): %6" PRIu32 " bytes\n", gotSz);
+        fprintf(stderr, "       BSS (RAM):                   %6" PRIu32 " bytes\n", bssSz);
         fprintf(stderr, "\n");
-        fprintf(stderr,"Runtime flash use: %u bytes\n", codeAndRoDataSz + relocsSz + gotSz + FLASH_RELOC_OFFSET);
-        fprintf(stderr,"Runtime RAM use: %u bytes\n", gotSz + bssSz);
+        fprintf(stderr,"Runtime flash use: %" PRIu32 " bytes\n", codeAndRoDataSz + relocsSz + gotSz + FLASH_RELOC_OFFSET);
+        fprintf(stderr,"Runtime RAM use: %" PRIu32 " bytes\n", gotSz + bssSz);
     }
 
     ret = fwrite(buf, bufUsed, 1, out) == 1 ? 0 : 2;
