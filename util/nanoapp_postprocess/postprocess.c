@@ -469,7 +469,7 @@ static int handleApp(uint8_t **pbuf, uint32_t bufUsed, FILE *out, uint32_t layou
         fprintf(stderr, "       GOT + RW data (flash & RAM): %6" PRIu32 " bytes\n", gotSz);
         fprintf(stderr, "       BSS (RAM):                   %6" PRIu32 " bytes\n", bssSz);
         fprintf(stderr, "\n");
-        fprintf(stderr,"Runtime flash use: %" PRIu32 " bytes\n", codeAndRoDataSz + relocsSz + gotSz + FLASH_RELOC_OFFSET);
+        fprintf(stderr,"Runtime flash use: %" PRIu32 " bytes\n", (uint32_t)(codeAndRoDataSz + relocsSz + gotSz + FLASH_RELOC_OFFSET));
         fprintf(stderr,"Runtime RAM use: %" PRIu32 " bytes\n", gotSz + bssSz);
     }
 
