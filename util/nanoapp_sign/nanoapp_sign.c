@@ -27,6 +27,22 @@
 
 static FILE* urandom = NULL;
 
+#if defined(__APPLE__) || defined(_WIN32)
+inline uint32_t bswap32 (uint32_t x) {
+    uint32_t out = 0;
+    for (int i=0; i < 4; ++i, x >>= 8)
+        out = (out << 8) | (x & 0xFF);
+    return out;
+}
+
+#define htobe32(x)  bswap32((x))
+#define htole32(x)  ((uint32_t)(x))
+#define be32toh(x)  bswap32((x))
+#define le32toh(x)  ((uint32_t)(x))
+#else
+#include <endian.h>
+#endif
+
 //read exactly one hex-encoded byte from a file, skipping all the fluff
 static int getHexEncodedByte(uint8_t *buf, uint32_t *ppos, uint32_t size)
 {
