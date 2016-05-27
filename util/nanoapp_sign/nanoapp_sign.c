@@ -19,7 +19,6 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <stdio.h>
-#include <endian.h>
 
 #include <nanohub/nanohub.h>
 #include <nanohub/nanoapp.h>
@@ -225,7 +224,8 @@ static int handleVerify(uint8_t **pbuf, uint32_t bufUsed, struct RsaData *rsa, b
         int sigData;
 
         if (verbose)
-            fprintf(stderr, "Original Data len=%d b; file size=%d b; diff=%d b\n", secHdr->appDataLen, bufUsed, bufUsed - secHdr->appDataLen);
+            fprintf(stderr, "Original Data len=%" PRIu32 " b; file size=%" PRIu32 " b; diff=%" PRIu32 " b\n",
+                    secHdr->appDataLen, bufUsed, bufUsed - secHdr->appDataLen);
 
         if (!(image->aosp.flags & NANOAPP_SIGNED_FLAG)) {
             fprintf(stderr, "image is not marked as signed, can not verify\n");
