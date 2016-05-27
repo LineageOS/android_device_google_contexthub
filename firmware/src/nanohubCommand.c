@@ -56,7 +56,13 @@
 #define SYNC_DATAPOINTS 16
 #define SYNC_RESET      10000000000ULL /* 10 seconds, ~100us drift */
 
-#define REQUIRE_SIGNED_IMAGE true
+// maximum number of bytes to feed into appSecRxData at once
+// The bigger the number, the more time we block other event processing
+// appSecRxData only feeds 16 bytes at a time into writeCbk, so large
+// numbers don't buy us that much
+#define MAX_APP_SEC_RX_DATA_LEN 64
+
+#define REQUIRE_SIGNED_IMAGE    true
 
 struct DownloadState
 {
@@ -69,6 +75,7 @@ struct DownloadState
     uint32_t srcCrc;    // current state of CRC-32 we generate from input
     uint8_t  data[NANOHUB_PACKET_PAYLOAD_MAX];
     uint8_t  len;
+    uint8_t  lenLeft;
     uint8_t  chunkReply;
     bool     erase;
     bool     eraseScheduled;
@@ -298,16 +305,6 @@ static uint32_t startFirmwareUpload(void *rx, uint8_t rx_len, void *tx, uint64_t
     return sizeof(*resp);
 }
 
-static AppSecErr giveAppSecTimeIfNeeded(struct AppSecState *state, AppSecErr prevRet)
-{
-    /* XXX: this will need to go away for real asynchronicity */
-
-    while (prevRet == APP_SEC_NEED_MORE_TIME)
-        prevRet = appSecDoSomeProcessing(state);
-
-    return prevRet;
-}
-
 static void deferredUpdateOs(void *cookie)
 {
     const struct AppHdr *app = cookie;
@@ -353,49 +350,103 @@ static AppSecErr updateKey(const struct AppHdr *app)
     return ret;
 }
 
+static uint32_t appSecErrToNanohubReply(AppSecErr status)
+{
+    uint32_t reply;
+
+    switch (status) {
+    case APP_SEC_NO_ERROR:
+        reply = NANOHUB_FIRMWARE_UPLOAD_SUCCESS;
+        break;
+    case APP_SEC_KEY_NOT_FOUND:
+        reply = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_KEY_NOT_FOUND;
+        break;
+    case APP_SEC_HEADER_ERROR:
+        reply = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_HEADER_ERROR;
+        break;
+    case APP_SEC_TOO_MUCH_DATA:
+        reply = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_TOO_MUCH_DATA;
+        break;
+    case APP_SEC_TOO_LITTLE_DATA:
+        reply = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_TOO_LITTLE_DATA;
+        break;
+    case APP_SEC_SIG_VERIFY_FAIL:
+        reply = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_SIG_VERIFY_FAIL;
+        break;
+    case APP_SEC_SIG_DECODE_FAIL:
+        reply = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_SIG_DECODE_FAIL;
+        break;
+    case APP_SEC_SIG_ROOT_UNKNOWN:
+        reply = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_SIG_ROOT_UNKNOWN;
+        break;
+    case APP_SEC_MEMORY_ERROR:
+        reply = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_MEMORY_ERROR;
+        break;
+    case APP_SEC_INVALID_DATA:
+        reply = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_INVALID_DATA;
+        break;
+    case APP_SEC_VERIFY_FAILED:
+        reply = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_VERIFY_FAILED;
+        break;
+    default:
+        reply = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_BAD;
+        break;
+    }
+    return reply;
+}
+
 static uint32_t firmwareFinish(bool valid)
 {
     struct AppHdr *app;
     struct Segment *storageSeg;
     uint32_t segState;
-    uint32_t ret = NANOHUB_FIRMWARE_CHUNK_REPLY_ACCEPTED;
+    uint32_t ret = NANOHUB_FIRMWARE_UPLOAD_SUCCESS;
 
-    if (!mDownloadState)
-        return mAppSecStatus;
-
-    mAppSecStatus = appSecRxDataOver(mDownloadState->appSecState);
-    mAppSecStatus = giveAppSecTimeIfNeeded(mDownloadState->appSecState, mAppSecStatus);
+    if (!mDownloadState) {
+        ret = appSecErrToNanohubReply(mAppSecStatus);
+        osLog(LOG_INFO, "%s: no DL status; decoding secure status: %" PRIu32 "\n", __func__, ret);
+        return ret;
+    }
 
     app = mDownloadState->start;
     storageSeg = osGetSegment(app);
 
     if (mAppSecStatus == APP_SEC_NO_ERROR && valid) {
+        osLog(LOG_INFO, "%s: Secure verification passed\n", __func__);
         if (storageSeg->state != SEG_ST_RESERVED ||
                 mDownloadState->size < sizeof(struct FwCommonHdr) ||
                 app->hdr.magic != APP_HDR_MAGIC ||
                 app->hdr.fwVer != APP_HDR_VER_CUR) {
             segState = SEG_ST_ERASED;
+            osLog(LOG_INFO, "%s: Header verification failed\n", __func__);
         } else {
             segState = SEG_ST_VALID;
         }
     } else {
         segState = SEG_ST_ERASED;
+        osLog(LOG_INFO, "%s: Secure verification failed: valid=%d; status=%" PRIu32 "\n", __func__, valid, mAppSecStatus);
     }
 
-    if (!osAppSegmentClose(app, mDownloadState->dstOffset, segState))
-        ret = NANOHUB_FIRMWARE_CHUNK_REPLY_RESEND;
-
-    segState = osAppSegmentGetState(app);
+    if (!osAppSegmentClose(app, mDownloadState->dstOffset, segState)) {
+        osLog(LOG_INFO, "%s: Failed to close segment\n", __func__);
+        valid = false;
+    } else {
+        segState = osAppSegmentGetState(app);
+        valid = (segState == SEG_ST_VALID);
+    }
     osLog(LOG_INFO, "Loaded %s image type %" PRIu8 ": %" PRIu32
                     " bytes @ %p; state=%02" PRIX32 "\n",
-                    segState == SEG_ST_VALID ? "valid" : "invalid",
+                    valid ? "valid" : "invalid",
                     app->hdr.payInfoType, mDownloadState->size,
                     mDownloadState->start, segState);
 
     freeDownloadState(); // no more access to mDownloadState
 
+    if (!valid)
+        ret = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_BAD;
+
     // take extra care about some special payload types
-    if (ret == APP_SEC_NO_ERROR) {
+    if (ret == NANOHUB_FIRMWARE_UPLOAD_SUCCESS) {
         switch(app->hdr.payInfoType) {
         case LAYOUT_OS:
             osLog(LOG_INFO, "Performing OS update\n");
@@ -403,16 +454,22 @@ static uint32_t firmwareFinish(bool valid)
             osDefer(deferredUpdateOs, (void*)app, false);
             break;
         case LAYOUT_KEY:
-            ret = updateKey(app);
+            ret = appSecErrToNanohubReply(updateKey(app));
             break;
         }
     }
 
-    if (ret != APP_SEC_NO_ERROR || (app->hdr.fwFlags & FL_APP_HDR_VOLATILE)) {
-        if ((app->hdr.fwFlags | FL_APP_HDR_SECURE))
+    if (ret != NANOHUB_FIRMWARE_UPLOAD_SUCCESS || (app->hdr.fwFlags & FL_APP_HDR_VOLATILE)) {
+        if ((app->hdr.fwFlags & FL_APP_HDR_SECURE))
             osAppWipeData((struct AppHdr*)app);
         osAppSegmentSetState(app, SEG_ST_ERASED);
     }
+
+    // if any error happened after we downloaded and verified image, we say it is unknown fault
+    // we don't have download status, so e have to save returned value in secure status field, because
+    // host may request the same status multiple times
+    if (ret != NANOHUB_FIRMWARE_UPLOAD_SUCCESS)
+        mAppSecStatus = APP_SEC_BAD;
 
     return ret;
 }
@@ -431,25 +488,34 @@ static void firmwareErase(void *cookie)
     mDownloadState->eraseScheduled = false;
 }
 
-static bool firmwareWrite(bool checkCrc)
+static void firmwareWrite(void *cookie)
 {
-    /* XXX: this will need to change for real asynchronicity */
-    const uint8_t *data = mDownloadState->data;
-    uint32_t len = mDownloadState->len, lenLeft;
-    mAppSecStatus = APP_SEC_NO_ERROR;
     bool valid;
     bool finished = false;
+    struct NanohubHalContUploadTx *resp = cookie;
+    // only check crc when cookie is NULL (write came from kernel, not HAL)
+    bool checkCrc = !cookie;
 
-    while (len) {
+    if (mAppSecStatus == APP_SEC_NEED_MORE_TIME) {
+        mAppSecStatus = appSecDoSomeProcessing(mDownloadState->appSecState);
+    } else if (mDownloadState->lenLeft) {
+        const uint8_t *data = mDownloadState->data + mDownloadState->len - mDownloadState->lenLeft;
+        uint32_t len = mDownloadState->lenLeft, lenLeft, lenRem = 0;
+
+        if (len > MAX_APP_SEC_RX_DATA_LEN) {
+            lenRem = len - MAX_APP_SEC_RX_DATA_LEN;
+            len = MAX_APP_SEC_RX_DATA_LEN;
+        }
+
         mAppSecStatus = appSecRxData(mDownloadState->appSecState, data, len, &lenLeft);
-        data += len - lenLeft;
-        len = lenLeft;
-
-        mAppSecStatus = giveAppSecTimeIfNeeded(mDownloadState->appSecState, mAppSecStatus);
+        mDownloadState->lenLeft = lenLeft + lenRem;
     }
 
     valid = (mAppSecStatus == APP_SEC_NO_ERROR);
-    if (valid) {
+    if (mAppSecStatus == APP_SEC_NEED_MORE_TIME || mDownloadState->lenLeft) {
+        osDefer(firmwareWrite, cookie, false);
+        return;
+    } else if (valid) {
         if (mDownloadState->srcOffset == mDownloadState->size) {
             finished = true;
             valid = !checkCrc || mDownloadState->crc == ~mDownloadState->srcCrc;
@@ -459,18 +525,24 @@ static bool firmwareWrite(bool checkCrc)
     }
     if (!valid)
         finished = true;
-    if (finished)
-        firmwareFinish(valid);
-
-    return valid;
+    if (finished) {
+        if (firmwareFinish(valid) != NANOHUB_FIRMWARE_UPLOAD_SUCCESS)
+            valid = false;
+    }
+    if (resp) {
+        resp->success = valid;
+        osEnqueueEvtOrFree(EVT_APP_TO_HOST, resp, heapFree);
+    }
 }
 
-static uint32_t doFirmwareChunk(uint8_t *data, uint32_t offset, uint32_t len, bool checkCrc)
+static uint32_t doFirmwareChunk(uint8_t *data, uint32_t offset, uint32_t len, void *cookie)
 {
     uint32_t reply;
 
     if (!mDownloadState) {
         reply = NANOHUB_FIRMWARE_CHUNK_REPLY_CANCEL_NO_RETRY;
+    } else if (mAppSecStatus == APP_SEC_NEED_MORE_TIME || mDownloadState->lenLeft) {
+        reply = NANOHUB_FIRMWARE_CHUNK_REPLY_RESEND;
     } else if (mDownloadState->chunkReply != NANOHUB_FIRMWARE_CHUNK_REPLY_ACCEPTED) {
         reply = mDownloadState->chunkReply;
         firmwareFinish(false);
@@ -487,13 +559,13 @@ static uint32_t doFirmwareChunk(uint8_t *data, uint32_t offset, uint32_t len, bo
             reply = NANOHUB_FIRMWARE_CHUNK_REPLY_RESTART;
             resetDownloadState(false);
         } else {
-            if (checkCrc)
+            if (!cookie)
                 mDownloadState->srcCrc = crc32(data, len, mDownloadState->srcCrc);
             mDownloadState->srcOffset += len;
             memcpy(mDownloadState->data, data, len);
-            mDownloadState->len = len;
-            reply = firmwareWrite(checkCrc) ? NANOHUB_FIRMWARE_CHUNK_REPLY_ACCEPTED :
-                                              NANOHUB_FIRMWARE_CHUNK_REPLY_CANCEL;
+            mDownloadState->lenLeft = mDownloadState->len = len;
+            reply = NANOHUB_FIRMWARE_CHUNK_REPLY_ACCEPTED;
+            osDefer(firmwareWrite, cookie, false);
         }
     }
 
@@ -507,7 +579,7 @@ static uint32_t firmwareChunk(void *rx, uint8_t rx_len, void *tx, uint64_t times
     uint32_t offset = le32toh(req->offset);
     uint8_t len = rx_len - sizeof(req->offset);
 
-    resp->chunkReply = doFirmwareChunk(req->data, offset, len, true);
+    resp->chunkReply = doFirmwareChunk(req->data, offset, len, NULL);
 
     return sizeof(*resp);
 }
@@ -517,44 +589,7 @@ static uint32_t doFinishFirmwareUpload()
     uint32_t reply;
 
     if (!mDownloadState) {
-        switch (mAppSecStatus) {
-        case APP_SEC_NO_ERROR:
-            reply = NANOHUB_FIRMWARE_UPLOAD_SUCCESS;
-            break;
-        case APP_SEC_KEY_NOT_FOUND:
-            reply = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_KEY_NOT_FOUND;
-            break;
-        case APP_SEC_HEADER_ERROR:
-            reply = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_HEADER_ERROR;
-            break;
-        case APP_SEC_TOO_MUCH_DATA:
-            reply = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_TOO_MUCH_DATA;
-            break;
-        case APP_SEC_TOO_LITTLE_DATA:
-            reply = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_TOO_LITTLE_DATA;
-            break;
-        case APP_SEC_SIG_VERIFY_FAIL:
-            reply = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_SIG_VERIFY_FAIL;
-            break;
-        case APP_SEC_SIG_DECODE_FAIL:
-            reply = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_SIG_DECODE_FAIL;
-            break;
-        case APP_SEC_SIG_ROOT_UNKNOWN:
-            reply = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_SIG_ROOT_UNKNOWN;
-            break;
-        case APP_SEC_MEMORY_ERROR:
-            reply = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_MEMORY_ERROR;
-            break;
-        case APP_SEC_INVALID_DATA:
-            reply = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_INVALID_DATA;
-            break;
-        case APP_SEC_VERIFY_FAILED:
-            reply = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_VERIFY_FAILED;
-            break;
-        default:
-            reply = NANOHUB_FIRMWARE_UPLOAD_APP_SEC_BAD;
-            break;
-        }
+        reply = appSecErrToNanohubReply(mAppSecStatus);
     } else if (mDownloadState->srcOffset == mDownloadState->size) {
         reply = NANOHUB_FIRMWARE_UPLOAD_PROCESSING;
     } else {
@@ -568,7 +603,8 @@ static uint32_t finishFirmwareUpload(void *rx, uint8_t rx_len, void *tx, uint64_
 {
     struct NanohubFinishFirmwareUploadResponse *resp = tx;
     resp->uploadReply = doFinishFirmwareUpload();
-    osLog(LOG_INFO, "%s: reply=%" PRIu8 "\n", __func__, resp->uploadReply);
+    if (resp->uploadReply != NANOHUB_FIRMWARE_UPLOAD_PROCESSING)
+        osLog(LOG_INFO, "%s: reply=%" PRIu8 "\n", __func__, resp->uploadReply);
     return sizeof(*resp);
 }
 
@@ -1092,14 +1128,15 @@ static void halContUpload(void *rx, uint8_t rx_len)
     } else {
         offset = le32toh(req->offset);
         len = rx_len - sizeof(req->offset);
-        reply = doFirmwareChunk(req->data, offset, len, false);
+        reply = doFirmwareChunk(req->data, offset, len, resp);
     }
-    if (reply != NANOHUB_FIRMWARE_CHUNK_REPLY_ACCEPTED)
+    if (reply != NANOHUB_FIRMWARE_CHUNK_REPLY_ACCEPTED) {
         osLog(LOG_ERROR, "%s: reply=%" PRIu32 "\n", __func__, reply);
 
-    resp->success = (reply == NANOHUB_FIRMWARE_CHUNK_REPLY_ACCEPTED);
+        resp->success = false;
 
-    osEnqueueEvtOrFree(EVT_APP_TO_HOST, resp, heapFree);
+        osEnqueueEvtOrFree(EVT_APP_TO_HOST, resp, heapFree);
+    }
 }
 
 static void halFinishUpload(void *rx, uint8_t rx_len)
