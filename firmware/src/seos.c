@@ -508,6 +508,9 @@ bool osWriteShared(void *dest, const void *src, uint32_t len)
     mpuAllowRomWrite(false);
     mpuAllowRamExecution(false);
 
+    if (!ret)
+        osLog(LOG_ERROR, "osWriteShared: blProgramShared return false\n");
+
     return ret;
 }
 
