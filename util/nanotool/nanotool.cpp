@@ -297,6 +297,7 @@ static std::unique_ptr<ParsedArgs> ParseArgs(int argc, char **argv) {
         {"flash",   required_argument, nullptr, 'f'},
         {"log",     no_argument,       nullptr, 'l'},
         {"index",   required_argument, nullptr, 'i'},
+        {}  // Indicates the end of the option list
     };
 
     auto args = std::unique_ptr<ParsedArgs>(new ParsedArgs());
