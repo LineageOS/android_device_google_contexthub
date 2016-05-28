@@ -42,6 +42,7 @@ enum class NanotoolCommand {
     Disable,
     DisableAll,
     Calibrate,
+    Test,
     Read,
     Poll,
     LoadCalibration,
@@ -64,6 +65,7 @@ static NanotoolCommand StrToCommand(const char *command_name) {
         std::make_tuple("disable_all", NanotoolCommand::DisableAll),
         std::make_tuple("calibrate",   NanotoolCommand::Calibrate),
         std::make_tuple("cal",         NanotoolCommand::Calibrate),
+        std::make_tuple("test",        NanotoolCommand::Test),
         std::make_tuple("read",        NanotoolCommand::Read),
         std::make_tuple("poll",        NanotoolCommand::Poll),
         std::make_tuple("load_cal",    NanotoolCommand::LoadCalibration),
@@ -98,6 +100,7 @@ static void PrintUsage(const char *name) {
         "                        disable_all: send a disable request for all sensors\n"
         "                        calibrate: disable the sensor, then perform the sensor\n"
         "                           calibration routine\n"
+        "                        test: run a sensor's self-test routine\n"
 #ifndef __ANDROID__
         "                        flash: load a new firmware image to the hub\n"
 #endif
@@ -159,6 +162,7 @@ static bool ValidateArgs(std::unique_ptr<ParsedArgs>& args, const char *name) {
     if (!args->sensors.size()
           && (args->command == NanotoolCommand::Disable
                 || args->command == NanotoolCommand::Calibrate
+                || args->command == NanotoolCommand::Test
                 || args->command == NanotoolCommand::Poll)) {
         fprintf(stderr, "%s: At least 1 sensor must be specified for this "
                         "command (use -s)\n",
@@ -458,6 +462,11 @@ int main(int argc, char **argv) {
       case NanotoolCommand::Calibrate: {
         hub->DisableSensors(args->sensors);
         success = hub->CalibrateSensors(args->sensors);
+        break;
+      }
+      case NanotoolCommand::Test: {
+        hub->DisableSensors(args->sensors);
+        success = hub->TestSensors(args->sensors);
         break;
       }
       case NanotoolCommand::LoadCalibration: {

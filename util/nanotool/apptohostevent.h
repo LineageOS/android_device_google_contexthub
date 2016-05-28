@@ -92,13 +92,17 @@ class AppToHostEvent : public ReadEventResponse {
     const uint8_t *GetDataPtr() const;
 
     bool IsCalibrationEventForSensor(SensorType sensor_type) const;
+    bool IsTestEventForSensor(SensorType sensor_type) const;
     virtual bool IsValid() const;
 
   protected:
     const HostHubRawPacket *GetTypedData() const;
+    bool CheckAppId(SensorType sensor_type) const;
+    bool CheckEventHeader(SensorType sensor_type) const;
 };
 
 #define SENSOR_APP_MSG_CALIBRATION_RESULT (0)
+#define SENSOR_APP_MSG_TEST_RESULT        (1)
 
 struct SensorAppEventHeader {
     uint8_t msgId;

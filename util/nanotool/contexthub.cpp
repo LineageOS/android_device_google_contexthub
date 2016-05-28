@@ -31,6 +31,7 @@ namespace android {
 #define UNUSED_PARAM(param) (void) (param)
 
 constexpr int kCalibrationTimeoutMs(10000);
+constexpr int kTestTimeoutMs(10000);
 constexpr int kBridgeVersionTimeoutMs(500);
 
 struct SensorTypeNames {
@@ -171,6 +172,14 @@ bool ContextHub::CalibrateSensors(const std::vector<SensorSpec>& sensors) {
     if (success) {
         success = SaveCalibration();
     }
+    return success;
+}
+
+bool ContextHub::TestSensors(const std::vector<SensorSpec>& sensors) {
+    bool success = ForEachSensor(sensors, [this](const SensorSpec &spec) -> bool {
+        return TestSingleSensor(spec);
+    });
+
     return success;
 }
 
@@ -382,6 +391,40 @@ bool ContextHub::CalibrateSingleSensor(const SensorSpec& sensor) {
     return success;
 }
 
+bool ContextHub::TestSingleSensor(const SensorSpec& sensor) {
+    ConfigureSensorRequest req;
+
+    req.config.event_type = static_cast<uint32_t>(EventType::ConfigureSensor);
+    req.config.sensor_type = static_cast<uint8_t>(sensor.sensor_type);
+    req.config.command = static_cast<uint8_t>(
+        ConfigureSensorRequest::CommandType::SelfTest);
+
+    LOGI("Issuing test request to sensor %d (%s)", sensor.sensor_type,
+         ContextHub::SensorTypeToAbbrevName(sensor.sensor_type).c_str());
+    auto result = WriteEvent(req);
+    if (result != TransportResult::Success) {
+        LOGE("Failed to test sensor %d", sensor.sensor_type);
+        return false;
+    }
+
+    bool success = false;
+    auto test_event_handler = [this, &sensor, &success](const AppToHostEvent &event) -> bool {
+        if (event.IsTestEventForSensor(sensor.sensor_type)) {
+            success = HandleTestResult(sensor, event);
+            return false;
+        }
+        return true;
+    };
+
+    result = ReadAppEvents(test_event_handler, kTestTimeoutMs);
+    if (result != TransportResult::Success) {
+      LOGE("Error reading test response %d", static_cast<int>(result));
+      return false;
+    }
+
+    return success;
+}
+
 bool ContextHub::ForEachSensor(const std::vector<SensorSpec>& sensors,
         std::function<bool(const SensorSpec&)> callback) {
     bool success = true;
@@ -449,6 +492,23 @@ bool ContextHub::HandleCalibrationResult(const SensorSpec& sensor,
     }
 
     return success;
+}
+
+bool ContextHub::HandleTestResult(const SensorSpec& sensor,
+        const AppToHostEvent &event) {
+    auto hdr = reinterpret_cast<const SensorAppEventHeader *>(event.GetDataPtr());
+    if (!hdr->status) {
+        LOGI("Self-test of sensor %d (%s) succeeded",
+             sensor.sensor_type,
+             ContextHub::SensorTypeToAbbrevName(sensor.sensor_type).c_str());
+        return true;
+    } else {
+        LOGE("Self-test of sensor %d (%s) failed with status %u",
+             sensor.sensor_type,
+             ContextHub::SensorTypeToAbbrevName(sensor.sensor_type).c_str(),
+             hdr->status);
+        return false;
+    }
 }
 
 ContextHub::TransportResult ContextHub::ReadAppEvents(
