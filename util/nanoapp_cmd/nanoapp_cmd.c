@@ -29,11 +29,14 @@
 #include <sensType.h>
 #include <signal.h>
 #include <inttypes.h>
+#include <errno.h>
 
+#define LOG_TAG "nanoapp_cmd"
 #define SENSOR_RATE_ONCHANGE    0xFFFFFF01UL
 #define SENSOR_RATE_ONESHOT     0xFFFFFF02UL
 #define SENSOR_HZ(_hz)          ((uint32_t)((_hz) * 1024.0f))
 #define MAX_INSTALL_CNT         8
+#define MAX_DOWNLOAD_RETRIES    3
 
 enum ConfigCmds
 {
@@ -150,13 +153,22 @@ int nread, buf_size = 2048;
 struct AppInfo apps[32];
 uint8_t appCount = 0;
 char appsToInstall[MAX_INSTALL_CNT][32];
-uint8_t installCnt = 0;
 
 void sig_handle(__attribute__((unused)) int sig)
 {
     assert(sig == SIGINT);
     printf("Terminating...\n");
     stop = true;
+}
+
+FILE *openFile(const char *fname, const char *mode)
+{
+    FILE *f = fopen(fname, mode);
+    if (f == NULL) {
+        __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, "Failed to open %s: err=%d [%s]", fname, errno, strerror(errno));
+        printf("\nFailed to open %s: err=%d [%s]\n", fname, errno, strerror(errno));
+    }
+    return f;
 }
 
 void parseInstalledAppInfo()
@@ -166,12 +178,9 @@ void parseInstalledAppInfo()
     size_t len;
     ssize_t numRead;
 
-    fp = fopen("/sys/class/nanohub/nanohub/app_info", "r");
-    if (fp == NULL) {
-        __android_log_write(ANDROID_LOG_ERROR, "nanoapp_cmd", "Failed to open app_info!");
-        printf("Failed to open app_info!\n");
+    fp = openFile("/sys/class/nanohub/nanohub/app_info", "r");
+    if (!fp)
         return;
-    }
 
     while ((numRead = getline(&line, &len, fp)) != -1) {
         struct AppInfo *currApp = &apps[appCount++];
@@ -197,19 +206,17 @@ struct AppInfo *findApp(uint64_t appId)
     return NULL;
 }
 
-void parseConfigAppInfo()
+int parseConfigAppInfo()
 {
     FILE *fp;
     char *line = NULL;
     size_t len;
     ssize_t numRead;
+    int installCnt;
 
-    fp = fopen("/vendor/firmware/napp_list.cfg", "r");
-    if (fp == NULL) {
-        __android_log_write(ANDROID_LOG_WARN, "nanoapp_cmd", "Could not find napp_list.cfg!");
-        printf("Could not open napp_list.cfg!\n");
-        return;
-    }
+    fp = openFile("/vendor/firmware/napp_list.cfg", "r");
+    if (!fp)
+        return -1;
 
     parseInstalledAppInfo();
 
@@ -231,76 +238,70 @@ void parseConfigAppInfo()
 
     if (line)
         free(line);
+
+    return installCnt;
+}
+
+bool fileWriteData(const char *fname, const void *data, size_t size)
+{
+    int fd;
+    bool result;
+
+    fd = open(fname, O_WRONLY);
+    if (fd < 0) {
+        __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, "Failed to open %s: err=%d [%s]", fname, errno, strerror(errno));
+        printf("\nFailed to open %s: err=%d [%s]\n", fname, errno, strerror(errno));
+        return false;
+    }
+
+    result = true;
+    if ((size_t)write(fd, data, size) != size) {
+        __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, "Failed to write to %s; err=%d [%s]", fname, errno, strerror(errno));
+        printf("\nFailed to write %s; err=%d [%s]\n", fname, errno, strerror(errno));
+        result = false;
+    }
+    close(fd);
+
+    return result;
 }
 
 void downloadNanohub()
 {
-    int fd;
     char c = '1';
 
-    fd = open("/sys/class/nanohub/nanohub/download_bl", O_WRONLY);
-    if (fd < 0) {
-        __android_log_write(ANDROID_LOG_ERROR, "nanoapp_cmd", "Failed to open download_bl!");
-        printf("Failed to open download_bl!\n");
-        return;
-    }
-
-    if (write(fd, &c, 1) <= 0) {
-        __android_log_write(ANDROID_LOG_ERROR, "nanoapp_cmd", "Failed to write download_bl!");
-        printf("Failed to write download_bl!\n");
-    }
-    close(fd);
+    printf("Updating nanohub OS [if required]...");
+    fflush(stdout);
+    if (fileWriteData("/sys/class/nanohub/nanohub/download_bl", &c, sizeof(c)))
+        printf("done\n");
 }
 
-void downloadApps()
+void downloadApps(int updateCnt)
 {
-    int fd;
-    ssize_t ret;
-    uint8_t i;
+    int i;
 
-    fd = open("/sys/class/nanohub/nanohub/download_app", O_WRONLY);
-    if (fd < 0) {
-        __android_log_write(ANDROID_LOG_ERROR, "nanoapp_cmd", "Failed to open download_app!");
-        printf("Failed to open download_app!\n");
-        return;
+    for (i = 0; i < updateCnt; i++) {
+        printf("Downloading \"%s.napp\"...", appsToInstall[i]);
+        fflush(stdout);
+        if (fileWriteData("/sys/class/nanohub/nanohub/download_app", appsToInstall[i], strlen(appsToInstall[i])))
+            printf("done\n");
     }
-
-    for (i = 0; i < installCnt; i++) {
-        printf("Downloading \"%s.napp\"...\n", appsToInstall[i]);
-        ret = write(fd, appsToInstall[i], strlen(appsToInstall[i]));
-        if (ret < 0) {
-            __android_log_print(ANDROID_LOG_WARN, "nanoapp_cmd", "Failed to download %s.napp!\n", appsToInstall[i]);
-            printf("Failed to download %s.napp!\n", appsToInstall[i]);
-        }
-    }
-
-    close(fd);
 }
 
 void resetHub()
 {
-    int fd;
     char c = '1';
 
-    fd = open("/sys/class/nanohub/nanohub/reset", O_WRONLY);
-    if (fd < 0) {
-        __android_log_write(ANDROID_LOG_ERROR, "nanoapp_cmd", "Failed to open reset sysfs file!");
-        printf("Failed to open reset sysfs file!\n");
-        return;
-    }
-
-    if (write(fd, &c, 1) <= 0) {
-        __android_log_write(ANDROID_LOG_ERROR, "nanoapp_cmd", "Failed to write reset sysfs file!");
-        printf("Failed to write reset sysfs file!\n");
-    }
-    close(fd);
+    printf("Resetting nanohub...");
+    fflush(stdout);
+    if (fileWriteData("/sys/class/nanohub/nanohub/reset", &c, sizeof(c)))
+        printf("done\n");
 }
 
 int main(int argc, char *argv[])
 {
     struct ConfigCmd mConfigCmd;
     int fd;
-    int ret;
+    int i;
 
     if (argc < 3 && strcmp(argv[1], "download") != 0) {
         printf("usage: %s <action> <sensor> <data> -d\n", argv[0]);
@@ -377,22 +378,28 @@ int main(int argc, char *argv[])
             return 1;
         }
         downloadNanohub();
-        parseConfigAppInfo();
-        if (installCnt) {
-            downloadApps();
-            resetHub();
+        for (i = 0; i < MAX_DOWNLOAD_RETRIES; i++) {
+            int updateCnt = parseConfigAppInfo();
+            if (updateCnt > 0) {
+                downloadApps(updateCnt);
+                resetHub();
+            } else if (!updateCnt){
+                return 0;
+            }
         }
-        return 0;
+
+        if (parseConfigAppInfo() != 0) {
+            __android_log_write(ANDROID_LOG_ERROR, LOG_TAG, "Failed to download all apps!");
+            printf("Failed to download all apps!\n");
+        }
+        return 1;
     } else {
         printf("Unsupported action: %s\n", argv[1]);
         return 1;
     }
 
-    fd = open("/dev/nanohub", O_RDWR);
-    do {
-        ret = write(fd, &mConfigCmd, sizeof(mConfigCmd));
-    } while (ret < 0);
-    close(fd);
+    while (!fileWriteData("/dev/nanohub", &mConfigCmd, sizeof(mConfigCmd)))
+        continue;
 
     if (drain) {
         signal(SIGINT, sig_handle);
