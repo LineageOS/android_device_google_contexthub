@@ -71,7 +71,7 @@
 #define DBG_WM_CALC               0
 #define TIMESTAMP_DBG             0
 
-#define BMI160_APP_VERSION 2
+#define BMI160_APP_VERSION 3
 
 // fixme: to list required definitions for a slave mag
 #ifdef USE_BMM150
@@ -235,6 +235,8 @@
 #define BUF_MARGIN 32   // some extra buffer for additional reg RW when a FIFO read happens
 #define SPI_BUF_SIZE (FIFO_READ_SIZE + CHUNKED_READ_SIZE + BUF_MARGIN)
 
+#define ABS(x) (((x) > 0) ? (x) : -(x))
+
 enum SensorIndex {
     FIRST_CONT_SENSOR = 0,
     ACC = FIRST_CONT_SENSOR,
@@ -278,6 +280,22 @@ enum CalibrationState {
     CALIBRATION_TIMEOUT,
 };
 
+enum AccTestState {
+    ACC_TEST_START,
+    ACC_TEST_CONFIG,
+    ACC_TEST_RUN_0,
+    ACC_TEST_RUN_1,
+    ACC_TEST_VERIFY,
+    ACC_TEST_DONE
+};
+
+enum GyroTestState {
+    GYRO_TEST_START,
+    GYRO_TEST_RUN,
+    GYRO_TEST_VERIFY,
+    GYRO_TEST_DONE
+};
+
 enum SensorState {
     // keep this in sync with getStateName
     SENSOR_BOOT,
@@ -290,6 +308,7 @@ enum SensorState {
     SENSOR_INT_1_HANDLING,
     SENSOR_INT_2_HANDLING,
     SENSOR_CALIBRATING,
+    SENSOR_TESTING,
     SENSOR_STEP_CNT,
     SENSOR_TIME_SYNC,
     SENSOR_SAVE_CALIBRATION,
@@ -344,6 +363,11 @@ struct CalibrationData {
     int32_t xBias;
     int32_t yBias;
     int32_t zBias;
+} __attribute__((packed));
+
+struct TestResultData {
+    struct HostHubRawPacket header;
+    struct SensorAppEventHeader data_header;
 } __attribute__((packed));
 
 struct BMI160Sensor {
@@ -415,6 +439,11 @@ struct BMI160Task {
     enum InitState init_state;
     enum MagConfigState mag_state;
     enum CalibrationState calibration_state;
+    enum AccTestState acc_test_state;
+    enum GyroTestState gyro_test_state;
+
+    // for self-test
+    int16_t accTestX, accTestY, accTestZ;
 
     // pending configs
     bool pending_int[2];
@@ -2372,10 +2401,134 @@ static bool accCfgData(void *data, void *cookie)
     return true;
 }
 
+static void sendTestResult(uint8_t status, uint8_t sensorType) {
+    struct TestResultData *data = heapAlloc(sizeof(struct TestResultData));
+    if (!data) {
+        osLog(LOG_WARN, "Couldn't alloc test result packet");
+        return;
+    }
+
+    data->header.appId = BMI160_APP_ID;
+    data->header.dataLen = (sizeof(struct TestResultData) - sizeof(struct HostHubRawPacket));
+    data->data_header.msgId = SENSOR_APP_MSG_ID_TEST_RESULT;
+    data->data_header.sensorType = sensorType;
+    data->data_header.status = status;
+
+    if (!osEnqueueEvtOrFree(EVT_APP_TO_HOST, data, heapFree))
+        osLog(LOG_WARN, "Couldn't send test result packet");
+}
+
+static void accTestHandling(void)
+{
+    // the minimum absolute differences, according to BMI160 datasheet section
+    // 2.8.1, are 800 mg for the x and y axes and 400 mg for the z axis
+    static const int32_t kMinDifferenceXY = (800 * 32767) / 8000;
+    static const int32_t kMinDifferenceZ = (400 * 32767) / 8000;
+
+    int32_t tempTestX, tempTestY, tempTestZ;
+    int32_t absDiffX, absDiffY, absDiffZ;
+
+    TDECL();
+
+    switch (mTask.acc_test_state) {
+    case ACC_TEST_START:
+        // turn ACC to NORMAL mode
+        SPI_WRITE(BMI160_REG_CMD, 0x11, 50000);
+
+        mTask.acc_test_state = ACC_TEST_CONFIG;
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[ACC], __FUNCTION__);
+        break;
+
+    case ACC_TEST_CONFIG:
+        // set accel conf
+        SPI_WRITE(BMI160_REG_ACC_CONF, 0x2c);
+
+        // set accel range to +-8g
+        SPI_WRITE(BMI160_REG_ACC_RANGE, 0x08);
+
+        // read stale accel data
+        SPI_READ(BMI160_REG_DATA_14, 6, &mTask.dataBuffer);
+
+        mTask.acc_test_state = ACC_TEST_RUN_0;
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[ACC], __FUNCTION__);
+        break;
+
+    case ACC_TEST_RUN_0:
+        // configure acc_self_test_amp=1, acc_self_test_sign=0, acc_self_test_enable=b01
+        // wait 50ms for data to be available
+        SPI_WRITE(BMI160_REG_SELF_TEST, 0x09, 50000);
+
+        // read accel data
+        SPI_READ(BMI160_REG_DATA_14, 6, &mTask.dataBuffer);
+
+        mTask.acc_test_state = ACC_TEST_RUN_1;
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[ACC], __FUNCTION__);
+        break;
+
+    case ACC_TEST_RUN_1:
+        // save accel data
+        mTask.accTestX = *(int16_t*)(mTask.dataBuffer+1);
+        mTask.accTestY = *(int16_t*)(mTask.dataBuffer+3);
+        mTask.accTestZ = *(int16_t*)(mTask.dataBuffer+5);
+
+        // configure acc_self_test_amp=1, acc_self_test_sign=1, acc_self_test_enable=b01
+        // wait 50ms for data to be available
+        SPI_WRITE(BMI160_REG_SELF_TEST, 0x0d, 50000);
+
+        // read accel data
+        SPI_READ(BMI160_REG_DATA_14, 6, &mTask.dataBuffer);
+
+        mTask.acc_test_state = ACC_TEST_VERIFY;
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[ACC], __FUNCTION__);
+        break;
+
+    case ACC_TEST_VERIFY:
+        // save accel data
+        tempTestX = *(int16_t*)(mTask.dataBuffer+1);
+        tempTestY = *(int16_t*)(mTask.dataBuffer+3);
+        tempTestZ = *(int16_t*)(mTask.dataBuffer+5);
+
+        // calculate the differences between run 0 and run 1
+        absDiffX = ABS((int32_t)mTask.accTestX - tempTestX);
+        absDiffY = ABS((int32_t)mTask.accTestY - tempTestY);
+        absDiffZ = ABS((int32_t)mTask.accTestZ - tempTestZ);
+
+        DEBUG_PRINT("accSelfTest diffs: X %d, Y %d, Z %d\n", (int)absDiffX, (int)absDiffY, (int)absDiffZ);
+
+        // verify that the differences between run 0 and run 1 are within spec
+        if (absDiffX >= kMinDifferenceXY && absDiffY >= kMinDifferenceXY && absDiffZ >= kMinDifferenceZ) {
+            sendTestResult(SENSOR_APP_EVT_STATUS_SUCCESS, SENS_TYPE_ACCEL);
+        } else {
+            sendTestResult(SENSOR_APP_EVT_STATUS_ERROR, SENS_TYPE_ACCEL);
+        }
+
+        // turn ACC to SUSPEND mode
+        SPI_WRITE(BMI160_REG_CMD, 0x10, 5000);
+
+        mTask.acc_test_state = ACC_TEST_DONE;
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[ACC], __FUNCTION__);
+        break;
+
+    default:
+        ERROR_PRINT("Invalid accel test state\n");
+        break;
+    }
+}
+
 static bool accSelfTest(void *cookie)
 {
-    // TODO: Implement this.
-    return true;
+    TDECL();
+    INFO_PRINT("accSelfTest\n");
+
+    if (!mTask.sensors[ACC].powered && trySwitchState(SENSOR_TESTING)) {
+        mTask.acc_test_state = ACC_TEST_START;
+        accTestHandling();
+        return true;
+    } else {
+        ERROR_PRINT("cannot test accel because sensor is busy\n");
+        sendTestResult(SENSOR_APP_EVT_STATUS_BUSY, SENS_TYPE_ACCEL);
+        return false;
+    }
 }
 
 static void gyrCalibrationHandling(void)
@@ -2507,10 +2660,66 @@ static bool gyrCfgData(void *data, void *cookie)
     return true;
 }
 
+static void gyroTestHandling(void)
+{
+    TDECL();
+
+    switch (mTask.gyro_test_state) {
+    case GYRO_TEST_START:
+        // turn GYR to NORMAL mode
+        SPI_WRITE(BMI160_REG_CMD, 0x15, 50000);
+
+        mTask.gyro_test_state = GYRO_TEST_RUN;
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[GYR], __FUNCTION__);
+        break;
+
+    case GYRO_TEST_RUN:
+        // set gyr_self_test_enable
+        // wait 50ms to check test status
+        SPI_WRITE(BMI160_REG_SELF_TEST, 0x10, 50000);
+
+        // check gyro self-test result in status register
+        SPI_READ(BMI160_REG_STATUS, 1, &mTask.statusBuffer);
+
+        mTask.gyro_test_state = GYRO_TEST_VERIFY;
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[GYR], __FUNCTION__);
+        break;
+
+    case GYRO_TEST_VERIFY:
+        // gyr_self_test_ok is bit 1
+        if (mTask.statusBuffer[1] & 0x2) {
+            sendTestResult(SENSOR_APP_EVT_STATUS_SUCCESS, SENS_TYPE_GYRO);
+        } else {
+            sendTestResult(SENSOR_APP_EVT_STATUS_ERROR, SENS_TYPE_GYRO);
+        }
+
+        // turn GYR to SUSPEND mode
+        SPI_WRITE(BMI160_REG_CMD, 0x14, 1000);
+
+        mTask.gyro_test_state = GYRO_TEST_DONE;
+        spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask.sensors[GYR], __FUNCTION__);
+        break;
+
+    default:
+        ERROR_PRINT("Invalid gyro test state\n");
+        break;
+    }
+}
+
 static bool gyrSelfTest(void *cookie)
 {
-    // TODO: Implement this.
-    return true;
+    TDECL();
+    INFO_PRINT("gyrSelfTest\n");
+
+    if (!mTask.sensors[GYR].powered && trySwitchState(SENSOR_TESTING)) {
+        mTask.gyro_test_state = GYRO_TEST_START;
+        gyroTestHandling();
+        return true;
+    } else {
+        ERROR_PRINT("cannot test gyro because sensor is busy\n");
+        sendTestResult(SENSOR_APP_EVT_STATUS_BUSY, SENS_TYPE_GYRO);
+        return false;
+    }
 }
 
 #ifdef MAG_SLAVE_PRESENT
@@ -2880,6 +3089,22 @@ static void handleSpiDoneEvt(const void* evtData)
             accCalibrationHandling();
         } else if (mSensor->idx == GYR) {
             gyrCalibrationHandling();
+        }
+        break;
+    case SENSOR_TESTING:
+        mSensor = (struct BMI160Sensor *)evtData;
+        if (mSensor->idx == ACC) {
+            if (mTask.acc_test_state == ACC_TEST_DONE) {
+                returnIdle = true;
+            } else {
+                accTestHandling();
+            }
+        } else if (mSensor->idx == GYR) {
+            if (mTask.gyro_test_state == GYRO_TEST_DONE) {
+                returnIdle = true;
+            } else {
+                gyroTestHandling();
+            }
         }
         break;
     case SENSOR_STEP_CNT:
