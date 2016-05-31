@@ -83,6 +83,7 @@ SET_PACKED_STRUCT_MODE_OFF
 #define SENSOR_APP_EVT_STATUS_BUSY       0x02
 
 #define SENSOR_APP_MSG_ID_CAL_RESULT     0x00 // Status of calibration, with resulting biases
+#define SENSOR_APP_MSG_ID_TEST_RESULT    0x01 // Status of self-test
 
 /*
  * These events are in private OS-reserved range, and are sent targettedly
