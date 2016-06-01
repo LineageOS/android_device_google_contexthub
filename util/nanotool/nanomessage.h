@@ -165,7 +165,8 @@ class ConfigureSensorRequest : public WriteEventRequest {
         Enable,
         Flush,
         ConfigData,
-        Calibrate
+        Calibrate,
+        SelfTest
     };
 
     ConfigureSensorRequest();
