@@ -133,6 +133,11 @@ class ContextHub : public NonCopyable {
     bool CalibrateSensors(const std::vector<SensorSpec>& sensors);
 
     /*
+     * Performs the sensor self-test routine.
+     */
+    bool TestSensors(const std::vector<SensorSpec>& sensors);
+
+    /*
      * Sends a sensor enable request to the context hub.
      */
     bool EnableSensor(const SensorSpec& sensor);
@@ -197,6 +202,9 @@ class ContextHub : public NonCopyable {
     // Performs the calibration routine, but does not call SaveCalibration()
     bool CalibrateSingleSensor(const SensorSpec& sensor);
 
+    // Performs the self-test routine
+    bool TestSingleSensor(const SensorSpec& sensor);
+
     /*
      * Iterates over sensors, invoking the given callback on each element.
      * Returns true if all callbacks returned true. Exits early on failure.
@@ -209,6 +217,12 @@ class ContextHub : public NonCopyable {
      * SetCalibration function with the calibration data.
      */
     bool HandleCalibrationResult(const SensorSpec& sensor,
+        const AppToHostEvent &event);
+
+    /*
+     * Parses a self-test result event
+     */
+    bool HandleTestResult(const SensorSpec& sensor,
         const AppToHostEvent &event);
 
     /*
