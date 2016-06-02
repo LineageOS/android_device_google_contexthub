@@ -14,6 +14,10 @@
 # limitations under the License.
 #
 
+# libelf is not available in the Mac build as of June 2016, but we currently
+# only need to use this tool on Linux, so exclude this from non-Linux builds
+ifeq ($(HOST_OS),linux)
+
 LOCAL_PATH := $(call my-dir)
 
 include $(CLEAR_VARS)
@@ -39,3 +43,5 @@ LOCAL_CXX_STL := libc++_static
 LOCAL_MODULE_TAGS := optional
 
 include $(BUILD_HOST_EXECUTABLE)
+
+endif # linux
