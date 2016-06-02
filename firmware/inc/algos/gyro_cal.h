@@ -115,6 +115,7 @@ struct gyroCal_t{
   uint64_t calibration_time;
   uint64_t calibration_time_duration;
   float stillness_confidence;
+  bool new_gyro_cal_available; //true when a new cal is ready.
 
   // Current window end time for all sensors. Used to assist in keeping
   // sensor data collection in sync. On initialization this will be set to
@@ -133,7 +134,6 @@ struct gyroCal_t{
   // Debug info.
   bool debug_processed_data_available; //flag on a per window basis.
   uint64_t debug_processed_data_time; //flag time stamp.
-  bool debug_new_gyro_cal_available; //true when a new cal is ready.
   uint32_t debug_calibration_count; //total number of cals performed.
   uint32_t debug_watchdog_count; //total number of watchdog timeouts.
 
@@ -169,9 +169,16 @@ void gyroCalInit(struct gyroCal_t* gyro_cal, uint64_t min_still_duration,
 // Void all pointers in the gyro calibration data structure.
 void gyroCalDestroy(struct gyroCal_t* gyro_cal);
 
+// Get the most recent bias calibration value.
+void gyroCalGetBias(struct gyroCal_t* gyro_cal,
+                    float* bias_x, float* bias_y, float* bias_z);
+
 // Remove gyro bias from the calibration [rad/sec].
 void gyroCalRemoveBias(struct gyroCal_t* gyro_cal, float xi, float yi,
                        float zi, float* xo, float* yo, float* zo);
+
+// Returns true when a new gyro calibration is available.
+bool gyroCalNewBiasAvailable(struct gyroCal_t* gyro_cal);
 
 // Update the gyro calibration with gyro data [rad/sec].
 void gyroCalUpdateGyro(struct gyroCal_t* gyro_cal,
