@@ -39,6 +39,11 @@
 #include <algos/mag_cal.h>
 #endif
 
+#ifdef GYRO_CAL_ENABLED
+// Gyro Cal -- Header
+#include <algos/gyro_cal.h>
+#endif
+
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
@@ -389,6 +394,15 @@ struct BMI160Task {
     uint32_t tid;
     struct BMI160Sensor sensors[NUM_OF_SENSOR];
 
+#ifdef GYRO_CAL_ENABLED
+    // Gyro Cal -- declaration.
+    struct gyroCal_t gyro_cal;
+  #ifdef GYRO_CAL_DBG_ENABLED
+    // Gyro Cal -- Read out Debug data.
+    int gyro_debug_state;
+  #endif
+#endif
+
     // time keeping.
     uint64_t last_sensortime;
     uint64_t frame_sensortime;
@@ -616,6 +630,10 @@ static const struct SensorInfo mSensorInfo[NUM_OF_SENSOR] =
     { DEC_INFO_RATE("Step Counter", StepCntRates, SENS_TYPE_STEP_COUNT, NUM_AXIS_EMBEDDED,
             NANOHUB_INT_NONWAKEUP, 20) },
 };
+
+static bool newGyroBiasAvailable(void) {
+  return false;
+}
 
 static void time_init(void) {
     time_sync_init(&mTask.gSensorTime2RTC);
@@ -1770,7 +1788,14 @@ static void parseRawData(struct BMI160Sensor *mSensor, uint8_t *buf, float kScal
         newMagBias |= magCalUpdate(&mTask.moc, sensorTime * kSensorTimerIntervalUs, xi, yi, zi);
 
         magCalRemoveBias(&mTask.moc, xi, yi, zi, &x, &y, &z);
-    } else
+
+#ifdef GYRO_CAL_ENABLED
+        // Gyro Cal -- Add magnetometer sample
+        gyroCalUpdateMag(&mTask.gyro_cal,
+                         rtc_time, //nsec
+                         x, y, z);
+#endif
+	} else
 #endif
     {
         raw_x = (buf[0] | buf[1] << 8);
@@ -1782,7 +1807,49 @@ static void parseRawData(struct BMI160Sensor *mSensor, uint8_t *buf, float kScal
         z = (float)raw_z * kScale;
 
         BMI160_TO_ANDROID_COORDINATE(x, y, z);
+
+        if (mSensor->idx == ACC) {
+
+#ifdef GYRO_CAL_ENABLED
+          // Gyro Cal -- Add accelerometer sample
+          gyroCalUpdateAccel(&mTask.gyro_cal,
+                             rtc_time, //nsec
+                             x, y, z);
+#endif
+        } else {
+
+          if (mSensor->idx == GYR) {
+
+#ifdef GYRO_CAL_ENABLED
+            // Gyro Cal -- Add gyroscope and temperature sample
+            gyroCalUpdateGyro(&mTask.gyro_cal,
+                                 rtc_time, //nsec
+                                 x, y, z,
+                                 mTask.tempCelsius);
+
+            // Gyro Cal -- Apply calibration correction.
+            gyroCalRemoveBias(&mTask.gyro_cal,
+                              x, y, z,   //input values
+                              &x, &y, &z //calibrated output
+                              );
+
+            // Gyro Cal -- Notify HAL about new gyro bias calibration
+            if (newGyroBiasAvailable()) {
+              INFO_PRINT("TODO: send gyro bias to HAL");
+            }
+#endif
+          }
+        }
     }
+
+#ifdef GYRO_CAL_ENABLED
+  #ifdef GYRO_CAL_DBG_ENABLED
+    // Gyro Cal -- Read out Debug data.
+    gyroCalDebugPrint(&mTask.gyro_cal,
+                      &mTask.gyro_debug_state,
+                      rtc_time);
+  #endif
+#endif
 
     if (mSensor->data_evt == NULL) {
         if (!allocateDataEvt(mSensor, rtc_time))
@@ -1796,6 +1863,16 @@ static void parseRawData(struct BMI160Sensor *mSensor, uint8_t *buf, float kScal
 
 #ifdef MAG_SLAVE_PRESENT
     if (mSensor->idx == MAG && (newMagBias || !mTask.magBiasPosted)) {
+
+#ifdef GYRO_CAL_ENABLED
+  #ifdef GYRO_CAL_DBG_ENABLED
+        // Gyro Cal -- Read out Debug data.
+        if (mTask.gyro_debug_state < 0) {
+          mTask.gyro_debug_state = 0; //kick off the debug print out.
+        }
+  #endif
+#endif
+
         if (mSensor->data_evt->samples[0].firstSample.numSamples > 0) {
             // flush existing samples so the bias appears after them
             flushData(mSensor,
@@ -2912,6 +2989,24 @@ static void sensorInit(void)
         SPI_WRITE(BMI160_REG_CMD, 0xB1, 10000);
         // Reset fifo
         SPI_WRITE(BMI160_REG_CMD, 0xB0, 10000);
+
+#ifdef GYRO_CAL_ENABLED
+        // Gyro Cal -- Initialization
+        gyroCalInit(&mTask.gyro_cal,
+                    5e9,      // min stillness period = 5 seconds
+                    6e9,      // max stillness period = 6 seconds
+                    0, 0, 0,  // initial bias offset calibration
+                    0,        // time stamp of initial bias calibration
+                    1.5e9,    // analysis window length = 1.5 seconds
+                    5e-5f,    // gyroscope variance threshold [rad/sec]^2
+                    1e-5f,    // gyroscope confidence delta [rad/sec]^2
+                    8e-3f,    // accelerometer variance threshold [m/sec^2]^2
+                    1.6e-3f,  // accelerometer confidence delta [m/sec^2]^2
+                    1.4f,     // magnetometer variance threshold [uT]^2
+                    0.25,     // magnetometer confidence delta [uT]^2
+                    0.95f,    // stillness threshold [0,1]
+                    1);       // 1=gyro calibrations will be applied
+#endif
 
 #ifdef MAG_SLAVE_PRESENT
         mTask.init_state = INIT_MAG;
