@@ -36,7 +36,7 @@
 #include <variant/inc/variant.h>
 
 #define AMS_TMD4903_APP_ID      APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 12)
-#define AMS_TMD4903_APP_VERSION 7
+#define AMS_TMD4903_APP_VERSION 8
 
 #ifndef PROX_INT_PIN
 #error "PROX_INT_PIN is not defined; please define in variant.h"
@@ -102,6 +102,8 @@
 #define AMS_TMD4903_AGAIN_SETTING              0x01
 #define AMS_TMD4903_ATIME_SETTING              0xdc
 #define AMS_TMD4903_ATIME_MS                   ((256 - AMS_TMD4903_ATIME_SETTING) * 2.78) // in milliseconds
+#define AMS_TMD4903_MAX_ALS_CHANNEL_COUNT      ((256 - AMS_TMD4903_ATIME_SETTING) * 1024) // in ALS data units
+#define AMS_TMD4903_ALS_MAX_REPORT_VALUE       50000.0f // in lux
 #define AMS_TMD4903_PTIME_SETTING              0x11
 #define AMS_TMD4903_PGCFG0_SETTING             0x41 // pulse length: 8 us, pulse count: 2
 #define AMS_TMD4903_PGCFG1_SETTING             0x04 // gain: 1x, drive: 50 mA
@@ -116,7 +118,6 @@
 /* AMS_TMD4903_REG_INTENAB */
 #define CAL_INT_ENABLE_BIT                     (1 << 1)
 
-
 #define AMS_TMD4903_REPORT_NEAR_VALUE          0.0f // centimeters
 #define AMS_TMD4903_REPORT_FAR_VALUE           5.0f // centimeters
 #define AMS_TMD4903_PROX_THRESHOLD_HIGH        350  // value in PS_DATA
@@ -125,6 +126,8 @@
 #define AMS_TMD4903_ALS_INVALID                UINT32_MAX
 
 #define AMS_TMD4903_ALS_TIMER_DELAY            200000000ULL
+
+#define MIN2(a,b) (((a) < (b)) ? (a) : (b))
 
 // NOTE: Define this to be 1 to enable streaming of proximity samples instead of
 // using the interrupt
@@ -308,16 +311,18 @@ static void alsTimerCallback(uint32_t timerId, void *cookie)
 
 static inline float getLuxFromAlsData(uint16_t c, uint16_t r, uint16_t g, uint16_t b)
 {
-    // TODO (trevorbunker): need to check for c saturation
-    // AMS_TMG4903_ALS_MAX_CHANNEL_COUNT
+    float lux;
 
-    // TODO (trevorbunker): You can use IR ratio (depends on light source) to
-    // select between different R, G, and B coefficients
+    // check for channel saturation
+    if (c >= AMS_TMD4903_MAX_ALS_CHANNEL_COUNT || r >= AMS_TMD4903_MAX_ALS_CHANNEL_COUNT ||
+        g >= AMS_TMD4903_MAX_ALS_CHANNEL_COUNT || b >= AMS_TMD4903_MAX_ALS_CHANNEL_COUNT)
+       return AMS_TMD4903_ALS_MAX_REPORT_VALUE;
 
-    return (ALS_GA_FACTOR *
-            ((c * ALS_C_COEFF) + (r * ALS_R_COEFF) + (g * ALS_G_COEFF) + (b * ALS_B_COEFF)) /
-            (AMS_TMD4903_ATIME_MS * AMS_TMD4903_AGAIN)) *
-        mTask.alsOffset;
+    lux = (ALS_GA_FACTOR *
+           ((c * ALS_C_COEFF) + (r * ALS_R_COEFF) + (g * ALS_G_COEFF) + (b * ALS_B_COEFF)) /
+        (AMS_TMD4903_ATIME_MS * AMS_TMD4903_AGAIN)) * mTask.alsOffset;
+
+    return MIN2(lux, AMS_TMD4903_ALS_MAX_REPORT_VALUE);
 }
 
 static void sendCalibrationResultAls(uint8_t status, float offset) {
@@ -738,10 +743,9 @@ static void handle_i2c_event(int state)
         g = *(uint16_t*)(mTask.txrxBuf+4);
         b = *(uint16_t*)(mTask.txrxBuf+6);
 
-        DEBUG_PRINT("als sample ready: c=%u r=%u g=%u b=%u\n", c, r, g, b);
-
         if (mTask.alsOn) {
             sample.fdata = getLuxFromAlsData(c, r, g, b);
+            DEBUG_PRINT("als sample ready: c=%u r=%u g=%u b=%u, lux=%d\n", c, r, g, b, (int)sample.fdata);
 
             if (mTask.alsCalibrating) {
                 sendCalibrationResultAls(SENSOR_APP_EVT_STATUS_SUCCESS, sample.fdata);
