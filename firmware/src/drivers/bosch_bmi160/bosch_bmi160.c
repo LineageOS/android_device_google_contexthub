@@ -631,9 +631,11 @@ static const struct SensorInfo mSensorInfo[NUM_OF_SENSOR] =
             NANOHUB_INT_NONWAKEUP, 20) },
 };
 
+#ifdef GYRO_CAL_ENABLED
 static bool newGyroBiasAvailable(void) {
   return false;
 }
+#endif
 
 static void time_init(void) {
     time_sync_init(&mTask.gSensorTime2RTC);
