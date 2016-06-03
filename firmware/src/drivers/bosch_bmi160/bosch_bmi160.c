@@ -40,7 +40,7 @@
 #endif
 
 #ifdef GYRO_CAL_ENABLED
-// Gyro Cal -- Header
+// Gyro Cal -- Header.
 #include <algos/gyro_cal.h>
 #endif
 
@@ -395,7 +395,7 @@ struct BMI160Task {
     struct BMI160Sensor sensors[NUM_OF_SENSOR];
 
 #ifdef GYRO_CAL_ENABLED
-    // Gyro Cal -- declaration.
+    // Gyro Cal -- Declaration.
     struct gyroCal_t gyro_cal;
   #ifdef GYRO_CAL_DBG_ENABLED
     // Gyro Cal -- Read out Debug data.
@@ -630,12 +630,6 @@ static const struct SensorInfo mSensorInfo[NUM_OF_SENSOR] =
     { DEC_INFO_RATE("Step Counter", StepCntRates, SENS_TYPE_STEP_COUNT, NUM_AXIS_EMBEDDED,
             NANOHUB_INT_NONWAKEUP, 20) },
 };
-
-#ifdef GYRO_CAL_ENABLED
-static bool newGyroBiasAvailable(void) {
-  return false;
-}
-#endif
 
 static void time_init(void) {
     time_sync_init(&mTask.gSensorTime2RTC);
@@ -1792,7 +1786,7 @@ static void parseRawData(struct BMI160Sensor *mSensor, uint8_t *buf, float kScal
         magCalRemoveBias(&mTask.moc, xi, yi, zi, &x, &y, &z);
 
 #ifdef GYRO_CAL_ENABLED
-        // Gyro Cal -- Add magnetometer sample
+        // Gyro Cal -- Add magnetometer sample.
         gyroCalUpdateMag(&mTask.gyro_cal,
                          rtc_time, //nsec
                          x, y, z);
@@ -1813,7 +1807,7 @@ static void parseRawData(struct BMI160Sensor *mSensor, uint8_t *buf, float kScal
         if (mSensor->idx == ACC) {
 
 #ifdef GYRO_CAL_ENABLED
-          // Gyro Cal -- Add accelerometer sample
+          // Gyro Cal -- Add accelerometer sample.
           gyroCalUpdateAccel(&mTask.gyro_cal,
                              rtc_time, //nsec
                              x, y, z);
@@ -1823,7 +1817,7 @@ static void parseRawData(struct BMI160Sensor *mSensor, uint8_t *buf, float kScal
           if (mSensor->idx == GYR) {
 
 #ifdef GYRO_CAL_ENABLED
-            // Gyro Cal -- Add gyroscope and temperature sample
+            // Gyro Cal -- Add gyroscope and temperature sample.
             gyroCalUpdateGyro(&mTask.gyro_cal,
                                  rtc_time, //nsec
                                  x, y, z,
@@ -1835,9 +1829,18 @@ static void parseRawData(struct BMI160Sensor *mSensor, uint8_t *buf, float kScal
                               &x, &y, &z //calibrated output
                               );
 
-            // Gyro Cal -- Notify HAL about new gyro bias calibration
-            if (newGyroBiasAvailable()) {
-              INFO_PRINT("TODO: send gyro bias to HAL");
+            // Gyro Cal -- Notify HAL about new gyro bias calibration.
+            if (gyroCalNewBiasAvailable(&mTask.gyro_cal)) {
+              // The new calibration value and timestamp:
+              //   mTask.gyro_cal.bias_x;
+              //   mTask.gyro_cal.bias_y;
+              //   mTask.gyro_cal.bias_z;
+              //   mTask.gyro_cal.calibration_time;
+              //
+              // Access gyro cal bias corrections using:
+              //gyroCalGetBias(&mTask.gyro_cal,
+              //               &bias_x, bias_y, &bias_z);
+              INFO_PRINT("TODO: Send updated gyro bias to HAL.");
             }
 #endif
           }
@@ -2993,7 +2996,7 @@ static void sensorInit(void)
         SPI_WRITE(BMI160_REG_CMD, 0xB0, 10000);
 
 #ifdef GYRO_CAL_ENABLED
-        // Gyro Cal -- Initialization
+        // Gyro Cal -- Initialization.
         gyroCalInit(&mTask.gyro_cal,
                     5e9,      // min stillness period = 5 seconds
                     6e9,      // max stillness period = 6 seconds
