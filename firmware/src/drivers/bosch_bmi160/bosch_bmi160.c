@@ -614,8 +614,8 @@ static const struct SensorInfo mSensorInfo[NUM_OF_SENSOR] =
 {
     { DEC_INFO_RATE_RAW("Accelerometer", AccRates, SENS_TYPE_ACCEL, NUM_AXIS_THREE,
             NANOHUB_INT_NONWAKEUP, 3000, SENS_TYPE_ACCEL_RAW, 1.0/kScale_acc) },
-    { DEC_INFO_RATE("Gyroscope", GyrRates, SENS_TYPE_GYRO, NUM_AXIS_THREE,
-            NANOHUB_INT_NONWAKEUP, 20) },
+    { DEC_INFO_RATE_BIAS("Gyroscope", GyrRates, SENS_TYPE_GYRO, NUM_AXIS_THREE,
+            NANOHUB_INT_NONWAKEUP, 20, SENS_TYPE_GYRO_BIAS) },
 #ifdef MAG_SLAVE_PRESENT
     { DEC_INFO_RATE_BIAS("Magnetometer", MagRates, SENS_TYPE_MAG, NUM_AXIS_THREE,
             NANOHUB_INT_NONWAKEUP, 600, SENS_TYPE_MAG_BIAS) },
@@ -1828,33 +1828,10 @@ static void parseRawData(struct BMI160Sensor *mSensor, uint8_t *buf, float kScal
                               x, y, z,   //input values
                               &x, &y, &z //calibrated output
                               );
-
-            // Gyro Cal -- Notify HAL about new gyro bias calibration.
-            if (gyroCalNewBiasAvailable(&mTask.gyro_cal)) {
-              // The new calibration value and timestamp:
-              //   mTask.gyro_cal.bias_x;
-              //   mTask.gyro_cal.bias_y;
-              //   mTask.gyro_cal.bias_z;
-              //   mTask.gyro_cal.calibration_time;
-              //
-              // Access gyro cal bias corrections using:
-              //gyroCalGetBias(&mTask.gyro_cal,
-              //               &bias_x, bias_y, &bias_z);
-              INFO_PRINT("TODO: Send updated gyro bias to HAL.");
-            }
 #endif
           }
         }
     }
-
-#ifdef GYRO_CAL_ENABLED
-  #ifdef GYRO_CAL_DBG_ENABLED
-    // Gyro Cal -- Read out Debug data.
-    gyroCalDebugPrint(&mTask.gyro_cal,
-                      &mTask.gyro_debug_state,
-                      rtc_time);
-  #endif
-#endif
 
     if (mSensor->data_evt == NULL) {
         if (!allocateDataEvt(mSensor, rtc_time))
@@ -1896,6 +1873,28 @@ static void parseRawData(struct BMI160Sensor *mSensor, uint8_t *buf, float kScal
         // bias is non-discardable, if we fail to enqueue, don't clear new_mag_bias
         if (flushData(mSensor, sensorGetMyEventType(mSensorInfo[MAG].biasType)))
             mTask.magBiasPosted = true;
+
+        if (!allocateDataEvt(mSensor, rtc_time))
+            return;
+    }
+#endif
+#ifdef GYRO_CAL_ENABLED
+    // Gyro Cal -- Notify HAL about new gyro bias calibration
+    if (mSensor->idx == GYR && gyroCalNewBiasAvailable(&mTask.gyro_cal)) {
+        if (mSensor->data_evt->samples[0].firstSample.numSamples > 0) {
+            // flush existing samples so the bias appears after them
+            flushData(mSensor,
+                    EVENT_TYPE_BIT_DISCARDABLE | sensorGetMyEventType(mSensorInfo[GYR].sensorType));
+            if (!allocateDataEvt(mSensor, rtc_time))
+                return;
+        }
+        mSensor->data_evt->samples[0].firstSample.biasCurrent = true;
+        mSensor->data_evt->samples[0].firstSample.biasPresent = 1;
+        mSensor->data_evt->samples[0].firstSample.biasSample =
+                mSensor->data_evt->samples[0].firstSample.numSamples;
+        sample = &mSensor->data_evt->samples[mSensor->data_evt->samples[0].firstSample.numSamples++];
+        gyroCalGetBias(&mTask.gyro_cal, &sample->x, &sample->y, &sample->z);
+        flushData(mSensor, sensorGetMyEventType(mSensorInfo[GYR].biasType));
 
         if (!allocateDataEvt(mSensor, rtc_time))
             return;
