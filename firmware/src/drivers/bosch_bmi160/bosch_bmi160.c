@@ -76,7 +76,7 @@
 #define DBG_WM_CALC               0
 #define TIMESTAMP_DBG             0
 
-#define BMI160_APP_VERSION 3
+#define BMI160_APP_VERSION 4
 
 // fixme: to list required definitions for a slave mag
 #ifdef USE_BMM150
@@ -440,6 +440,10 @@ struct BMI160Task {
     bool magBiasCurrent;
     bool fifo_enabled[NUM_CONT_SENSOR];
 
+    // for step count
+    uint32_t stepCntSamplingTimerHandle;
+    bool step_cnt_changed;
+
     // spi buffers
     int xferCnt;
     uint8_t *dataBuffer;
@@ -518,8 +522,34 @@ static uint32_t MagRates[] = {
 #endif
 
 static uint32_t StepCntRates[] = {
+    SENSOR_HZ(1.0f/300.0f),
+    SENSOR_HZ(1.0f/240.0f),
+    SENSOR_HZ(1.0f/180.0f),
+    SENSOR_HZ(1.0f/120.0f),
+    SENSOR_HZ(1.0f/90.0f),
+    SENSOR_HZ(1.0f/60.0f),
+    SENSOR_HZ(1.0f/45.0f),
+    SENSOR_HZ(1.0f/30.0f),
+    SENSOR_HZ(1.0f/15.0f),
+    SENSOR_HZ(1.0f/10.0f),
+    SENSOR_HZ(1.0f/5.0f),
     SENSOR_RATE_ONCHANGE,
     0
+};
+
+static const uint64_t stepCntRateTimerVals[] = // should match StepCntRates and be the timer length for that rate in nanosecs
+{
+    300 * 1000000000ULL,
+    240 * 1000000000ULL,
+    180 * 1000000000ULL,
+    120 * 1000000000ULL,
+    90 * 1000000000ULL,
+    60 * 1000000000ULL,
+    45 * 1000000000ULL,
+    30 * 1000000000ULL,
+    15 * 1000000000ULL,
+    10 * 1000000000ULL,
+    5 * 1000000000ULL,
 };
 
 static struct BMI160Task mTask;
@@ -765,6 +795,17 @@ static void sensorTimerCallback(uint32_t timerId, void *data)
 static void timeSyncCallback(uint32_t timerId, void *data)
 {
     osEnqueuePrivateEvt(EVT_TIME_SYNC, data, NULL, mTask.tid);
+}
+
+static void stepCntSamplingCallback(uint32_t timerId, void *data)
+{
+    union EmbeddedDataPoint step_cnt;
+
+    if (mTask.sensors[STEPCNT].powered && mTask.step_cnt_changed) {
+        mTask.step_cnt_changed = false;
+        step_cnt.idata = mTask.total_step_cnt;
+        osEnqueueEvt(EVT_SENSOR_STEP_COUNTER, step_cnt.vptr, NULL);
+    }
 }
 
 static bool accFirmwareUpload(void *cookie)
@@ -1258,6 +1299,10 @@ static bool stepCntPower(bool on, void *cookie)
             // set step_cnt_en bit
             SPI_WRITE(BMI160_REG_STEP_CONF_1, 0x08 | 0x03, 1000);
         } else {
+            if (mTask.stepCntSamplingTimerHandle) {
+                timTimerCancel(mTask.stepCntSamplingTimerHandle);
+                mTask.stepCntSamplingTimerHandle = 0;
+            }
             if (!mTask.sensors[STEP].powered) {
                 mTask.interrupt_enable_2 &= ~0x08;
                 SPI_WRITE(BMI160_REG_INT_EN_2, mTask.interrupt_enable_2);
@@ -1549,6 +1594,17 @@ static bool stepCntSetRate(uint32_t rate, uint64_t latency, void *cookie)
     mTask.sensors[STEPCNT].latency = latency;
     mTask.sensors[STEPCNT].configed = true;
 
+    if (rate == SENSOR_RATE_ONCHANGE && mTask.stepCntSamplingTimerHandle) {
+        timTimerCancel(mTask.stepCntSamplingTimerHandle);
+        mTask.stepCntSamplingTimerHandle = 0;
+    } else if (rate != SENSOR_RATE_ONCHANGE) {
+        if (mTask.stepCntSamplingTimerHandle) {
+            timTimerCancel(mTask.stepCntSamplingTimerHandle);
+        }
+        mTask.stepCntSamplingTimerHandle = timTimerSet(sensorTimerLookupCommon(StepCntRates, stepCntRateTimerVals, rate),
+                                                       0, 50, stepCntSamplingCallback, NULL, false);
+    }
+
     sensorSignalInternalEvt(mTask.sensors[STEPCNT].handle,
             SENSOR_INTERNAL_EVT_RATE_CHG, rate, latency);
     return true;
@@ -1655,8 +1711,15 @@ static void sendStepCnt()
             mTask.total_step_cnt += (cur_step_cnt - mTask.last_step_cnt);
         }
         mTask.last_step_cnt = cur_step_cnt;
-        step_cnt.idata = mTask.total_step_cnt;
-        osEnqueueEvt(EVT_SENSOR_STEP_COUNTER, step_cnt.vptr, NULL);
+
+        // Send the event if the current rate is ONCHANGE or we need to flush;
+        // otherwise, wait until step count sampling timer expires
+        if (mTask.sensors[STEPCNT].rate == SENSOR_RATE_ONCHANGE || mTask.sensors[STEPCNT].flush) {
+            step_cnt.idata = mTask.total_step_cnt;
+            osEnqueueEvt(EVT_SENSOR_STEP_COUNTER, step_cnt.vptr, NULL);
+        } else {
+            mTask.step_cnt_changed = true;
+        }
     }
 
     while (mTask.sensors[STEPCNT].flush) {
