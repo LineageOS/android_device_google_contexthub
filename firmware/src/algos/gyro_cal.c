@@ -136,6 +136,16 @@ void gyroCalDestroy(struct gyroCal_t* gyro_cal) {
   (void)gyro_cal;
 }
 
+// Get the most recent bias calibration value.
+void gyroCalGetBias(struct gyroCal_t* gyro_cal,
+                    float* bias_x, float* bias_y, float* bias_z) {
+  if (gyro_cal->gyro_calibration_enable) {
+    *bias_x = gyro_cal->bias_x;
+    *bias_y = gyro_cal->bias_y;
+    *bias_z = gyro_cal->bias_z;
+  }
+}
+
 // Remove bias from a gyro measurement [rad/sec].
 void gyroCalRemoveBias(struct gyroCal_t* gyro_cal,
                        float xi, float yi, float zi,
@@ -145,6 +155,18 @@ void gyroCalRemoveBias(struct gyroCal_t* gyro_cal,
     *yo = yi - gyro_cal->bias_y;
     *zo = zi - gyro_cal->bias_z;
   }
+}
+
+// Returns true when a new gyro calibration is available.
+bool gyroCalNewBiasAvailable(struct gyroCal_t* gyro_cal) {
+  bool new_gyro_cal_available =
+      (gyro_cal->gyro_calibration_enable &&
+       gyro_cal->new_gyro_cal_available);
+
+  // Clear the flag.
+  gyro_cal->new_gyro_cal_available = false;
+
+  return new_gyro_cal_available;
 }
 
 // Update the gyro calibration with gyro data [rad/sec].
@@ -376,6 +398,9 @@ void computeGyroCal(struct gyroCal_t* gyro_cal,
   // Store calibration time stamp.
   gyro_cal->calibration_time = calibration_time;
 
+  // Set flag to indicate a new gyro calibration value is available.
+  gyro_cal->new_gyro_cal_available = true;
+
 #ifdef GYRO_CAL_DBG_ENABLED
   // Increment the total count of calibration updates.
   gyro_cal->debug_calibration_count++;
@@ -415,9 +440,6 @@ void computeGyroCal(struct gyroCal_t* gyro_cal,
                        &gyro_cal->
                        debug_cal_data_hist[gyro_cal->debug_head_hist]);
   }
-
-  // Set flag to indicate a new gyro calibration value is available.
-  gyro_cal->debug_new_gyro_cal_available = true;
 #endif
 }
 
