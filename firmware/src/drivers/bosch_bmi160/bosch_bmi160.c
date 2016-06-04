@@ -39,6 +39,10 @@
 #include <algos/mag_cal.h>
 #endif
 
+#ifdef ACCEL_CAL_ENABLED
+#include <algos/accel_cal.h>
+#endif
+
 #ifdef GYRO_CAL_ENABLED
 // Gyro Cal -- Header.
 #include <algos/gyro_cal.h>
@@ -76,7 +80,7 @@
 #define DBG_WM_CALC               0
 #define TIMESTAMP_DBG             0
 
-#define BMI160_APP_VERSION 4
+#define BMI160_APP_VERSION 5
 
 // fixme: to list required definitions for a slave mag
 #ifdef USE_BMM150
@@ -420,6 +424,9 @@ struct BMI160Task {
     struct Gpio *Int2;
     struct ChainedIsr Isr1;
     struct ChainedIsr Isr2;
+#ifdef ACCEL_CAL_ENABLED
+    struct accelCal_t acc;
+#endif
 #ifdef MAG_SLAVE_PRESENT
     struct MagCal moc;
 #endif
@@ -1869,6 +1876,13 @@ static void parseRawData(struct BMI160Sensor *mSensor, uint8_t *buf, float kScal
 
         if (mSensor->idx == ACC) {
 
+#ifdef ACCEL_CAL_ENABLED
+          accelCalRun(&mTask.acc, rtc_time,
+                        x, y, z, mTask.tempCelsius);
+
+          accelCalBiasRemove(&mTask.acc, &x, &y, &z);
+#endif
+
 #ifdef GYRO_CAL_ENABLED
           // Gyro Cal -- Add accelerometer sample.
           gyroCalUpdateAccel(&mTask.gyro_cal,
@@ -3057,6 +3071,21 @@ static void sensorInit(void)
         // Reset fifo
         SPI_WRITE(BMI160_REG_CMD, 0xB0, 10000);
 
+#ifdef ACCEL_CAL_ENABLED
+        // Init Accel Cal
+        accelCalInit(&mTask.acc,
+                     800000000, /* Stillness Time in ns (0.8s) */
+                     5,         /* Minimum Sample Number */
+                     0.00025,   /* Threshold */
+                     15,        /* nx bucket count */
+                     15,        /* nxb bucket count */
+                     15,        /* ny bucket count */
+                     15,        /* nyb bucket count */
+                     15,        /* nz bucket count */
+                     15,        /* nzb bucket count */
+                     15);       /* nle bucket count */
+#endif
+
 #ifdef GYRO_CAL_ENABLED
         // Gyro Cal -- Initialization.
         gyroCalInit(&mTask.gyro_cal,
@@ -3215,6 +3244,14 @@ static void handleSpiDoneEvt(const void* evtData)
             dispatchData();
         }
         returnIdle = true;
+#ifdef ACCEL_CAL_ENABLED
+        // https://source.android.com/devices/sensors/sensor-types.html
+        // "The bias and scale calibration must only be updated while the sensor is deactivated,
+        // so as to avoid causing jumps in values during streaming."
+        if (mSensor->idx == ACC) {
+          accelCalUpdateBias(&mTask.acc);
+        }
+#endif
         break;
     case SENSOR_INT_1_HANDLING:
         dispatchData();
@@ -3460,6 +3497,9 @@ static void endTask(void)
     TDECL();
 #ifdef MAG_SLAVE_PRESENT
     destroy_mag_cal(&mTask.moc);
+#endif
+#ifdef ACCEL_CAL_ENABLED
+    accelCalDestroy(&mTask.acc);
 #endif
     slabAllocatorDestroy(T(mDataSlab));
     spiMasterRelease(mTask.spiDev);
