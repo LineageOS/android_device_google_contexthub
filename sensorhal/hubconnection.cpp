@@ -47,6 +47,7 @@
 #define NANOHUB_LOCK_DIR        "/data/system/nanohub_lock"
 #define NANOHUB_LOCK_FILE       NANOHUB_LOCK_DIR "/lock"
 #define MAG_BIAS_FILE_PATH      "/sys/class/power_supply/battery/compass_compensation"
+#define DOUBLE_TOUCH_FILE_PATH  "/sys/android_touch/synaptics_rmi4_dsx/wake_event"
 
 #define NANOHUB_LOCK_DIR_PERMS  (S_IRUSR | S_IWUSR | S_IXUSR)
 
@@ -126,6 +127,20 @@ HubConnection::HubConnection()
         mNumPollFds++;
     }
 #endif  // USB_MAG_BIAS_REPORTING_ENABLED
+
+#ifdef DOUBLE_TOUCH_ENABLED
+    mDoubleTouchPollIndex = -1;
+    int doubleTouchFd = open(DOUBLE_TOUCH_FILE_PATH, O_RDONLY);
+    if (doubleTouchFd < 0) {
+        ALOGW("Double touch file open failed: %s", strerror(errno));
+    } else {
+        mPollFds[mNumPollFds].fd = doubleTouchFd;
+        mPollFds[mNumPollFds].events = 0;
+        mPollFds[mNumPollFds].revents = 0;
+        mDoubleTouchPollIndex = mNumPollFds;
+        mNumPollFds++;
+    }
+#endif  // DOUBLE_TOUCH_ENABLED
 
     mSensorState[COMMS_SENSOR_ACCEL].sensorType = SENS_TYPE_ACCEL;
     mSensorState[COMMS_SENSOR_GYRO].sensorType = SENS_TYPE_GYRO;
@@ -979,6 +994,18 @@ bool HubConnection::threadLoop() {
             queueUsbMagBias();
         }
 #endif // USB_MAG_BIAS_REPORTING_ENABLED
+
+#ifdef DOUBLE_TOUCH_ENABLED
+        if (mDoubleTouchPollIndex >= 0 && mPollFds[mDoubleTouchPollIndex].revents & POLLERR) {
+            // Read from double touch file
+            char buf[16];
+            lseek(mPollFds[mDoubleTouchPollIndex].fd, 0, SEEK_SET);
+            ::read(mPollFds[mDoubleTouchPollIndex].fd, buf, 16);
+            sensors_event_t gestureEvent;
+            initEv(&gestureEvent, elapsedRealtimeNano(), SENSOR_TYPE_PICK_UP_GESTURE, COMMS_SENSOR_GESTURE)->data[0] = 8;
+            mRing.write(&gestureEvent, 1);
+        }
+#endif // DOUBLE_TOUCH_ENABLED
 
         if (mPollFds[0].revents & POLLIN) {
             uint8_t recv[256];

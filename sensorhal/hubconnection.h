@@ -215,7 +215,7 @@ private:
 
     int mFd;
     int mInotifyPollIndex;
-    struct pollfd mPollFds[3];
+    struct pollfd mPollFds[4];
     int mNumPollFds;
 
     sensors_event_t *initEv(sensors_event_t *ev, uint64_t timestamp, uint32_t type, uint32_t sensor);
@@ -251,6 +251,10 @@ private:
 
     void queueUsbMagBias();
 #endif  // USB_MAG_BIAS_REPORTING_ENABLED
+
+#ifdef DOUBLE_TOUCH_ENABLED
+    int mDoubleTouchPollIndex;
+#endif  // DOUBLE_TOUCH_ENABLED
 
     DISALLOW_EVIL_CONSTRUCTORS(HubConnection);
 };
