@@ -451,10 +451,6 @@ struct BMI160Task {
     uint32_t stepCntSamplingTimerHandle;
     bool step_cnt_changed;
 
-    // for step count
-    uint32_t stepCntSamplingTimerHandle;
-    bool step_cnt_changed;
-
     // spi buffers
     int xferCnt;
     uint8_t *dataBuffer;
