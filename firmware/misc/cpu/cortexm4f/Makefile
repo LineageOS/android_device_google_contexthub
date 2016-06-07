@@ -36,7 +36,7 @@ SRCS_os += ../lib/libc/memcpy-armv7m.S ../lib/libc/memset.c ../lib/libc/memcmp.c
 SRCS_bl += ../lib/libc/memcpy-armv7m.S ../lib/libc/memset.c ../lib/libc/memcmp.c ../lib/libc/memmove.c
 
 #floating point runtime (ARM)
-SRCS_os += external/arm/arm_sin_cos_f32.c external/arm/arm_common_tables.c
+SRCS_os += external/arm/arm_sin_cos_f32.c
 FLAGS += -DARM_MATH_CM4 -D__FPU_PRESENT
 
 #floating point runtime (FreeBSD)
