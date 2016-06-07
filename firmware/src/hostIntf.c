@@ -117,6 +117,13 @@ static struct
     uint8_t buf[NANOHUB_PACKET_SIZE_MAX];
     uint8_t postPreamble;
 } mTxBuf;
+static struct
+{
+    uint8_t pad; // packet header is 10 bytes. + 2 to word align
+    uint8_t prePreamble;
+    uint8_t buf[NANOHUB_PACKET_SIZE_MIN];
+    uint8_t postPreamble;
+} mTxNakBuf;
 static size_t mTxSize;
 static uint8_t *mTxBufPtr;
 static const struct NanohubCommand *mRxCmd;
@@ -144,7 +151,7 @@ enum hostIntfIntErrReason
     HOSTINTF_ERR_RECEIVE,
     HOSTINTF_ERR_SEND,
     HOSTINTF_ERR_ACK,
-    HOSTINTF_ERR_NACKED,
+    HOSTINTF_ERR_NAK,
     HOSTINTF_ERR_UNKNOWN
 };
 
@@ -289,6 +296,22 @@ static void hostIntfTxPacket(__le32 reason, uint8_t len, uint32_t seq,
     hostIntfTxBuf(1+NANOHUB_PACKET_SIZE(len), &mTxBuf.prePreamble, callback);
 }
 
+static void hostIntfTxNakPacket(__le32 reason, uint32_t seq,
+        HostIntfCommCallbackF callback)
+{
+    struct NanohubPacket *txPacket = (struct NanohubPacket *)(mTxNakBuf.buf);
+    txPacket->reason = reason;
+    txPacket->seq = seq;
+    txPacket->sync = NANOHUB_SYNC_BYTE;
+    txPacket->len = 0;
+
+    struct NanohubPacketFooter *txFooter = hostIntfGetFooter(mTxNakBuf.buf);
+    txFooter->crc = hostIntfComputeCrc(mTxNakBuf.buf);
+
+    // send starting with the prePremable byte
+    hostIntfTxBuf(1+NANOHUB_PACKET_SIZE_MIN, &mTxNakBuf.prePreamble, callback);
+}
+
 static inline bool hostIntfTxPacketDone(int err, size_t tx,
         HostIntfCommCallbackF callback)
 {
@@ -313,6 +336,8 @@ static bool hostIntfRequest(uint32_t tid)
 #endif
     mTxBuf.prePreamble = NANOHUB_PREAMBLE_BYTE;
     mTxBuf.postPreamble = NANOHUB_PREAMBLE_BYTE;
+    mTxNakBuf.prePreamble = NANOHUB_PREAMBLE_BYTE;
+    mTxNakBuf.postPreamble = NANOHUB_PREAMBLE_BYTE;
 
     mComm = platHostIntfInit();
     if (mComm) {
@@ -412,19 +437,20 @@ static void hostIntfGenerateAck(void *cookie)
         }
     } else {
         if (mBusy)
-            hostIntfTxPacket(NANOHUB_REASON_NAK_BUSY, 0, seq, hostIntfTxAckDone);
+            hostIntfTxNakPacket(NANOHUB_REASON_NAK_BUSY, seq, hostIntfTxAckDone);
         else
-            hostIntfTxPacket(NANOHUB_REASON_NAK, 0, seq, hostIntfTxAckDone);
+            hostIntfTxNakPacket(NANOHUB_REASON_NAK, seq, hostIntfTxAckDone);
     }
 }
 
 
-static void hostIntfTxComplete(bool restart)
+static void hostIntfTxComplete(bool clearInt, bool restartRx)
 {
-    hostIntfClearInterrupt(NANOHUB_INT_WAKE_COMPLETE);
+    if (restartRx || clearInt || !mWakeActive)
+        hostIntfClearInterrupt(NANOHUB_INT_WAKE_COMPLETE);
     atomicWriteByte(&mActiveWrite, false);
     atomicWriteByte(&mRestartRx, false);
-    if (restart) {
+    if (restartRx) {
         mComm->rxPacket(mRxBuf, sizeof(mRxBuf), hostIntfRxDone);
         hostIntfSetInterrupt(NANOHUB_INT_WAKE_COMPLETE);
     } else {
@@ -438,23 +464,28 @@ static void hostIntfTxAckDone(size_t tx, int err)
 
     if (err) {
         hostIntfDeferErrLog(LOG_ERROR, HOSTINTF_ERR_ACK, __func__);
-        hostIntfTxComplete(false);
+        hostIntfTxComplete(false, false);
         return;
     }
 
     if (!mRxCmd) {
         if (!mBusy)
-            hostIntfDeferErrLog(LOG_DEBUG, HOSTINTF_ERR_NACKED, __func__);
+            hostIntfDeferErrLog(LOG_DEBUG, HOSTINTF_ERR_NAK, __func__);
         if (atomicReadByte(&mRestartRx))
-            hostIntfTxComplete(true);
+            hostIntfTxComplete(false, true);
         else
-            hostIntfTxComplete(false);
+            hostIntfTxComplete(false, false);
         return;
     } else if (atomicReadByte(&mRestartRx)) {
-        hostIntfTxComplete(true);
+        mTxRetrans.seq = 0;
+        mTxRetrans.cmd = NULL;
+        hostIntfTxComplete(false, true);
     } else {
-        if (!osDefer(hostIntfGenerateResponse, NULL, true))
-            hostIntfTxComplete(false);
+        if (!osDefer(hostIntfGenerateResponse, NULL, true)) {
+            mTxRetrans.seq = 0;
+            mTxRetrans.cmd = NULL;
+            hostIntfTxComplete(false, false);
+        }
     }
 }
 
@@ -477,9 +508,9 @@ static void hostIntfTxPayloadDone(size_t tx, int err)
 
     if (done) {
         if (atomicReadByte(&mRestartRx))
-            hostIntfTxComplete(true);
+            hostIntfTxComplete(true, true);
         else
-            hostIntfTxComplete(false);
+            hostIntfTxComplete(true, false);
     }
 }
 
