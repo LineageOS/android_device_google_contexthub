@@ -184,7 +184,7 @@ void parseInstalledAppInfo()
 
     while ((numRead = getline(&line, &len, fp)) != -1) {
         struct AppInfo *currApp = &apps[appCount++];
-        sscanf(line, "app: %d id: %" PRIx64 " ver: %d size: %d\n", &currApp->num, &currApp->id, &currApp->version, &currApp->size);
+        sscanf(line, "app: %d id: %" PRIx64 " ver: %" PRIx32 " size: %" PRIx32 "\n", &currApp->num, &currApp->id, &currApp->version, &currApp->size);
     }
 
     fclose(fp);
@@ -226,7 +226,7 @@ int parseConfigAppInfo()
         uint32_t appVersion;
         struct AppInfo* installedApp;
 
-        sscanf(line, "%32s %" PRIx64 " %d\n", appsToInstall[installCnt], &appId, &appVersion);
+        sscanf(line, "%32s %" PRIx64 " %" PRIx32 "\n", appsToInstall[installCnt], &appId, &appVersion);
 
         installedApp = findApp(appId);
         if (!installedApp || (installedApp->version < appVersion)) {
