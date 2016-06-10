@@ -80,7 +80,7 @@
 #define DBG_WM_CALC               0
 #define TIMESTAMP_DBG             0
 
-#define BMI160_APP_VERSION 5
+#define BMI160_APP_VERSION 6
 
 // fixme: to list required definitions for a slave mag
 #ifdef USE_BMM150
@@ -212,7 +212,7 @@
 #define MAX_NUM_COMMS_EVENT_SAMPLES 15
 
 #define kScale_acc    0.00239501953f  // ACC_range * 9.81f / 32768.0f;
-#define kScale_gyr    0.00106472439f  // GYR_range * M_PI / (180.0f * 32768.0f);
+#define kScale_gyr    0.00053263221f  // GYR_range * M_PI / (180.0f * 32768.0f);
 #define kScale_temp   0.001953125f    // temperature in deg C
 #define kTempInvalid  -1000.0f
 
@@ -2704,8 +2704,8 @@ static void gyrCalibrationHandling(void)
         break;
     case CALIBRATION_FOC:
 
-        // set gyro range to +-2000 deg/sec
-        SPI_WRITE(BMI160_REG_GYR_RANGE, 0x00);
+        // set gyro range to +-1000 deg/sec
+        SPI_WRITE(BMI160_REG_GYR_RANGE, 0x01);
 
         // enable gyro fast offset compensation
         SPI_WRITE(BMI160_REG_FOC_CONF, 0x40);
@@ -3060,9 +3060,9 @@ static void sensorInit(void)
         mTask.sensors[GYR].offset_enable = false;
         SPI_WRITE(BMI160_REG_OFFSET_6, offset6Mode(), 450);
 
-        // initial range for accel (+-8g) and gyro (+-2000 degree).
+        // initial range for accel (+-8g) and gyro (+-1000 degree).
         SPI_WRITE(BMI160_REG_ACC_RANGE, 0x08, 450);
-        SPI_WRITE(BMI160_REG_GYR_RANGE, 0x00, 450);
+        SPI_WRITE(BMI160_REG_GYR_RANGE, 0x01, 450);
 
         // Reset step counter
         SPI_WRITE(BMI160_REG_CMD, 0xB2, 10000);
