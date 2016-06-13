@@ -248,6 +248,9 @@ static bool getCalibrationInt32(
         const sp<JSONObject> &settings, const char *key, int32_t *out,
         size_t numArgs) {
     sp<JSONArray> array;
+    for (size_t i = 0; i < numArgs; i++) {
+        out[i] = 0;
+    }
     if (!settings->getArray(key, &array)) {
         return false;
     } else {
@@ -263,6 +266,9 @@ static bool getCalibrationInt32(
 static bool getCalibrationFloat(
         const sp<JSONObject> &settings, const char *key, float out[3]) {
     sp<JSONArray> array;
+    for (size_t i = 0; i < 3; i++) {
+        out[i] = 0.0f;
+    }
     if (!settings->getArray(key, &array)) {
         return false;
     } else {
@@ -303,6 +309,7 @@ static void loadSensorSettings(sp<JSONObject>* settings,
 
 void HubConnection::saveSensorSettings() const {
     File saved_settings_file(CONTEXTHUB_SAVED_SETTINGS_PATH, "w");
+    sp<JSONObject> settingsObject = new JSONObject;
 
     status_t err;
     if ((err = saved_settings_file.initCheck()) != OK) {
@@ -321,9 +328,14 @@ void HubConnection::saveSensorSettings() const {
 #endif  // USB_MAG_BIAS_REPORTING_ENABLED
     magArray->addFloat(mMagBias[1]);
     magArray->addFloat(mMagBias[2]);
-
-    sp<JSONObject> settingsObject = new JSONObject;
     settingsObject->setArray("mag", magArray);
+
+    // Add gyro settings
+    sp<JSONArray> gyroArray = new JSONArray;
+    gyroArray->addFloat(mGyroBias[0]);
+    gyroArray->addFloat(mGyroBias[1]);
+    gyroArray->addFloat(mGyroBias[2]);
+    settingsObject->setArray("gyro_sw", gyroArray);
 
     // Write the JSON string to disk.
     AString serializedSettings = settingsObject->toString();
@@ -484,6 +496,7 @@ void HubConnection::processSample(uint64_t timestamp, uint32_t type, uint32_t se
         mGyroBias[0] = sample->x;
         mGyroBias[1] = sample->y;
         mGyroBias[2] = sample->z;
+        saveSensorSettings();
         break;
     case COMMS_SENSOR_MAG:
         magAccuracyUpdate(sample->x, sample->y, sample->z);
@@ -878,16 +891,29 @@ void HubConnection::sendCalibrationOffsets()
 {
     sp<JSONObject> settings;
     sp<JSONObject> saved_settings;
-    int32_t accel[3], gyro[3], proximity, proximity_array[4];
+    struct {
+        int32_t hw[3];
+        float sw[3];
+    } gyro;
+    int32_t accel[3], proximity, proximity_array[4];
     float barometer, mag[3], light;
+    bool gyro_hw_cal_exists, gyro_sw_cal_exists;
 
     loadSensorSettings(&settings, &saved_settings);
 
     if (getCalibrationInt32(settings, "accel", accel, 3))
         queueDataInternal(COMMS_SENSOR_ACCEL, accel, sizeof(accel));
 
-    if (getCalibrationInt32(settings, "gyro", gyro, 3))
-        queueDataInternal(COMMS_SENSOR_GYRO, gyro, sizeof(gyro));
+    gyro_hw_cal_exists = getCalibrationInt32(settings, "gyro", gyro.hw, 3);
+    gyro_sw_cal_exists = getCalibrationFloat(saved_settings, "gyro_sw", gyro.sw);
+    if (gyro_hw_cal_exists || gyro_sw_cal_exists) {
+        // Store SW bias so we can remove bias for uncal data
+        mGyroBias[0] = gyro.sw[0];
+        mGyroBias[1] = gyro.sw[1];
+        mGyroBias[2] = gyro.sw[2];
+
+        queueDataInternal(COMMS_SENSOR_GYRO, &gyro, sizeof(gyro));
+    }
 
     if (settings->getFloat("barometer", &barometer))
         queueDataInternal(COMMS_SENSOR_PRESSURE, &barometer, sizeof(barometer));
