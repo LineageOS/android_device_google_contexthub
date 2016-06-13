@@ -151,7 +151,7 @@ bool stop = false;
 char *buf;
 int nread, buf_size = 2048;
 struct AppInfo apps[32];
-uint8_t appCount = 0;
+uint8_t appCount;
 char appsToInstall[MAX_INSTALL_CNT][32];
 
 void sig_handle(__attribute__((unused)) int sig)
@@ -177,6 +177,8 @@ void parseInstalledAppInfo()
     char *line = NULL;
     size_t len;
     ssize_t numRead;
+
+    appCount = 0;
 
     fp = openFile("/sys/class/nanohub/nanohub/app_info", "r");
     if (!fp)
