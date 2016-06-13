@@ -1858,10 +1858,10 @@ static void parseRawData(struct BMI160Sensor *mSensor, uint8_t *buf, float kScal
 #ifdef GYRO_CAL_ENABLED
         // Gyro Cal -- Add magnetometer sample.
         gyroCalUpdateMag(&mTask.gyro_cal,
-                         rtc_time, //nsec
+                         rtc_time,  // nsec
                          x, y, z);
 #endif
-	} else
+    } else
 #endif
     {
         raw_x = (buf[0] | buf[1] << 8);
@@ -1878,7 +1878,7 @@ static void parseRawData(struct BMI160Sensor *mSensor, uint8_t *buf, float kScal
 
 #ifdef ACCEL_CAL_ENABLED
           accelCalRun(&mTask.acc, rtc_time,
-                        x, y, z, mTask.tempCelsius);
+                      x, y, z, mTask.tempCelsius);
 
           accelCalBiasRemove(&mTask.acc, &x, &y, &z);
 #endif
@@ -1886,33 +1886,31 @@ static void parseRawData(struct BMI160Sensor *mSensor, uint8_t *buf, float kScal
 #ifdef GYRO_CAL_ENABLED
           // Gyro Cal -- Add accelerometer sample.
           gyroCalUpdateAccel(&mTask.gyro_cal,
-                             rtc_time, //nsec
+                             rtc_time,  // nsec
                              x, y, z);
 #endif
-        } else {
-
-          if (mSensor->idx == GYR) {
+        } else if (mSensor->idx == GYR) {
 
 #ifdef GYRO_CAL_ENABLED
             // Gyro Cal -- Add gyroscope and temperature sample.
             gyroCalUpdateGyro(&mTask.gyro_cal,
-                                 rtc_time, //nsec
-                                 x, y, z,
-                                 mTask.tempCelsius);
+                              rtc_time,  // nsec
+                              x, y, z,
+                              mTask.tempCelsius);
 
             // Gyro Cal -- Apply calibration correction.
             gyroCalRemoveBias(&mTask.gyro_cal,
-                              x, y, z,   //input values
-                              &x, &y, &z //calibrated output
-                              );
+                              x, y, z,  /* input values */
+                              &x, &y, &z  /* calibrated output */);
 #endif
-          }
+
         }
     }
 
     if (mSensor->data_evt == NULL) {
-        if (!allocateDataEvt(mSensor, rtc_time))
+        if (!allocateDataEvt(mSensor, rtc_time)) {
             return;
+        }
     }
 
     if (mSensor->data_evt->samples[0].firstSample.numSamples >= MAX_NUM_COMMS_EVENT_SAMPLES) {
@@ -1922,25 +1920,17 @@ static void parseRawData(struct BMI160Sensor *mSensor, uint8_t *buf, float kScal
 
 #ifdef MAG_SLAVE_PRESENT
     if (mSensor->idx == MAG && (newMagBias || !mTask.magBiasPosted)) {
-
-#ifdef GYRO_CAL_ENABLED
-  #ifdef GYRO_CAL_DBG_ENABLED
-        // Gyro Cal -- Read out Debug data.
-        if (mTask.gyro_debug_state < 0) {
-          mTask.gyro_debug_state = 0; //kick off the debug print out.
-        }
-  #endif
-#endif
-
         if (mSensor->data_evt->samples[0].firstSample.numSamples > 0) {
             // flush existing samples so the bias appears after them
             flushData(mSensor,
                     EVENT_TYPE_BIT_DISCARDABLE | sensorGetMyEventType(mSensorInfo[MAG].sensorType));
-            if (!allocateDataEvt(mSensor, rtc_time))
+            if (!allocateDataEvt(mSensor, rtc_time)) {
                 return;
+            }
         }
-        if (newMagBias)
+        if (newMagBias) {
             mTask.magBiasCurrent = true;
+        }
         mSensor->data_evt->samples[0].firstSample.biasCurrent = mTask.magBiasCurrent;
         mSensor->data_evt->samples[0].firstSample.biasPresent = 1;
         mSensor->data_evt->samples[0].firstSample.biasSample =
@@ -1948,11 +1938,13 @@ static void parseRawData(struct BMI160Sensor *mSensor, uint8_t *buf, float kScal
         sample = &mSensor->data_evt->samples[mSensor->data_evt->samples[0].firstSample.numSamples++];
         magCalGetBias(&mTask.moc, &sample->x, &sample->y, &sample->z);
         // bias is non-discardable, if we fail to enqueue, don't clear new_mag_bias
-        if (flushData(mSensor, sensorGetMyEventType(mSensorInfo[MAG].biasType)))
+        if (flushData(mSensor, sensorGetMyEventType(mSensorInfo[MAG].biasType))) {
             mTask.magBiasPosted = true;
+        }
 
-        if (!allocateDataEvt(mSensor, rtc_time))
+        if (!allocateDataEvt(mSensor, rtc_time)) {
             return;
+        }
     }
 #endif
 #ifdef GYRO_CAL_ENABLED
@@ -1962,8 +1954,9 @@ static void parseRawData(struct BMI160Sensor *mSensor, uint8_t *buf, float kScal
             // flush existing samples so the bias appears after them
             flushData(mSensor,
                     EVENT_TYPE_BIT_DISCARDABLE | sensorGetMyEventType(mSensorInfo[GYR].sensorType));
-            if (!allocateDataEvt(mSensor, rtc_time))
+            if (!allocateDataEvt(mSensor, rtc_time)) {
                 return;
+            }
         }
         mSensor->data_evt->samples[0].firstSample.biasCurrent = true;
         mSensor->data_evt->samples[0].firstSample.biasPresent = 1;
@@ -1973,8 +1966,9 @@ static void parseRawData(struct BMI160Sensor *mSensor, uint8_t *buf, float kScal
         gyroCalGetBias(&mTask.gyro_cal, &sample->x, &sample->y, &sample->z);
         flushData(mSensor, sensorGetMyEventType(mSensorInfo[GYR].biasType));
 
-        if (!allocateDataEvt(mSensor, rtc_time))
+        if (!allocateDataEvt(mSensor, rtc_time)) {
             return;
+        }
     }
 #endif
 
@@ -1999,7 +1993,6 @@ static void parseRawData(struct BMI160Sensor *mSensor, uint8_t *buf, float kScal
     if (mSensor->data_evt->samples[0].firstSample.numSamples == MAX_NUM_COMMS_EVENT_SAMPLES) {
         flushAllData();
     }
-
 }
 
 static void dispatchData(void)
