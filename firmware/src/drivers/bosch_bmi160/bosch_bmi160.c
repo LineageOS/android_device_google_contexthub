@@ -80,7 +80,7 @@
 #define DBG_WM_CALC               0
 #define TIMESTAMP_DBG             0
 
-#define BMI160_APP_VERSION 6
+#define BMI160_APP_VERSION 7
 
 // fixme: to list required definitions for a slave mag
 #ifdef USE_BMM150
@@ -2794,15 +2794,23 @@ static bool gyrCalibration(void *cookie)
 
 static bool gyrCfgData(void *data, void *cookie)
 {
-    int32_t *values = data;
+    struct CfgData {
+        int32_t hw[3];
+        float sw[3];
+    };
+    struct CfgData *values = data;
 
-    mTask.sensors[GYR].offset[0] = values[0];
-    mTask.sensors[GYR].offset[1] = values[1];
-    mTask.sensors[GYR].offset[2] = values[2];
+    mTask.sensors[GYR].offset[0] = values->hw[0];
+    mTask.sensors[GYR].offset[1] = values->hw[1];
+    mTask.sensors[GYR].offset[2] = values->hw[2];
     mTask.sensors[GYR].offset_enable = true;
 
+#ifdef GYRO_CAL_ENABLED
+    gyroCalSetBias(&mTask.gyro_cal, values->sw[0], values->sw[1], values->sw[2], sensorGetTime());
+#endif
+
     INFO_PRINT("gyrCfgData: data=%02lx, %02lx, %02lx\n",
-            values[0] & 0xFF, values[1] & 0xFF, values[2] & 0xFF);
+            values->hw[0] & 0xFF, values->hw[1] & 0xFF, values->hw[2] & 0xFF);
 
     if (!saveCalibration()) {
         mTask.pending_calibration_save = true;
@@ -3063,39 +3071,6 @@ static void sensorInit(void)
         SPI_WRITE(BMI160_REG_CMD, 0xB1, 10000);
         // Reset fifo
         SPI_WRITE(BMI160_REG_CMD, 0xB0, 10000);
-
-#ifdef ACCEL_CAL_ENABLED
-        // Init Accel Cal
-        accelCalInit(&mTask.acc,
-                     800000000, /* Stillness Time in ns (0.8s) */
-                     5,         /* Minimum Sample Number */
-                     0.00025,   /* Threshold */
-                     15,        /* nx bucket count */
-                     15,        /* nxb bucket count */
-                     15,        /* ny bucket count */
-                     15,        /* nyb bucket count */
-                     15,        /* nz bucket count */
-                     15,        /* nzb bucket count */
-                     15);       /* nle bucket count */
-#endif
-
-#ifdef GYRO_CAL_ENABLED
-        // Gyro Cal -- Initialization.
-        gyroCalInit(&mTask.gyro_cal,
-                    5e9,      // min stillness period = 5 seconds
-                    6e9,      // max stillness period = 6 seconds
-                    0, 0, 0,  // initial bias offset calibration
-                    0,        // time stamp of initial bias calibration
-                    1.5e9,    // analysis window length = 1.5 seconds
-                    5e-5f,    // gyroscope variance threshold [rad/sec]^2
-                    1e-5f,    // gyroscope confidence delta [rad/sec]^2
-                    8e-3f,    // accelerometer variance threshold [m/sec^2]^2
-                    1.6e-3f,  // accelerometer confidence delta [m/sec^2]^2
-                    1.4f,     // magnetometer variance threshold [uT]^2
-                    0.25,     // magnetometer confidence delta [uT]^2
-                    0.95f,    // stillness threshold [0,1]
-                    1);       // 1=gyro calibrations will be applied
-#endif
 
 #ifdef MAG_SLAVE_PRESENT
         mTask.init_state = INIT_MAG;
@@ -3445,6 +3420,39 @@ static bool startTask(uint32_t task_id)
     }
 
     osEventSubscribe(mTask.tid, EVT_APP_START);
+
+#ifdef ACCEL_CAL_ENABLED
+    // Init Accel Cal
+    accelCalInit(&mTask.acc,
+                 800000000, /* Stillness Time in ns (0.8s) */
+                 5,         /* Minimum Sample Number */
+                 0.00025,   /* Threshold */
+                 15,        /* nx bucket count */
+                 15,        /* nxb bucket count */
+                 15,        /* ny bucket count */
+                 15,        /* nyb bucket count */
+                 15,        /* nz bucket count */
+                 15,        /* nzb bucket count */
+                 15);       /* nle bucket count */
+#endif
+
+#ifdef GYRO_CAL_ENABLED
+    // Gyro Cal -- Initialization.
+    gyroCalInit(&mTask.gyro_cal,
+                5e9,      // min stillness period = 5 seconds
+                6e9,      // max stillness period = 6 seconds
+                0, 0, 0,  // initial bias offset calibration
+                0,        // time stamp of initial bias calibration
+                1.5e9,    // analysis window length = 1.5 seconds
+                5e-5f,    // gyroscope variance threshold [rad/sec]^2
+                1e-5f,    // gyroscope confidence delta [rad/sec]^2
+                8e-3f,    // accelerometer variance threshold [m/sec^2]^2
+                1.6e-3f,  // accelerometer confidence delta [m/sec^2]^2
+                1.4f,     // magnetometer variance threshold [uT]^2
+                0.25,     // magnetometer confidence delta [uT]^2
+                0.95f,    // stillness threshold [0,1]
+                1);       // 1=gyro calibrations will be applied
+#endif
 
 #ifdef MAG_SLAVE_PRESENT
     initMagCal(&mTask.moc,
