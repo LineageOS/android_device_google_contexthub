@@ -990,10 +990,13 @@ void HubConnection::queueActivate(int handle, bool enable)
 
         initConfigCmd(&cmd, handle);
 
-        ALOGI("queueActivate: sensor=%d, handle=%d, enable=%d", cmd.sensorType, handle, enable);
-        do {
-            ret = write(mFd, &cmd, sizeof(cmd));
-        } while(ret != sizeof(cmd));
+        ret = TEMP_FAILURE_RETRY(write(mFd, &cmd, sizeof(cmd)));
+        if (ret == sizeof(cmd))
+            ALOGI("queueActivate: sensor=%d, handle=%d, enable=%d",
+                    cmd.sensorType, handle, enable);
+        else
+            ALOGE("queueActivate: failed to send command: sensor=%d, handle=%d, enable=%d",
+                    cmd.sensorType, handle, enable);
     } else {
         ALOGI("queueActivate: unhandled handle=%d, enable=%d", handle, enable);
     }
@@ -1015,11 +1018,13 @@ void HubConnection::queueSetDelay(int handle, nsecs_t sampling_period_ns)
 
         initConfigCmd(&cmd, handle);
 
-        ALOGI("queueSetDelay: sensor=%d, handle=%d, period=%" PRId64,
-                cmd.sensorType, handle, sampling_period_ns);
-        do {
-            ret = write(mFd, &cmd, sizeof(cmd));
-        } while(ret != sizeof(cmd));
+        ret = TEMP_FAILURE_RETRY(write(mFd, &cmd, sizeof(cmd)));
+        if (ret == sizeof(cmd))
+            ALOGI("queueSetDelay: sensor=%d, handle=%d, period=%" PRId64,
+                    cmd.sensorType, handle, sampling_period_ns);
+        else
+            ALOGE("queueSetDelay: failed to send command: sensor=%d, handle=%d, period=%" PRId64,
+                    cmd.sensorType, handle, sampling_period_ns);
     } else {
         ALOGI("queueSetDelay: unhandled handle=%d, period=%" PRId64, handle, sampling_period_ns);
     }
@@ -1046,11 +1051,13 @@ void HubConnection::queueBatch(
 
         initConfigCmd(&cmd, handle);
 
-        ALOGI("queueBatch: sensor=%d, handle=%d, period=%" PRId64 ", latency=%" PRId64,
-                cmd.sensorType, handle, sampling_period_ns, max_report_latency_ns);
-        do {
-            ret = write(mFd, &cmd, sizeof(cmd));
-        } while(ret != sizeof(cmd));
+        ret = TEMP_FAILURE_RETRY(write(mFd, &cmd, sizeof(cmd)));
+        if (ret == sizeof(cmd))
+            ALOGI("queueBatch: sensor=%d, handle=%d, period=%" PRId64 ", latency=%" PRId64,
+                    cmd.sensorType, handle, sampling_period_ns, max_report_latency_ns);
+        else
+            ALOGE("queueBatch: failed to send command: sensor=%d, handle=%d, period=%" PRId64 ", latency=%" PRId64,
+                    cmd.sensorType, handle, sampling_period_ns, max_report_latency_ns);
     } else {
         ALOGI("queueBatch: unhandled handle=%d, period=%" PRId64 ", latency=%" PRId64,
                 handle, sampling_period_ns, max_report_latency_ns);
@@ -1070,10 +1077,13 @@ void HubConnection::queueFlush(int handle)
         initConfigCmd(&cmd, handle);
         cmd.cmd = CONFIG_CMD_FLUSH;
 
-        ALOGI("queueFlush: sensor=%d, handle=%d", cmd.sensorType, handle);
-        do {
-            ret = write(mFd, &cmd, sizeof(cmd));
-        } while(ret != sizeof(cmd));
+        ret = TEMP_FAILURE_RETRY(write(mFd, &cmd, sizeof(cmd)));
+        if (ret == sizeof(cmd))
+            ALOGI("queueFlush: sensor=%d, handle=%d",
+                    cmd.sensorType, handle);
+        else
+            ALOGE("queueFlush: failed to send command: sensor=%d, handle=%d",
+                    cmd.sensorType, handle);
     } else {
         ALOGI("queueFlush: unhandled handle=%d", handle);
     }
@@ -1089,10 +1099,13 @@ void HubConnection::queueDataInternal(int handle, void *data, size_t length)
         memcpy(cmd->data, data, length);
         cmd->cmd = CONFIG_CMD_CFG_DATA;
 
-        ALOGI("queueData: sensor=%d, length=%zu", cmd->sensorType, length);
-        do {
-            ret = write(mFd, cmd, sizeof(*cmd) + length);
-        } while(ret != sizeof(*cmd) + length);
+        ret = TEMP_FAILURE_RETRY(write(mFd, cmd, sizeof(*cmd) + length));
+        if (ret == sizeof(*cmd) + length)
+            ALOGI("queueData: sensor=%d, length=%zu",
+                    cmd->sensorType, length);
+        else
+            ALOGE("queueData: failed to send command: sensor=%d, length=%zu",
+                    cmd->sensorType, length);
         free(cmd);
     } else {
         ALOGI("queueData: unhandled handle=%d", handle);
@@ -1140,10 +1153,11 @@ void HubConnection::queueUsbMagBias()
         cmd->msg.dataLen = sizeof(float);
         memcpy((float *)(cmd+1), &mUsbMagBias, sizeof(float));
 
-        ALOGI("queueUsbMagBias: bias=%f\n", mUsbMagBias);
-        do {
-            ret = write(mFd, cmd, sizeof(*cmd) + sizeof(float));
-        } while(ret != sizeof(*cmd) + sizeof(float));
+        ret = TEMP_FAILURE_RETRY(write(mFd, cmd, sizeof(*cmd) + sizeof(float)));
+        if (ret == sizeof(*cmd) + sizeof(float))
+            ALOGI("queueUsbMagBias: bias=%f\n", mUsbMagBias);
+        else
+            ALOGE("queueUsbMagBias: failed to send command: bias=%f\n", mUsbMagBias);
         free(cmd);
     }
 }
