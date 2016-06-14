@@ -225,8 +225,10 @@ static void osStartTasks(void)
                 }
                 else if (nTasks == MAX_TASKS)
                     osLog(LOG_WARN, "External app id %016" PRIX64 " @ %p cannot be used as too many apps already exist.\n", app->appId, app);
-                else
+                else {
+                    osLog(LOG_DEBUG, "External app id %016" PRIX64 " @ %p loading app\n", app->appId, app);
                     mTasks[nTasks++].appHdr = app;
+                }
             }
         }
     }
