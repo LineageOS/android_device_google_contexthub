@@ -146,6 +146,16 @@ void gyroCalGetBias(struct gyroCal_t* gyro_cal,
   }
 }
 
+// Set an initial bias calibration value.
+void gyroCalSetBias(struct gyroCal_t* gyro_cal,
+                    float bias_x, float bias_y, float bias_z,
+                    uint64_t calibration_time) {
+  gyro_cal->bias_x = bias_x;
+  gyro_cal->bias_y = bias_y;
+  gyro_cal->bias_z = bias_z;
+  gyro_cal->calibration_time = calibration_time;
+}
+
 // Remove bias from a gyro measurement [rad/sec].
 void gyroCalRemoveBias(struct gyroCal_t* gyro_cal,
                        float xi, float yi, float zi,
