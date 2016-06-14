@@ -982,8 +982,14 @@ void HubConnection::sendCalibrationOffsets()
     if (settings->getFloat("light", &light))
         queueDataInternal(COMMS_SENSOR_LIGHT, &light, sizeof(light));
 
-    if (getCalibrationFloat(saved_settings, "mag", mag))
+    if (getCalibrationFloat(saved_settings, "mag", mag)) {
+        // Store SW bias so we can remove bias for uncal data
+        mMagBias[0] = mag[0];
+        mMagBias[1] = mag[1];
+        mMagBias[2] = mag[2];
+
         queueDataInternal(COMMS_SENSOR_MAG, mag, sizeof(mag));
+    }
 }
 
 bool HubConnection::threadLoop() {
