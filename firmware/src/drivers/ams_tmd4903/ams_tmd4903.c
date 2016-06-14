@@ -36,7 +36,7 @@
 #include <variant/inc/variant.h>
 
 #define AMS_TMD4903_APP_ID      APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 12)
-#define AMS_TMD4903_APP_VERSION 8
+#define AMS_TMD4903_APP_VERSION 9
 
 #ifndef PROX_INT_PIN
 #error "PROX_INT_PIN is not defined; please define in variant.h"
@@ -128,6 +128,7 @@
 #define AMS_TMD4903_ALS_TIMER_DELAY            200000000ULL
 
 #define MIN2(a,b) (((a) < (b)) ? (a) : (b))
+#define MAX2(a,b) (((a) > (b)) ? (a) : (b))
 
 // NOTE: Define this to be 1 to enable streaming of proximity samples instead of
 // using the interrupt
@@ -322,7 +323,7 @@ static inline float getLuxFromAlsData(uint16_t c, uint16_t r, uint16_t g, uint16
            ((c * ALS_C_COEFF) + (r * ALS_R_COEFF) + (g * ALS_G_COEFF) + (b * ALS_B_COEFF)) /
         (AMS_TMD4903_ATIME_MS * AMS_TMD4903_AGAIN)) * mTask.alsOffset;
 
-    return MIN2(lux, AMS_TMD4903_ALS_MAX_REPORT_VALUE);
+    return MIN2(MAX2(0.0f, lux), AMS_TMD4903_ALS_MAX_REPORT_VALUE);
 }
 
 static void sendCalibrationResultAls(uint8_t status, float offset) {
