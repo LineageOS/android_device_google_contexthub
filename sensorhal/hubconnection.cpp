@@ -99,6 +99,7 @@ HubConnection::HubConnection()
     mMagAccuracy = SENSOR_STATUS_UNRELIABLE;
     mMagAccuracyRestore = SENSOR_STATUS_UNRELIABLE;
     mGyroBias[0] = mGyroBias[1] = mGyroBias[2] = 0.0f;
+    mAccelBias[0] = mAccelBias[1] = mAccelBias[2] = 0.0f;
 
     memset(&mSensorState, 0x00, sizeof(mSensorState));
     mFd = open(NANOHUB_FILE_PATH, O_RDWR);
@@ -358,6 +359,13 @@ void HubConnection::saveSensorSettings() const {
     gyroArray->addFloat(mGyroBias[2]);
     settingsObject->setArray("gyro_sw", gyroArray);
 
+    // Add accel settings
+    sp<JSONArray> accelArray = new JSONArray;
+    accelArray->addFloat(mAccelBias[0]);
+    accelArray->addFloat(mAccelBias[1]);
+    accelArray->addFloat(mAccelBias[2]);
+    settingsObject->setArray("accel_sw", accelArray);
+
     // Write the JSON string to disk.
     AString serializedSettings = settingsObject->toString();
     size_t size = serializedSettings.size();
@@ -511,6 +519,12 @@ void HubConnection::processSample(uint64_t timestamp, uint32_t type, uint32_t se
             ue->y_bias = mGyroBias[1];
             ue->z_bias = mGyroBias[2];
         }
+        break;
+    case COMMS_SENSOR_ACCEL_BIAS:
+        mAccelBias[0] = sample->x;
+        mAccelBias[1] = sample->y;
+        mAccelBias[2] = sample->z;
+        saveSensorSettings();
         break;
     case COMMS_SENSOR_GYRO_BIAS:
         mGyroBias[0] = sample->x;
@@ -705,6 +719,7 @@ ssize_t HubConnection::processBuf(uint8_t *buf, ssize_t len)
         case SENS_TYPE_TO_EVENT(SENS_TYPE_ACCEL):
             type = SENSOR_TYPE_ACCELEROMETER;
             sensor = COMMS_SENSOR_ACCEL;
+            bias = COMMS_SENSOR_ACCEL_BIAS;
             three = true;
             break;
         case SENS_TYPE_TO_EVENT(SENS_TYPE_ACCEL_RAW):
@@ -967,15 +982,24 @@ void HubConnection::sendCalibrationOffsets()
     struct {
         int32_t hw[3];
         float sw[3];
-    } gyro;
-    int32_t accel[3], proximity, proximity_array[4];
+    } gyro, accel;
+    int32_t proximity, proximity_array[4];
     float barometer, mag[3], light;
     bool gyro_hw_cal_exists, gyro_sw_cal_exists;
+    bool accel_hw_cal_exists, accel_sw_cal_exists;
 
     loadSensorSettings(&settings, &saved_settings);
 
-    if (getCalibrationInt32(settings, "accel", accel, 3))
-        queueDataInternal(COMMS_SENSOR_ACCEL, accel, sizeof(accel));
+    accel_hw_cal_exists = getCalibrationInt32(settings, "accel", accel.hw, 3);
+    accel_sw_cal_exists = getCalibrationFloat(saved_settings, "accel_sw", accel.sw);
+    if (accel_hw_cal_exists || accel_sw_cal_exists) {
+        // Store SW bias so we can remove bias for uncal data
+        mAccelBias[0] = accel.sw[0];
+        mAccelBias[1] = accel.sw[1];
+        mAccelBias[2] = accel.sw[2];
+
+        queueDataInternal(COMMS_SENSOR_ACCEL, &accel, sizeof(accel));
+    }
 
     gyro_hw_cal_exists = getCalibrationInt32(settings, "gyro", gyro.hw, 3);
     gyro_sw_cal_exists = getCalibrationFloat(saved_settings, "gyro_sw", gyro.sw);

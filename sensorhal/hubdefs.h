@@ -75,6 +75,7 @@ enum comms_sensor_t {
     COMMS_SENSOR_ACTIVITY_STILL_START        = 41,
     COMMS_SENSOR_ACTIVITY_STILL_STOP         = 42,
     COMMS_SENSOR_ACTIVITY_TILTING            = 43,
+    COMMS_SENSOR_ACCEL_BIAS                  = 44,
 
     NUM_COMMS_SENSORS_PLUS_1,
 
