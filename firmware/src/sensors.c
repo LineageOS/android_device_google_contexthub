@@ -675,7 +675,7 @@ bool sensorRequest(uint32_t unusedTid, uint32_t sensorHandle, uint32_t rate, uin
 
     (void)unusedTid;
 
-    if (!s)
+    if (!s || !s->initComplete)
         return false;
 
     clientTid = osGetCurrentTid();
