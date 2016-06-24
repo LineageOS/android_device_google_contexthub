@@ -48,6 +48,7 @@
 #define MAX_NUM_BLOCKS          280         /* times 256 = 71680 bytes */
 #define MIN_NUM_BLOCKS          10          /* times 256 = 2560 bytes */
 #define SENSOR_INIT_DELAY       500000000   /* ns */
+#define SENSOR_INIT_ERROR_MAX   4
 #define CHECK_LATENCY_TIME      500000000   /* ns */
 #define EVT_LATENCY_TIMER       EVT_NO_FIRST_USER_EVENT
 
@@ -610,6 +611,7 @@ static bool initSensors()
     bool present, error;
     const struct SensorInfo *si;
     uint32_t handle;
+    static uint8_t errorCnt = 0;
 
     mTotalBlocks = 0;
     mNumSensors = 0;
@@ -617,9 +619,15 @@ static bool initSensors()
     for (i = SENS_TYPE_INVALID + 1; i <= SENS_TYPE_LAST_USER; i++) {
         for (j = 0, present = 0, error = 0; (si = sensorFind(i, j, &handle)) != NULL; j++) {
             if (!sensorGetInitComplete(handle)) {
-                osLog(LOG_INFO, "initSensors: %s not ready!\n", si->sensorName);
-                timTimerSet(SENSOR_INIT_DELAY, 0, 50, initCompleteCallback, NULL, true);
-                return false;
+                if (errorCnt >= SENSOR_INIT_ERROR_MAX) {
+                    osLog(LOG_ERROR, "initSensors: %s not ready - skipping!\n", si->sensorName);
+                    continue;
+                } else {
+                    osLog(LOG_INFO, "initSensors: %s not ready!\n", si->sensorName);
+                    timTimerSet(SENSOR_INIT_DELAY, 0, 50, initCompleteCallback, NULL, true);
+                    errorCnt ++;
+                    return false;
+                }
             } else if (!(si->flags1 & SENSOR_INFO_FLAGS1_LOCAL_ONLY)) {
                 if (!present) {
                     present = 1;
