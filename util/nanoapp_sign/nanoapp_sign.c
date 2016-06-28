@@ -497,8 +497,10 @@ int main(int argc, char **argv)
     if (keyPvtFile) {
         if (!readFile(rsa.exponent, sizeof(rsa.exponent), keyPvtFile))
             fatalUsage(appName, "Can't read PVT key from", keyPvtFile);
+#ifdef DEBUG_KEYS
         else if (verbose)
             printHashRev(stderr, "RSA exponent", rsa.exponent, RSA_LIMBS);
+#endif
     }
 
     if (keyPubFile) {
