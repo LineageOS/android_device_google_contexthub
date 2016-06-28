@@ -38,6 +38,9 @@ LOCAL_CFLAGS := \
 LOCAL_C_INCLUDES := \
     device/google/contexthub/lib/include \
 
+ifneq ($(filter userdebug eng,$(TARGET_BUILD_VARIANT)),)
+LOCAL_CFLAGS += -DDEBUG_KEYS
+endif
 
 LOCAL_MODULE := nanoapp_sign
 
