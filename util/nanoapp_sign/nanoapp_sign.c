@@ -239,6 +239,11 @@ static int handleVerify(uint8_t **pbuf, uint32_t bufUsed, struct RsaData *rsa, b
         bool lastTrusted = false;
         int sigData;
 
+        if (bufUsed < (sizeof(*image) + sizeof(*secHdr))) {
+            fprintf(stderr, "Invalid signature header: file is too short\n");
+            return 2;
+        }
+
         if (verbose)
             fprintf(stderr, "Original Data len=%" PRIu32 " b; file size=%" PRIu32 " b; diff=%" PRIu32 " b\n",
                     secHdr->appDataLen, bufUsed, bufUsed - secHdr->appDataLen);
@@ -515,7 +520,8 @@ int main(int argc, char **argv)
 
     image = (struct ImageHeader *)buf;
     if (!bareData && !txt2bin) {
-        if (image->aosp.header_version == 1 &&
+        if (bufUsed >= sizeof(*image) &&
+            image->aosp.header_version == 1 &&
             image->aosp.magic == NANOAPP_AOSP_MAGIC &&
             image->layout.magic == GOOGLE_LAYOUT_MAGIC) {
             fprintf(stderr, "Found AOSP header\n");
