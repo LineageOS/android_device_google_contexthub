@@ -80,7 +80,7 @@
 #define DBG_WM_CALC               0
 #define TIMESTAMP_DBG             0
 
-#define BMI160_APP_VERSION 7
+#define BMI160_APP_VERSION 8
 
 // fixme: to list required definitions for a slave mag
 #ifdef USE_BMM150
@@ -783,7 +783,8 @@ static bool bmi160Isr2(struct ChainedIsr *isr)
         return false;
 
     DEBUG_PRINT_IF(DBG_INT, "i2\n");
-    osEnqueuePrivateEvt(EVT_SENSOR_INTERRUPT_2, _task, NULL, T(tid));
+    if (!osEnqueuePrivateEvt(EVT_SENSOR_INTERRUPT_2, _task, NULL, T(tid)))
+        ERROR_PRINT("bmi160Isr2: osEnqueuePrivateEvt() failed\n");
     extiClearPendingGpio(T(Int2));
     return true;
 }
@@ -791,17 +792,20 @@ static bool bmi160Isr2(struct ChainedIsr *isr)
 static void sensorSpiCallback(void *cookie, int err)
 {
     mTask.spiInUse = false;
-    osEnqueuePrivateEvt(EVT_SPI_DONE, cookie, NULL, mTask.tid);
+    if (!osEnqueuePrivateEvt(EVT_SPI_DONE, cookie, NULL, mTask.tid))
+        ERROR_PRINT("sensorSpiCallback: osEnqueuePrivateEvt() failed\n");
 }
 
 static void sensorTimerCallback(uint32_t timerId, void *data)
 {
-    osEnqueuePrivateEvt(EVT_SPI_DONE, data, NULL, mTask.tid);
+    if (!osEnqueuePrivateEvt(EVT_SPI_DONE, data, NULL, mTask.tid))
+        ERROR_PRINT("sensorTimerCallback: osEnqueuePrivateEvt() failed\n")
 }
 
 static void timeSyncCallback(uint32_t timerId, void *data)
 {
-    osEnqueuePrivateEvt(EVT_TIME_SYNC, data, NULL, mTask.tid);
+    if (!osEnqueuePrivateEvt(EVT_TIME_SYNC, data, NULL, mTask.tid))
+        ERROR_PRINT("timeSyncCallback: osEnqueuePrivateEvt() failed\n");
 }
 
 static void stepCntSamplingCallback(uint32_t timerId, void *data)
@@ -1067,7 +1071,8 @@ static void configFifo(void)
         invalidate_sensortime_to_rtc_time();
 
         // start a new poll generation and attach the generation number to event
-        osEnqueuePrivateEvt(EVT_TIME_SYNC, (void *)mTask.poll_generation, NULL, mTask.tid);
+        if (!osEnqueuePrivateEvt(EVT_TIME_SYNC, (void *)mTask.poll_generation, NULL, mTask.tid))
+            ERROR_PRINT("configFifo: osEnqueuePrivateEvt() failed\n");
     }
 
     // cancel current poll generation
@@ -1738,7 +1743,12 @@ static void sendStepCnt()
 static bool stepCntSendLastData(void *cookie, uint32_t tid)
 {
     // If this comes in and we don't have data yet, there's no harm in reporting step_cnt = 0
-    return osEnqueuePrivateEvt(EVT_SENSOR_STEP_COUNTER, (void *) mTask.total_step_cnt, NULL, tid);
+    if (!osEnqueuePrivateEvt(EVT_SENSOR_STEP_COUNTER, (void *) mTask.total_step_cnt, NULL, tid)) {
+        ERROR_PRINT("stepCntSendLastData: osEnqueuePrivateEvt() failed\n");
+        return false;
+    }
+
+    return true;
 }
 
 static uint64_t parseSensortime(uint32_t sensor_time24)
@@ -3696,7 +3706,8 @@ static void initiateFifoRead_(TASK, bool isInterruptContext) {
     } else {
         if (isInterruptContext) {
             // called from interrupt context, queue event
-            osEnqueuePrivateEvt(EVT_SENSOR_INTERRUPT_1, _task, NULL, T(tid));
+            if (!osEnqueuePrivateEvt(EVT_SENSOR_INTERRUPT_1, _task, NULL, T(tid)))
+                ERROR_PRINT("initiateFifoRead_: osEnqueuePrivateEvt() failed\n");
         } else {
             // non-interrupt context, set pending flag, so next time it will be picked up after
             // switching back to idle.
