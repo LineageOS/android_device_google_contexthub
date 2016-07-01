@@ -17,6 +17,8 @@
 #ifndef __NANOHUBCOMMAND_H
 #define __NANOHUBCOMMAND_H
 
+#include <stdint.h>
+
 #define NANOHUB_FAST_DONT_ACK       0xFFFFFFFE
 #define NANOHUB_FAST_UNHANDLED_ACK  0xFFFFFFFF
 
