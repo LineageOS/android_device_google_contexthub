@@ -146,8 +146,9 @@ static struct Task *osSetCurrentTask(struct Task *task)
     struct Task *old = mCurrentTask;
     while (true) {
         old = mCurrentTask;
-        if (atomicCmpXchg32bits((uint32_t*)&mCurrentTask, (uint32_t)old, (uint32_t)task))
+        if (atomicCmpXchgPtr((uintptr_t*)&mCurrentTask, (uintptr_t)old, (uintptr_t)task)) {
             break;
+        }
     }
     return old;
 }
@@ -197,7 +198,11 @@ static inline struct Task *osTaskByIdx(size_t idx)
 
 uint32_t osGetCurrentTid()
 {
-    return osGetCurrentTask()->tid;
+    struct Task *task = osGetCurrentTask();
+    if (task == NULL) {
+        return UINT32_MAX;
+    }
+    return task->tid;
 }
 
 uint32_t osSetCurrentTid(uint32_t tid)
