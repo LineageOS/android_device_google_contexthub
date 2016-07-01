@@ -20,9 +20,9 @@
 // real definition available in CPU-independent header file
 extern bool atomicCmpXchg32bits(volatile uint32_t *word, uint32_t prevVal, uint32_t newVal);
 
-inline bool atomicCmpXchgPtr(volatile uintptr_t *word, uintptr_t prevVal, uintptr_t newVal) {
+static inline bool atomicCmpXchgPtr(volatile uintptr_t *word, uintptr_t prevVal, uintptr_t newVal) {
     // 32-bit CPU architecture so fall back appropriately
-    return atomicCmpXchg32bits((uint32_t*) word, (uintptr_t) prevVal, (uintptr_t) newVal);
+    return atomicCmpXchg32bits((volatile uint32_t *) word, (uint32_t) prevVal, (uint32_t) newVal);
 }
 
 #endif
