@@ -1,5 +1,5 @@
 #include <sys/cdefs.h>
 __FBSDID("$FreeBSD$");
 
-#define  MEMMOVE
+#define  MEMCOPY
 #include "bcopy.c"
