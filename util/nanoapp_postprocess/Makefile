@@ -20,7 +20,7 @@ CC ?= gcc
 CC_FLAGS = -Wall -Wextra -Werror -I../../lib/include --std=c99
 
 $(APP): $(SRC) Makefile
-	$(CC) $(CC_FLAGS) -o $(APP) -O2 $(SRC) -lelf
+	$(CC) $(CC_FLAGS) -o $(APP) -O2 $(SRC)
 
 clean:
 	rm -f $(APP)
