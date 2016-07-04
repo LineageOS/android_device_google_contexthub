@@ -61,7 +61,7 @@
         } \
     } while (0);
 
-static const bool enable_debug = 0;
+static const bool __attribute__((unused)) enable_debug = 0;
 
 static struct SensorTask
 {
