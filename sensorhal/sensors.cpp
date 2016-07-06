@@ -32,7 +32,7 @@ using namespace android;
 ////////////////////////////////////////////////////////////////////////////////
 
 SensorContext::SensorContext(const struct hw_module_t *module)
-    : mHubConnection(HubConnection::getInstance()), mHubAlive(true) {
+    : mHubConnection(HubConnection::getInstance()) {
     memset(&device, 0, sizeof(device));
 
     device.common.tag = HARDWARE_DEVICE_TAG;
