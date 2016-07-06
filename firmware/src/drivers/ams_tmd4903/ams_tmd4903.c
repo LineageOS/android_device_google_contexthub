@@ -36,7 +36,7 @@
 #include <variant/inc/variant.h>
 
 #define AMS_TMD4903_APP_ID      APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 12)
-#define AMS_TMD4903_APP_VERSION 9
+#define AMS_TMD4903_APP_VERSION 10
 
 #ifndef PROX_INT_PIN
 #error "PROX_INT_PIN is not defined; please define in variant.h"
@@ -98,15 +98,18 @@
 
 #define AMS_TMD4903_DEFAULT_RATE               SENSOR_HZ(5)
 
-#define AMS_TMD4903_AGAIN                      4
-#define AMS_TMD4903_AGAIN_SETTING              0x01
 #define AMS_TMD4903_ATIME_SETTING              0xdc
 #define AMS_TMD4903_ATIME_MS                   ((256 - AMS_TMD4903_ATIME_SETTING) * 2.78) // in milliseconds
 #define AMS_TMD4903_MAX_ALS_CHANNEL_COUNT      ((256 - AMS_TMD4903_ATIME_SETTING) * 1024) // in ALS data units
-#define AMS_TMD4903_ALS_MAX_REPORT_VALUE       50000.0f // in lux
+#define AMS_TMD4903_ALS_MAX_REPORT_VALUE       150000.0f // in lux
 #define AMS_TMD4903_PTIME_SETTING              0x11
 #define AMS_TMD4903_PGCFG0_SETTING             0x41 // pulse length: 8 us, pulse count: 2
 #define AMS_TMD4903_PGCFG1_SETTING             0x04 // gain: 1x, drive: 50 mA
+
+#define AMS_TMD4903_ALS_DEBOUNCE_SAMPLES       5
+#define AMS_TMD4903_ALS_GAIN_4X_THOLD          4000.0f
+#define AMS_TMD4903_ALS_GAIN_16X_THOLD         1000.0f
+#define AMS_TMD4903_ALS_GAIN_64X_THOLD         250.0f
 
 /* AMS_TMD4903_REG_ENABLE */
 #define PROX_INT_ENABLE_BIT                    (1 << 5)
@@ -171,9 +174,11 @@ enum SensorState
     SENSOR_STATE_ENABLING_ALS,
     SENSOR_STATE_ENABLING_PROX,
     SENSOR_STATE_DISABLING_ALS,
+    SENSOR_STATE_DISABLING_ALS_2,
     SENSOR_STATE_DISABLING_PROX,
     SENSOR_STATE_DISABLING_PROX_2,
     SENSOR_STATE_DISABLING_PROX_3,
+    SENSOR_STATE_ALS_CHANGING_GAIN,
     SENSOR_STATE_ALS_SAMPLING,
     SENSOR_STATE_PROX_SAMPLING,
     SENSOR_STATE_PROX_TRANSITION_0,
@@ -195,6 +200,14 @@ enum ProxOffsetIndex
     PROX_OFFSET_EAST  = 3
 };
 
+enum AlsGain
+{
+    ALS_GAIN_1X  = 0,
+    ALS_GAIN_4X  = 1,
+    ALS_GAIN_16X = 2,
+    ALS_GAIN_64X = 3
+};
+
 struct SensorData
 {
     struct Gpio *pin;
@@ -214,11 +227,17 @@ struct SensorData
 
     uint8_t lastProxState; // enum ProxState
 
+    uint8_t alsGain;
+    uint8_t nextAlsGain;
+    uint8_t alsDebounceSamples;
+
     bool alsOn;
     bool proxOn;
     bool alsCalibrating;
     bool proxCalibrating;
     bool proxDirectMode;
+    bool alsChangingGain;
+    bool alsSkipSample;
 };
 
 static struct SensorData mTask;
@@ -310,7 +329,12 @@ static void alsTimerCallback(uint32_t timerId, void *cookie)
     osEnqueuePrivateEvt(EVT_SENSOR_ALS_TIMER, cookie, NULL, mTask.tid);
 }
 
-static inline float getLuxFromAlsData(uint16_t c, uint16_t r, uint16_t g, uint16_t b)
+static inline uint32_t getAlsGainFromSetting(uint8_t gainSetting)
+{
+    return 0x1 << (2 * gainSetting);
+}
+
+static float getLuxFromAlsData(uint16_t c, uint16_t r, uint16_t g, uint16_t b)
 {
     float lux;
 
@@ -321,9 +345,28 @@ static inline float getLuxFromAlsData(uint16_t c, uint16_t r, uint16_t g, uint16
 
     lux = (ALS_GA_FACTOR *
            ((c * ALS_C_COEFF) + (r * ALS_R_COEFF) + (g * ALS_G_COEFF) + (b * ALS_B_COEFF)) /
-        (AMS_TMD4903_ATIME_MS * AMS_TMD4903_AGAIN)) * mTask.alsOffset;
+        (AMS_TMD4903_ATIME_MS * getAlsGainFromSetting(mTask.alsGain))) * mTask.alsOffset;
 
     return MIN2(MAX2(0.0f, lux), AMS_TMD4903_ALS_MAX_REPORT_VALUE);
+}
+
+static bool checkForAlsAutoGain(float sample)
+{
+    if ((mTask.alsGain != ALS_GAIN_64X) && (sample < AMS_TMD4903_ALS_GAIN_64X_THOLD)) {
+        mTask.alsDebounceSamples = (mTask.nextAlsGain == ALS_GAIN_64X) ? (mTask.alsDebounceSamples + 1) : 1;
+        mTask.nextAlsGain = ALS_GAIN_64X;
+    } else if ((mTask.alsGain != ALS_GAIN_16X) && (sample >= AMS_TMD4903_ALS_GAIN_64X_THOLD) && (sample < AMS_TMD4903_ALS_GAIN_16X_THOLD)) {
+        mTask.alsDebounceSamples = (mTask.nextAlsGain == ALS_GAIN_16X) ? (mTask.alsDebounceSamples + 1) : 1;
+        mTask.nextAlsGain = ALS_GAIN_16X;
+    } else if ((mTask.alsGain != ALS_GAIN_4X) && (sample >= AMS_TMD4903_ALS_GAIN_16X_THOLD) && (sample < AMS_TMD4903_ALS_GAIN_4X_THOLD)) {
+        mTask.alsDebounceSamples = (mTask.nextAlsGain == ALS_GAIN_4X) ? (mTask.alsDebounceSamples + 1) : 1;
+        mTask.nextAlsGain = ALS_GAIN_4X;
+    } else if ((mTask.alsGain != ALS_GAIN_1X) && (sample >= AMS_TMD4903_ALS_GAIN_4X_THOLD)) {
+        mTask.alsDebounceSamples = (mTask.nextAlsGain == ALS_GAIN_1X) ? (mTask.alsDebounceSamples + 1) : 1;
+        mTask.nextAlsGain = ALS_GAIN_1X;
+    }
+
+    return (mTask.alsDebounceSamples >= AMS_TMD4903_ALS_DEBOUNCE_SAMPLES);
 }
 
 static void sendCalibrationResultAls(uint8_t status, float offset) {
@@ -390,6 +433,10 @@ static bool sensorPowerAls(bool on, void *cookie)
 
     mTask.lastAlsSample.idata = AMS_TMD4903_ALS_INVALID;
     mTask.alsOn = on;
+    mTask.nextAlsGain = ALS_GAIN_4X;
+    mTask.alsChangingGain = false;
+    mTask.alsSkipSample = false;
+    mTask.alsDebounceSamples = 0;
 
     setMode(on, mTask.proxOn, (void *)(on ? SENSOR_STATE_ENABLING_ALS : SENSOR_STATE_DISABLING_ALS));
     return true;
@@ -429,6 +476,8 @@ static bool sensorCalibrateAls(void *cookie)
     mTask.lastAlsSample.idata = AMS_TMD4903_ALS_INVALID;
     mTask.alsCalibrating = true;
     mTask.alsOffset = 1.0f;
+    mTask.alsChangingGain = false;
+    mTask.alsSkipSample = false;
 
     extiClearPendingGpio(mTask.pin);
     enableInterrupt(mTask.pin, &mTask.isr, EXTI_TRIGGER_FALLING);
@@ -643,7 +692,7 @@ static void handle_i2c_event(int state)
         mTask.txrxBuf[14] = 0xa0;                                          // REG_CFG0 - reset value from datasheet
         mTask.txrxBuf[15] = AMS_TMD4903_PGCFG0_SETTING;                    // REG_PGCFG0
         mTask.txrxBuf[16] = AMS_TMD4903_PGCFG1_SETTING;                    // REG_PGCFG1
-        mTask.txrxBuf[17] = AMS_TMD4903_AGAIN_SETTING;                     // REG_CFG1
+        mTask.txrxBuf[17] = mTask.alsGain;                                 // REG_CFG1
         i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 18, &i2cCallback, (void *)SENSOR_STATE_INIT_0);
         break;
 
@@ -717,6 +766,14 @@ static void handle_i2c_event(int state)
         break;
 
     case SENSOR_STATE_DISABLING_ALS:
+        // Reset AGAIN to 4x
+        mTask.alsGain = ALS_GAIN_4X;
+        mTask.txrxBuf[0] = AMS_TMD4903_REG_CFG1;
+        mTask.txrxBuf[1] = mTask.alsGain;
+        i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 2, &i2cCallback, (void *)SENSOR_STATE_DISABLING_ALS_2);
+        break;
+
+    case SENSOR_STATE_DISABLING_ALS_2:
         sensorSignalInternalEvt(mTask.alsHandle, SENSOR_INTERNAL_EVT_POWER_STATE_CHG, false, 0);
         break;
 
@@ -738,6 +795,15 @@ static void handle_i2c_event(int state)
         sensorSignalInternalEvt(mTask.proxHandle, SENSOR_INTERNAL_EVT_POWER_STATE_CHG, false, 0);
         break;
 
+    case SENSOR_STATE_ALS_CHANGING_GAIN:
+        if (mTask.alsOn) {
+            mTask.alsChangingGain = false;
+            mTask.alsGain = mTask.nextAlsGain;
+            mTask.alsDebounceSamples = 0;
+            mTask.alsSkipSample = true;
+        }
+        break;
+
     case SENSOR_STATE_ALS_SAMPLING:
         c = *(uint16_t*)(mTask.txrxBuf);
         r = *(uint16_t*)(mTask.txrxBuf+2);
@@ -746,7 +812,8 @@ static void handle_i2c_event(int state)
 
         if (mTask.alsOn) {
             sample.fdata = getLuxFromAlsData(c, r, g, b);
-            DEBUG_PRINT("als sample ready: c=%u r=%u g=%u b=%u, lux=%d\n", c, r, g, b, (int)sample.fdata);
+            DEBUG_PRINT("als sample ready: c=%u r=%u g=%u b=%u, gain=%dx, lux=%d\n", c, r, g, b,
+                        (int)getAlsGainFromSetting(mTask.alsGain), (int)sample.fdata);
 
             if (mTask.alsCalibrating) {
                 sendCalibrationResultAls(SENSOR_APP_EVT_STATUS_SUCCESS, sample.fdata);
@@ -757,9 +824,22 @@ static void handle_i2c_event(int state)
                 mTask.txrxBuf[0] = AMS_TMD4903_REG_ENABLE;
                 mTask.txrxBuf[1] = 0; // REG_ENABLE
                 i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 2, &i2cCallback, (void*)SENSOR_STATE_IDLE);
-            } else if (mTask.lastAlsSample.idata != sample.idata) {
-                osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_ALS), sample.vptr, NULL);
-                mTask.lastAlsSample.fdata = sample.fdata;
+            } else if (mTask.alsSkipSample) {
+                mTask.alsSkipSample = false;
+            } else if (!mTask.alsChangingGain) {
+                if (mTask.lastAlsSample.idata != sample.idata) {
+                    osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_ALS), sample.vptr, NULL);
+                    mTask.lastAlsSample.fdata = sample.fdata;
+                }
+
+                if (checkForAlsAutoGain(sample.fdata)) {
+                    DEBUG_PRINT("Changing ALS gain from %dx to %dx\n", (int)getAlsGainFromSetting(mTask.alsGain),
+                                (int)getAlsGainFromSetting(mTask.nextAlsGain));
+                    mTask.alsChangingGain = true;
+                    mTask.txrxBuf[0] = AMS_TMD4903_REG_CFG1;
+                    mTask.txrxBuf[1] = mTask.nextAlsGain;
+                    i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 2, &i2cCallback, (void *)SENSOR_STATE_ALS_CHANGING_GAIN);
+                }
             }
         }
 
@@ -842,6 +922,7 @@ static bool init_app(uint32_t myTid)
     mTask.lastProxState = PROX_STATE_INIT;
     mTask.proxCalibrating = false;
     mTask.alsOffset = 1.0f;
+    mTask.alsGain = ALS_GAIN_4X;
 
     mTask.pin = gpioRequest(PROX_INT_PIN);
     gpioConfigInput(mTask.pin, GPIO_SPEED_LOW, GPIO_PULL_NONE);
