@@ -23,6 +23,14 @@
 #include <spi_priv.h>
 #include <timer.h>
 
+#define INFO_PRINT(fmt, ...) do { \
+        osLog(LOG_INFO, "%s " fmt, "[spi]", ##__VA_ARGS__); \
+    } while (0);
+
+#define ERROR_PRINT(fmt, ...) do { \
+        osLog(LOG_ERROR, "%s " fmt, "[spi] ERROR:", ##__VA_ARGS__); \
+    } while (0);
+
 struct SpiDeviceState {
     struct SpiDevice dev;
 
@@ -109,10 +117,14 @@ void spiMasterRxTxDone(struct SpiDevice *dev, int err)
     } else {
         size_t i = state->currentBuf++;
 
-        if (state->packets[i].delay > 0)
-            timTimerSet(state->packets[i].delay, 0, 50, spiDelayCallback, state, true);
-        else
+        if (state->packets[i].delay > 0) {
+            if (!timTimerSet(state->packets[i].delay, 0, 50, spiDelayCallback, state, true)) {
+                ERROR_PRINT("Cannot do delayed spi, timer depleted\n");
+                spiMasterDone(state, -ENOMEM); // should be out of timer; out of mem is close enough
+            }
+        } else {
             spiMasterNext(state);
+        }
     }
 }
 
