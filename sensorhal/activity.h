@@ -24,7 +24,7 @@
 
 #include "hubconnection.h"
 
-#define DEBUG_ACTIVITY_RECOGNITION  0
+namespace android {
 
 class ActivityContext {
   public:
@@ -56,8 +56,6 @@ class ActivityContext {
     android::Mutex mCallbackLock;
     const activity_recognition_callback_procs_t *mCallback;
 
-    bool mHubAlive;
-
     android::KeyedVector<uint64_t, int64_t> mMaxBatchReportLatencyNs;
 
     int mPrevActivity;
@@ -68,6 +66,8 @@ class ActivityContext {
 
     DISALLOW_EVIL_CONSTRUCTORS(ActivityContext);
 };
+
+}  // namespace android
 
 #endif  // ACTIVITY_H_
 

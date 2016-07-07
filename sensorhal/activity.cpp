@@ -14,13 +14,14 @@
  * limitations under the License.
  */
 
+#include <inttypes.h>
+
 #define LOG_TAG "ActivityRecognitionHAL"
-//#define LOG_NDEBUG  0
 #include <utils/Log.h>
 
-#include "activity.h"
-
 #include <media/stagefright/foundation/ADebug.h>
+
+#include "activity.h"
 
 using namespace android;
 
@@ -39,47 +40,43 @@ static const char *const kActivityList[] = {
     ACTIVITY_TYPE_TILTING
 };
 
-static int ActivityClose(struct hw_device_t *dev) {
-    ActivityContext *context = reinterpret_cast<ActivityContext *>(dev);
-    delete context;
+// The global ActivityContext singleton.
+static ActivityContext *gActivityContext = NULL;
+
+static int ActivityClose(struct hw_device_t *) {
+    delete gActivityContext;
+    gActivityContext = NULL;
     return 0;
 }
 
 static void RegisterActivityCallbackWrapper(
-        const struct activity_recognition_device *dev,
+        const struct activity_recognition_device *,
         const activity_recognition_callback_procs_t *callback) {
-    const_cast<ActivityContext *>(
-            reinterpret_cast<const ActivityContext *>(dev))
-        ->registerActivityCallback(callback);
+    gActivityContext->registerActivityCallback(callback);
 }
 
 static int EnableActivityEventWrapper(
-        const struct activity_recognition_device *dev,
+        const struct activity_recognition_device *,
         uint32_t activity_handle,
         uint32_t event_type,
         int64_t max_batch_report_latency_ns) {
-    return const_cast<ActivityContext *>(
-            reinterpret_cast<const ActivityContext *>(dev))
-        ->enableActivityEvent(
-            activity_handle, event_type, max_batch_report_latency_ns);
+    return gActivityContext->enableActivityEvent(activity_handle, event_type,
+                                                 max_batch_report_latency_ns);
 }
 
 static int DisableActivityEventWrapper(
-        const struct activity_recognition_device *dev,
+        const struct activity_recognition_device *,
         uint32_t activity_handle,
         uint32_t event_type) {
-    return const_cast<ActivityContext *>(
-            reinterpret_cast<const ActivityContext *>(dev))
-        ->disableActivityEvent(activity_handle, event_type);
+    return gActivityContext->disableActivityEvent(activity_handle, event_type);
 }
 
-static int FlushWrapper(const struct activity_recognition_device *dev) {
-    return const_cast<ActivityContext *>(
-            reinterpret_cast<const ActivityContext *>(dev))->flush();
+static int FlushWrapper(const struct activity_recognition_device *) {
+    return gActivityContext->flush();
 }
 
-static void HubCallbackWrapper(
-        void *me, uint64_t time_ms, bool is_flush, float x, float y, float z) {
+static void HubCallbackWrapper(void *me, uint64_t time_ms, bool is_flush,
+                               float x, float y, float z) {
     static_cast<ActivityContext *>(me)->onActivityEvent(time_ms, is_flush, x, y, z);
 }
 
@@ -99,10 +96,7 @@ ActivityContext::ActivityContext(const struct hw_module_t *module)
     device.disable_activity_event = DisableActivityEventWrapper;
     device.flush = FlushWrapper;
 
-    mHubAlive = (mHubConnection->initCheck() == OK
-        && mHubConnection->getAliveCheck() == OK);
-
-    if (mHubAlive) {
+    if (getHubAlive()) {
         mHubConnection->setActivityCallback(this, &HubCallbackWrapper);
         mHubConnection->queueActivate(
             COMMS_SENSOR_ACTIVITY, false /* enable */);
@@ -225,13 +219,12 @@ int ActivityContext::enableActivityEvent(
         uint32_t activity_handle,
         uint32_t event_type,
         int64_t max_batch_report_latency_ns) {
-    ALOGI("enableActivityEvent");
+    ALOGI("enableActivityEvent - activity_handle: %" PRIu32
+          ", event_type: %" PRIu32 ", latency: %" PRId64,
+          activity_handle, event_type, max_batch_report_latency_ns);
 
     bool wasEnabled = !mMaxBatchReportLatencyNs.isEmpty();
     int64_t prev_latency = calculateReportLatencyNs();
-
-    ALOGD_IF(DEBUG_ACTIVITY_RECOGNITION, "ACTVT type = %u, latency = %d sec", (unsigned) event_type,
-          (int)(max_batch_report_latency_ns/1000000000ull));
 
     mMaxBatchReportLatencyNs.add(
             ((uint64_t)activity_handle << 32) | event_type,
@@ -293,12 +286,11 @@ int ActivityContext::flush() {
 }
 
 bool ActivityContext::getHubAlive() {
-    return mHubAlive;
+    return mHubConnection->initCheck() == OK
+        && mHubConnection->getAliveCheck() == OK;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-
-static bool gHubAlive = false;
 
 static int open_activity(
         const struct hw_module_t *module,
@@ -306,11 +298,8 @@ static int open_activity(
         struct hw_device_t **dev) {
     ALOGI("open_activity");
 
-    ActivityContext *ctx = new ActivityContext(module);
-
-    gHubAlive = ctx->getHubAlive();
-    *dev = &ctx->device.common;
-
+    gActivityContext = new ActivityContext(module);
+    *dev = &gActivityContext->device.common;
     return 0;
 }
 
@@ -318,12 +307,11 @@ static struct hw_module_methods_t activity_module_methods = {
     .open = open_activity
 };
 
-static int get_activity_list(
-        struct activity_recognition_module *,
-        char const* const **activity_list) {
+static int get_activity_list(struct activity_recognition_module *,
+                             char const* const **activity_list) {
     ALOGI("get_activity_list");
 
-    if (gHubAlive) {
+    if (gActivityContext != NULL && gActivityContext->getHubAlive()) {
         *activity_list = kActivityList;
         return sizeof(kActivityList) / sizeof(kActivityList[0]);
     } else {
