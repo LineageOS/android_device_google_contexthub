@@ -1099,7 +1099,6 @@ void HubConnection::queueSetDelay(int handle, nsecs_t sampling_period_ns)
 
 void HubConnection::queueBatch(
         int handle,
-        __attribute__((unused)) int flags,
         nsecs_t sampling_period_ns,
         nsecs_t max_report_latency_ns)
 {
