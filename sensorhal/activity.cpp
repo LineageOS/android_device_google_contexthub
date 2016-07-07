@@ -241,12 +241,12 @@ int ActivityContext::enableActivityEvent(
         mPrevActivity = -1;
         mInitExitDone = false;
 
-        mHubConnection->queueBatch(
-            COMMS_SENSOR_ACTIVITY, SENSOR_FLAG_ON_CHANGE_MODE, 1000000, max_batch_report_latency_ns);
+        mHubConnection->queueBatch(COMMS_SENSOR_ACTIVITY, 1000000,
+                                   max_batch_report_latency_ns);
         mHubConnection->queueActivate(COMMS_SENSOR_ACTIVITY, true /* enable */);
     } else if (max_batch_report_latency_ns != prev_latency) {
-        mHubConnection->queueBatch(
-            COMMS_SENSOR_ACTIVITY, SENSOR_FLAG_ON_CHANGE_MODE, 1000000, max_batch_report_latency_ns);
+        mHubConnection->queueBatch(COMMS_SENSOR_ACTIVITY, 1000000,
+                                   max_batch_report_latency_ns);
     }
 
     return 0;

@@ -53,7 +53,6 @@ struct HubConnection : public Thread {
     void queueSetDelay(int handle, nsecs_t delayNs);
     void queueBatch(
             int handle,
-            int flags,
             nsecs_t sampling_period_ns,
             nsecs_t max_report_latency_ns);
     void queueFlush(int handle);
