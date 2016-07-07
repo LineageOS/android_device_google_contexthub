@@ -3732,8 +3732,8 @@ static void chunkedReadSpiCallback(void *cookie, int err) {
             "crcb,e:%d,s:%d", err, (int)GET_STATE());
     bool int1 = gpioGet(T(Int1));
     if (err != 0) {
-        //DEBUG_PRINT_IF(DBG_CHUNKED, "crd retry");
-        INFO_PRINT("crd retry");
+        // TODO: force debug statement for b/29625330, remove it after bug being resolved
+        DEBUG_PRINT_IF(1 || DBG_CHUNKED, "spi err, crd retry");
         // read full fifo length to be safe
         chunkedReadInit(0, FIFO_READ_SIZE);
         return;
