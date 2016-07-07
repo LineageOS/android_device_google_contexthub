@@ -124,7 +124,6 @@ int SensorContext::poll(sensors_event_t *data, int count) {
 
 int SensorContext::batch(
         int handle,
-        int flags,
         int64_t sampling_period_ns,
         int64_t max_report_latency_ns) {
     ALOGI("batch");
@@ -148,9 +147,8 @@ int SensorContext::batch(
         break;
     }
 
-    mHubConnection->queueBatch(
-            handle, flags, sampling_period_ns_clamped, max_report_latency_ns);
-
+    mHubConnection->queueBatch(handle, sampling_period_ns_clamped,
+                               max_report_latency_ns);
     return 0;
 }
 
@@ -191,8 +189,9 @@ int SensorContext::BatchWrapper(
         int flags,
         int64_t sampling_period_ns,
         int64_t max_report_latency_ns) {
+    (void) flags;
     return reinterpret_cast<SensorContext *>(dev)->batch(
-            handle, flags, sampling_period_ns, max_report_latency_ns);
+            handle, sampling_period_ns, max_report_latency_ns);
 }
 
 // static
