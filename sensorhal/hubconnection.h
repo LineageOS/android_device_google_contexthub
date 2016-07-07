@@ -27,6 +27,7 @@
 #include <utils/Mutex.h>
 #include <utils/Thread.h>
 
+#include "activityeventhandler.h"
 #include "eventnums.h"
 #include "hubdefs.h"
 #include "ring.h"
@@ -51,19 +52,14 @@ struct HubConnection : public Thread {
 
     void queueActivate(int handle, bool enable);
     void queueSetDelay(int handle, nsecs_t delayNs);
-    void queueBatch(
-            int handle,
-            nsecs_t sampling_period_ns,
+    void queueBatch(int handle, nsecs_t sampling_period_ns,
             nsecs_t max_report_latency_ns);
     void queueFlush(int handle);
     void queueData(int handle, void *data, size_t length);
 
     ssize_t read(sensors_event_t *ev, size_t size);
 
-    typedef void (*ActivityFunc)(
-            void *, uint64_t time_us, bool is_flush, float x, float y, float z);
-
-    void setActivityCallback(void *cookie, ActivityFunc cb);
+    void setActivityCallback(ActivityEventHandler *eventHandler);
 
     void saveSensorSettings() const;
 
@@ -185,8 +181,7 @@ private:
 
     RingBuffer mRing;
 
-    void *mActivityCbCookie;
-    ActivityFunc mActivityCb;
+    ActivityEventHandler *mActivityEventHandler;
 
     float mMagBias[3];
     uint8_t mMagAccuracy;

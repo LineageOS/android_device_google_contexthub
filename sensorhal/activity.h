@@ -22,19 +22,17 @@
 #include <media/stagefright/foundation/ABase.h>
 #include <utils/KeyedVector.h>
 
+#include "activityeventhandler.h"
 #include "hubconnection.h"
 
 namespace android {
 
-class ActivityContext {
+class ActivityContext : public ActivityEventHandler {
   public:
     activity_recognition_device_t device;
 
     explicit ActivityContext(const struct hw_module_t *module);
     ~ActivityContext();
-
-    void onActivityEvent(
-            uint64_t when_us, bool is_flush, float x, float y, float z);
 
     bool getHubAlive();
 
@@ -50,6 +48,9 @@ class ActivityContext {
 
     int flush();
 
+    // ActivityEventHandler interface.
+    virtual void OnActivityEvent(int activityRaw, uint64_t whenNs) override;
+    virtual void OnFlush() override;
   private:
     android::sp<android::HubConnection> mHubConnection;
 
