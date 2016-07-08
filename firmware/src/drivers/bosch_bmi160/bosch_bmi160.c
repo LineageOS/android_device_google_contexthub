@@ -27,6 +27,7 @@
 #include <plat/inc/gpio.h>
 #include <plat/inc/syscfg.h>
 #include <plat/inc/rtc.h>
+#include <printf.h>
 #include <sensors.h>
 #include <seos.h>
 #include <slab.h>
@@ -645,6 +646,9 @@ static void chunkedReadSpiCallback(void *cookie, int error);
 static void initiateFifoRead_(TASK, bool isInterruptContext);
 #define initiateFifoRead(a) initiateFifoRead_(_task, (a))
 static uint8_t* shallowParseFrame(uint8_t * buf, int size);
+
+// Binary dump to osLog
+static void dumpBinary(void* buf, unsigned int address, size_t size);
 
 // Watermark calculation
 static uint8_t calcWatermark2_(TASK);
@@ -2243,7 +2247,7 @@ static void dispatchData(void)
                 }
             } else {
                 size = 0; // drop this batch
-                ERROR_PRINT("Invalid fh_param in conttrol frame\n");
+                ERROR_PRINT("Invalid fh_param in control frame\n");
             }
         } else if (fh_mode == 2) {
             // Calcutate candidate frame time (tmp_frame_time):
@@ -2357,7 +2361,14 @@ static void dispatchData(void)
 #endif
         } else {
             size = 0; // drop this batch
-            ERROR_PRINT("Invalid fh_mode %d\n", fh_mode);
+            ERROR_PRINT("Invalid fh_mode %d at 0x%x\n", fh_mode, i);
+#if 1 || DBG_CHUNKED
+            INFO_PRINT("Dump of data\n");
+            // dump (a) bytes back and (b) bytes forward.
+            int a = i < 0x40 ? 0 : (i - 0x40) & ~0xF;
+            int b = i + 0x10 > mTask.xferCnt ? mTask.xferCnt : i + 0x20;
+            dumpBinary(mTask.dataBuffer, a, b - a);
+#endif
         }
     }
 
@@ -3670,7 +3681,7 @@ static uint8_t* shallowParseFrame(uint8_t * buf, int size) {
             DEBUG_PRINT_IF(DBG_SHALLOW_PARSE, "at %d, a reg frame acc %d, gyro %d, mag %d\n",
                        iLastFrame, fh_param &1 ? 1:0, fh_param&2?1:0, fh_param&4?1:0);
         } else {
-            size = 0; // drop this batch
+            size = 0; // drop the rest of batch
             DEBUG_PRINT_IF(DBG_SHALLOW_PARSE, "spf: Invalid fh_mode %d!!\n", fh_mode);
             //mark invalid
             buf[iLastFrame] = BMI160_FRAME_HEADER_INVALID;
@@ -3862,6 +3873,43 @@ static uint8_t calcWatermark2_(TASK) {
     watermark = watermark > WATERMARK_MAX ? WATERMARK_MAX : watermark;
 
     return watermark;
+}
+
+static bool dumpBinaryPutC(void* p, char c) {
+    *(*(char**)p)++ = c;
+    return true;
+}
+
+static uint32_t cvprintf_ellipsis(printf_write_c writeF, void* writeD, const char* fmtStr, ...) {
+    va_list vl;
+    uint32_t ret;
+
+    va_start(vl, fmtStr);
+    ret = cvprintf(writeF, writeD, fmtStr, vl);
+    va_end(vl);
+
+    return ret;
+}
+
+static void dumpBinary(void* buf, unsigned int address, size_t size) {
+    size_t i, j;
+    char buffer[5+16*3+1+2]; //5: address, 3:each byte+space, 1: middle space, 1: \n and \0
+    char* p;
+
+    for (i = 0; i < size; ) {
+        p = buffer;
+        cvprintf_ellipsis(dumpBinaryPutC, &p, "%08x:", address);
+        for (j = 0; j < 0x10 && i < size; ++i, ++j) {
+            if (j == 0x8) {
+                *p++ = ' ';
+            }
+            cvprintf_ellipsis(dumpBinaryPutC, &p, " %02x", ((unsigned char *)buf)[i]);
+        }
+        *p = '\0';
+
+        osLog(LOG_INFO, "%s\n", buffer);
+        address += 0x10;
+    }
 }
 
 INTERNAL_APP_INIT(BMI160_APP_ID, BMI160_APP_VERSION, startTask, endTask, handleEvent);
