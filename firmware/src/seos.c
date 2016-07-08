@@ -1183,8 +1183,10 @@ bool osDefer(OsDeferCbkF callback, void *cookie, bool urgent)
 static bool osEnqueuePrivateEvtEx(uint32_t evtType, void *evtData, TaggedPtr evtFreeInfo, uint32_t toTid)
 {
     union InternalThing *act = slabAllocatorAlloc(mMiscInternalThingsSlab);
-    if (!act)
-            return false;
+    if (!act) {
+        osLog(LOG_ERROR, "[seos] ERROR: osEnqueuePrivateEvtEx: call to slabAllocatorAlloc() failed\n");
+        return false;
+    }
 
     act->privateEvt.evtType = evtType;
     act->privateEvt.evtData = evtData;
