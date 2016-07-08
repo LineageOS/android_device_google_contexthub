@@ -29,13 +29,18 @@ extern "C" {
 #include <eventQ.h>
 #include <plat/inc/app.h>
 #include <eventnums.h>
+#include <variant/inc/variant.h>
 #include "toolchain.h"
 
 #include <nanohub/nanohub.h>
 
 //#define SEGMENT_CRC_SUPPORT
 
+#ifndef MAX_TASKS
+/* Default to 16 tasks, override may come from variant.h */
 #define MAX_TASKS                        16
+#endif
+
 #define MAX_EMBEDDED_EVT_SUBS             6 /* tradeoff, no wrong answer */
 #define TASK_IDX_BITS                     8 /* should be big enough to hold MAX_TASKS, but still fit in TaskIndex */
 
