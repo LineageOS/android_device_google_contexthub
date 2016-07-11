@@ -164,9 +164,6 @@ bool cpuAppLoad(const struct AppHdr *app, struct PlatAppInfo *platInfo)
         return false;
     }
 
-    osLog(LOG_INFO, "loaded app ID 0x%llx at flash base 0x%08x ram base 0x%08x\n",
-          app->hdr.appId, (uintptr_t) &app->hdr, (uintptr_t) mem);
-
     return true;
 }
 
