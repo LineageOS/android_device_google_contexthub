@@ -17,6 +17,7 @@
 #include <plat/inc/eeData.h>
 #include <plat/inc/plat.h>
 #include <plat/inc/bl.h>
+#include <plat/inc/wdt.h>
 #include <platform.h>
 #include <hostIntf.h>
 #include <inttypes.h>
@@ -698,6 +699,11 @@ static bool osStartApp(const struct AppHdr *app)
         task->subbedEvents = task->subbedEventsInt;
         MAKE_NEW_TID(task);
 
+        // print external NanoApp info to facilitate NanoApp debugging
+        if (!(task->app->hdr.fwFlags & FL_APP_HDR_INTERNAL))
+            osLog(LOG_INFO, "loaded app ID 0x%llx at flash base 0x%08x ram base 0x%08x; TID %04X\n",
+                  task->app->hdr.appId, (uintptr_t) &task->app, (uintptr_t) task->platInfo.data, task->tid);
+
         done = osTaskInit(task);
 
         if (!done) {
@@ -1031,6 +1037,7 @@ void osMainInit(void)
     osApiExport(mMiscInternalThingsSlab);
     apIntInit();
     cpuIntsOn();
+    wdtInit();
     osStartTasks();
 
     //broadcast app start to all already-loaded apps
@@ -1088,6 +1095,7 @@ void __attribute__((noreturn)) osMain(void)
     while (true)
     {
         osMainDequeueLoop();
+        platPeriodic();
     }
 }
 
