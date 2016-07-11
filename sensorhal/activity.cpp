@@ -75,11 +75,6 @@ static int FlushWrapper(const struct activity_recognition_device *) {
     return gActivityContext->flush();
 }
 
-static void HubCallbackWrapper(void *me, uint64_t time_ms, bool is_flush,
-                               float x, float y, float z) {
-    static_cast<ActivityContext *>(me)->onActivityEvent(time_ms, is_flush, x, y, z);
-}
-
 ActivityContext::ActivityContext(const struct hw_module_t *module)
     : mHubConnection(HubConnection::getInstance()),
       mCallback(NULL),
@@ -97,37 +92,21 @@ ActivityContext::ActivityContext(const struct hw_module_t *module)
     device.flush = FlushWrapper;
 
     if (getHubAlive()) {
-        mHubConnection->setActivityCallback(this, &HubCallbackWrapper);
+        mHubConnection->setActivityCallback(this);
         mHubConnection->queueActivate(
             COMMS_SENSOR_ACTIVITY, false /* enable */);
     }
 }
 
 ActivityContext::~ActivityContext() {
-    mHubConnection->setActivityCallback(NULL, NULL);
+    mHubConnection->setActivityCallback(NULL);
 }
 
-void ActivityContext::onActivityEvent(
-        uint64_t when_us, bool is_flush, float x, float, float) {
+void ActivityContext::OnActivityEvent(int activityRaw, uint64_t whenNs) {
     Mutex::Autolock autoLock(mCallbackLock);
-
     if (!mCallback) {
         return;
     }
-
-    if (is_flush) {
-        activity_event_t ev;
-        memset(&ev, 0, sizeof(ev));
-
-        ev.event_type = ACTIVITY_EVENT_FLUSH_COMPLETE;
-        ev.activity = 0;
-        ev.timestamp = 0ll;
-
-        (*mCallback->activity_callback)(mCallback, &ev, 1);
-        return;
-    }
-
-    int activityRaw = (int)x;
 
     ALOGV("activityRaw = %d", activityRaw);
 
@@ -153,7 +132,7 @@ void ActivityContext::onActivityEvent(
             activity_event_t *curr_ev = &ev[num_events];
             curr_ev->event_type = ACTIVITY_EVENT_EXIT;
             curr_ev->activity = i;
-            curr_ev->timestamp = when_us * 1000ll;  // timestamp is in ns.
+            curr_ev->timestamp = whenNs;
             curr_ev->reserved[0] = curr_ev->reserved[1] = curr_ev->reserved[2] = curr_ev->reserved[3] = 0;
             num_events++;
         }
@@ -166,7 +145,7 @@ void ActivityContext::onActivityEvent(
             activity_event_t *curr_ev = &ev[num_events];
             curr_ev->event_type = ACTIVITY_EVENT_ENTER;
             curr_ev->activity = activityRaw;
-            curr_ev->timestamp = when_us * 1000ll;  // timestamp is in ns.
+            curr_ev->timestamp = whenNs;
             curr_ev->reserved[0] = curr_ev->reserved[1] = curr_ev->reserved[2] = curr_ev->reserved[3] = 0;
             num_events++;
         }
@@ -175,7 +154,7 @@ void ActivityContext::onActivityEvent(
             activity_event_t *curr_ev = &ev[num_events];
             curr_ev->event_type = ACTIVITY_EVENT_EXIT;
             curr_ev->activity = activityRaw;
-            curr_ev->timestamp = when_us * 1000ll;  // timestamp is in ns.
+            curr_ev->timestamp = whenNs;
             curr_ev->reserved[0] = curr_ev->reserved[1] = curr_ev->reserved[2] = curr_ev->reserved[3] = 0;
             num_events++;
         }
@@ -185,7 +164,7 @@ void ActivityContext::onActivityEvent(
             activity_event_t *curr_ev = &ev[num_events];
             curr_ev->event_type = ACTIVITY_EVENT_EXIT;
             curr_ev->activity = mPrevActivity;
-            curr_ev->timestamp = when_us * 1000ll;  // timestamp is in ns.
+            curr_ev->timestamp = whenNs;
             curr_ev->reserved[0] = curr_ev->reserved[1] = curr_ev->reserved[2] = curr_ev->reserved[3] = 0;
             num_events++;
         }
@@ -194,7 +173,7 @@ void ActivityContext::onActivityEvent(
             activity_event_t *curr_ev = &ev[num_events];
             curr_ev->event_type = ACTIVITY_EVENT_ENTER;
             curr_ev->activity = activityRaw;
-            curr_ev->timestamp = when_us * 1000ll;  // timestamp is in ns.
+            curr_ev->timestamp = whenNs;
             curr_ev->reserved[0] = curr_ev->reserved[1] = curr_ev->reserved[2] = curr_ev->reserved[3] = 0;
             num_events++;
         }
@@ -205,6 +184,21 @@ void ActivityContext::onActivityEvent(
     if (num_events > 0) {
         (*mCallback->activity_callback)(mCallback, ev, num_events);
     }
+}
+
+void ActivityContext::OnFlush() {
+    Mutex::Autolock autoLock(mCallbackLock);
+    if (!mCallback) {
+        return;
+    }
+
+    activity_event_t ev = {
+        .event_type = ACTIVITY_EVENT_FLUSH_COMPLETE,
+        .activity = 0,
+        .timestamp = 0ll,
+    };
+
+    (*mCallback->activity_callback)(mCallback, &ev, 1);
 }
 
 void ActivityContext::registerActivityCallback(
