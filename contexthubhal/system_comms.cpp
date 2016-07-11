@@ -187,6 +187,29 @@ int SystemComm::AppInfoSession::requestNext()
     return sendToSystem(buf.getData(), buf.getPos());
 }
 
+int SystemComm::GlobalSession::setup(const hub_message_t *) {
+    Mutex::Autolock _l(mLock);
+
+    setState(SESSION_USER);
+
+    return 0;
+}
+
+int SystemComm::GlobalSession::handleRx(MessageBuf &buf)
+{
+    Mutex::Autolock _l(mLock);
+
+    NanohubRsp rsp(buf);
+    if (rsp.cmd != NANOHUB_REBOOT) {
+        return 1;
+    }
+
+    ALOGW("Nanohub reboot status [UNSOLICITED]: %08" PRIX32, rsp.status);
+    sendToApp(CONTEXT_HUB_OS_REBOOT, &rsp.status, sizeof(rsp.status));
+
+    return 0;
+}
+
 int SystemComm::MemInfoSession::setup(const hub_message_t *)
 {
     Mutex::Autolock _l(mLock);
@@ -269,6 +292,10 @@ int SystemComm::AppMgmtSession::setup(const hub_message_t *appMsg)
 {
     Mutex::Autolock _l(mLock);
 
+    char data[MAX_RX_PACKET];
+    MessageBuf buf(data, sizeof(data));
+    const uint8_t *msgData = static_cast<const uint8_t*>(appMsg->message);
+
     mCmd = appMsg->message_type;
     mLen = appMsg->message_len;
     mPos = 0;
@@ -282,19 +309,19 @@ int SystemComm::AppMgmtSession::setup(const hub_message_t *appMsg)
         return setupMgmt(appMsg, NANOHUB_EXT_APP_DELETE);
     case  CONTEXT_HUB_LOAD_OS:
     case  CONTEXT_HUB_LOAD_APP:
-        const uint8_t *p = static_cast<const uint8_t*>(appMsg->message);
         mData.clear();
-        mData = std::vector<uint8_t>(p, p + mLen);
+        mData = std::vector<uint8_t>(msgData, msgData + mLen);
         setState(TRANSFER);
 
-        char data[MAX_RX_PACKET];
-        MessageBuf buf(data, sizeof(data));
         buf.writeU8(NANOHUB_START_UPLOAD);
         buf.writeU8(mCmd == CONTEXT_HUB_LOAD_OS ? 1 : 0);
         buf.writeU32(mLen);
-
         return sendToSystem(buf.getData(), buf.getPos());
-    break;
+
+    case  CONTEXT_HUB_OS_REBOOT:
+        setState(REBOOT);
+        buf.writeU8(NANOHUB_REBOOT);
+        return sendToSystem(buf.getData(), buf.getPos());
     }
 
     return -EINVAL;
@@ -331,6 +358,9 @@ int SystemComm::AppMgmtSession::handleRx(MessageBuf &buf)
         break;
     case RELOAD:
         ret = handleReload(rsp);
+        break;
+    case REBOOT:
+        ret = handleReboot(rsp);
         break;
     case MGMT:
         ret = handleMgmt(rsp);
@@ -396,14 +426,33 @@ int SystemComm::AppMgmtSession::handleFinish(NanohubRsp &rsp)
     return ret;
 }
 
-/* reboot notification is not yet supported in FW; this code is for (near) future */
+/* reboot notification, when triggered as part of App reload sequence */
 int SystemComm::AppMgmtSession::handleReload(NanohubRsp &rsp)
 {
     int32_t result = NANOHUB_APP_LOADED;
 
-    ALOGI("Nanohub reboot status: %08" PRIX32, rsp.status);
+    ALOGI("Nanohub reboot status [NEW APP START]: %08" PRIX32, rsp.status);
 
     sendToApp(mCmd, &result, sizeof(result));
+
+    // in addition to sending response to the CONTEXT_HUB_LOAD_APP command,
+    // we should send unsolicited reboot notification;
+    // I choose to do it here rather than delegate it to global session
+    // because I want the log to clearly differentiate between UNSOLICITED reboots
+    // (meaning FW faults) and REQUESTED reboots.
+    sendToApp(CONTEXT_HUB_OS_REBOOT, &rsp.status, sizeof(rsp.status));
+
+    complete();
+
+    return 0;
+}
+
+/* reboot notification, when triggered by App request */
+int SystemComm::AppMgmtSession::handleReboot(NanohubRsp &rsp)
+{
+    ALOGI("Nanohub reboot status [USER REQ]: %08" PRIX32, rsp.status);
+
+    sendToApp(mCmd, &rsp.status, sizeof(rsp.status));
     complete();
 
     return 0;
@@ -521,6 +570,9 @@ int SystemComm::SessionManager::handleRx(MessageBuf &buf)
         if (status < 0) {
             session->complete();
         }
+    }
+    if (status > 0) {
+        status = mGlobal.handleRx(buf);
     }
 
     return status;

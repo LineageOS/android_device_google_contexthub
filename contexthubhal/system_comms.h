@@ -193,6 +193,7 @@ private:
             TRANSFER = SESSION_USER,
             FINISH,
             RELOAD,
+            REBOOT,
             MGMT,
         };
         uint32_t mCmd; // UPLOAD_APP | UPPLOAD_OS
@@ -205,6 +206,7 @@ private:
         int handleTransfer(NanohubRsp &rsp);
         int handleFinish(NanohubRsp &rsp);
         int handleReload(NanohubRsp &rsp);
+        int handleReboot(NanohubRsp &rsp);
         int handleMgmt(NanohubRsp &rsp);
     public:
         AppMgmtSession() {
@@ -243,11 +245,18 @@ private:
         virtual int handleRx(MessageBuf &buf) override;
     };
 
+    class GlobalSession : public Session {
+    public:
+        virtual int setup(const hub_message_t *) override;
+        virtual int handleRx(MessageBuf &buf) override;
+    };
+
     class SessionManager {
         typedef std::map<int, Session* > SessionMap;
 
         Mutex lock;
         SessionMap sessions_;
+        GlobalSession mGlobal;
 
         void next(SessionMap::iterator &pos)
         {
@@ -256,6 +265,9 @@ private:
         }
 
     public:
+        SessionManager() {
+            mGlobal.setup(nullptr);
+        }
         int handleRx(MessageBuf &buf);
         int setup_and_add(int id, Session *session, const hub_message_t *appMsg) {
             Mutex::Autolock _l(lock);
