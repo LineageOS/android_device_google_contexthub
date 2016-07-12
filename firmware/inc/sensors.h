@@ -21,13 +21,19 @@
 extern "C" {
 #endif
 #include <plat/inc/taggedPtr.h>
+#include <variant/inc/variant.h>
 #include <eventnums.h>
 #include <sensType.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include "toolchain.h"
 
-#define MAX_REGISTERED_SENSORS  32 /* this may need to be revisted later */
+// Specify the maximum number of sensors that can be registered. Allow it to be
+// overriden on a per-device basis.
+#ifndef MAX_REGISTERED_SENSORS
+#define MAX_REGISTERED_SENSORS 32
+#endif  // MAX_REGISTERED_SENSORS
+
 #define MAX_MIN_SAMPLES         3000
 
 enum NumAxis {
