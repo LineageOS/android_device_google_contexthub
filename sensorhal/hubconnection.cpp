@@ -91,8 +91,7 @@ HubConnection *HubConnection::getInstance()
 HubConnection::HubConnection()
     : Thread(false /* canCallJava */),
       mRing(10 *1024),
-      mActivityCbCookie(NULL),
-      mActivityCb(NULL),
+      mActivityEventHandler(NULL),
       mStepCounterOffset(0ull),
       mLastStepCount(0ull)
 {
@@ -411,10 +410,9 @@ void HubConnection::processSample(uint64_t timestamp, uint32_t type, uint32_t se
 
     switch (sensor) {
     case COMMS_SENSOR_ACTIVITY:
-        if (mActivityCb != NULL) {
-            (*mActivityCb)(mActivityCbCookie, timestamp / 1000ull,
-                false, /* is_flush */
-                (float)(sample->idata & 0x7), 0.0, 0.0);
+        if (mActivityEventHandler != NULL) {
+            mActivityEventHandler->OnActivityEvent(sample->idata & 0x7,
+                                                   timestamp);
         }
         break;
     case COMMS_SENSOR_PRESSURE:
@@ -913,10 +911,8 @@ ssize_t HubConnection::processBuf(uint8_t *buf, ssize_t len)
 
         for (i=0; i<data->firstSample.numFlushes; i++) {
             if (sensor == COMMS_SENSOR_ACTIVITY) {
-                if (mActivityCb != NULL) {
-                    (*mActivityCb)(mActivityCbCookie, 0ull, /* when_us */
-                        true, /* is_flush */
-                        0.0f, 0.0f, 0.0f);
+                if (mActivityEventHandler != NULL) {
+                    mActivityEventHandler->OnFlush();
                 }
             } else {
                 memset(&ev, 0x00, sizeof(sensors_event_t));
@@ -1061,13 +1057,10 @@ ssize_t HubConnection::read(sensors_event_t *ev, size_t size) {
     return mRing.read(ev, size);
 }
 
-void HubConnection::setActivityCallback(
-        void *cookie,
-        void (*cb)(void *, uint64_t time_ms, bool, float x, float y, float z))
+void HubConnection::setActivityCallback(ActivityEventHandler *eventHandler)
 {
     Mutex::Autolock autoLock(mLock);
-    mActivityCbCookie = cookie;
-    mActivityCb = cb;
+    mActivityEventHandler = eventHandler;
 }
 
 void HubConnection::initConfigCmd(struct ConfigCmd *cmd, int handle)
