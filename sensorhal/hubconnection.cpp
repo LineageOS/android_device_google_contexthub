@@ -183,6 +183,28 @@ HubConnection::HubConnection()
     mSensorState[COMMS_SENSOR_DOUBLE_TAP].rate = SENSOR_RATE_ONCHANGE;
     mSensorState[COMMS_SENSOR_WRIST_TILT].sensorType = SENS_TYPE_WRIST_TILT;
     mSensorState[COMMS_SENSOR_WRIST_TILT].rate = SENSOR_RATE_ONCHANGE;
+    mSensorState[COMMS_SENSOR_ACTIVITY_IN_VEHICLE_START].sensorType = SENS_TYPE_ACTIVITY_IN_VEHICLE_START;
+    mSensorState[COMMS_SENSOR_ACTIVITY_IN_VEHICLE_START].rate = SENSOR_RATE_ONCHANGE;
+    mSensorState[COMMS_SENSOR_ACTIVITY_IN_VEHICLE_STOP].sensorType = SENS_TYPE_ACTIVITY_IN_VEHICLE_STOP;
+    mSensorState[COMMS_SENSOR_ACTIVITY_IN_VEHICLE_STOP].rate = SENSOR_RATE_ONCHANGE;
+    mSensorState[COMMS_SENSOR_ACTIVITY_ON_BICYCLE_START].sensorType = SENS_TYPE_ACTIVITY_ON_BICYCLE_START;
+    mSensorState[COMMS_SENSOR_ACTIVITY_ON_BICYCLE_START].rate = SENSOR_RATE_ONCHANGE;
+    mSensorState[COMMS_SENSOR_ACTIVITY_ON_BICYCLE_STOP].sensorType = SENS_TYPE_ACTIVITY_ON_BICYCLE_STOP;
+    mSensorState[COMMS_SENSOR_ACTIVITY_ON_BICYCLE_STOP].rate = SENSOR_RATE_ONCHANGE;
+    mSensorState[COMMS_SENSOR_ACTIVITY_WALKING_START].sensorType = SENS_TYPE_ACTIVITY_WALKING_START;
+    mSensorState[COMMS_SENSOR_ACTIVITY_WALKING_START].rate = SENSOR_RATE_ONCHANGE;
+    mSensorState[COMMS_SENSOR_ACTIVITY_WALKING_STOP].sensorType = SENS_TYPE_ACTIVITY_WALKING_STOP;
+    mSensorState[COMMS_SENSOR_ACTIVITY_WALKING_STOP].rate = SENSOR_RATE_ONCHANGE;
+    mSensorState[COMMS_SENSOR_ACTIVITY_RUNNING_START].sensorType = SENS_TYPE_ACTIVITY_RUNNING_START;
+    mSensorState[COMMS_SENSOR_ACTIVITY_RUNNING_START].rate = SENSOR_RATE_ONCHANGE;
+    mSensorState[COMMS_SENSOR_ACTIVITY_RUNNING_STOP].sensorType = SENS_TYPE_ACTIVITY_RUNNING_STOP;
+    mSensorState[COMMS_SENSOR_ACTIVITY_RUNNING_STOP].rate = SENSOR_RATE_ONCHANGE;
+    mSensorState[COMMS_SENSOR_ACTIVITY_STILL_START].sensorType = SENS_TYPE_ACTIVITY_STILL_START;
+    mSensorState[COMMS_SENSOR_ACTIVITY_STILL_START].rate = SENSOR_RATE_ONCHANGE;
+    mSensorState[COMMS_SENSOR_ACTIVITY_STILL_STOP].sensorType = SENS_TYPE_ACTIVITY_STILL_STOP;
+    mSensorState[COMMS_SENSOR_ACTIVITY_STILL_STOP].rate = SENSOR_RATE_ONCHANGE;
+    mSensorState[COMMS_SENSOR_ACTIVITY_TILTING].sensorType = SENS_TYPE_ACTIVITY_TILTING;
+    mSensorState[COMMS_SENSOR_ACTIVITY_TILTING].rate = SENSOR_RATE_ONCHANGE;
 
 #ifdef LID_STATE_REPORTING_ENABLED
     initializeUinputNode();
@@ -865,6 +887,61 @@ ssize_t HubConnection::processBuf(uint8_t *buf, ssize_t len)
         case SENS_TYPE_TO_EVENT(SENS_TYPE_WRIST_TILT):
             type = SENSOR_TYPE_WRIST_TILT_GESTURE;
             sensor = COMMS_SENSOR_WRIST_TILT;
+            one = true;
+            break;
+        case SENS_TYPE_TO_EVENT(SENS_TYPE_ACTIVITY_IN_VEHICLE_START):
+            type = 0;
+            sensor = COMMS_SENSOR_ACTIVITY_IN_VEHICLE_START;
+            one = true;
+            break;
+        case SENS_TYPE_TO_EVENT(SENS_TYPE_ACTIVITY_IN_VEHICLE_STOP):
+            type = 0;
+            sensor = COMMS_SENSOR_ACTIVITY_IN_VEHICLE_STOP;
+            one = true;
+            break;
+        case SENS_TYPE_TO_EVENT(SENS_TYPE_ACTIVITY_ON_BICYCLE_START):
+            type = 0;
+            sensor = COMMS_SENSOR_ACTIVITY_ON_BICYCLE_START;
+            one = true;
+            break;
+        case SENS_TYPE_TO_EVENT(SENS_TYPE_ACTIVITY_ON_BICYCLE_STOP):
+            type = 0;
+            sensor = COMMS_SENSOR_ACTIVITY_ON_BICYCLE_STOP;
+            one = true;
+            break;
+        case SENS_TYPE_TO_EVENT(SENS_TYPE_ACTIVITY_WALKING_START):
+            type = 0;
+            sensor = COMMS_SENSOR_ACTIVITY_WALKING_START;
+            one = true;
+            break;
+        case SENS_TYPE_TO_EVENT(SENS_TYPE_ACTIVITY_WALKING_STOP):
+            type = 0;
+            sensor = COMMS_SENSOR_ACTIVITY_WALKING_STOP;
+            one = true;
+            break;
+        case SENS_TYPE_TO_EVENT(SENS_TYPE_ACTIVITY_RUNNING_START):
+            type = 0;
+            sensor = COMMS_SENSOR_ACTIVITY_RUNNING_START;
+            one = true;
+            break;
+        case SENS_TYPE_TO_EVENT(SENS_TYPE_ACTIVITY_RUNNING_STOP):
+            type = 0;
+            sensor = COMMS_SENSOR_ACTIVITY_RUNNING_STOP;
+            one = true;
+            break;
+        case SENS_TYPE_TO_EVENT(SENS_TYPE_ACTIVITY_STILL_START):
+            type = 0;
+            sensor = COMMS_SENSOR_ACTIVITY_STILL_START;
+            one = true;
+            break;
+        case SENS_TYPE_TO_EVENT(SENS_TYPE_ACTIVITY_STILL_STOP):
+            type = 0;
+            sensor = COMMS_SENSOR_ACTIVITY_STILL_STOP;
+            one = true;
+            break;
+        case SENS_TYPE_TO_EVENT(SENS_TYPE_ACTIVITY_TILTING):
+            type = 0;
+            sensor = COMMS_SENSOR_ACTIVITY_TILTING;
             one = true;
             break;
         case EVT_RESET_REASON:
