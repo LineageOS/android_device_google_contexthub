@@ -29,7 +29,7 @@
 #include <stdint.h>
 
 // For CHRE_EVENT_SENSOR_FIRST_EVENT and CHRE_EVENT_SENSOR_LAST_EVENT
-#include "chre_event.h"
+#include <chre/event.h>
 
 #ifdef __cplusplus
 extern "C" {

@@ -30,11 +30,11 @@
  * for overall platform information.
  */
 
-#include "chre_event.h"
-#include "chre_nanoapp.h"
-#include "chre_re.h"
-#include "chre_sensor.h"
-#include "chre_version.h"
+#include <chre/event.h>
+#include <chre/nanoapp.h>
+#include <chre/re.h>
+#include <chre/sensor.h>
+#include <chre/version.h>
 
 
 /**
