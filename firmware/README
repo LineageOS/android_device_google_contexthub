@@ -1,0 +1,17 @@
+Define and export CROSS_COMPILE env var for your toolchain
+
+1. to build any OS variant, run
+
+make -C <variant_path>
+
+where <variant_path> is relative path to OS variant dir;
+or simply "cd  <variant_path>" and run "make".
+for local variants, variant_path is variant/<variant_name>
+
+2. to build nanoapp, run
+
+make -C <nanapp_path>
+
+where <nanoapp_path> is relative path to nanoapp;
+or simply "cd  <nanoapp_path>" and run "make".
+for local nanoapps, nanoapp_path is app/<app_name>

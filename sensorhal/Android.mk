@@ -56,7 +56,7 @@ LOCAL_MODULE_OWNER := google
 LOCAL_CFLAGS += $(COMMON_CFLAGS)
 
 LOCAL_C_INCLUDES += \
-	device/google/contexthub/firmware/inc \
+	device/google/contexthub/firmware/os/inc \
 	device/google/contexthub/util/common
 
 LOCAL_SRC_FILES := \
@@ -83,7 +83,7 @@ LOCAL_MODULE_OWNER := google
 LOCAL_CFLAGS += $(COMMON_CFLAGS)
 
 LOCAL_C_INCLUDES += \
-	device/google/contexthub/firmware/inc \
+	device/google/contexthub/firmware/os/inc \
 	device/google/contexthub/util/common
 
 LOCAL_SRC_FILES := \
@@ -121,7 +121,7 @@ LOCAL_CFLAGS += -DDOUBLE_TOUCH_ENABLED
 endif
 
 LOCAL_C_INCLUDES += \
-	device/google/contexthub/firmware/inc \
+	device/google/contexthub/firmware/os/inc \
 	device/google/contexthub/util/common
 
 LOCAL_SRC_FILES := \
