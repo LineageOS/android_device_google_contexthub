@@ -81,7 +81,7 @@
 #define DBG_WM_CALC               0
 #define TIMESTAMP_DBG             0
 
-#define BMI160_APP_VERSION 8
+#define BMI160_APP_VERSION 9
 
 // fixme: to list required definitions for a slave mag
 #ifdef USE_BMM150
@@ -605,6 +605,11 @@ static struct MagTask magTask;
     .flags1 = SENSOR_INFO_FLAGS1_BIAS, \
     .biasType = bias
 
+#define DEC_INFO_RATE_RAW_BIAS(name, rates, type, axis, inter, samples, raw, scale, bias) \
+    DEC_INFO_RATE_RAW(name, rates, type, axis, inter, samples, raw, scale), \
+    .flags1 = SENSOR_INFO_FLAGS1_RAW | SENSOR_INFO_FLAGS1_BIAS, \
+    .biasType = bias
+
 typedef struct BMI160Task _Task;
 #define TASK  _Task* const _task
 
@@ -656,8 +661,14 @@ static uint8_t calcWatermark2_(TASK);
 
 static const struct SensorInfo mSensorInfo[NUM_OF_SENSOR] =
 {
+#ifdef ACCEL_CAL_ENABLED
+    { DEC_INFO_RATE_RAW_BIAS("Accelerometer", AccRates, SENS_TYPE_ACCEL, NUM_AXIS_THREE,
+            NANOHUB_INT_NONWAKEUP, 3000, SENS_TYPE_ACCEL_RAW, 1.0/kScale_acc,
+            SENS_TYPE_ACCEL_BIAS) },
+#else
     { DEC_INFO_RATE_RAW("Accelerometer", AccRates, SENS_TYPE_ACCEL, NUM_AXIS_THREE,
             NANOHUB_INT_NONWAKEUP, 3000, SENS_TYPE_ACCEL_RAW, 1.0/kScale_acc) },
+#endif
     { DEC_INFO_RATE_BIAS("Gyroscope", GyrRates, SENS_TYPE_GYRO, NUM_AXIS_THREE,
             NANOHUB_INT_NONWAKEUP, 20, SENS_TYPE_GYRO_BIAS) },
 #ifdef MAG_SLAVE_PRESENT
@@ -2621,15 +2632,23 @@ static bool accCalibration(void *cookie)
 
 static bool accCfgData(void *data, void *cookie)
 {
-    int32_t *values = data;
+    struct CfgData {
+        int32_t hw[3];
+        float sw[3];
+    };
+    struct CfgData *values = data;
 
-    mTask.sensors[ACC].offset[0] = values[0];
-    mTask.sensors[ACC].offset[1] = values[1];
-    mTask.sensors[ACC].offset[2] = values[2];
+    mTask.sensors[ACC].offset[0] = values->hw[0];
+    mTask.sensors[ACC].offset[1] = values->hw[1];
+    mTask.sensors[ACC].offset[2] = values->hw[2];
     mTask.sensors[ACC].offset_enable = true;
 
+#ifdef ACCEL_CAL_ENABLED
+    accelCalBiasSet(&mTask.acc, values->sw[0], values->sw[1], values->sw[2]);
+#endif
+
     INFO_PRINT("accCfgData: data=%02lx, %02lx, %02lx\n",
-            values[0] & 0xFF, values[1] & 0xFF, values[2] & 0xFF);
+            values->hw[0] & 0xFF, values->hw[1] & 0xFF, values->hw[2] & 0xFF);
 
     if (!saveCalibration()) {
         mTask.pending_calibration_save = true;
@@ -3233,6 +3252,11 @@ static void handleSpiDoneEvt(const void* evtData)
     int16_t temperature16;
     int i;
     bool returnIdle = false;
+#ifdef ACCEL_CAL_ENABLED
+    bool accelCalNewBiasAvailable;
+    struct TripleAxisDataPoint *sample;
+    float accelCalBiasX, accelCalBiasY, accelCalBiasZ;
+#endif
 
     switch (GET_STATE()) {
     case SENSOR_BOOT:
@@ -3303,7 +3327,32 @@ static void handleSpiDoneEvt(const void* evtData)
         // "The bias and scale calibration must only be updated while the sensor is deactivated,
         // so as to avoid causing jumps in values during streaming."
         if (mSensor->idx == ACC) {
-          accelCalUpdateBias(&mTask.acc);
+            accelCalNewBiasAvailable = accelCalUpdateBias(&mTask.acc, &accelCalBiasX, &accelCalBiasY, &accelCalBiasZ);
+            // notify HAL about new accel bias calibration
+            if (accelCalNewBiasAvailable) {
+                if (mSensor->data_evt->samples[0].firstSample.numSamples > 0) {
+                    // flush existing samples so the bias appears after them
+                    flushData(mSensor,
+                            EVENT_TYPE_BIT_DISCARDABLE | sensorGetMyEventType(mSensorInfo[ACC].sensorType));
+
+                    // try to allocate another data event and break if unsuccessful
+                    if (!allocateDataEvt(mSensor, sensorGetTime())) {
+                        break;
+                    }
+                }
+
+                mSensor->data_evt->samples[0].firstSample.biasCurrent = true;
+                mSensor->data_evt->samples[0].firstSample.biasPresent = 1;
+                mSensor->data_evt->samples[0].firstSample.biasSample =
+                        mSensor->data_evt->samples[0].firstSample.numSamples;
+                sample = &mSensor->data_evt->samples[mSensor->data_evt->samples[0].firstSample.numSamples++];
+                sample->x = accelCalBiasX;
+                sample->y = accelCalBiasY;
+                sample->z = accelCalBiasZ;
+                flushData(mSensor, sensorGetMyEventType(mSensorInfo[ACC].biasType));
+
+                allocateDataEvt(mSensor, sensorGetTime());
+            }
         }
 #endif
         break;
