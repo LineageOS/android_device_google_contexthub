@@ -81,7 +81,7 @@
 #define DBG_WM_CALC               0
 #define TIMESTAMP_DBG             0
 
-#define BMI160_APP_VERSION 9
+#define BMI160_APP_VERSION 10
 
 // fixme: to list required definitions for a slave mag
 #ifdef USE_BMM150
@@ -459,7 +459,6 @@ struct BMI160Task {
     uint8_t *sensorTimeBuffer;
     uint8_t *temperatureBuffer;
     uint8_t txrxBuffer[SPI_BUF_SIZE];
-    uint32_t spiTimeoutTimerHandle;
 
     // states
     volatile uint8_t state;  //task state, type enum SensorState, do NOT change this directly
@@ -489,11 +488,9 @@ struct BMI160Task {
     // spi rw
     struct SlabAllocator *mDataSlab;
     uint16_t mWbufCnt;
-    uint8_t mRegCnt, mLastRegCnt;
+    uint8_t mRegCnt;
     uint8_t mRetryLeft;
     bool spiInUse;
-    int spiBatches, spiCallbacks;
-    const char * spiSrc;
 };
 
 static uint32_t AccRates[] = {
@@ -759,37 +756,6 @@ static void spiQueueRead(uint8_t addr, size_t size, uint8_t **buf, uint32_t dela
     T(mRegCnt)++;
 }
 
-static void printDebug()
-{
-    int i;
-    int wbufCnt = 0;
-    // TODO (trevorbunker)
-    INFO_PRINT("stepPower\n");
-    INFO_PRINT("DEBUG: state = %" PRI_STATE "\n", getStateName(atomicReadByte(&(mTask.state))));
-    INFO_PRINT("DEBUG: interrupt_enable_0 = 0x%02x\n", mTask.interrupt_enable_0);
-    INFO_PRINT("DEBUG: interrupt_enable_2 = 0x%02x\n", mTask.interrupt_enable_2);
-    INFO_PRINT("DEBUG: spiInUse = %d\n", mTask.spiInUse);
-    INFO_PRINT("DEBUG: Int1 = %d\n", gpioGet(mTask.Int1));
-    INFO_PRINT("DEBUG: Int2 = %d\n", gpioGet(mTask.Int2));
-    INFO_PRINT("DEBUG: pending_int[0] = %d\n", mTask.pending_int[0]);
-    INFO_PRINT("DEBUG: pending_int[1] = %d\n", mTask.pending_int[1]);
-    INFO_PRINT("DEBUG: spiBatches = %d\n", mTask.spiBatches);
-    INFO_PRINT("DEBUG: spiCallbacks = %d\n", mTask.spiCallbacks);
-    INFO_PRINT("DEBUG: spiSrc = %s\n", mTask.spiSrc);
-    for (i = 0; i < mTask.mLastRegCnt; i++) {
-        INFO_PRINT("Request %d, reg addr 0x%02x, size %d, txBuf 0x%08x, rxBuf 0x%08x, delay %d\n",
-                   i, (unsigned int)mTask.txrxBuffer[wbufCnt], (int)mTask.packets[i].size, (unsigned int)mTask.packets[i].txBuf,
-                   (unsigned int)mTask.packets[i].rxBuf, (int)mTask.packets[i].delay);
-        wbufCnt += mTask.packets[i].size;
-    }
-}
-
-static void spiTimeoutCallback(uint32_t timerId, void *data)
-{
-    ERROR_PRINT("SPI transaction never returned\n");
-    printDebug();
-}
-
 static void spiBatchTxRx(struct SpiMode *mode,
         SpiCbkF callback, void *cookie, const char * src)
 {
@@ -802,20 +768,8 @@ static void spiBatchTxRx(struct SpiMode *mode,
         ERROR_PRINT("spiBatchTxRx too many packets!\n");
         return;
     }
-    if (T(spiInUse)) {
-        ERROR_PRINT("cannot call spiBatchTxRx when spi is already in use!\n");
-        return;
-    }
 
-    T(spiBatches)++;
     T(spiInUse) = true;
-
-    mTask.spiTimeoutTimerHandle = timTimerSet(1000000000ull, 0, 50, spiTimeoutCallback, NULL, true);
-    if (!mTask.spiTimeoutTimerHandle)
-        ERROR_PRINT("Couldn't get a timer for the SPI timeout timer\n");
-
-    T(spiSrc) = src;
-    T(mLastRegCnt) = T(mRegCnt);
 
     // Reset variables before issuing SPI transaction.
     // SPI may finish before spiMasterRxTx finish
@@ -860,12 +814,6 @@ static bool bmi160Isr2(struct ChainedIsr *isr)
 static void sensorSpiCallback(void *cookie, int err)
 {
     mTask.spiInUse = false;
-    mTask.spiCallbacks++;
-
-    if (mTask.spiTimeoutTimerHandle) {
-        timTimerCancel(mTask.spiTimeoutTimerHandle);
-        mTask.spiTimeoutTimerHandle = 0;
-    }
 
     if (!osEnqueuePrivateEvt(EVT_SPI_DONE, cookie, NULL, mTask.tid))
         ERROR_PRINT("sensorSpiCallback: osEnqueuePrivateEvt() failed\n");
@@ -1266,8 +1214,6 @@ static bool magPower(bool on, void *cookie)
 
 static bool stepPower(bool on, void *cookie)
 {
-    printDebug();
-
     TDECL();
     if (trySwitchState(on ? SENSOR_POWERING_UP : SENSOR_POWERING_DOWN)) {
         // if step counter is powered, no need to change actual config of step
@@ -1693,7 +1639,7 @@ static bool stepCntSetRate(uint32_t rate, uint64_t latency, void *cookie)
         mTask.stepCntSamplingTimerHandle = timTimerSet(sensorTimerLookupCommon(StepCntRates, stepCntRateTimerVals, rate),
                                                        0, 50, stepCntSamplingCallback, NULL, false);
         if (!mTask.stepCntSamplingTimerHandle)
-            ERROR_PRINT("Couldn't get a timer for the step counter timer\n");
+            ERROR_PRINT("Couldn't get a timer for step counter\n");
 
     }
 
@@ -2376,14 +2322,11 @@ static void dispatchData(void)
 #endif
         } else {
             size = 0; // drop this batch
-            ERROR_PRINT("Invalid fh_mode %d at 0x%x\n", fh_mode, i);
-#if 1 || DBG_CHUNKED
-            INFO_PRINT("Dump of data\n");
+            ERROR_PRINT("Invalid fh_mode %d at 0x%x, data dump:\n", fh_mode, i);
             // dump (a) bytes back and (b) bytes forward.
-            int a = i < 0x40 ? 0 : (i - 0x40) & ~0xF;
-            int b = i + 0x10 > mTask.xferCnt ? mTask.xferCnt : i + 0x20;
+            int a = i < 0x80 ? 0 : (i - 0x80) & ~0x0F;
+            int b = ((i + 0x80 > mTask.xferCnt ? mTask.xferCnt : i + 0x80) + 0x0F) & ~0x0F;
             dumpBinary(mTask.dataBuffer, a, b - a);
-#endif
         }
     }
 
@@ -3548,7 +3491,6 @@ static bool startTask(uint32_t task_id)
     T(cs) = GPIO_PB(12);
 
     T(watermark) = 0;
-    T(spiSrc) = "xxx";
 
     spiMasterRequest(BMI160_SPI_BUS_ID, &T(spiDev));
 
@@ -3792,19 +3734,12 @@ static void chunkedReadInit_(TASK, int index, int size) {
 static void chunkedReadSpiCallback(void *cookie, int err) {
     TASK = (_Task*) cookie;
 
-    if (T(spiTimeoutTimerHandle)) {
-        timTimerCancel(T(spiTimeoutTimerHandle));
-        T(spiTimeoutTimerHandle) = 0;
-    }
-
-    T(spiCallbacks)++;
     T(spiInUse) = false;
     DEBUG_PRINT_IF(err !=0 || GET_STATE() != SENSOR_INT_1_HANDLING,
             "crcb,e:%d,s:%d", err, (int)GET_STATE());
     bool int1 = gpioGet(T(Int1));
     if (err != 0) {
-        // TODO: force debug statement for b/29625330, remove it after bug being resolved
-        DEBUG_PRINT_IF(1 || DBG_CHUNKED, "spi err, crd retry");
+        DEBUG_PRINT_IF(DBG_CHUNKED, "spi err, crd retry");
         // read full fifo length to be safe
         chunkedReadInit(0, FIFO_READ_SIZE);
         return;
@@ -3822,7 +3757,6 @@ static void chunkedReadSpiCallback(void *cookie, int err) {
         // real frame parse works properly
         T(dataBuffer) = T(txrxBuffer);
         T(xferCnt) = FIFO_READ_SIZE;
-        T(spiCallbacks)--;
         sensorSpiCallback(cookie, err);
     } else {
         DEBUG_PRINT_IF(DBG_CHUNKED, "crd cont");
