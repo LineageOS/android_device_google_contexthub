@@ -191,7 +191,6 @@ UNSIGNED_BIN := $(BIN).unsigned.napp
 
 NANOHUB_KEY_PATH := $(NANOHUB_DIR)/os/platform/$(PLATFORM)/misc
 
-
 .PHONY: all clean sync
 all: $(OUT)/$(BIN).S $(OUT)/$(BIN).napp $(IMAGE_TARGET_OUT)
 
@@ -208,11 +207,11 @@ endif
 ifeq ($(BIN_MODE),static)
 $(OUT)/$(UNSIGNED_BIN) : $(OUT)/$(BIN).elf $(NANOAPP_POSTPROCESS)
 	@mkdir -p $(dir $@)
-	$(NANOAPP_POSTPROCESS) -s -a $(APP_ID) -v $< $@
+	$(NANOAPP_POSTPROCESS) -s -a $(APP_ID) -v $(BIN_POSTPROCESS_ARGS) $< $@
 else
 $(OUT)/$(UNSIGNED_BIN) : $(OUT)/$(BIN).bin $(NANOAPP_POSTPROCESS)
 	@mkdir -p $(dir $@)
-	$(NANOAPP_POSTPROCESS) -a $(APP_ID) -v $< $@
+	$(NANOAPP_POSTPROCESS) -a $(APP_ID) -v $(BIN_POSTPROCESS_ARGS) $< $@
 
 $(OUT)/$(BIN).bin : $(OUT)/$(BIN).elf
 	@mkdir -p $(dir $@)

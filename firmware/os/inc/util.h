@@ -29,6 +29,17 @@
 #ifndef alignof
 #define alignof(type) offsetof(struct { char x; type field; }, field)
 #endif
+/*
+ * this macro does not consume bytes from any segment; if condition is true it is a zero-sized array;
+ * if some compilers do try to allocate space for them we create a special section for those checks
+ * and discard this section at link time
+ */
+#define C_STATIC_ASSERT(name, condition) \
+    static const char __attribute__((used, section(".static_assert"))) \
+    static_assert_check_ ## name [(condition) ? 0 : -1]
+
+#define unlikely(x) (x)
+#define likely(x) (x)
 
 #define container_of(addr, struct_name, field_name) \
     ((struct_name *)((char *)(addr) - offsetof(struct_name, field_name)))

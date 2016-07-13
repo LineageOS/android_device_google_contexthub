@@ -22,7 +22,7 @@
 #include <seos.h>
 #include <cpu.h>
 
-
+#include <plat/cmsis.h>
 
 //reloc types for this cpu type
 #define NANO_RELOC_TYPE_RAM	0
@@ -210,4 +210,18 @@ void cpuAppHandle(const struct AppHdr *app, struct PlatAppInfo *platInfo, uint32
         (void)callWithR9((const void*)APP_FLASH_RELOC_BASE(app), app->vec.handle, platInfo->data, evtType, (uintptr_t)evtData);
     else
         APP_VEC(app)->handle(evtType, evtData);
+}
+
+void cpuAppInvoke(const struct AppHdr *app, struct PlatAppInfo *platInfo,
+                  void (*method)(uintptr_t, uintptr_t),uintptr_t arg1, uintptr_t arg2)
+{
+    if (platInfo->data) {
+        uint32_t hasSvcAct = SCB->SHCSR & SCB_SHCSR_SVCALLACT_Msk;
+
+        SCB->SHCSR &= ~SCB_SHCSR_SVCALLACT_Msk;
+        (void)callWithR9(0, (uint32_t)method, platInfo->data, arg1, arg2);
+        SCB->SHCSR |= hasSvcAct;
+    } else {
+        method(arg1, arg2);
+    }
 }

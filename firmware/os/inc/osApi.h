@@ -20,22 +20,7 @@
 #include <stdint.h>
 #include <slab.h>
 
-
-struct I2cEventData {
-    void *cookie;
-    uint32_t tx;
-    uint32_t rx;
-    int err;
-};
-
-union OsApiSlabItem { //main OS "things" slab must fit this
-    struct I2cEventData i2cAppCbkEvt;
-    struct {
-        uint32_t toTid;
-        void *cookie;
-    } i2cAppCbkInfo;
-};
-
+#include <seos_priv.h>
 
 //EXTERNAL API
 //level 1 indices in the OS table

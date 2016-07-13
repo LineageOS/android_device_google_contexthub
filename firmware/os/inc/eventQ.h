@@ -36,7 +36,6 @@ struct EvtQueue* evtQueueAlloc(uint32_t size, EvtQueueForciblyDiscardEvtCbkF for
 void evtQueueFree(struct EvtQueue* q);
 bool evtQueueEnqueue(struct EvtQueue* q, uint32_t evtType, void *evtData, TaggedPtr evtFreeData, bool atFront /* do not set this unless you know the repercussions. read: never set this in new code */);
 bool evtQueueDequeue(struct EvtQueue* q, uint32_t *evtTypeP, void **evtDataP, TaggedPtr *evtFreeDataP, bool sleepIfNone);
-
+void evtQueueRemoveAllMatching(struct EvtQueue* q,  bool (*match)(uint32_t evtType, const void *data, void *context), void *context);
 
 #endif
-

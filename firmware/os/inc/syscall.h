@@ -53,7 +53,7 @@ extern "C" {
 //level 0 indices:
 #define SYSCALL_DOMAIN_OS         0
 #define SYSCALL_DOMAIN_DRIVERS    1 /* hardware drivers for custom hardware */
-
+#define SYSCALL_DOMAIN_CHRE       2 /* alternative API */
 
 typedef void (*SyscallFunc)(uintptr_t *retValP, va_list args); /* you better know what args you need */
 

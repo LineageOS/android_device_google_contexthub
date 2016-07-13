@@ -20,6 +20,8 @@
 #include <stdint.h>
 #include "toolchain.h"
 
+#define MAX_CHRE_SYS_EVENTS             0x100
+
 /* These define ranges of reserved events */
 // local events are 16-bit always
 #define EVT_NO_FIRST_USER_EVENT          0x00000100    //all events lower than this are reserved for the OS. all of them are nondiscardable necessarily!
@@ -29,6 +31,8 @@
 #define EVT_APP_TO_HOST                  0x00000401    //app data to host. Type is struct HostHubRawPacket
 #define EVT_MARSHALLED_SENSOR_DATA       0x00000402    //marshalled event data. Type is MarshalledUserEventData
 #define EVT_RESET_REASON                 0x00000403    //reset reason to host.
+#define EVT_FIRST_CHRE_SYS_EVENT         0x00000500
+#define EVT_FIRST_CHRE_USER_EVENT        (EVT_FIRST_CHRE_SYS_EVENT + MAX_CHRE_SYS_EVENTS)
 #define EVT_DEBUG_LOG                    0x00007F01    // send message payload to Linux kernel log
 #define EVT_MASK                         0x0000FFFF
 

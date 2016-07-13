@@ -41,7 +41,9 @@ uint64_t timGetTime(void);   /* Time since some stable reference point in nanose
 
 uint32_t timTimerSet(uint64_t length, uint32_t jitterPpm, uint32_t driftPpm, TimTimerCbkF cbk, void* data, bool oneShot); /* return timer id or 0 if failed */
 uint32_t timTimerSetAsApp(uint64_t length, uint32_t jitterPpm, uint32_t driftPpm, uint32_t tid, void* data, bool oneShot); /* return timer id or 0 if failed */
+uint32_t timTimerSetNew(uint64_t length, const void* data, bool oneShot);
 bool timTimerCancel(uint32_t timerId);
+bool timTimerCancelEx(uint32_t timerId, bool cancelPending);
 int timTimerCancelAll(uint32_t tid);
 
 

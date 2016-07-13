@@ -26,54 +26,8 @@
 #include <seos.h>
 #include <util.h>
 
-#define MAX_INTERNAL_EVENTS       32 //also used for external app sensors' setRate() calls
-#define MAX_CLI_SENS_MATRIX_SZ    64 /* MAX(numClients * numSensors) */
+#include <sensors_priv.h>
 
-#define SENSOR_RATE_OFF           0x00000000UL /* used in sensor state machine */
-#define SENSOR_RATE_POWERING_ON   0xFFFFFFF0UL /* used in sensor state machine */
-#define SENSOR_RATE_POWERING_OFF  0xFFFFFFF1UL /* used in sensor state machine */
-#define SENSOR_RATE_FW_UPLOADING  0xFFFFFFF2UL /* used in sensor state machine */
-#define SENSOR_RATE_IMPOSSIBLE    0xFFFFFFF3UL /* used in rate calc to indicate impossible combinations */
-#define SENSOR_LATENCY_INVALID    0xFFFFFFFFFFFFFFFFULL
-
-#define HANDLE_TO_TID(handle) (((handle) >> (32 - TASK_TID_BITS)) & TASK_TID_MASK)
-#define EXT_APP_TID(s) HANDLE_TO_TID(s->handle)
-#define LOCAL_APP_OPS(s) ((const struct SensorOps*)taggedPtrToPtr(s->callInfo))
-#define IS_LOCAL_APP(s) (taggedPtrIsPtr(s->callInfo))
-
-struct Sensor {
-    const struct SensorInfo *si;
-    uint32_t handle;         /* here 0 means invalid */
-    uint64_t currentLatency; /* here 0 means no batching */
-    uint32_t currentRate;    /* here 0 means off */
-    TaggedPtr callInfo;      /* pointer to ops struct or app tid */
-    void *callData;
-    uint32_t initComplete:1; /* sensor finished initializing */
-    uint32_t hasOnchange :1; /* sensor supports onchange and wants to be notified to send new clients current state */
-    uint32_t hasOndemand :1; /* sensor supports ondemand and wants to get triggers */
-};
-
-struct SensorsInternalEvent {
-    union {
-        struct {
-            uint32_t handle;
-            uint32_t value1;
-            uint64_t value2;
-        };
-        struct SensorPowerEvent externalPowerEvt;
-        struct SensorSetRateEvent externalSetRateEvt;
-        struct SensorCfgDataEvent externalCfgDataEvt;
-        struct SensorSendDirectEventEvent externalSendDirectEvt;
-        struct SensorMarshallUserEventEvent externalMarshallEvt;
-    };
-};
-
-struct SensorsClientRequest {
-    uint32_t handle;
-    uint32_t clientTid;
-    uint64_t latency;
-    uint32_t rate;
-};
 
 static struct Sensor mSensors[MAX_REGISTERED_SENSORS];
 ATOMIC_BITSET_DECL(mSensorsUsed, MAX_REGISTERED_SENSORS, static);
@@ -107,7 +61,7 @@ bool sensorsInit(void)
     return false;
 }
 
-static struct Sensor* sensorFindByHandle(uint32_t handle)
+struct Sensor* sensorFindByHandle(uint32_t handle)
 {
     uint32_t i;
 

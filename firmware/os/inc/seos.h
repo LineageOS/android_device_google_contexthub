@@ -85,6 +85,7 @@ struct AppFuncs { /* do not rearrange */
 #define FL_APP_HDR_APPLICATION     0x0002 // image has AppHdr; otherwise is has AppInfo header
 #define FL_APP_HDR_SECURE          0x0004 // secure content, needs to be zero-filled when discarded
 #define FL_APP_HDR_VOLATILE        0x0008 // volatile content, segment shall be deleted after operation is complete
+#define FL_APP_HDR_CHRE            0x0010 // app is CHRE API compatible
 #define FL_KEY_HDR_DELETE          0x8000 // key-specific flag: if set key id refers to existing key which has to be deleted
 
 /* app ids are split into vendor and app parts. vendor parts are assigned by google. App parts are free for each vendor to assign at will */
@@ -94,10 +95,13 @@ struct AppFuncs { /* do not rearrange */
 #define APP_ID_MAKE(vendor, app)   ((((uint64_t)(vendor)) << 24) | ((app) & APP_SEQ_ID_ANY))
 #define KEY_ID_MAKE(vendor, key)   ((((uint64_t)(vendor)) << 24) | ((key) & KEY_SEQ_ID_ANY))
 #define NANOHUB_VENDOR_GOOGLE      UINT64_C(0x476F6F676C) // "Googl"
+#define HW_ID_MAKE(vendor, ver)    ((((uint64_t)(vendor)) << 24) | (PLATFORM_ID(ver) & HW_ID_ANY))
 #define APP_VENDOR_ANY             UINT64_C(0xFFFFFFFFFF)
 #define APP_SEQ_ID_ANY             UINT64_C(0xFFFFFF)
 #define KEY_SEQ_ID_ANY             UINT64_C(0xFFFFFF)
+#define HW_ID_ANY                  UINT64_C(0xFFFFFF)
 #define APP_ID_ANY                 UINT64_C(0xFFFFFFFFFFFFFFFF)
+#define PLATFORM_ID(ver)           ((((PLATFORM_HW_TYPE) & 0xFFFF) << 8) | (ver & 0xFF))
 
 #define APP_INFO_CMD_ADD_KEY 1
 #define APP_INFO_CMD_REMOVE_KEY 2
@@ -159,13 +163,19 @@ void osMain(void);
 
 bool osEventSubscribe(uint32_t tid, uint32_t evtType); /* async */
 bool osEventUnsubscribe(uint32_t tid, uint32_t evtType);  /* async */
+// event free callback used to free event data which was previously allocated by heapAlloc()
+void osEventHeapFree(uint16_t event, void *data);
 
 bool osEnqueuePrivateEvt(uint32_t evtType, void *evtData, EventFreeF evtFreeF, uint32_t toTid);
 bool osEnqueuePrivateEvtAsApp(uint32_t evtType, void *evtData, uint32_t fromApp, uint32_t toTid);
+bool osEnqueuePrivateEvtNew(uint16_t evtType, void *evtData,
+                                   void (*evtFreeCallback)(uint16_t eventType, void *eventData),
+                                   uint32_t toTid);
 
 bool osEnqueueEvt(uint32_t evtType, void *evtData, EventFreeF evtFreeF);
 bool osEnqueueEvtOrFree(uint32_t evtType, void *evtData, EventFreeF evtFreeF);
 bool osEnqueueEvtAsApp(uint32_t evtType, void *evtData, uint32_t fromApp);
+void osRemovePendingEvents(bool (*match)(uint32_t evtType, const void *evtData, void *context), void *context);
 
 bool osDefer(OsDeferCbkF callback, void *cookie, bool urgent);
 
@@ -272,7 +282,7 @@ enum LogLevel {
     LOG_DEBUG = 'D',
 };
 
-void osLogv(enum LogLevel level, const char *str, va_list vl);
+void osLogv(char clevel, const char *str, va_list vl);
 void osLog(enum LogLevel level, const char *str, ...) PRINTF_ATTRIBUTE(2, 3);
 
 #ifndef INTERNAL_APP_INIT

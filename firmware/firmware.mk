@@ -55,6 +55,7 @@ FLAGS += -Ios/cpu/$(CPU)/inc
 FLAGS += -I$(VARIANT_PATH)/inc
 FLAGS += -Iexternal/freebsd/inc
 FLAGS += -I../lib/include
+FLAGS += -I../inc
 
 FLAGS += -Wall -Werror -fshort-double
 #help avoid commmon embedded C mistakes
@@ -65,13 +66,17 @@ OSFLAGS += -g -ggdb3 -D_OS_BUILD_ -O2
 #debug mode
 FLAGS += $(DEBUG)
 
+include firmware_conf.mk
+
+FLAGS += $(COMMON_FLAGS)
+
 #bootloader pieces
 SRCS_bl += ../lib/nanohub/sha2.c ../lib/nanohub/rsa.c ../lib/nanohub/aes.c os/core/seos.c
 
 #frameworks
 SRCS_os += os/core/printf.c os/core/timer.c os/core/seos.c os/core/heap.c os/core/slab.c os/core/spi.c os/core/trylock.c
 SRCS_os += os/core/hostIntf.c os/core/hostIntfI2c.c os/core/hostIntfSpi.c os/core/nanohubCommand.c os/core/sensors.c os/core/syscall.c
-SRCS_os += os/core/eventQ.c os/core/osApi.c os/core/appSec.c os/core/simpleQ.c os/core/floatRt.c
+SRCS_os += os/core/eventQ.c os/core/osApi.c os/core/appSec.c os/core/simpleQ.c os/core/floatRt.c os/core/nanohub_chre.c
 SRCS_bl += os/core/bl.c
 
 #some help for bootloader
@@ -83,7 +88,9 @@ endif
 
 #extra deps
 DEPS += $(wildcard inc/*.h)
-DEPS += firmware.mk $(MAKE_PLAT) $(MAKE_CPU) $(MAKE_VAR)
+DEPS += $(wildcard ../inc/*.h)
+DEPS += $(wildcard ../inc/chre/*.h)
+DEPS += firmware.mk firmware_conf.mk $(MAKE_PLAT) $(MAKE_CPU) $(MAKE_VAR)
 DELIVERABLES += $(OUT)/full.bin
 
 all: $(DELIVERABLES)

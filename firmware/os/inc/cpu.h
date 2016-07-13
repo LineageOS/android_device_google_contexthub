@@ -41,6 +41,8 @@ void cpuAppUnload(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo);
 bool cpuAppInit(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo, uint32_t tid);
 void cpuAppEnd(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo);
 void cpuAppHandle(const struct AppHdr *appHdr, struct PlatAppInfo *platInfo, uint32_t evtType, const void* evtData);
+void cpuAppInvoke(const struct AppHdr *app, struct PlatAppInfo *platInfo,
+                  void (*method)(uintptr_t, uintptr_t), uintptr_t arg1, uintptr_t arg2);
 
 /* these default to false, there is CPU_NUM_PERSISTENT_RAM_BITS of them */
 bool cpuRamPersistentBitGet(uint32_t which);

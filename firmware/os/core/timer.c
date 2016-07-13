@@ -27,6 +27,8 @@
 #include <slab.h>
 #include <util.h>
 
+#include "seos_priv.h"
+
 #define MAX_INTERNAL_EVENTS       32 //also used for external app timer() calls
 
 #define INFO_PRINT(fmt, ...) do { \
@@ -200,13 +202,37 @@ uint32_t timTimerSetAsApp(uint64_t length, uint32_t jitterPpm, uint32_t driftPpm
     return timTimerSetEx(length, jitterPpm, driftPpm, taggedPtrMakeFromUint(0), data, oneShot);
 }
 
-bool timTimerCancel(uint32_t timerId)
+uint32_t timTimerSetNew(uint64_t length, const void* data, bool oneShot)
+{
+    return timTimerSetEx(length, 0, 0, taggedPtrMakeFromUint(0), (void *)data, oneShot);
+}
+
+static bool timerEventMatch(uint32_t evtType, const void *evtData, void *context)
+{
+    struct Timer *t = (struct Timer *)context;
+    union SeosInternalSlabData *da = (union SeosInternalSlabData*)evtData;
+    struct TimerEvent *evt;
+
+    if (evtType != EVT_PRIVATE_EVT || !da || da->privateEvt.evtType != EVT_APP_TIMER || !da->privateEvt.evtData)
+        return false;
+
+    evt = (struct TimerEvent *)da->privateEvt.evtData;
+
+    return evt->timerId == t->id;
+}
+
+bool timTimerCancelEx(uint32_t timerId, bool cancelPending)
 {
     uint64_t intState = cpuIntsOff();
     struct Timer *t = timFindTimerById(timerId);
 
-    if (t)
+    if (t && t->tid == osGetCurrentTid()) {
+        if (cancelPending)
+            osRemovePendingEvents(timerEventMatch, t);
         t->id = 0; /* this disables it */
+    } else {
+        t = NULL;
+    }
 
     cpuIntsRestore(intState);
 
@@ -217,6 +243,11 @@ bool timTimerCancel(uint32_t timerId)
     }
 
     return false;
+}
+
+bool timTimerCancel(uint32_t timerId)
+{
+    return timTimerCancelEx(timerId, false);
 }
 
 int timTimerCancelAll(uint32_t tid)
@@ -231,6 +262,7 @@ int timTimerCancelAll(uint32_t tid)
         if (tim->tid != tid)
             continue;
         count++;
+        osRemovePendingEvents(timerEventMatch, tim);
         tim->id = 0; /* this disables it */
         /* this frees struct */
         atomicBitsetClearBit(mTimersValid, tim - mTimers);

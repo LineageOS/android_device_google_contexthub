@@ -26,6 +26,8 @@
  * generate/parse compatible images
  */
 
+#define NANOHUB_OS_PATCH_LEVEL  0x0000
+
 #define NANOAPP_SIGNED_FLAG    0x1  // contents is signed with one or more signature block(s)
 #define NANOAPP_ENCRYPTED_FLAG 0x2  // contents is encrypted with exactly one encryption key
 

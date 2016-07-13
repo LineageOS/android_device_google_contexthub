@@ -26,34 +26,39 @@
 #include <plat/plat.h>
 #include <plat/taggedPtr.h>
 
+#define for_each_item_safe(head, pos, tmp) \
+    for (pos = (head)->next; tmp = (pos)->next, (pos) != (head); pos = (tmp))
+
+struct EvtList
+{
+    struct EvtList *next;
+    struct EvtList *prev;
+};
 
 struct EvtRecord {
-    struct EvtRecord *next;
-    struct EvtRecord *prev;
+    struct EvtList item;
     uint32_t evtType;
     void* evtData;
     TaggedPtr evtFreeData;
 };
 
 struct EvtQueue {
-    struct EvtRecord *head;
-    struct EvtRecord *tail;
+    struct EvtList head;
     struct SlabAllocator *evtsSlab;
     EvtQueueForciblyDiscardEvtCbkF forceDiscardCbk;
 };
 
-
-
 struct EvtQueue* evtQueueAlloc(uint32_t size, EvtQueueForciblyDiscardEvtCbkF forceDiscardCbk)
 {
     struct EvtQueue *q = heapAlloc(sizeof(struct EvtQueue));
-    struct SlabAllocator *slab = slabAllocatorNew(sizeof(struct EvtRecord), alignof(struct EvtRecord), size);
+    struct SlabAllocator *slab = slabAllocatorNew(sizeof(struct EvtRecord),
+                                                  alignof(struct EvtRecord), size);
 
     if (q && slab) {
         q->forceDiscardCbk = forceDiscardCbk;
         q->evtsSlab = slab;
-        q->head = NULL;
-        q->tail = NULL;
+        q->head.next = &q->head;
+        q->head.prev = &q->head;
         return q;
     }
 
@@ -67,105 +72,127 @@ struct EvtQueue* evtQueueAlloc(uint32_t size, EvtQueueForciblyDiscardEvtCbkF for
 
 void evtQueueFree(struct EvtQueue* q)
 {
-    struct EvtRecord *t;
+    struct EvtList *pos, *tmp;
 
-    while (q->head) {
-        t = q->head;
-        q->head = q->head->next;
-        q->forceDiscardCbk(t->evtType, t->evtData, t->evtFreeData);
-        slabAllocatorFree(q->evtsSlab, t);
+    for_each_item_safe (&q->head, pos, tmp) {
+        struct EvtRecord * rec = container_of(pos, struct EvtRecord, item);
+
+        q->forceDiscardCbk(rec->evtType, rec->evtData, rec->evtFreeData);
+        slabAllocatorFree(q->evtsSlab, rec);
     }
 
     slabAllocatorDestroy(q->evtsSlab);
     heapFree(q);
 }
 
-bool evtQueueEnqueue(struct EvtQueue* q, uint32_t evtType, void *evtData, TaggedPtr evtFreeData, bool atFront)
+bool evtQueueEnqueue(struct EvtQueue* q, uint32_t evtType, void *evtData,
+                    TaggedPtr evtFreeData, bool atFront)
 {
     struct EvtRecord *rec;
     uint64_t intSta;
+    struct EvtList *item = NULL, *a, *b;
 
     if (!q)
         return false;
 
     rec = slabAllocatorAlloc(q->evtsSlab);
     if (!rec) {
+        struct EvtList *pos;
+
         intSta = cpuIntsOff();
-
         //find a victim for discarding
-        rec = q->head;
-        while (rec && !(rec->evtType & EVENT_TYPE_BIT_DISCARDABLE))
-            rec = rec->next;
+        for (pos = q->head.next; pos != &q->head; pos = pos->next) {
+            rec = container_of(pos, struct EvtRecord, item);
+            if (!(rec->evtType & EVENT_TYPE_BIT_DISCARDABLE))
+                continue;
+            a = pos->prev;
+            b = pos->next;
 
-        if (rec) {
             q->forceDiscardCbk(rec->evtType, rec->evtData, rec->evtFreeData);
-            if (rec->prev)
-                rec->prev->next = rec->next;
-            else
-                q->head = rec->next;
-            if (rec->next)
-                rec->next->prev = rec->prev;
-            else
-                q->tail = rec->prev;
+            a->next = b;
+            b->prev = a;
+            item = pos;
         }
-
         cpuIntsRestore (intSta);
-        if (!rec)
-           return false;
+    } else {
+        item = &rec->item;
     }
 
-    rec->next = NULL;
+    if (!item)
+        return false;
+
+    item->prev = item->next = NULL;
+
     rec->evtType = evtType;
     rec->evtData = evtData;
     rec->evtFreeData = evtFreeData;
 
     intSta = cpuIntsOff();
 
-    if (atFront) { /* this is almost always not the case */
-        rec->prev = NULL;
-        rec->next = q->head;
-        q->head = rec;
-        if (q->tail)
-            rec->next->prev = rec;
-        else
-            q->tail = rec;
+    if (unlikely(atFront)) {
+        b = q->head.next;
+        a = b->prev;
+    } else {
+        a = q->head.prev;
+        b = a->next;
     }
-    else { /* the common case */
-        rec->prev = q->tail;
-        q->tail = rec;
-        if (q->head)
-            rec->prev->next = rec;
-        else
-            q->head = rec;
-    }
+
+    a->next = item;
+    item->prev = a;
+    b->prev = item;
+    item->next = b;
 
     cpuIntsRestore(intSta);
     platWake();
     return true;
 }
 
-bool evtQueueDequeue(struct EvtQueue* q, uint32_t *evtTypeP, void **evtDataP, TaggedPtr *evtFreeDataP, bool sleepIfNone)
+void evtQueueRemoveAllMatching(struct EvtQueue* q,
+                               bool (*match)(uint32_t evtType, const void *data, void *context),
+                               void *context)
+{
+    uint64_t intSta = cpuIntsOff();
+    struct EvtList *pos, *tmp;
+
+    for_each_item_safe (&q->head, pos, tmp) {
+        struct EvtRecord * rec = container_of(pos, struct EvtRecord, item);
+
+        if (match(rec->evtType, rec->evtData, context)) {
+            q->forceDiscardCbk(rec->evtType, rec->evtData, rec->evtFreeData);
+            slabAllocatorFree(q->evtsSlab, rec);
+        }
+    }
+    cpuIntsRestore(intSta);
+}
+
+bool evtQueueDequeue(struct EvtQueue* q, uint32_t *evtTypeP, void **evtDataP,
+                     TaggedPtr *evtFreeDataP, bool sleepIfNone)
 {
     struct EvtRecord *rec = NULL;
     uint64_t intSta;
 
     while(1) {
+        struct EvtList *pos, *a, *b;
         intSta = cpuIntsOff();
 
-        rec = q->head;
-        if (rec) {
-            q->head = rec->next;
-            if (q->head)
-                q->head->prev = NULL;
-            else
-                q->tail = NULL;
+        pos = q->head.next;
+        if (pos != &q->head) {
+            a = pos->prev;
+            b = pos->next;
+            a->next = b;
+            b->prev = a;
+            pos->prev = pos->next = NULL;
+            rec = container_of(pos, struct EvtRecord, item);
             break;
         }
         else if (!sleepIfNone)
             break;
-        else if (!timIntHandler()) { // check for timers. if any fire, do not sleep (since by the time callbacks run, moremight be due)
-            platSleep();     //sleep
-            timIntHandler(); //first thing when awake: check timers
+        else if (!timIntHandler()) {
+            // check for timers
+            // if any fire, do not sleep (since by the time callbacks run, more might be due)
+            platSleep();
+            //first thing when awake: check timers again
+            timIntHandler();
         }
         cpuIntsRestore(intSta);
     }
@@ -182,4 +209,3 @@ bool evtQueueDequeue(struct EvtQueue* q, uint32_t *evtTypeP, void **evtDataP, Ta
 
     return true;
 }
-

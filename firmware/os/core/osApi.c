@@ -89,7 +89,7 @@ static void osExpApiLogLogv(uintptr_t *retValP, va_list args)
     const char *str = va_arg(args, const char*);
     va_list innerArgs;
     va_copy(innerArgs, INTEGER_TO_VA_LIST(va_arg(args, uintptr_t)));
-    osLogv(level, str, innerArgs);
+    osLogv((char)level, str, innerArgs);
     va_end(innerArgs);
 }
 
@@ -621,7 +621,6 @@ void osApiExport(struct SlabAllocator *mainSlubAllocator)
         },
     };
 
-    if (!syscallAddTable(SYSCALL_DOMAIN_OS, 1, (struct SyscallTable*)&osTable))
+    if (!syscallAddTable(SYSCALL_NO(SYSCALL_DOMAIN_OS,0,0,0), 1, (struct SyscallTable*)&osTable))
         osLog(LOG_ERROR, "Failed to export OS base API");
 }
-
