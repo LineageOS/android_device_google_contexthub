@@ -804,13 +804,17 @@ static void spiBatchTxRx(struct SpiMode *mode,
         ERROR_PRINT("Couldn't get a timer for the SPI timeout timer\n");
 
     T(spiSrc) = src;
-    if (spiMasterRxTx(T(spiDev), T(cs), T(packets), T(mRegCnt), mode, callback, cookie) < 0) {
-        ERROR_PRINT("spiMasterRxTx failed!\n");
-    }
-
     T(mLastRegCnt) = T(mRegCnt);
+
+    // Reset variables before issuing SPI transaction.
+    // SPI may finish before spiMasterRxTx finish
+    uint8_t regCount = T(mRegCnt);
     T(mRegCnt) = 0;
     T(mWbufCnt) = 0;
+
+    if (spiMasterRxTx(T(spiDev), T(cs), T(packets), regCount, mode, callback, cookie) < 0) {
+        ERROR_PRINT("spiMasterRxTx failed!\n");
+    }
 }
 
 
@@ -3704,6 +3708,13 @@ static void chunkedReadInit_(TASK, int index, int size) {
     if (GET_STATE() != SENSOR_INT_1_HANDLING) {
         ERROR_PRINT("chunkedReadInit in wrong mode");
         return;
+    }
+
+    if (T(mRegCnt)) {
+        //chunked read are always executed as a single command. This should never happen.
+        ERROR_PRINT("SPI queue not empty at chunkedReadInit, regcnt = %d", T(mRegCnt));
+        // In case it did happen, we do not want to write crap to BMI160.
+        T(mRegCnt) = 0;
     }
 
     T(mWbufCnt) = index;
