@@ -3236,7 +3236,6 @@ static void handleSpiDoneEvt(const void* evtData)
 
     switch (GET_STATE()) {
     case SENSOR_BOOT:
-        T(mRetryLeft) = RETRY_CNT_ID;
         SET_STATE(SENSOR_VERIFY_ID);
         // dummy reads after boot, wait 100us
         SPI_READ(BMI160_REG_MAGIC, 1, &mTask.statusBuffer, 100);
@@ -3413,6 +3412,7 @@ static void handleEvent(uint32_t evtType, const void* evtData)
     switch (evtType) {
     case EVT_APP_START:
         SET_STATE(SENSOR_BOOT);
+        T(mRetryLeft) = RETRY_CNT_ID;
         osEventUnsubscribe(mTask.tid, EVT_APP_START);
 
         // wait 100ms for sensor to boot
