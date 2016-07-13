@@ -36,7 +36,7 @@
 #include <variant/variant.h>
 
 #define AMS_TMD4903_APP_ID      APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 12)
-#define AMS_TMD4903_APP_VERSION 10
+#define AMS_TMD4903_APP_VERSION 11
 
 #ifndef PROX_INT_PIN
 #error "PROX_INT_PIN is not defined; please define in variant.h"
@@ -435,7 +435,8 @@ static bool sensorPowerAls(bool on, void *cookie)
     mTask.alsOn = on;
     mTask.nextAlsGain = ALS_GAIN_4X;
     mTask.alsChangingGain = false;
-    mTask.alsSkipSample = false;
+    // skip first sample to make sure we get an entire integration cycle
+    mTask.alsSkipSample = true;
     mTask.alsDebounceSamples = 0;
 
     setMode(on, mTask.proxOn, (void *)(on ? SENSOR_STATE_ENABLING_ALS : SENSOR_STATE_DISABLING_ALS));
