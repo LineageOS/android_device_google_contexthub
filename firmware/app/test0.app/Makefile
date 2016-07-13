@@ -14,10 +14,29 @@
 # limitations under the License.
 #
 
-#makefile for test0 app
+################################################################################
+#
+# test NanoApp Makefile
+#
+################################################################################
 
-SELF_MKFILE := $(abspath $(lastword $(MAKEFILE_LIST)))
-# Googl + T + 0x8000
+
+SRCS := test_app0.c
+BIN := test0
 APP_ID := 476f6f676c548000
+APP_VERSION := 0
 
-include app/common.mk
+# Nanohub relative path
+NANOHUB_DIR := ../..
+
+# Device configuration #########################################################
+
+# select device variant for this app
+VARIANT_PATH = device/google/contexthub/firmware/variant/nucleo
+VARIANT = nucleo
+
+# setup variant parameters
+# PLATFORM, CPU, CHIP must match variant Makefile (located under VARIANT_PATH);
+# if not defined there, there is not need to specify them here either
+
+include $(NANOHUB_DIR)/app/app.mk
