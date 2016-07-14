@@ -444,33 +444,11 @@ static int mocEigenTest(struct MagCal *moc, struct accelGoodData_t *agd) {
     return eigen_pass;
 }
 
-// Updating the new bias and save to pointers. Return true if the bias changed.
-bool accelCalUpdateBias(struct accelCal_t *acc, float *x, float *y, float *z) {
-  *x = acc->x_bias_new;
-  *y = acc->y_bias_new;
-  *z = acc->z_bias_new;
-
-  // Check to see if the bias changed since last call to accelCalUpdateBias.
-  // Compiler does not allow us to use "==" and "!=" when comparing floats, so
-  // just use "<" and ">".
-  if ((acc->x_bias < acc->x_bias_new) || (acc->x_bias > acc->x_bias_new) ||
-      (acc->y_bias < acc->y_bias_new) || (acc->y_bias > acc->y_bias_new) ||
-      (acc->z_bias < acc->z_bias_new) || (acc->z_bias > acc->z_bias_new)) {
-    acc->x_bias = acc->x_bias_new;
-    acc->y_bias = acc->y_bias_new;
-    acc->z_bias = acc->z_bias_new;
-    return true;
-  }
-
-  return false;
-}
-
-// Set the (initial) bias.
-void accelCalBiasSet(struct accelCal_t *acc,
-                        float x, float y, float z) {
-  acc->x_bias = acc->x_bias_new = x;
-  acc->y_bias = acc->y_bias_new = y;
-  acc->z_bias = acc->z_bias_new = z;
+// Updating the new bias.
+void accelCalUpdateBias(struct accelCal_t *acc) {
+  acc->x_bias = acc->x_bias_new;
+  acc->y_bias = acc->y_bias_new;
+  acc->z_bias = acc->z_bias_new;
 }
 
 // Removing the bias.
