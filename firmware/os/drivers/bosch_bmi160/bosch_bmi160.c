@@ -1057,6 +1057,12 @@ static void configFifo(void)
         mTask.fifo_enabled[ACC] = true;
     } else {
         mTask.fifo_enabled[ACC] = false;
+#ifdef ACCEL_CAL_ENABLED
+        // https://source.android.com/devices/sensors/sensor-types.html
+        // "The bias and scale calibration must only be updated while the sensor is deactivated,
+        // so as to avoid causing jumps in values during streaming."
+        accelCalUpdateBias(&mTask.acc);
+#endif
     }
 
     // if GYR is configed, enable GYR bit in fifo_config reg.
@@ -3241,14 +3247,6 @@ static void handleSpiDoneEvt(const void* evtData)
             dispatchData();
         }
         returnIdle = true;
-#ifdef ACCEL_CAL_ENABLED
-        // https://source.android.com/devices/sensors/sensor-types.html
-        // "The bias and scale calibration must only be updated while the sensor is deactivated,
-        // so as to avoid causing jumps in values during streaming."
-        if (mSensor->idx == ACC) {
-          accelCalUpdateBias(&mTask.acc);
-        }
-#endif
         break;
     case SENSOR_INT_1_HANDLING:
         dispatchData();
