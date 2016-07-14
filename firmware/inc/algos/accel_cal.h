@@ -162,11 +162,7 @@ void accelCalInit(struct accelCal_t *acc, uint32_t t0, uint32_t n_s,float th,
 void accelCalDestroy(struct accelCal_t *acc);
 
 // Ensures that the offset is only updated during Sensor power down.
-bool accelCalUpdateBias(struct accelCal_t *acc,
-                        float *x, float *y, float *z);
-
-void accelCalBiasSet(struct accelCal_t *acc,
-                     float x, float y, float z);
+void accelCalUpdateBias(struct accelCal_t *acc);
 
 void accelCalBiasRemove(struct accelCal_t *acc,
                         float *x, float *y, float *z);
