@@ -603,6 +603,11 @@ static struct MagTask magTask;
     .flags1 = SENSOR_INFO_FLAGS1_BIAS, \
     .biasType = bias
 
+#define DEC_INFO_RATE_RAW_BIAS(name, rates, type, axis, inter, samples, raw, scale, bias) \
+    DEC_INFO_RATE_RAW(name, rates, type, axis, inter, samples, raw, scale), \
+    .flags1 = SENSOR_INFO_FLAGS1_RAW | SENSOR_INFO_FLAGS1_BIAS, \
+    .biasType = bias
+
 typedef struct BMI160Task _Task;
 #define TASK  _Task* const _task
 
@@ -654,8 +659,14 @@ static uint8_t calcWatermark2_(TASK);
 
 static const struct SensorInfo mSensorInfo[NUM_OF_SENSOR] =
 {
+#ifdef ACCEL_CAL_ENABLED
+    { DEC_INFO_RATE_RAW_BIAS("Accelerometer", AccRates, SENS_TYPE_ACCEL, NUM_AXIS_THREE,
+            NANOHUB_INT_NONWAKEUP, 3000, SENS_TYPE_ACCEL_RAW, 1.0/kScale_acc,
+            SENS_TYPE_ACCEL_BIAS) },
+#else
     { DEC_INFO_RATE_RAW("Accelerometer", AccRates, SENS_TYPE_ACCEL, NUM_AXIS_THREE,
             NANOHUB_INT_NONWAKEUP, 3000, SENS_TYPE_ACCEL_RAW, 1.0/kScale_acc) },
+#endif
     { DEC_INFO_RATE_BIAS("Gyroscope", GyrRates, SENS_TYPE_GYRO, NUM_AXIS_THREE,
             NANOHUB_INT_NONWAKEUP, 20, SENS_TYPE_GYRO_BIAS) },
 #ifdef MAG_SLAVE_PRESENT
@@ -1037,6 +1048,45 @@ static void magConfig(void)
     SPI_READ(BMI160_REG_STATUS, 1, &mTask.statusBuffer, 1000);
 }
 
+static bool flushData(struct BMI160Sensor *sensor, uint32_t eventId)
+{
+    bool success = false;
+
+    if (sensor->data_evt) {
+        success = osEnqueueEvtOrFree(eventId, sensor->data_evt, dataEvtFree);
+        sensor->data_evt = NULL;
+    }
+
+    return success;
+}
+
+static void flushAllData(void)
+{
+    int i;
+    for (i = FIRST_CONT_SENSOR; i < NUM_CONT_SENSOR; i++) {
+        flushData(&mTask.sensors[i],
+                EVENT_TYPE_BIT_DISCARDABLE | sensorGetMyEventType(mSensorInfo[i].sensorType));
+    }
+}
+
+static bool allocateDataEvt(struct BMI160Sensor *mSensor, uint64_t rtc_time)
+{
+    TDECL();
+    mSensor->data_evt = slabAllocatorAlloc(T(mDataSlab));
+    if (mSensor->data_evt == NULL) {
+        // slab allocation failed
+        ERROR_PRINT("slabAllocatorAlloc() failed\n");
+        return false;
+    }
+
+    // delta time for the first sample is sample count
+    memset(&mSensor->data_evt->samples[0].firstSample, 0x00, sizeof(struct SensorFirstSample));
+    mSensor->data_evt->referenceTime = rtc_time;
+    mSensor->prev_rtc_time = rtc_time;
+
+    return true;
+}
+
 static inline bool anyFifoEnabled(void)
 {
     bool anyFifoEnabled = mTask.fifo_enabled[ACC] || mTask.fifo_enabled[GYR];
@@ -1052,6 +1102,14 @@ static void configFifo(void)
     int i;
     uint8_t val = 0x12;
     bool any_fifo_enabled_prev = anyFifoEnabled();
+#ifdef ACCEL_CAL_ENABLED
+    struct BMI160Sensor *mSensorAcc;
+    bool accelCalNewBiasAvailable;
+    struct TripleAxisDataPoint *sample;
+    float accelCalBiasX, accelCalBiasY, accelCalBiasZ;
+    bool fallThrough;
+#endif
+
     // if ACC is configed, enable ACC bit in fifo_config reg.
     if (mTask.sensors[ACC].configed && mTask.sensors[ACC].latency != SENSOR_LATENCY_NODATA) {
         val |= 0x40;
@@ -1062,7 +1120,37 @@ static void configFifo(void)
         // https://source.android.com/devices/sensors/sensor-types.html
         // "The bias and scale calibration must only be updated while the sensor is deactivated,
         // so as to avoid causing jumps in values during streaming."
-        accelCalUpdateBias(&mTask.acc);
+        accelCalNewBiasAvailable = accelCalUpdateBias(&mTask.acc, &accelCalBiasX, &accelCalBiasY, &accelCalBiasZ);
+
+        mSensorAcc = &mTask.sensors[ACC];
+        // notify HAL about new accel bias calibration
+        if (accelCalNewBiasAvailable) {
+            fallThrough = true;
+            if (mSensorAcc->data_evt->samples[0].firstSample.numSamples > 0) {
+                // flush existing samples so the bias appears after them
+                flushData(mSensorAcc,
+                        EVENT_TYPE_BIT_DISCARDABLE | sensorGetMyEventType(mSensorInfo[ACC].sensorType));
+
+                // try to allocate another data event and break if unsuccessful
+                if (!allocateDataEvt(mSensorAcc, sensorGetTime())) {
+                    fallThrough = false;
+                }
+            }
+
+            if (fallThrough) {
+                mSensorAcc->data_evt->samples[0].firstSample.biasCurrent = true;
+                mSensorAcc->data_evt->samples[0].firstSample.biasPresent = 1;
+                mSensorAcc->data_evt->samples[0].firstSample.biasSample =
+                        mSensorAcc->data_evt->samples[0].firstSample.numSamples;
+                sample = &mSensorAcc->data_evt->samples[mSensorAcc->data_evt->samples[0].firstSample.numSamples++];
+                sample->x = accelCalBiasX;
+                sample->y = accelCalBiasY;
+                sample->z = accelCalBiasZ;
+                flushData(mSensorAcc, sensorGetMyEventType(mSensorInfo[ACC].biasType));
+
+                allocateDataEvt(mSensorAcc, sensorGetTime());
+            }
+        }
 #endif
     }
 
@@ -1808,45 +1896,6 @@ static uint64_t parseSensortime(uint32_t sensor_time24)
     return (full -  0x1000000ull);
 }
 
-static bool flushData(struct BMI160Sensor *sensor, uint32_t eventId)
-{
-    bool success = false;
-
-    if (sensor->data_evt) {
-        success = osEnqueueEvtOrFree(eventId, sensor->data_evt, dataEvtFree);
-        sensor->data_evt = NULL;
-    }
-
-    return success;
-}
-
-static void flushAllData(void)
-{
-    int i;
-    for (i = FIRST_CONT_SENSOR; i < NUM_CONT_SENSOR; i++) {
-        flushData(&mTask.sensors[i],
-                EVENT_TYPE_BIT_DISCARDABLE | sensorGetMyEventType(mSensorInfo[i].sensorType));
-    }
-}
-
-static bool allocateDataEvt(struct BMI160Sensor *mSensor, uint64_t rtc_time)
-{
-    TDECL();
-    mSensor->data_evt = slabAllocatorAlloc(T(mDataSlab));
-    if (mSensor->data_evt == NULL) {
-        // slab allocation failed
-        ERROR_PRINT("slabAllocatorAlloc() failed\n");
-        return false;
-    }
-
-    // delta time for the first sample is sample count
-    memset(&mSensor->data_evt->samples[0].firstSample, 0x00, sizeof(struct SensorFirstSample));
-    mSensor->data_evt->referenceTime = rtc_time;
-    mSensor->prev_rtc_time = rtc_time;
-
-    return true;
-}
-
 static void parseRawData(struct BMI160Sensor *mSensor, uint8_t *buf, float kScale, uint64_t sensorTime)
 {
     float x, y, z;
@@ -2571,15 +2620,23 @@ static bool accCalibration(void *cookie)
 
 static bool accCfgData(void *data, void *cookie)
 {
-    int32_t *values = data;
+    struct CfgData {
+        int32_t hw[3];
+        float sw[3];
+    };
+    struct CfgData *values = data;
 
-    mTask.sensors[ACC].offset[0] = values[0];
-    mTask.sensors[ACC].offset[1] = values[1];
-    mTask.sensors[ACC].offset[2] = values[2];
+    mTask.sensors[ACC].offset[0] = values->hw[0];
+    mTask.sensors[ACC].offset[1] = values->hw[1];
+    mTask.sensors[ACC].offset[2] = values->hw[2];
     mTask.sensors[ACC].offset_enable = true;
 
+#ifdef ACCEL_CAL_ENABLED
+    accelCalBiasSet(&mTask.acc, values->sw[0], values->sw[1], values->sw[2]);
+#endif
+
     INFO_PRINT("accCfgData: data=%02lx, %02lx, %02lx\n",
-            values[0] & 0xFF, values[1] & 0xFF, values[2] & 0xFF);
+            values->hw[0] & 0xFF, values->hw[1] & 0xFF, values->hw[2] & 0xFF);
 
     if (!saveCalibration()) {
         mTask.pending_calibration_save = true;
