@@ -81,7 +81,7 @@
 #define DBG_WM_CALC               0
 #define TIMESTAMP_DBG             0
 
-#define BMI160_APP_VERSION 10
+#define BMI160_APP_VERSION 11
 
 // fixme: to list required definitions for a slave mag
 #ifdef USE_BMM150
@@ -415,6 +415,7 @@ struct BMI160Task {
     uint64_t time_delta[NUM_CONT_SENSOR];
     uint64_t next_delta[NUM_CONT_SENSOR];
     uint64_t tempTime;
+    uint64_t timesync_rtc_time;
 
     // spi and interrupt
     spi_cs_t cs;
@@ -3001,6 +3002,11 @@ static void timeSyncEvt(uint32_t evtGeneration, bool evtDataValid)
     if (trySwitchState(SENSOR_TIME_SYNC)) {
         SPI_READ(BMI160_REG_SENSORTIME_0, 3, &mTask.sensorTimeBuffer);
         SPI_READ(BMI160_REG_TEMPERATURE_0, 2, &mTask.temperatureBuffer);
+        // sensorSpiCallback schedules a private event, which can be delayed
+        // by other long-running tasks.
+        // Take the rtc time now so it matches the current sensorTime register
+        // reading.
+        mTask.timesync_rtc_time = sensorGetTime();
         spiBatchTxRx(&mTask.mode, sensorSpiCallback, &mTask, __FUNCTION__);
     } else {
         mTask.pending_time_sync = true;
@@ -3308,7 +3314,7 @@ static void handleSpiDoneEvt(const void* evtData)
     case SENSOR_TIME_SYNC:
         SensorTime = parseSensortime(mTask.sensorTimeBuffer[1] |
                 (mTask.sensorTimeBuffer[2] << 8) | (mTask.sensorTimeBuffer[3] << 16));
-        map_sensortime_to_rtc_time(SensorTime, sensorGetTime());
+        map_sensortime_to_rtc_time(SensorTime, mTask.timesync_rtc_time);
 
         temperature16 = (mTask.temperatureBuffer[1] | (mTask.temperatureBuffer[2] << 8));
         if (temperature16 == 0x8000) {
