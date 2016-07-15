@@ -187,7 +187,7 @@ private:
     uint8_t mMagAccuracy;
     uint8_t mMagAccuracyRestore;
 
-    float mGyroBias[3];
+    float mGyroBias[3], mAccelBias[3];
 
     SensorState mSensorState[NUM_COMMS_SENSORS_PLUS_1];
 
