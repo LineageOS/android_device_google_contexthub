@@ -31,19 +31,37 @@ endif
 PREFIX = $(CROSS_COMPILE)
 TOOLCHAIN_DIR = $(shell dirname `which $(CROSS_COMPILE)gcc`)/..
 
+# NANOHUB_DIR is relative to CWD (which is always APP Makefile dir)
+
 NANOAPP_POSTPROCESS := $(NANOHUB_DIR)/../util/nanoapp_postprocess/nanoapp_postprocess
 NANOAPP_SIGN := $(NANOHUB_DIR)/../util/nanoapp_sign/nanoapp_sign
 
-VARIANT ?= lunchbox
-PLATFORM ?= stm32
-CHIP ?= stm32f411
-CPU ?= cortexm4
+# TOP_RELPATH is ANDROID_TOP relative to NANOHUB_DIR
+TOP_RELPATH := ../../../..
+TOP_ABSPATH := $(realpath $(NANOHUB_DIR)/$(TOP_RELPATH))
 
+# for local variants there is always a path; for out-of-tree variants there may be
+# - a $(VARIANT) soft link under firmware/variant subdir, or
+# - VARIANT_PATH must be defined as ANDROID_TOP-relative variant path in APP Makefile
 VARIANT_PATH ?= device/google/contexthub/firmware/variant/$(VARIANT)
-VARIANT_PATH := $(NANOHUB_DIR)/../../../../$(VARIANT_PATH)
+
+# $(VARIANT)_conf.mk may defines VARIANT_PATH, PLATFORM, CHIP, CPU, VARIANT
+include $(TOP_ABSPATH)/device/google/contexthub/firmware/variant/$(VARIANT)/$(VARIANT)_conf.mk
+# VARIANT_PATH from conf.mk is ANDROID_TOP relative
+
+# change VARIANT_PATH to become CWD-relative
+VARIANT_PATH := $(NANOHUB_DIR)/$(TOP_RELPATH)/$(VARIANT_PATH)
 
 # all output goes here
-OUT ?= out/$(VARIANT)/app/$(BIN)
+ifndef OUT
+OUT:=out/nanohub/$(VARIANT)/app/$(BIN)
+else
+ifneq ($(filter $(TOP_ABSPATH)/out/target/product/%,$(OUT)),)
+# this looks like Android OUT env var; update it
+IMAGE_TARGET_OUT:=$(OUT)/vendor/firmware/$(BIN).napp
+OUT:=$(OUT)/nanohub/$(VARIANT)/app/$(BIN)
+endif
+endif
 
 ################################################################################
 #
@@ -174,13 +192,18 @@ UNSIGNED_BIN := $(BIN).unsigned.napp
 NANOHUB_KEY_PATH := $(NANOHUB_DIR)/os/platform/$(PLATFORM)/misc
 
 
-.PHONY: all
-all: $(OUT)/$(BIN).S $(OUT)/$(BIN).napp
+.PHONY: all clean sync
+all: $(OUT)/$(BIN).S $(OUT)/$(BIN).napp $(IMAGE_TARGET_OUT)
 
 $(OUT)/$(BIN).napp : $(OUT)/$(UNSIGNED_BIN) $(NANOAPP_SIGN)
 	@mkdir -p $(dir $@)
 	$(NANOAPP_SIGN) -e $(NANOHUB_KEY_PATH)/debug.privkey \
 		-m $(NANOHUB_KEY_PATH)/debug.pubkey -s $< $@
+ifdef IMAGE_TARGET_OUT
+$(IMAGE_TARGET_OUT): $(OUT)/$(BIN).napp
+	mkdir -p $(dir $@)
+	cp $< $(IMAGE_TARGET_OUT)
+endif
 
 ifeq ($(BIN_MODE),static)
 $(OUT)/$(UNSIGNED_BIN) : $(OUT)/$(BIN).elf $(NANOAPP_POSTPROCESS)
@@ -262,6 +285,8 @@ $(NANOAPP_SIGN): $(wildcard $(dir $(NANOAPP_SIGN))/*.c* $(dir $(NANOAPP_SIGN))/*
 
 # Clean targets ################################################################
 
-.PHONY: clean
 clean :
 	rm -rf $(OUT)
+
+sync:   $(OUT)/$(BIN).napp
+	adb push $< /vendor/firmware/$(BIN).napp

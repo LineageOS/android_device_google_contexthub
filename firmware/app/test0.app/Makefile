@@ -32,11 +32,10 @@ NANOHUB_DIR := ../..
 # Device configuration #########################################################
 
 # select device variant for this app
-VARIANT_PATH = device/google/contexthub/firmware/variant/nucleo
-VARIANT = nucleo
+# if there is no path of the form $(NANOHUB_DIR)/variant/$(VARIANT), the
+# VARIANT_PATH variable must be set to ANDROID_TOP-relative valid path containing VARIANT subtree
 
-# setup variant parameters
-# PLATFORM, CPU, CHIP must match variant Makefile (located under VARIANT_PATH);
-# if not defined there, there is not need to specify them here either
+TARGET_PRODUCT ?= nucleo
+VARIANT := $(TARGET_PRODUCT)
 
 include $(NANOHUB_DIR)/app/app.mk
