@@ -1072,7 +1072,7 @@ static void hostIntfNotifyReboot(uint32_t reason)
 
     if (resp) {
         resp->hdr = (struct NanohubHalHdr){
-            .appId = APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 0),
+            .appId = APP_ID_MAKE(NANOHUB_VENDOR_GOOGLE, 0),
             .len = sizeof(*resp) - sizeof(resp->hdr) + sizeof(resp->hdr.msg),
             .msg = NANOHUB_HAL_REBOOT,
         };
@@ -1459,4 +1459,4 @@ void hostIntfClearInterruptMask(uint32_t bit)
     cpuIntsRestore(state);
 }
 
-INTERNAL_APP_INIT(APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 0), 0, hostIntfRequest, hostIntfRelease, hostIntfHandleEvent);
+INTERNAL_APP_INIT(APP_ID_MAKE(NANOHUB_VENDOR_GOOGLE, 0), 0, hostIntfRequest, hostIntfRelease, hostIntfHandleEvent);

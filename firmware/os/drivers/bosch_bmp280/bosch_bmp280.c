@@ -27,7 +27,7 @@
 #include <seos.h>
 #include <timer.h>
 
-#define BMP280_APP_ID APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 5)
+#define BMP280_APP_ID APP_ID_MAKE(NANOHUB_VENDOR_GOOGLE, 5)
 
 #define BMP280_APP_VERSION 1
 

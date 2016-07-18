@@ -35,7 +35,7 @@
 #include <plat/syscfg.h>
 #include <variant/variant.h>
 
-#define AMS_TMD4903_APP_ID      APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 12)
+#define AMS_TMD4903_APP_ID      APP_ID_MAKE(NANOHUB_VENDOR_GOOGLE, 12)
 #define AMS_TMD4903_APP_VERSION 11
 
 #ifndef PROX_INT_PIN

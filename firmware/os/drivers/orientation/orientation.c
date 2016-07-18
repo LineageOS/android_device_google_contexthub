@@ -827,7 +827,7 @@ static void fusionEnd()
 }
 
 INTERNAL_APP_INIT(
-        APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 4),
+        APP_ID_MAKE(NANOHUB_VENDOR_GOOGLE, 4),
         ORIENTATION_APP_VERSION,
         fusionStart,
         fusionEnd,

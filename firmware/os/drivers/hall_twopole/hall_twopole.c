@@ -32,7 +32,7 @@
 #include <plat/syscfg.h>
 #include <variant/variant.h>
 
-#define APP_ID      APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 11)
+#define APP_ID      APP_ID_MAKE(NANOHUB_VENDOR_GOOGLE, 11)
 #define APP_VERSION 2
 
 #define HALL_REPORT_OPENED_VALUE  0

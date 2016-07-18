@@ -33,7 +33,7 @@
 #include <plat/syscfg.h>
 #include <variant/variant.h>
 
-#define VSYNC_APP_ID      APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 7)
+#define VSYNC_APP_ID      APP_ID_MAKE(NANOHUB_VENDOR_GOOGLE, 7)
 #define VSYNC_APP_VERSION 2
 
 // This defines how many vsync events we could handle being backed up in the

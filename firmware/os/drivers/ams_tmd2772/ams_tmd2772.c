@@ -673,4 +673,4 @@ static void handle_event(uint32_t evtType, const void* evtData)
     }
 }
 
-INTERNAL_APP_INIT(APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 9), TMD2772_APP_VERSION, init_app, end_app, handle_event);
+INTERNAL_APP_INIT(APP_ID_MAKE(NANOHUB_VENDOR_GOOGLE, 9), TMD2772_APP_VERSION, init_app, end_app, handle_event);

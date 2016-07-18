@@ -1002,7 +1002,7 @@ static void halSendMgmtResponse(uint32_t cmd, uint32_t status)
     resp = heapAlloc(sizeof(*resp));
     if (resp) {
         resp->hdr = (struct NanohubHalHdr) {
-            .appId = APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 0),
+            .appId = APP_ID_MAKE(NANOHUB_VENDOR_GOOGLE, 0),
             .len = sizeof(*resp) - sizeof(resp->hdr) + sizeof(resp->hdr.msg),
             .msg = cmd,
         };
@@ -1046,7 +1046,7 @@ static void halQueryApps(void *rx, uint8_t rx_len)
 
     if (osAppInfoByIndex(le32toh(req->idx), &appId, &appVer, &appSize)) {
         resp = heapAlloc(sizeof(*resp));
-        resp->hdr.appId = APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 0);
+        resp->hdr.appId = APP_ID_MAKE(NANOHUB_VENDOR_GOOGLE, 0);
         resp->hdr.len = sizeof(*resp) - sizeof(struct NanohubHalHdr) + 1;
         resp->hdr.msg = NANOHUB_HAL_QUERY_APPS;
         resp->appId = appId;
@@ -1056,7 +1056,7 @@ static void halQueryApps(void *rx, uint8_t rx_len)
         osEnqueueEvtOrFree(EVT_APP_TO_HOST, resp, heapFree);
     } else {
         hdr = heapAlloc(sizeof(*hdr));
-        hdr->appId = APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 0);
+        hdr->appId = APP_ID_MAKE(NANOHUB_VENDOR_GOOGLE, 0);
         hdr->len = 1;
         hdr->msg = NANOHUB_HAL_QUERY_APPS;
         osEnqueueEvtOrFree(EVT_APP_TO_HOST, hdr, heapFree);
@@ -1082,7 +1082,7 @@ static void halQueryRsaKeys(void *rx, uint8_t rx_len)
         memcpy(resp->data, (uint8_t *)ptr + req->offset, len);
     }
 
-    resp->hdr.appId = APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 0);
+    resp->hdr.appId = APP_ID_MAKE(NANOHUB_VENDOR_GOOGLE, 0);
     resp->hdr.len = sizeof(*resp) - sizeof(struct NanohubHalHdr) + 1 + len;
     resp->hdr.msg = NANOHUB_HAL_QUERY_RSA_KEYS;
 
@@ -1100,7 +1100,7 @@ static void halStartUpload(void *rx, uint8_t rx_len)
     if (!(resp = heapAlloc(sizeof(*resp))))
         return;
 
-    resp->hdr.appId = APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 0);
+    resp->hdr.appId = APP_ID_MAKE(NANOHUB_VENDOR_GOOGLE, 0);
     resp->hdr.len = sizeof(*resp) - sizeof(struct NanohubHalHdr) + 1;
     resp->hdr.msg = NANOHUB_HAL_START_UPLOAD;
     resp->success = doStartFirmwareUpload(&hwReq);
@@ -1119,7 +1119,7 @@ static void halContUpload(void *rx, uint8_t rx_len)
     if (!(resp = heapAlloc(sizeof(*resp))))
         return;
 
-    resp->hdr.appId = APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 0);
+    resp->hdr.appId = APP_ID_MAKE(NANOHUB_VENDOR_GOOGLE, 0);
     resp->hdr.len = sizeof(*resp) - sizeof(struct NanohubHalHdr) + 1;
     resp->hdr.msg = NANOHUB_HAL_CONT_UPLOAD;
 
@@ -1147,7 +1147,7 @@ static void halFinishUpload(void *rx, uint8_t rx_len)
     if (!(resp = heapAlloc(sizeof(*resp))))
         return;
 
-    resp->hdr.appId = APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 0);
+    resp->hdr.appId = APP_ID_MAKE(NANOHUB_VENDOR_GOOGLE, 0);
     resp->hdr.len = sizeof(*resp) - sizeof(struct NanohubHalHdr) + 1;
     resp->hdr.msg = NANOHUB_HAL_FINISH_UPLOAD;
 

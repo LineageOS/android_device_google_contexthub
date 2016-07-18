@@ -224,4 +224,4 @@ static void endTask(void)
     sensorUnregister(mTask.sensorHandle);
 }
 
-INTERNAL_APP_INIT(APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 6), APP_VERSION, startTask, endTask, handleEvent);
+INTERNAL_APP_INIT(APP_ID_MAKE(NANOHUB_VENDOR_GOOGLE, 6), APP_VERSION, startTask, endTask, handleEvent);

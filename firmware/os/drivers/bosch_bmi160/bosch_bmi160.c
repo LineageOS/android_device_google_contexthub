@@ -90,7 +90,7 @@
 #include "akm_ak09915_slave.h"
 #endif
 
-#define BMI160_APP_ID APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 2)
+#define BMI160_APP_ID APP_ID_MAKE(NANOHUB_VENDOR_GOOGLE, 2)
 
 #define BMI160_SPI_WRITE          0x00
 #define BMI160_SPI_READ           0x80
