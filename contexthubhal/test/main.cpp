@@ -148,7 +148,9 @@ class NanoClient
 {
     CHub::Client *mClient;
     std::ostream &log;
+    android::Mutex lock;
     void onMessage(const hub_message_t &msg){
+        android::Mutex::Autolock _l(lock);
         dumpBuffer(log, "Rx", msg.app_name, msg.message_type, msg.message, msg.message_len, 0);
         log << std::endl;
     }
@@ -166,6 +168,11 @@ public:
         msg.message_len = dataSize;
         msg.message_type = cmd;
         msg.app_name = mClient->getSystemApp();
+        {
+            android::Mutex::Autolock _l(lock);
+            dumpBuffer(log, "Tx", msg.app_name, msg.message_type, msg.message, msg.message_len, 0);
+            log << std::endl;
+        }
         sendMessage(msg);
     }
     void sendMessageToApp(const hub_app_name_t appName, void * data, size_t dataSize) {
