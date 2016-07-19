@@ -118,7 +118,8 @@ union InternalThing {
         uint32_t evtType;
         void *evtData;
         TaggedPtr evtFreeInfo;
-        uint32_t toTid;
+        uint16_t fromTid;
+        uint16_t toTid;
     } privateEvt;
     union OsApiSlabItem osApiItem;
 };
@@ -373,20 +374,28 @@ static inline void osTaskEnd(struct Task *task)
 static inline void osTaskHandle(struct Task *task, uint32_t evtType, const void* evtData)
 {
     struct Task *preempted = osSetCurrentTask(task);
-    cpuAppHandle(task->app, &task->platInfo, evtType, evtData);
+    uint16_t evt = EVENT_GET_EVENT(evtType);
+    cpuAppHandle(task->app, &task->platInfo, evt, evtData);
     osSetCurrentTask(preempted);
 }
 
 static void handleEventFreeing(uint32_t evtType, void *evtData, TaggedPtr evtFreeData) // watch out, this is synchronous
 {
-    if ((taggedPtrIsPtr(evtFreeData) && !taggedPtrToPtr(evtFreeData)) ||
-        (taggedPtrIsUint(evtFreeData) && !taggedPtrToUint(evtFreeData)))
+    uint16_t evt;
+    uint16_t tid;
+    struct Task *srcTask;
+
+    if (!taggedPtrToUint(evtFreeData) || !evtData)
         return;
 
-    if (taggedPtrIsPtr(evtFreeData))
+    evt = EVENT_GET_EVENT(evtType);
+    tid = EVENT_GET_ORIGIN(evtType);
+    srcTask = osTaskFindByTid(tid);
+
+    if (taggedPtrIsPtr(evtFreeData)) {
         ((EventFreeF)taggedPtrToPtr(evtFreeData))(evtData);
-    else {
-        struct AppEventFreeData fd = {.evtType = evtType, .evtData = evtData};
+    } else {
+        struct AppEventFreeData fd = {.evtType = evt, .evtData = evtData};
         struct Task* task = osTaskFindByTid(taggedPtrToUint(evtFreeData));
 
         if (!task)
@@ -394,6 +403,7 @@ static void handleEventFreeing(uint32_t evtType, void *evtData, TaggedPtr evtFre
         else
             osTaskHandle(task, EVT_APP_FREE_EVT_DATA, &fd);
     }
+    osTaskAddIoCount(srcTask, -1);
 }
 
 static void osInit(void)
@@ -722,10 +732,10 @@ static bool osStopTask(struct Task *task)
     if (!task)
         return false;
 
-    osTaskClrSetFlags(task, 0, FL_TASK_STOPPED);
     osRemoveTask(task);
 
-    if (osTaskGetIoCount(task)) {
+    if (osTaskGetIoCount(task))
+    {
         osTaskHandle(task, EVT_APP_STOP, NULL);
         osEnqueueEvtOrFree(EVT_APP_END, task, NULL);
     } else {
@@ -733,6 +743,7 @@ static bool osStopTask(struct Task *task)
         osUnloadApp(task);
     }
 
+    osTaskClrSetFlags(task, 0, FL_TASK_STOPPED);
     return true;
 }
 
@@ -746,6 +757,8 @@ static bool osExtAppFind(struct SegmentIterator *it, uint64_t appId)
 
     while (osSegmentIteratorNext(it)) {
         seg = it->seg;
+        if (!seg)
+            break;
         if (seg->state == SEG_ST_EMPTY)
             break;
         if (seg->state != SEG_ST_VALID)
@@ -765,13 +778,13 @@ static uint32_t osExtAppStopEraseApps(uint64_t appId, bool doErase)
 {
     const struct AppHdr *app;
     int32_t len;
-    struct Task *task;
     struct SegmentIterator it;
     uint32_t stopCount = 0;
     uint32_t eraseCount = 0;
     uint32_t appCount = 0;
     uint32_t taskCount = 0;
     struct MgmtStatus stat = { .value = 0 };
+    struct Task *task;
 
     osSegmentIteratorInit(&it);
     while (osExtAppFind(&it, appId)) {
@@ -780,16 +793,16 @@ static uint32_t osExtAppStopEraseApps(uint64_t appId, bool doErase)
         if (!osExtAppIsValid(app, len))
             continue;
         appCount++;
+        /* it is safe to erase a running app;
+         * erase merely sets a flag in the header,
+         * and app keeps running until it is stopped */
+        if (doErase && osExtAppErase(app))
+            eraseCount++;
         task = osTaskFindByAppID(app->hdr.appId);
-        if (task)
+        if (task) {
             taskCount++;
-        if (task && task->app == app) {
             if (osStopTask(task))
-                stopCount++;
-            else
-                continue;
-            if (doErase && osExtAppErase(app))
-                eraseCount++;
+               stopCount++;
         }
     }
     SET_COUNTER(stat.app,   appCount);
@@ -943,8 +956,12 @@ static void osInternalEvtHandle(uint32_t evtType, void *evtData)
     union InternalThing *da = (union InternalThing*)evtData;
     struct Task *task;
     uint32_t i;
+    uint16_t tid = EVENT_GET_ORIGIN(evtType);
+    uint16_t evt = EVENT_GET_EVENT(evtType);
+    struct Task *srcTask = osTaskFindByTid(tid);
+    struct Task *preempted = osSetCurrentTask(srcTask);
 
-    switch (evtType) {
+    switch (evt) {
     case EVT_SUBSCRIBE_TO_EVT:
     case EVT_UNSUBSCRIBE_TO_EVT:
         /* get task */
@@ -956,10 +973,10 @@ static void osInternalEvtHandle(uint32_t evtType, void *evtData)
         for (i = 0; i < task->subbedEvtCount && task->subbedEvents[i] != da->evtSub.evt; i++);
 
         /* if unsub & found -> unsub */
-        if (evtType == EVT_UNSUBSCRIBE_TO_EVT && i != task->subbedEvtCount)
+        if (evt == EVT_UNSUBSCRIBE_TO_EVT && i != task->subbedEvtCount)
             task->subbedEvents[i] = task->subbedEvents[--task->subbedEvtCount];
         /* if sub & not found -> sub */
-        else if (evtType == EVT_SUBSCRIBE_TO_EVT && i == task->subbedEvtCount) {
+        else if (evt == EVT_SUBSCRIBE_TO_EVT && i == task->subbedEvtCount) {
             if (task->subbedEvtListSz == task->subbedEvtCount) { /* enlarge the list */
                 uint32_t newSz = (task->subbedEvtListSz * 3 + 1) / 2;
                 uint32_t *newList = heapAlloc(sizeof(uint32_t[newSz])); /* grow by 50% */
@@ -989,19 +1006,19 @@ static void osInternalEvtHandle(uint32_t evtType, void *evtData)
 
     case EVT_PRIVATE_EVT:
         task = osTaskFindByTid(da->privateEvt.toTid);
+        evtType = EVENT_WITH_ORIGIN(da->privateEvt.evtType, da->privateEvt.fromTid);
         if (task) {
             //private events cannot be retained
             TaggedPtr *tmp = mCurEvtEventFreeingInfo;
             mCurEvtEventFreeingInfo = NULL;
-
-            osTaskHandle(task, da->privateEvt.evtType, da->privateEvt.evtData);
-
+            osTaskHandle(task, evtType, da->privateEvt.evtData);
             mCurEvtEventFreeingInfo = tmp;
         }
 
-        handleEventFreeing(da->privateEvt.evtType, da->privateEvt.evtData, da->privateEvt.evtFreeInfo);
+        handleEventFreeing(evtType, da->privateEvt.evtData, da->privateEvt.evtFreeInfo);
         break;
     }
+    osSetCurrentTask(preempted);
 }
 
 void abort(void)
@@ -1050,29 +1067,24 @@ void osMainDequeueLoop(void)
     uint32_t evtType, j;
     void *evtData;
     struct Task *task;
-    uint16_t tid;
+    uint16_t evt;
 
     /* get an event */
     if (!evtQueueDequeue(mEvtsInternal, &evtType, &evtData, &evtFreeingInfo, true))
         return;
 
-    evtType = EVENT_GET_EVENT(evtType);
-    tid = EVENT_GET_ORIGIN(evtType);
-    task = osTaskFindByTid(tid);
-    if (task)
-        osTaskAddIoCount(task, -1);
-
     /* by default we free them when we're done with them */
     mCurEvtEventFreeingInfo = &evtFreeingInfo;
+    evt = EVENT_GET_EVENT(evtType);
 
-    if (evtType < EVT_NO_FIRST_USER_EVENT) {
+    if (evt < EVT_NO_FIRST_USER_EVENT) {
         /* handle deferred actions and other reserved events here */
         osInternalEvtHandle(evtType, evtData);
     } else {
         /* send this event to all tasks who want it */
         for_each_task(&mTasks, task) {
             for (j = 0; j < task->subbedEvtCount; j++) {
-                if (task->subbedEvents[j] == evtType) {
+                if (task->subbedEvents[j] == evt) {
                     osTaskHandle(task, evtType, evtData);
                     break;
                 }
@@ -1128,28 +1140,30 @@ bool osEventUnsubscribe(uint32_t tid, uint32_t evtType)
     return osEventSubscribeUnsubscribe(osGetCurrentTid(), evtType, false);
 }
 
-static bool osEnqueueEvtCommon(uint32_t evtType, void *evtData, TaggedPtr evtFreeInfo)
+static bool osEnqueueEvtCommon(uint32_t evt, void *evtData, TaggedPtr evtFreeInfo, bool urgent)
 {
     struct Task *task = osGetCurrentTask();
+    uint32_t evtType = EVENT_WITH_ORIGIN(evt, osGetCurrentTid());
+
+    if (taggedPtrToUint(evtFreeInfo) && evtData)
+        osTaskAddIoCount(task, 1);
 
     if (osTaskTestFlags(task, FL_TASK_STOPPED)) {
         handleEventFreeing(evtType, evtData, evtFreeInfo);
         return true;
     }
 
-    evtType = EVENT_WITH_ORIGIN(evtType, osGetCurrentTid());
-    osTaskAddIoCount(task, 1);
+    if (!evtQueueEnqueue(mEvtsInternal, evtType, evtData, evtFreeInfo, urgent)) {
+        osTaskAddIoCount(task, -1);
+        return false;
+    }
 
-    if (evtQueueEnqueue(mEvtsInternal, evtType, evtData, evtFreeInfo, false))
-        return true;
-
-    osTaskAddIoCount(task, -1);
-    return false;
+    return true;
 }
 
 bool osEnqueueEvt(uint32_t evtType, void *evtData, EventFreeF evtFreeF)
 {
-    return osEnqueueEvtCommon(evtType, evtData, taggedPtrMakeFromPtr(evtFreeF));
+    return osEnqueueEvtCommon(evtType, evtData, taggedPtrMakeFromPtr(evtFreeF), false);
 }
 
 bool osEnqueueEvtOrFree(uint32_t evtType, void *evtData, EventFreeF evtFreeF)
@@ -1169,7 +1183,7 @@ bool osEnqueueEvtAsApp(uint32_t evtType, void *evtData, uint32_t fromAppTid)
         evtType |= EVENT_TYPE_BIT_DISCARDABLE;
 
     (void)fromAppTid;
-    return osEnqueueEvtCommon(evtType, evtData, taggedPtrMakeFromUint(osGetCurrentTid()));
+    return osEnqueueEvtCommon(evtType, evtData, taggedPtrMakeFromUint(osGetCurrentTid()), false);
 }
 
 bool osDefer(OsDeferCbkF callback, void *cookie, bool urgent)
@@ -1181,7 +1195,7 @@ bool osDefer(OsDeferCbkF callback, void *cookie, bool urgent)
     act->deferred.callback = callback;
     act->deferred.cookie = cookie;
 
-    if (evtQueueEnqueue(mEvtsInternal, EVT_DEFERRED_CALLBACK, act, taggedPtrMakeFromPtr(osDeferredActionFreeF), urgent))
+    if (osEnqueueEvtCommon(EVT_DEFERRED_CALLBACK, act, taggedPtrMakeFromPtr(osDeferredActionFreeF), urgent))
         return true;
 
     slabAllocatorFree(mMiscInternalThingsSlab, act);
@@ -1191,17 +1205,26 @@ bool osDefer(OsDeferCbkF callback, void *cookie, bool urgent)
 static bool osEnqueuePrivateEvtEx(uint32_t evtType, void *evtData, TaggedPtr evtFreeInfo, uint32_t toTid)
 {
     union InternalThing *act = slabAllocatorAlloc(mMiscInternalThingsSlab);
+    bool result;
+
     if (!act) {
         osLog(LOG_ERROR, "[seos] ERROR: osEnqueuePrivateEvtEx: call to slabAllocatorAlloc() failed\n");
         return false;
     }
+    struct Task *task = osGetCurrentTask();
+    if (taggedPtrToUint(evtFreeInfo) && evtData)
+        osTaskAddIoCount(task, 1);
 
-    act->privateEvt.evtType = evtType;
+    act->privateEvt.evtType = evtType & EVT_MASK;
     act->privateEvt.evtData = evtData;
     act->privateEvt.evtFreeInfo = evtFreeInfo;
+    act->privateEvt.fromTid = task->tid;
     act->privateEvt.toTid = toTid;
 
-    return osEnqueueEvtOrFree(EVT_PRIVATE_EVT, act, osDeferredActionFreeF);
+    osSetCurrentTask(mSystemTask);
+    result = osEnqueueEvtOrFree(EVT_PRIVATE_EVT, act, osDeferredActionFreeF);
+    osSetCurrentTask(task);
+    return result;
 }
 
 bool osEnqueuePrivateEvt(uint32_t evtType, void *evtData, EventFreeF evtFreeF, uint32_t toTid)
@@ -1215,12 +1238,12 @@ bool osEnqueuePrivateEvtAsApp(uint32_t evtType, void *evtData, uint32_t fromAppT
     return osEnqueuePrivateEvtEx(evtType, evtData, taggedPtrMakeFromUint(osGetCurrentTid()), toTid);
 }
 
-bool osTidById(uint64_t appId, uint32_t *tid)
+bool osTidById(uint64_t *appId, uint32_t *tid)
 {
     struct Task *task;
 
     for_each_task(&mTasks, task) {
-        if (task->app && task->app->hdr.appId == appId) {
+        if (task->app && !memcmp(&task->app->hdr.appId, appId, sizeof(*appId))) {
             *tid = task->tid;
             return true;
         }

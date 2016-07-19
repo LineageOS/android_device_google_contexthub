@@ -460,7 +460,6 @@ int SystemComm::AppMgmtSession::handleReboot(NanohubRsp &rsp)
 
 int SystemComm::AppMgmtSession::handleMgmt(NanohubRsp &rsp)
 {
-    Mutex::Autolock _l(mLock);
     bool valid = false;
 
     ALOGI("Nanohub MGMT response: CMD=%02X; STATUS=%08" PRIX32, rsp.cmd, rsp.status);

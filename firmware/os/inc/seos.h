@@ -169,7 +169,7 @@ bool osEnqueueEvtAsApp(uint32_t evtType, void *evtData, uint32_t fromApp);
 
 bool osDefer(OsDeferCbkF callback, void *cookie, bool urgent);
 
-bool osTidById(uint64_t appId, uint32_t *tid);
+bool osTidById(uint64_t *appId, uint32_t *tid);
 bool osAppInfoById(uint64_t appId, uint32_t *appIdx, uint32_t *appVer, uint32_t *appSize);
 bool osAppInfoByIndex(uint32_t appIdx, uint64_t *appId, uint32_t *appVer, uint32_t *appSize);
 uint32_t osGetCurrentTid();

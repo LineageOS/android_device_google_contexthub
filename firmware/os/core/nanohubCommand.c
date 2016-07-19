@@ -114,6 +114,18 @@ void nanohubInitCommand(void)
     mEventSlab = slabAllocatorNew(NANOHUB_PACKET_PAYLOAD_MAX-sizeof(__le32), 4, 2);
 }
 
+static inline uint64_t unaligned_u64(uint64_t *val) {
+    uint64_t local;
+    memcpy(&local, val, sizeof(local));
+    return local;
+}
+
+static inline uint32_t unaligned_u32(uint32_t *val) {
+    uint32_t local;
+    memcpy(&local, val, sizeof(local));
+    return local;
+}
+
 static uint32_t getOsHwVersion(void *rx, uint8_t rx_len, void *tx, uint64_t timestamp)
 {
     struct NanohubOsHwVersionsResponse *resp = tx;
@@ -132,7 +144,7 @@ static uint32_t getAppVersion(void *rx, uint8_t rx_len, void *tx, uint64_t times
     struct NanohubAppVersionsResponse *resp = tx;
     uint32_t appIdx, appVer, appSize;
 
-    if (osAppInfoById(le64toh(req->appId), &appIdx, &appVer, &appSize)) {
+    if (osAppInfoById(le64toh(unaligned_u64(&req->appId)), &appIdx, &appVer, &appSize)) {
         resp->appVer = htole32(appVer);
         return sizeof(*resp);
     }
@@ -147,7 +159,7 @@ static uint32_t queryAppInfo(void *rx, uint8_t rx_len, void *tx, uint64_t timest
     uint64_t appId;
     uint32_t appVer, appSize;
 
-    if (osAppInfoByIndex(le32toh(req->appIdx), &appId, &appVer, &appSize)) {
+    if (osAppInfoByIndex(le32toh(unaligned_u32(&req->appIdx)), &appId, &appVer, &appSize)) {
         resp->appId = htole64(appId);
         resp->appVer = htole32(appVer);
         resp->appSize = htole32(appSize);
@@ -890,7 +902,9 @@ static uint32_t writeEvent(void *rx, uint8_t rx_len, void *tx, uint64_t timestam
 
     if (le32toh(req->evtType) == EVT_APP_FROM_HOST) {
         rawPacket = (struct HostHubRawPacket *)req->evtData;
-        if (rx_len >= sizeof(req->evtType) + sizeof(struct HostHubRawPacket) && rx_len == sizeof(req->evtType) + sizeof(struct HostHubRawPacket) + rawPacket->dataLen && osTidById(rawPacket->appId, &tid)) {
+        if (rx_len >= sizeof(req->evtType) + sizeof(struct HostHubRawPacket) &&
+            rx_len == sizeof(req->evtType) + sizeof(struct HostHubRawPacket) + rawPacket->dataLen &&
+            osTidById(&rawPacket->appId, &tid)) {
             packet = slabAllocatorAlloc(mEventSlab);
             if (!packet) {
                 packet = heapAlloc(rawPacket->dataLen + 1);
@@ -1015,21 +1029,21 @@ static void halExtAppsOn(void *rx, uint8_t rx_len)
 {
     struct NanohubHalMgmtRx *req = rx;
 
-    halSendMgmtResponse(NANOHUB_HAL_EXT_APPS_ON, osExtAppStartApps(le64toh(req->appId)));
+    halSendMgmtResponse(NANOHUB_HAL_EXT_APPS_ON, osExtAppStartApps(le64toh(unaligned_u64(&req->appId))));
 }
 
 static void halExtAppsOff(void *rx, uint8_t rx_len)
 {
     struct NanohubHalMgmtRx *req = rx;
 
-    halSendMgmtResponse(NANOHUB_HAL_EXT_APPS_OFF, osExtAppStopApps(le64toh(req->appId)));
+    halSendMgmtResponse(NANOHUB_HAL_EXT_APPS_OFF, osExtAppStopApps(le64toh(unaligned_u64(&req->appId))));
 }
 
 static void halExtAppDelete(void *rx, uint8_t rx_len)
 {
     struct NanohubHalMgmtRx *req = rx;
 
-    halSendMgmtResponse(NANOHUB_HAL_EXT_APP_DELETE, osExtAppEraseApps(le64toh(req->appId)));
+    halSendMgmtResponse(NANOHUB_HAL_EXT_APP_DELETE, osExtAppEraseApps(le64toh(unaligned_u64(&req->appId))));
 }
 
 static void halQueryMemInfo(void *rx, uint8_t rx_len)

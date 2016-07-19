@@ -216,16 +216,15 @@ int heapFreeAll(uint32_t tid)
     if (!haveLock)
         return -1;
 
-    node = gHeapHead;
     tid &= TIDX_MASK;
-    do {
+    for (node = gHeapHead; node; node = heapPrvGetNext(node)) {
         if (node->tidx == tid) {
             node->used = 0;
             node->tidx = 0;
             count++;
         }
-    } while ((node = heapPrvGetNext(node)) != NULL);
-    gNeedFreeMerge = true;
+    }
+    gNeedFreeMerge = count > 0;
     trylockRelease(&gHeapLock);
 
     return count;
