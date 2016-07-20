@@ -126,7 +126,7 @@ typedef enum IRQn
     NUM_INTERRUPTS
 } IRQn_Type;
 
-#include <core_cm4.h>
+#include <cpu/cmsis.h>
 
 #ifdef __cplusplus
 }
