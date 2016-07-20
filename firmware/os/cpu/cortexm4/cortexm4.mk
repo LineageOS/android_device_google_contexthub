@@ -64,6 +64,7 @@ FLAGS += -DFLT_EVAL_METHOD -Iexternal/freebsd/lib/msun/src
 
 #extra deps
 DEPS += $(wildcard os/cpu/$(CPU)/inc/cpu/*.h)
+DEPS += $(wildcard os/cpu/$(CPU)/inc/cpu/cmsis/*.h)
 
 #bad words for C-M4F
 BADWORDS += "__floatundisf=When casting a uint64_t to float, use floatFromUint64"
