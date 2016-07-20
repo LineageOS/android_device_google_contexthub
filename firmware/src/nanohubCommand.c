@@ -45,6 +45,7 @@
 #include <timer.h>
 #include <appSec.h>
 #include <cpu.h>
+#include <cpu/inc/cpuMath.h>
 
 #define NANOHUB_COMMAND(_reason, _fastHandler, _handler, _minReqType, _maxReqType) \
         { .reason = _reason, .fastHandler = _fastHandler, .handler = _handler, \
@@ -63,6 +64,11 @@
 #define MAX_APP_SEC_RX_DATA_LEN 64
 
 #define REQUIRE_SIGNED_IMAGE    true
+#define DEBUG_APHUB_TIME_SYNC   false
+
+#if DEBUG_APHUB_TIME_SYNC
+static void syncdbg_add(uint64_t, uint64_t);
+#endif
 
 struct DownloadState
 {
@@ -650,6 +656,10 @@ static uint32_t unmaskInterrupt(void *rx, uint8_t rx_len, void *tx, uint64_t tim
 
 static void addDelta(struct TimeSync *sync, uint64_t apTime, uint64_t hubTime)
 {
+#if DEBUG_APHUB_TIME_SYNC
+    syncdbg_add(apTime, hubTime);
+#endif
+
     if (apTime - sync->lastTime > SYNC_RESET) {
         sync->tail = 0;
         sync->cnt = 0;
@@ -1210,3 +1220,87 @@ uint64_t hostGetTime(void)
     else
         return sensorGetTime() + delta;
 }
+
+#if DEBUG_APHUB_TIME_SYNC
+
+#define N_APHUB_SYNC_DATA 256
+#define PRINT_DELAY 20000000  // unit ns, 20ms
+struct aphub_sync_debugging_t {
+    uint64_t ap_first;
+    uint64_t hub_first;
+    uint32_t ap_delta[N_APHUB_SYNC_DATA]; // us
+    uint32_t hub_delta[N_APHUB_SYNC_DATA]; // us
+    int print_index; //negative means not printing
+    int write_index;
+
+    uint32_t timer_id;
+};
+
+struct aphub_sync_debugging_t aphub_sync_debug = {0};
+
+static void syncdbg_callback(uint32_t timerId, void *data) {
+
+    if (aphub_sync_debug.print_index >= aphub_sync_debug.write_index ||
+        aphub_sync_debug.print_index >= N_APHUB_SYNC_DATA) {
+        timTimerCancel(aphub_sync_debug.timer_id);
+
+        osLog(LOG_DEBUG, "APHUB Done printing %d items", aphub_sync_debug.print_index);
+        aphub_sync_debug.write_index = 0;
+        aphub_sync_debug.print_index = -1;
+
+        aphub_sync_debug.timer_id = 0;
+    } else {
+        if (aphub_sync_debug.print_index == 0) {
+            osLog(LOG_DEBUG, "APHUB init %" PRIu64 " %" PRIu64,
+                  aphub_sync_debug.ap_first,
+                  aphub_sync_debug.hub_first);
+        }
+
+        osLog(LOG_DEBUG, "APHUB %d %" PRIu32 " %" PRIu32,
+              aphub_sync_debug.print_index,
+              aphub_sync_debug.ap_delta[aphub_sync_debug.print_index],
+              aphub_sync_debug.hub_delta[aphub_sync_debug.print_index]);
+
+        aphub_sync_debug.print_index++;
+    }
+}
+
+static void syncdbg_trigger_print() {
+    if (aphub_sync_debug.timer_id) {
+        //printing already going
+        return;
+    }
+
+    aphub_sync_debug.print_index = 0;
+
+    syncdbg_callback(0, NULL);
+    if (!(aphub_sync_debug.timer_id =
+          timTimerSet(PRINT_DELAY, 0, 50, syncdbg_callback, NULL, false /*oneShot*/))) {
+        osLog(LOG_WARN, "Cannot get timer for printing");
+
+        aphub_sync_debug.write_index = 0; // discard all data
+        aphub_sync_debug.print_index = -1; // not printing
+    }
+}
+
+static void syncdbg_add(uint64_t ap, uint64_t hub) {
+    if (aphub_sync_debug.write_index >= N_APHUB_SYNC_DATA) {
+        //full
+        syncdbg_trigger_print();
+        return;
+    }
+
+    if (aphub_sync_debug.write_index == 0) {
+        aphub_sync_debug.ap_first = ap;
+        aphub_sync_debug.hub_first = hub;
+    }
+
+    // convert ns to us
+    aphub_sync_debug.ap_delta[aphub_sync_debug.write_index] =
+            (uint32_t) U64_DIV_BY_CONST_U16((ap - aphub_sync_debug.ap_first), 1000u);
+    aphub_sync_debug.hub_delta[aphub_sync_debug.write_index] =
+            (uint32_t) U64_DIV_BY_CONST_U16((hub - aphub_sync_debug.hub_first), 1000u);
+
+    ++aphub_sync_debug.write_index;
+}
+#endif
