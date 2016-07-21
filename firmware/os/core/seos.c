@@ -506,11 +506,13 @@ struct Segment *osGetSegment(const struct AppHdr *app)
 
 bool osEraseShared()
 {
+    wdtDisableClk();
     mpuAllowRamExecution(true);
     mpuAllowRomWrite(true);
     (void)BL.blEraseShared(BL_FLASH_KEY1, BL_FLASH_KEY2);
     mpuAllowRomWrite(false);
     mpuAllowRamExecution(false);
+    wdtEnableClk();
     return true;
 }
 
