@@ -801,7 +801,7 @@ static void handleProxSample(const struct AlsProxTransfer *xfer)
             osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_PROX), sample.vptr, NULL);
 #endif
 
-#if !PROX_STREAMING
+#if PROX_STREAMING
         // reset proximity interrupts
         writeRegister(AMS_TMD4903_REG_INTCLEAR, 0x60, SENSOR_STATE_IDLE);
 #else
