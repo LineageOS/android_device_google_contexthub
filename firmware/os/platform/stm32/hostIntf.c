@@ -14,10 +14,12 @@
  * limitations under the License.
  */
 
+#include <bl.h>
 #include <hostIntf.h>
 #include <hostIntf_priv.h>
+
 #include <variant/variant.h>
-#include <plat/bl.h>
+
 #include <plat/cmsis.h>
 #include <plat/spi.h>
 

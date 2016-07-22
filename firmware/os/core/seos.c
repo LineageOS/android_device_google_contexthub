@@ -16,9 +16,9 @@
 
 #include <plat/eeData.h>
 #include <plat/plat.h>
-#include <plat/bl.h>
 #include <plat/wdt.h>
 #include <platform.h>
+#include <bl.h>
 #include <crc.h>
 #include <hostIntf.h>
 #include <inttypes.h>

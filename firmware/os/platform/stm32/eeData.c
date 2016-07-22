@@ -14,10 +14,11 @@
  * limitations under the License.
  */
 
-#include <plat/bl.h>
 #include <stdbool.h>
-#include <string.h>
 #include <stdint.h>
+#include <string.h>
+
+#include <bl.h>
 #include <eeData.h>
 
 extern uint32_t __eedata_start[], __eedata_end[];

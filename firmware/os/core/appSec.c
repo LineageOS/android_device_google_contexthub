@@ -14,20 +14,19 @@
  * limitations under the License.
  */
 
+#include <inttypes.h>
 #include <stdint.h>
+#include <stdio.h>
+#include <string.h>
 
-#include <plat/bl.h>
-
-#include <nanohub/sha2.h>
-#include <nanohub/rsa.h>
 #include <nanohub/aes.h>
+#include <nanohub/rsa.h>
+#include <nanohub/sha2.h>
 
 #include <appSec.h>
-#include <string.h>
-#include <stdio.h>
+#include <bl.h>
 #include <heap.h>
 #include <seos.h>
-#include <inttypes.h>
 
 #define APP_HDR_SIZE                (sizeof(struct ImageHeader))
 #define APP_HDR_MAX_SIZE            (sizeof(struct ImageHeader) + sizeof(struct AppSecSignHdr) + sizeof(struct AppSecEncrHdr))

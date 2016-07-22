@@ -23,12 +23,12 @@
 #include <eventnums.h>
 
 #include <plat/taggedPtr.h>
-#include <plat/bl.h>
 #include <plat/plat.h>
 
 #include <nanohub/crc.h>
 #include <nanohub/rsa.h>
 
+#include <bl.h>
 #include <atomicBitset.h>
 #include <atomic.h>
 #include <hostIntf.h>

@@ -73,6 +73,7 @@ SRCS_bl += ../lib/nanohub/sha2.c ../lib/nanohub/rsa.c ../lib/nanohub/aes.c os/co
 SRCS_os += os/core/printf.c os/core/timer.c os/core/seos.c os/core/heap.c os/core/slab.c os/core/spi.c os/core/trylock.c
 SRCS_os += os/core/hostIntf.c os/core/hostIntfI2c.c os/core/hostIntfSpi.c os/core/nanohubCommand.c os/core/sensors.c os/core/syscall.c
 SRCS_os += os/core/eventQ.c os/core/osApi.c os/core/appSec.c os/core/simpleQ.c os/core/floatRt.c
+SRCS_bl += os/core/bl.c
 
 #some help for bootloader
 SRCS_bl += os/core/printf.c

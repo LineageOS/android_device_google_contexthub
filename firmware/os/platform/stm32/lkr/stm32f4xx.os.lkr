@@ -63,7 +63,7 @@ SECTIONS
 	} > ram
 }
 
-BL = ORIGIN(bl);
+_BL = ORIGIN(bl);
 __app_start = __data_data + __data_end - __data_start;
 __heap_end = ORIGIN(ram) + LENGTH(ram);
 ENTRY(__VECTORS)

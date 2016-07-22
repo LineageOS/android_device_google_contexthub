@@ -18,8 +18,9 @@ SECTIONS
 {
 	/* bootloader */
 	.bl : {
-		BL = ABSOLUTE(.);
+		_BL = ABSOLUTE(.);
 		KEEP (*(.blvec) ) ;
+		KEEP (*(.blapi) ) ;
 		*(.text) *(.text.*) ;
 		*(.rodata) *(.rodata.*) ;
 		. = ALIGN(4);

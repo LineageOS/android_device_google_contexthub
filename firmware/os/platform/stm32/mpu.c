@@ -14,12 +14,13 @@
  * limitations under the License.
  */
 
-#include <plat/bl.h>
-#include <platform.h>
 #include <stdbool.h>
 #include <stdint.h>
-#include <mpu.h>
+
+#include <bl.h>
 #include <cpu.h>
+#include <mpu.h>
+#include <platform.h>
 
 struct CortexMpu {
     volatile uint32_t CTRL;
