@@ -36,7 +36,7 @@
 #include <variant/variant.h>
 
 #define AMS_TMD4903_APP_ID      APP_ID_MAKE(NANOHUB_VENDOR_GOOGLE, 12)
-#define AMS_TMD4903_APP_VERSION 12
+#define AMS_TMD4903_APP_VERSION 13
 
 #ifndef PROX_INT_PIN
 #error "PROX_INT_PIN is not defined; please define in variant.h"
