@@ -52,7 +52,6 @@ include $(MAKE_VAR)
 FLAGS += -Ios/inc
 FLAGS += -Ios/platform/$(PLATFORM)/inc
 FLAGS += -Ios/cpu/$(CPU)/inc
-FLAGS += -Ios/cpu/$(CPU)/inc/cpu/cmsis
 FLAGS += -I$(VARIANT_PATH)/inc
 FLAGS += -Iexternal/freebsd/inc
 FLAGS += -I../lib/include

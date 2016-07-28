@@ -17,7 +17,7 @@
 #ifndef _CPU_NANOHUB_MATH_H_
 #define _CPU_NANOHUB_MATH_H_
 
-#include <arm_math.h>
+#include <cpu/cmsis/arm_math.h>
 
 #define asinf  arm_asinf
 #define sinf   arm_sin_f32
