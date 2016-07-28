@@ -734,7 +734,8 @@ static int fillBuffer(void *tx, uint32_t totLength, uint32_t *wakeup, uint32_t *
                 packet->firstSample.interrupt = NANOHUB_INT_WAKEUP;
         }
 
-        if ((!totLength || (isSensorEvent(firstPacket->evtType) && isSensorEvent(packet->evtType))) && totLength + length <= sizeof(struct HostIntfDataBuffer)) {
+        if ((!totLength || (isSensorEvent(firstPacket->evtType) && isSensorEvent(packet->evtType))) &&
+             totLength + length <= sizeof(struct HostIntfDataBuffer)) {
             memcpy(buf + totLength, &mTxNext, length);
             totLength += length;
             if (isSensorEvent(packet->evtType) && packet->firstSample.interrupt == NANOHUB_INT_WAKEUP)
@@ -868,10 +869,11 @@ static uint32_t readEvent(void *rx, uint8_t rx_len, void *tx, uint64_t timestamp
         return totLength;
     }
 
+    wakeup = atomicRead32bits(&mTxWakeCnt[0]);
+    nonwakeup = atomicRead32bits(&mTxWakeCnt[1]);
+
     if (mTxNextLength > 0) {
         length = mTxNextLength;
-        wakeup = atomicRead32bits(&mTxWakeCnt[0]);
-        nonwakeup = atomicRead32bits(&mTxWakeCnt[1]);
         memcpy(buf, &mTxNext, length);
         totLength = length;
         mTxNextLength = 0;
