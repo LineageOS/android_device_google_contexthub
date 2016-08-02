@@ -14,13 +14,6 @@
 # limitations under the License.
 #
 
-# settings that apps and OS both want to know about variant
+LOCAL_PATH := $(call my-dir)
 
-VENDOR := google
-VARIANT := lunchbox
-CPU := cortexm4
-CHIP := stm32f411
-PLATFORM := stm32
-
-# VARIANT_PATH is relative to ANDROID TOP
-VARIANT_PATH := device/google/contexthub/firmware/variant/$(VARIANT)
+include $(call first-makefiles-under,$(LOCAL_PATH))

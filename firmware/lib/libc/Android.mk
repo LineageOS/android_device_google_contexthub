@@ -14,13 +14,35 @@
 # limitations under the License.
 #
 
-# settings that apps and OS both want to know about variant
+LOCAL_PATH := $(call my-dir)
 
-VENDOR := google
-VARIANT := lunchbox
-CPU := cortexm4
-CHIP := stm32f411
-PLATFORM := stm32
+include $(CLEAR_NANO_VARS)
 
-# VARIANT_PATH is relative to ANDROID TOP
-VARIANT_PATH := device/google/contexthub/firmware/variant/$(VARIANT)
+src_files := \
+    bcopy.c \
+    memcmp.c \
+    memmove.c \
+    memset.c \
+    strcasecmp.c \
+    strlen.c \
+    strncpy.c \
+
+LOCAL_MODULE := libnanolibc_os
+LOCAL_MODULE_TAGS := optional
+
+LOCAL_SRC_FILES := $(src_files)
+
+LOCAL_SRC_FILES_cortexm4 += memcpy-armv7m.S
+LOCAL_SRC_FILES_x86 += memcpy.c
+
+include $(BUILD_NANOHUB_OS_STATIC_LIBRARY)
+
+include $(CLEAR_NANO_VARS)
+
+LOCAL_MODULE := libnanolibc
+LOCAL_MODULE_TAGS := optional
+
+LOCAL_SRC_FILES := $(src_files)
+LOCAL_SRC_FILES += memcpy.c
+
+include $(BUILD_NANOHUB_APP_STATIC_LIBRARY)

@@ -14,13 +14,16 @@
 # limitations under the License.
 #
 
-# settings that apps and OS both want to know about variant
+include $(NANO_BUILD)/common_config.mk
 
-VENDOR := google
-VARIANT := lunchbox
-CPU := cortexm4
-CHIP := stm32f411
-PLATFORM := stm32
+LOCAL_CFLAGS += \
+    -g \
+    -ggdb3 \
+    -D_OS_BUILD_ \
+    -O2
 
-# VARIANT_PATH is relative to ANDROID TOP
-VARIANT_PATH := device/google/contexthub/firmware/variant/$(VARIANT)
+LOCAL_CFLAGS_x86 += \
+    -m32
+
+LOCAL_NANO_MODULE_TYPE := BL
+LOCAL_FORCE_STATIC_EXECUTABLE := true

@@ -21,7 +21,6 @@
 extern "C" {
 #endif
 
-#define PLATFORM_HOST_INTF_I2C_BUS 0
 #define PLATFORM_HW_TYPE  0x8086
 
 #define PLAT_HAS_NO_U_TYPES_H

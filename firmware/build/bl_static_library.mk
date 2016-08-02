@@ -14,13 +14,13 @@
 # limitations under the License.
 #
 
-# settings that apps and OS both want to know about variant
+include $(NANOHUB_BL_CONFIG)
 
-VENDOR := google
-VARIANT := lunchbox
-CPU := cortexm4
-CHIP := stm32f411
-PLATFORM := stm32
+my_variants := $(LOCAL_NANO_VARIANT_LIST)
 
-# VARIANT_PATH is relative to ANDROID TOP
-VARIANT_PATH := device/google/contexthub/firmware/variant/$(VARIANT)
+ifeq ($(strip $(my_variants)),)
+# default is to use all variants supported by this OS
+my_variants := $(AUX_OS_VARIANT_LIST_$(NANO_OS))
+endif
+
+$(call for-each-variant,$(my_variants),BL,$(NANO_BUILD)/nanohub_static_library.mk)

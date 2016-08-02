@@ -14,13 +14,11 @@
 # limitations under the License.
 #
 
-# settings that apps and OS both want to know about variant
+include $(BUILD_SYSTEM)/aux_toolchain.mk
 
-VENDOR := google
-VARIANT := lunchbox
-CPU := cortexm4
-CHIP := stm32f411
-PLATFORM := stm32
+ifeq ($(AUX_BUILD_NOT_COMPATIBLE),)
 
-# VARIANT_PATH is relative to ANDROID TOP
-VARIANT_PATH := device/google/contexthub/firmware/variant/$(VARIANT)
+include $(NANO_BUILD)/config_internal.mk
+include $(BUILD_AUX_STATIC_LIBRARY)
+
+endif # AUX_BUILD_NOT_COMPATIBLE

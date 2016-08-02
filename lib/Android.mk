@@ -25,6 +25,17 @@ src_files := \
 src_includes := \
     $(LOCAL_PATH)/include \
 
+include $(CLEAR_NANO_VARS)
+
+LOCAL_MODULE := libnanohub_common_bl
+LOCAL_MODULE_TAGS := optional
+
+LOCAL_SRC_FILES := $(src_files)
+LOCAL_C_INCLUDES := $(src_includes)
+LOCAL_EXPORT_C_INCLUDE_DIRS := $(src_includes)
+
+include $(BUILD_NANOHUB_BL_STATIC_LIBRARY)
+
 include $(CLEAR_VARS)
 
 LOCAL_MODULE := libnanohub_common

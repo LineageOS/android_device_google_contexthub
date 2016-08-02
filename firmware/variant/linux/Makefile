@@ -2,4 +2,4 @@ include linux_conf.mk
 
 SRC_PATH=../..
 
-include $(SRC_PATH)/src/variant/variant.mk
+include $(SRC_PATH)/variant/variant.mk

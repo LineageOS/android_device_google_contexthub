@@ -27,8 +27,7 @@ LOCAL_MODULE:= nanoapp_cmd
 LOCAL_MODULE_TAGS:= optional
 LOCAL_MODULE_OWNER := google
 
-LOCAL_LDLIBS := \
-	-L$(SYSROOT)/usr/lib -llog
+LOCAL_LDLIBS := -llog
 
 LOCAL_SHARED_LIBRARIES := \
 	libutils \

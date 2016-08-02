@@ -74,4 +74,4 @@ SECTIONS
 	} > ram
 }
 
-ENTRY(__BL_VECTORS)
+ENTRY(_BL)

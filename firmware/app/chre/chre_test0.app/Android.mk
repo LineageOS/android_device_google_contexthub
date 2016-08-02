@@ -14,13 +14,24 @@
 # limitations under the License.
 #
 
-# settings that apps and OS both want to know about variant
+LOCAL_PATH := $(call my-dir)
 
-VENDOR := google
-VARIANT := lunchbox
-CPU := cortexm4
-CHIP := stm32f411
-PLATFORM := stm32
+include $(CLEAR_NANO_VARS)
 
-# VARIANT_PATH is relative to ANDROID TOP
-VARIANT_PATH := device/google/contexthub/firmware/variant/$(VARIANT)
+LOCAL_MODULE := chre_test0
+LOCAL_MODULE_TAGS := optional
+
+# Googl + T + 0x9000
+LOCAL_NANO_APP_ID := 476f6f676c549000
+LOCAL_NANO_APP_VERSION := 0
+
+LOCAL_WHOLE_STATIC_LIBRARIES := \
+    libnanochre                 \
+
+LOCAL_STATIC_LIBRARIES :=       \
+    libnanolibc                 \
+    libnanolibm                 \
+
+LOCAL_SRC_FILES := main.c
+
+include $(BUILD_NANOHUB_APP_EXECUTABLE)

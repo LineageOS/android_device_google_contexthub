@@ -14,13 +14,14 @@
 # limitations under the License.
 #
 
-# settings that apps and OS both want to know about variant
+# used by NANOAPP and NANOHUB OS
+LOCAL_NANO_MODULE_TYPE :=
+LOCAL_NANO_IS_VARIANT :=
 
-VENDOR := google
-VARIANT := lunchbox
-CPU := cortexm4
-CHIP := stm32f411
-PLATFORM := stm32
+# used by NANOAPP only
+LOCAL_NANO_APP_ID :=
+LOCAL_NANO_APP_VERSION :=
+LOCAL_NANO_APP_NO_POSTPROCESS :=
+LOCAL_NANO_APP_UNSIGNED :=
 
-# VARIANT_PATH is relative to ANDROID TOP
-VARIANT_PATH := device/google/contexthub/firmware/variant/$(VARIANT)
+include $(CLEAR_VARS)

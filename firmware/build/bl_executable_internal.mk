@@ -14,13 +14,14 @@
 # limitations under the License.
 #
 
-# settings that apps and OS both want to know about variant
+ifeq ($(strip $(NANO_VARIANT_NO_BOOTLOADER_$(AUX_OS_VARIANT))),)
 
-VENDOR := google
-VARIANT := lunchbox
-CPU := cortexm4
-CHIP := stm32f411
-PLATFORM := stm32
+LOCAL_WHOLE_STATIC_LIBRARIES += libnanohub_bl_$(AUX_CPU)
+LOCAL_WHOLE_STATIC_LIBRARIES += libnanohub_bl_$(AUX_ARCH)
+LOCAL_WHOLE_STATIC_LIBRARIES += $(NANO_VARIANT_BLCFG_STATIC_LIBRARIES_$(AUX_OS_VARIANT))
 
-# VARIANT_PATH is relative to ANDROID TOP
-VARIANT_PATH := device/google/contexthub/firmware/variant/$(VARIANT)
+LOCAL_SRC_FILES += $(NANO_VARIANT_BLCFG_SRC_FILES_$(AUX_OS_VARIANT))
+
+include $(BUILD_NANOHUB_EXECUTABLE)
+
+endif
