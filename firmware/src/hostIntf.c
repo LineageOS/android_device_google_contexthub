@@ -798,6 +798,29 @@ static uint32_t encodeDeltaTime(uint64_t time)
     return deltaTime;
 }
 
+static int enqueueSensorBufferEx(struct ActiveSensor *sensor, bool doResetOnError)
+{
+    bool queued = simpleQueueEnqueue(mOutputQ, &sensor->buffer,
+                                     sizeof(uint32_t) + sensor->buffer.length, sensor->discard);
+
+    if (!queued) {
+        if (!doResetOnError)
+            return -1;
+        // undo counters if failed to add buffer
+        if (sensor->interrupt == NANOHUB_INT_WAKEUP)
+            mWakeupBlocks--;
+        else if (sensor->interrupt == NANOHUB_INT_NONWAKEUP)
+            mNonWakeupBlocks--;
+    }
+    resetBuffer(sensor);
+    return queued ? 1 : 0;
+}
+
+static inline int enqueueSensorBuffer(struct ActiveSensor *sensor)
+{
+    return enqueueSensorBufferEx(sensor, true);
+}
+
 static void copySingleSamples(struct ActiveSensor *sensor, const struct SingleAxisDataEvent *single)
 {
     int i;
@@ -806,8 +829,7 @@ static void copySingleSamples(struct ActiveSensor *sensor, const struct SingleAx
 
     for (i = 0; i < single->samples[0].firstSample.numSamples; i++) {
         if (sensor->buffer.firstSample.numSamples == sensor->packetSamples) {
-            simpleQueueEnqueue(mOutputQ, &sensor->buffer, sizeof(uint32_t) + sensor->buffer.length, sensor->discard);
-            resetBuffer(sensor);
+            enqueueSensorBuffer(sensor);
         }
 
         if (sensor->buffer.firstSample.numSamples == 0) {
@@ -831,12 +853,10 @@ static void copySingleSamples(struct ActiveSensor *sensor, const struct SingleAx
             if (i == 0) {
                 if (sensor->lastTime > single->referenceTime) {
                     // shouldn't happen. flush current packet
-                    simpleQueueEnqueue(mOutputQ, &sensor->buffer, sizeof(uint32_t) + sensor->buffer.length, sensor->discard);
-                    resetBuffer(sensor);
+                    enqueueSensorBuffer(sensor);
                     i--;
                 } else if (single->referenceTime - sensor->lastTime >= delta_time_max) {
-                    simpleQueueEnqueue(mOutputQ, &sensor->buffer, sizeof(uint32_t) + sensor->buffer.length, sensor->discard);
-                    resetBuffer(sensor);
+                    enqueueSensorBuffer(sensor);
                     i--;
                 } else {
                     deltaTime = encodeDeltaTime(single->referenceTime - sensor->lastTime);
@@ -872,8 +892,7 @@ static void copyTripleSamples(struct ActiveSensor *sensor, const struct TripleAx
 
     for (i = 0; i < triple->samples[0].firstSample.numSamples; i++) {
         if (sensor->buffer.firstSample.numSamples == sensor->packetSamples) {
-            simpleQueueEnqueue(mOutputQ, &sensor->buffer, sizeof(uint32_t) + sensor->buffer.length, sensor->discard);
-            resetBuffer(sensor);
+            enqueueSensorBuffer(sensor);
         }
 
         if (sensor->buffer.firstSample.numSamples == 0) {
@@ -905,12 +924,10 @@ static void copyTripleSamples(struct ActiveSensor *sensor, const struct TripleAx
             if (i == 0) {
                 if (sensor->lastTime > triple->referenceTime) {
                     // shouldn't happen. flush current packet
-                    simpleQueueEnqueue(mOutputQ, &sensor->buffer, sizeof(uint32_t) + sensor->buffer.length, sensor->discard);
-                    resetBuffer(sensor);
+                    enqueueSensorBuffer(sensor);
                     i--;
                 } else if (triple->referenceTime - sensor->lastTime >= delta_time_max) {
-                    simpleQueueEnqueue(mOutputQ, &sensor->buffer, sizeof(uint32_t) + sensor->buffer.length, sensor->discard);
-                    resetBuffer(sensor);
+                    enqueueSensorBuffer(sensor);
                     i--;
                 } else {
                     deltaTime = encodeDeltaTime(triple->referenceTime - sensor->lastTime);
@@ -964,14 +981,12 @@ static void copyTripleSamplesBias(struct ActiveSensor *sensor, const struct Trip
         // Bias needs to be sent with a different sensType, so enqueue any pending buffer, enqueue
         // bias with a different sensor type, then restore the sensType
         if (sensor->buffer.firstSample.numSamples > 0) {
-            simpleQueueEnqueue(mOutputQ, &sensor->buffer, sizeof(uint32_t) + sensor->buffer.length, sensor->discard);
-            resetBuffer(sensor);
+            enqueueSensorBuffer(sensor);
         }
         sensor->buffer.sensType = sensor->biasReportType;
         copyTripleSamples(sensor, triple);
         if (sensor->buffer.firstSample.numSamples > 0) {
-            simpleQueueEnqueue(mOutputQ, &sensor->buffer, sizeof(uint32_t) + sensor->buffer.length, sensor->discard);
-            resetBuffer(sensor);
+            enqueueSensorBuffer(sensor);
         }
         sensor->buffer.sensType = sensType;
     }
@@ -992,8 +1007,7 @@ static void copyTripleSamplesRaw(struct ActiveSensor *sensor, const struct Tripl
 
     for (i = 0; i < triple->samples[0].firstSample.numSamples; i++) {
         if (sensor->buffer.firstSample.numSamples == sensor->packetSamples) {
-            simpleQueueEnqueue(mOutputQ, &sensor->buffer, sizeof(uint32_t) + sensor->buffer.length, sensor->discard);
-            resetBuffer(sensor);
+            enqueueSensorBuffer(sensor);
         }
 
         if (sensor->buffer.firstSample.numSamples == 0) {
@@ -1019,12 +1033,10 @@ static void copyTripleSamplesRaw(struct ActiveSensor *sensor, const struct Tripl
             if (i == 0) {
                 if (sensor->lastTime > triple->referenceTime) {
                     // shouldn't happen. flush current packet
-                    simpleQueueEnqueue(mOutputQ, &sensor->buffer, sizeof(uint32_t) + sensor->buffer.length, sensor->discard);
-                    resetBuffer(sensor);
+                    enqueueSensorBuffer(sensor);
                     i--;
                 } else if (triple->referenceTime - sensor->lastTime >= delta_time_max) {
-                    simpleQueueEnqueue(mOutputQ, &sensor->buffer, sizeof(uint32_t) + sensor->buffer.length, sensor->discard);
-                    resetBuffer(sensor);
+                    enqueueSensorBuffer(sensor);
                     i--;
                 } else {
                     deltaTime = encodeDeltaTime(triple->referenceTime - sensor->lastTime);
@@ -1056,8 +1068,11 @@ static void copyTripleSamplesRaw(struct ActiveSensor *sensor, const struct Tripl
     }
 }
 
-static void hostIntfAddBlock(struct HostIntfDataBuffer *data)
+static void hostIntfAddBlock(struct HostIntfDataBuffer *data, bool discardable)
 {
+    if (!simpleQueueEnqueue(mOutputQ, data, sizeof(uint32_t) + data->length, discardable))
+        return;
+
     if (data->interrupt == NANOHUB_INT_WAKEUP)
         mWakeupBlocks++;
     else if (data->interrupt == NANOHUB_INT_NONWAKEUP)
@@ -1108,8 +1123,10 @@ static void fakeFlush(struct ConfigCmd *cmd)
     buffer->sensType = cmd->sensType;
     buffer->length = sizeof(buffer->referenceTime) + sizeof(struct SensorFirstSample);
     buffer->interrupt = NANOHUB_INT_WAKEUP;
+    mWakeupBlocks++;
     buffer->firstSample.numFlushes = 1;
-    simpleQueueEnqueue(mOutputQ, buffer, size, false);
+    if (!simpleQueueEnqueue(mOutputQ, buffer, size, false))
+        mWakeupBlocks--;
 }
 
 static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
@@ -1142,8 +1159,7 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
             data->dataType = HOSTINTF_DATA_TYPE_RESET_REASON;
             data->interrupt = NANOHUB_INT_WAKEUP;
             memcpy(data->buffer, &reason, sizeof(reason));
-            simpleQueueEnqueue(mOutputQ, data, sizeof(uint32_t) + data->length, false);
-            hostIntfAddBlock(data);
+            hostIntfAddBlock(data, false);
             hostIntfNotifyReboot(reason);
         }
     } else if (evtType == EVT_APP_TO_HOST) {
@@ -1155,8 +1171,7 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
             data->dataType = HOSTINTF_DATA_TYPE_APP_TO_HOST;
             data->interrupt = NANOHUB_INT_WAKEUP;
             memcpy(data->buffer, evtData, data->length);
-            simpleQueueEnqueue(mOutputQ, data, sizeof(uint32_t) + data->length, false);
-            hostIntfAddBlock(data);
+            hostIntfAddBlock(data, false);
         }
     } else if (evtType == EVT_APP_FROM_HOST) {
         halMsg = evtData;
@@ -1167,8 +1182,7 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
     else if (evtType == EVT_DEBUG_LOG) {
         data = (struct HostIntfDataBuffer *)evtData;
         if (data->sensType == SENS_TYPE_INVALID && data->dataType == HOSTINTF_DATA_TYPE_LOG) {
-            simpleQueueEnqueue(mOutputQ, evtData, sizeof(uint32_t) + data->length, true);
-            hostIntfAddBlock(data);
+            hostIntfAddBlock(data, true);
         }
     }
 #endif
@@ -1221,9 +1235,8 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
                     sensor->oneshot = false;
                     sensor->sensorHandle = 0;
                     if (sensor->buffer.length) {
-                        simpleQueueEnqueue(mOutputQ, &sensor->buffer, sizeof(uint32_t) + sensor->buffer.length, sensor->discard);
+                        enqueueSensorBuffer(sensor);
                         hostIntfSetInterrupt(sensor->interrupt);
-                        resetBuffer(sensor);
                     }
                 }
             } else if (cmd->cmd == CONFIG_CMD_ENABLE) {
@@ -1272,24 +1285,20 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
             if (evtData == SENSOR_DATA_EVENT_FLUSH) {
                 queueFlush(sensor);
             } else {
-                if (sensor->buffer.length > 0) {
-                    if (sensor->buffer.firstSample.numFlushes > 0) {
-                        if (!(simpleQueueEnqueue(mOutputQ, &sensor->buffer, sizeof(uint32_t) + sensor->buffer.length, sensor->discard)))
-                            return; // flushes more important than samples
-                        else
-                            resetBuffer(sensor);
-                    } else if (sensor->buffer.firstSample.numSamples == sensor->packetSamples) {
-                        simpleQueueEnqueue(mOutputQ, &sensor->buffer, sizeof(uint32_t) + sensor->buffer.length, sensor->discard);
-                        resetBuffer(sensor);
-                    }
+                bool haveFlush = sensor->buffer.firstSample.numFlushes > 0;
+                if (sensor->buffer.length > 0 &&
+                    (haveFlush || sensor->buffer.firstSample.numSamples == sensor->packetSamples)) {
+                    // processing will be aborted if we have pending flush and are not able to send;
+                    // in this case, send eventually will be retried, otherwise data will be lost.
+                    if (enqueueSensorBufferEx(sensor, !haveFlush) < 0)
+                        return;
                 }
 
                 switch (sensor->numAxis) {
                 case NUM_AXIS_EMBEDDED:
                     sensorTime = sensorGetTime();
                     if (sensor->buffer.length > 0 && sensorTime - sensor->lastTime >= delta_time_max) {
-                        simpleQueueEnqueue(mOutputQ, &sensor->buffer, sizeof(uint32_t) + sensor->buffer.length, sensor->discard);
-                        resetBuffer(sensor);
+                        enqueueSensorBuffer(sensor);
                     }
                     if (sensor->buffer.length == 0) {
                         sensor->buffer.length = sizeof(struct SingleAxisDataEvent) + sizeof(struct SingleAxisDataPoint);
