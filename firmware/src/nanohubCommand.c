@@ -856,10 +856,11 @@ static uint32_t readEvent(void *rx, uint8_t rx_len, void *tx, uint64_t timestamp
         return totLength;
     }
 
+    wakeup = atomicRead32bits(&mTxWakeCnt[0]);
+    nonwakeup = atomicRead32bits(&mTxWakeCnt[1]);
+
     if (mTxNextLength > 0) {
         length = mTxNextLength;
-        wakeup = atomicRead32bits(&mTxWakeCnt[0]);
-        nonwakeup = atomicRead32bits(&mTxWakeCnt[1]);
         memcpy(buf, &mTxNext, length);
         totLength = length;
         mTxNextLength = 0;
