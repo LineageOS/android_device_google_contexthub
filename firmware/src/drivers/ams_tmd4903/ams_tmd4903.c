@@ -36,7 +36,7 @@
 #include <variant/inc/variant.h>
 
 #define AMS_TMD4903_APP_ID      APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, 12)
-#define AMS_TMD4903_APP_VERSION 13
+#define AMS_TMD4903_APP_VERSION 14
 
 #ifndef PROX_INT_PIN
 #error "PROX_INT_PIN is not defined; please define in variant.h"
@@ -124,7 +124,7 @@
 #define AMS_TMD4903_REPORT_NEAR_VALUE          0.0f // centimeters
 #define AMS_TMD4903_REPORT_FAR_VALUE           5.0f // centimeters
 #define AMS_TMD4903_PROX_THRESHOLD_HIGH        350  // value in PS_DATA
-#define AMS_TMD4903_PROX_THRESHOLD_LOW         250  // value in PS_DATA
+#define AMS_TMD4903_PROX_THRESHOLD_LOW         150  // value in PS_DATA
 
 #define AMS_TMD4903_ALS_INVALID                UINT32_MAX
 
@@ -789,7 +789,9 @@ static void handleProxSample(const struct AlsProxTransfer *xfer)
         sample.fdata = ps;
         osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_PROX), sample.vptr, NULL);
 #else
-        if (ps > AMS_TMD4903_PROX_THRESHOLD_HIGH) {
+        // Lower the bar for "near" threshold so it reports "near" when the prox
+        // value is within the hysteresis threshold
+        if (ps > AMS_TMD4903_PROX_THRESHOLD_LOW) {
             sample.fdata = AMS_TMD4903_REPORT_NEAR_VALUE;
             mTask.lastProxState = PROX_STATE_NEAR;
         } else {
