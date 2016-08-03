@@ -25,12 +25,13 @@
 #include <nanohubPacket.h>
 #include <sensors.h>
 #include <seos.h>
+#include <slab.h>
 #include <timer.h>
 #include <util.h>
 
 #define BMP280_APP_ID APP_ID_MAKE(NANOHUB_VENDOR_GOOGLE, 5)
 
-#define BMP280_APP_VERSION 2
+#define BMP280_APP_VERSION 3
 
 #define I2C_BUS_ID                      0
 #define I2C_SPEED                       400000
@@ -47,6 +48,10 @@
 
 #define BOSCH_BMP280_MAX_PENDING_I2C_REQUESTS   4
 #define BOSCH_BMP280_MAX_I2C_TRANSFER_SIZE      24
+
+// This defines how many baro events we could handle being backed up in the
+// queue. Use this to size our slab
+#define MAX_BARO_EVENTS  4
 
 // temp: 2x oversampling, baro: 16x oversampling, power: normal
 #define CTRL_ON    ((2 << 5) | (5 << 2) | 3)
@@ -93,6 +98,8 @@ struct I2cTransfer
 static struct BMP280Task
 {
     struct BMP280CompParams comp;
+
+    struct SlabAllocator *evtSlab;
 
     uint32_t id;
     uint32_t baroHandle;
@@ -187,6 +194,31 @@ static bool writeRegister(uint8_t reg, uint8_t value, uint8_t state)
     }
 
     return (ret == 0);
+}
+
+static bool baroAllocateEvt(struct SingleAxisDataEvent **evPtr, float sample, uint64_t time)
+{
+    struct SingleAxisDataEvent *ev;
+
+    *evPtr = slabAllocatorAlloc(mTask.evtSlab);
+
+    ev = *evPtr;
+    if (!ev) {
+        osLog(LOG_ERROR, "[BMP280] slabAllocatorAlloc() failed\n");
+        return false;
+    }
+
+    memset(&ev->samples[0].firstSample, 0x00, sizeof(struct SensorFirstSample));
+    ev->referenceTime = time;
+    ev->samples[0].firstSample.numSamples = 1;
+    ev->samples[0].fdata = sample;
+
+    return true;
+}
+
+static void baroFreeEvt(void *ptr)
+{
+    slabAllocatorFree(mTask.evtSlab, ptr);
 }
 
 /* sensor callbacks from nanohub */
@@ -344,7 +376,7 @@ static const struct SensorInfo sensorInfoBaro =
     .sensorName = "Pressure",
     .supportedRates = baroSupportedRates,
     .sensorType = SENS_TYPE_BARO,
-    .numAxis = NUM_AXIS_EMBEDDED,
+    .numAxis = NUM_AXIS_ONE,
     .interrupt = NANOHUB_INT_NONWAKEUP,
     .minSamples = 300
 };
@@ -425,7 +457,9 @@ static void getTempAndBaro(const uint8_t *tmp, float *pressure_Pa, float *temp_c
 
 static void handleI2cEvent(struct I2cTransfer *xfer)
 {
-    union EmbeddedDataPoint sample;
+    union EmbeddedDataPoint embeddedSample;
+    struct SingleAxisDataEvent *baroSample;
+
     struct I2cTransfer *newXfer;
 
     switch (xfer->state) {
@@ -507,14 +541,17 @@ static void handleI2cEvent(struct I2cTransfer *xfer)
 
                     writeRegister(BOSCH_BMP280_REG_CTRL_MEAS, CTRL_SLEEP, STATE_IDLE);
                 } else {
-                    sample.fdata = pressure_Pa * 0.01f;
-                    osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_BARO), sample.vptr, NULL);
+                    if (baroAllocateEvt(&baroSample, pressure_Pa * 0.01f, sensorGetTime())) {
+                        if (!osEnqueueEvtOrFree(EVENT_TYPE_BIT_DISCARDABLE | sensorGetMyEventType(SENS_TYPE_BARO), baroSample, baroFreeEvt)) {
+                            osLog(LOG_ERROR, "[BMP280] failed to enqueue baro sample\n");
+                        }
+                    }
                 }
             }
 
             if (mTask.tempOn && mTask.tempReading) {
-                sample.fdata = temp_centigrade;
-                osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_TEMP), sample.vptr, NULL);
+                embeddedSample.fdata = temp_centigrade;
+                osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_TEMP), embeddedSample.vptr, NULL);
             }
 
             mTask.baroReading = false;
@@ -592,6 +629,12 @@ static bool startTask(uint32_t taskId)
     mTask.baroHandle = sensorRegister(&sensorInfoBaro, &sensorOpsBaro, NULL, false);
     mTask.tempHandle = sensorRegister(&sensorInfoTemp, &sensorOpsTemp, NULL, false);
 
+    mTask.evtSlab = slabAllocatorNew(sizeof(struct SingleAxisDataEvent) + sizeof(struct SingleAxisDataPoint), 4, MAX_BARO_EVENTS);
+    if (!mTask.evtSlab) {
+        osLog(LOG_ERROR, "[BMP280] slabAllocatorNew() failed\n");
+        return false;
+    }
+
     osEventSubscribe(taskId, EVT_APP_START);
 
     return true;
@@ -599,7 +642,7 @@ static bool startTask(uint32_t taskId)
 
 static void endTask(void)
 {
-
+    slabAllocatorDestroy(mTask.evtSlab);
 }
 
 INTERNAL_APP_INIT(BMP280_APP_ID, BMP280_APP_VERSION, startTask, endTask, handleEvent);
