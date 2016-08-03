@@ -220,7 +220,7 @@ void* NanoHub::doRun()
     while (1) {
         int ret = poll(myFds, numPollFds, -1);
         if (ret <= 0) {
-            ALOGD("poll is being weird");
+            ALOGD("poll returned with an error: %s", strerror(errno));
             continue;
         }
 
