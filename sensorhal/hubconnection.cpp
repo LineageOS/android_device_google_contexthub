@@ -88,6 +88,11 @@ HubConnection *HubConnection::getInstance()
     return sInstance;
 }
 
+static bool isActivitySensor(int sensorIndex) {
+    return sensorIndex >= COMMS_SENSOR_ACTIVITY_FIRST
+        && sensorIndex <= COMMS_SENSOR_ACTIVITY_LAST;
+}
+
 HubConnection::HubConnection()
     : Thread(false /* canCallJava */),
       mRing(10 *1024),
@@ -172,8 +177,6 @@ HubConnection::HubConnection()
     mSensorState[COMMS_SENSOR_HALL].rate = SENSOR_RATE_ONCHANGE;
     mSensorState[COMMS_SENSOR_SYNC].sensorType = SENS_TYPE_VSYNC;
     mSensorState[COMMS_SENSOR_SYNC].rate = SENSOR_RATE_ONCHANGE;
-    mSensorState[COMMS_SENSOR_ACTIVITY].sensorType = SENS_TYPE_ACTIVITY;
-    mSensorState[COMMS_SENSOR_ACTIVITY].rate = SENSOR_RATE_ONCHANGE;
     mSensorState[COMMS_SENSOR_TILT].sensorType = SENS_TYPE_TILT;
     mSensorState[COMMS_SENSOR_TILT].rate = SENSOR_RATE_ONCHANGE;
     mSensorState[COMMS_SENSOR_GESTURE].sensorType = SENS_TYPE_GESTURE;
@@ -439,9 +442,19 @@ void HubConnection::processSample(uint64_t timestamp, uint32_t type, uint32_t se
     int cnt = 0;
 
     switch (sensor) {
-    case COMMS_SENSOR_ACTIVITY:
+    case COMMS_SENSOR_ACTIVITY_IN_VEHICLE_START:
+    case COMMS_SENSOR_ACTIVITY_IN_VEHICLE_STOP:
+    case COMMS_SENSOR_ACTIVITY_ON_BICYCLE_START:
+    case COMMS_SENSOR_ACTIVITY_ON_BICYCLE_STOP:
+    case COMMS_SENSOR_ACTIVITY_WALKING_START:
+    case COMMS_SENSOR_ACTIVITY_WALKING_STOP:
+    case COMMS_SENSOR_ACTIVITY_RUNNING_START:
+    case COMMS_SENSOR_ACTIVITY_RUNNING_STOP:
+    case COMMS_SENSOR_ACTIVITY_STILL_START:
+    case COMMS_SENSOR_ACTIVITY_STILL_STOP:
+    case COMMS_SENSOR_ACTIVITY_TILTING:
         if (mActivityEventHandler != NULL) {
-            mActivityEventHandler->OnActivityEvent(sample->idata & 0x7,
+            mActivityEventHandler->OnActivityEvent(sensor, sample->idata & 0xff,
                                                    timestamp);
         }
         break;
@@ -726,6 +739,10 @@ void HubConnection::restoreSensorState()
     }
 
     mStepCounterOffset = mLastStepCount;
+
+    if (mActivityEventHandler != NULL) {
+        mActivityEventHandler->OnSensorHubReset();
+    }
 }
 
 void HubConnection::postOsLog(uint8_t *buf, ssize_t len)
@@ -874,11 +891,6 @@ ssize_t HubConnection::processBuf(uint8_t *buf, ssize_t len)
             sensor = COMMS_SENSOR_SYNC;
             one = true;
             break;
-        case SENS_TYPE_TO_EVENT(SENS_TYPE_ACTIVITY):
-            type = 0;
-            sensor = COMMS_SENSOR_ACTIVITY;
-            one = true;
-            break;
         case SENS_TYPE_TO_EVENT(SENS_TYPE_TILT):
             type = SENSOR_TYPE_TILT_DETECTOR;
             sensor = COMMS_SENSOR_TILT;
@@ -1002,10 +1014,8 @@ ssize_t HubConnection::processBuf(uint8_t *buf, ssize_t len)
             ret += sizeof(data->firstSample);
 
         for (i=0; i<data->firstSample.numFlushes; i++) {
-            if (sensor == COMMS_SENSOR_ACTIVITY) {
-                if (mActivityEventHandler != NULL) {
-                    mActivityEventHandler->OnFlush();
-                }
+            if (isActivitySensor(sensor) && mActivityEventHandler != NULL) {
+                mActivityEventHandler->OnFlush();
             } else {
                 memset(&ev, 0x00, sizeof(sensors_event_t));
                 ev.version = META_DATA_VERSION;
