@@ -232,6 +232,9 @@ private:
     void restoreSensorState();
     void sendCalibrationOffsets();
 
+    // Enable SCHED_FIFO priority for main thread
+    void enableSchedFifoMode();
+
 #ifdef LID_STATE_REPORTING_ENABLED
     int mUinputFd;
 
