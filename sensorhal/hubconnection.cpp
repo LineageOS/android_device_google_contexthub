@@ -34,6 +34,7 @@
 #include <linux/input.h>
 #include <linux/uinput.h>
 #include <media/stagefright/foundation/ADebug.h>
+#include <sched.h>
 #include <sys/inotify.h>
 
 #define APP_ID_GET_VENDOR(appid)       ((appid) >> 24)
@@ -60,6 +61,8 @@
 #define ACCEL_RAW_KSCALE        (8.0f * 9.81f / 32768.0f)
 
 #define OS_LOG_EVENT            0x474F4C41  // ascii: ALOG
+
+#define HUBCONNECTION_SCHED_FIFO_PRIORITY 10
 
 #ifdef LID_STATE_REPORTING_ENABLED
 const char LID_STATE_PROPERTY[] = "sensors.contexthub.lid_state";
@@ -227,6 +230,16 @@ HubConnection::~HubConnection()
 void HubConnection::onFirstRef()
 {
     run("HubConnection", PRIORITY_URGENT_DISPLAY);
+    enableSchedFifoMode();
+}
+
+// Set main thread to SCHED_FIFO to lower sensor event latency when system is under load
+void HubConnection::enableSchedFifoMode() {
+    struct sched_param param = {0};
+    param.sched_priority = HUBCONNECTION_SCHED_FIFO_PRIORITY;
+    if (sched_setscheduler(getTid(), SCHED_FIFO | SCHED_RESET_ON_FORK, &param) != 0) {
+        ALOGE("Couldn't set SCHED_FIFO for HubConnection thread");
+    }
 }
 
 status_t HubConnection::initCheck() const
