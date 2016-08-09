@@ -15,9 +15,9 @@ else
 ifneq ($(filter $(TOP_ABSPATH)/out/target/product/%,$(OUT)),)
 # this looks like Android OUT env var; update it
 OUT:=$(OUT)/nanohub/$(VARIANT)
-MAKE_OUT:=$(OUT)
 IMAGE_TARGET_OUT:=vendor/firmware/nanohub.full.bin
 endif
+MAKE_OUT:=$(OUT)
 endif
 
 .PHONY: all clean sync
