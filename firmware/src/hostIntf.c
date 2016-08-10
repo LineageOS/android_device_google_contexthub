@@ -1360,7 +1360,7 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
             case NUM_AXIS_THREE:
                 if (((const struct TripleAxisDataEvent *)evtData)->samples[0].firstSample.biasPresent) {
                     copyTripleSamplesBias(sensor, evtData);
-                    nanohubPrefetchTx(sensor->interrupt, mWakeupBlocks, mNonWakeupBlocks);
+                    nanohubPrefetchTx(HOSTINTF_MAX_INTERRUPTS, mWakeupBlocks, mNonWakeupBlocks);
                 }
                 break;
             default:
