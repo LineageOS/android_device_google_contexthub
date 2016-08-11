@@ -1433,7 +1433,7 @@ static void onEvtSensorDataInactive(struct ActiveSensor *sensor, uint32_t evtTyp
         case NUM_AXIS_THREE:
             if (((const struct TripleAxisDataEvent *)evtData)->samples[0].firstSample.biasPresent) {
                 copyTripleSamplesBias(sensor, evtData);
-                nanohubPrefetchTx(sensor->interrupt, mWakeupBlocks, mNonWakeupBlocks);
+                nanohubPrefetchTx(HOSTINTF_MAX_INTERRUPTS, mWakeupBlocks, mNonWakeupBlocks);
             }
             break;
         }
