@@ -1,5 +1,6 @@
 include lunchbox_conf.mk
 
-SRC_PATH=../..
+SRC_PATH := ../..
+OUT := out/nanohub/$(VARIANT)
 
-include $(SRC_PATH)/src/variant/variant.mk
+include $(SRC_PATH)/variant/variant.mk
