@@ -42,12 +42,22 @@ TOP_ABSPATH := $(realpath $(NANOHUB_DIR)/$(TOP_RELPATH))
 
 # for local variants there is always a path; for out-of-tree variants there may be
 # - a $(VARIANT) soft link under firmware/variant subdir, or
-# - VARIANT_PATH must be defined as ANDROID_TOP-relative variant path in APP Makefile
-VARIANT_PATH ?= device/google/contexthub/firmware/variant/$(VARIANT)
+# - VARIANT_PATH is found as vendor/<vendor_name>/<variant_name>/nanohub, or
+# - explicitly provided in VARIANT_CONFIG_PATH (path, where <variant>_conf.mk is located)
+#
+ifeq ($(VARIANT_CONFIG_PATH),)
+  variant_conf := $(wildcard $(TOP_ABSPATH)/vendor/*/$(VARIANT)/nanohub/$(VARIANT)_conf.mk)
+  ifeq ($(words $(variant_conf)),1)
+    VARIANT_CONFIG_PATH := $(patsubst $(TOP_ABSPATH)/%/$(VARIANT)_conf.mk,%,$(variant_conf))
+  else
+    VARIANT_CONFIG_PATH := device/google/contexthub/firmware/variant/$(VARIANT)
+  endif
+endif
 
-# $(VARIANT)_conf.mk may defines VARIANT_PATH, PLATFORM, CHIP, CPU, VARIANT
-include $(TOP_ABSPATH)/device/google/contexthub/firmware/variant/$(VARIANT)/$(VARIANT)_conf.mk
-# VARIANT_PATH from conf.mk is ANDROID_TOP relative
+include $(TOP_ABSPATH)/$(VARIANT_CONFIG_PATH)/$(VARIANT)_conf.mk
+
+# $(VARIANT)_conf.mk defines VARIANT_PATH, PLATFORM, CHIP, CPU, VARIANT
+# VARIANT_PATH from $(VARIANT)_conf.mk is ANDROID_TOP relative
 
 # change VARIANT_PATH to become CWD-relative
 VARIANT_PATH := $(NANOHUB_DIR)/$(TOP_RELPATH)/$(VARIANT_PATH)
