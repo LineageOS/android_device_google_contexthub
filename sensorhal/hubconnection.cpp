@@ -1261,12 +1261,13 @@ void HubConnection::queueFlush(int handle)
         cmd.cmd = CONFIG_CMD_FLUSH;
 
         ret = TEMP_FAILURE_RETRY(write(mFd, &cmd, sizeof(cmd)));
-        if (ret == sizeof(cmd))
+        if (ret == sizeof(cmd)) {
             ALOGI("queueFlush: sensor=%d, handle=%d",
                     cmd.sensorType, handle);
-        else
-            ALOGE("queueFlush: failed to send command: sensor=%d, handle=%d",
-                    cmd.sensorType, handle);
+        } else {
+            ALOGE("queueFlush: failed to send command: sensor=%d, handle=%d"
+                  " with error %s", cmd.sensorType, handle, strerror(errno));
+        }
     } else {
         ALOGI("queueFlush: unhandled handle=%d", handle);
     }
