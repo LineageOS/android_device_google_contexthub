@@ -32,6 +32,7 @@ static const int kVersionMinor = 0;
 // The maximum delta between events at which point their timestamps are to be
 // considered equal.
 static const int64_t kEventTimestampThresholdNanos = 100000000; // 100ms.
+static const useconds_t kFlushDelayMicros = 10000; // 10ms.
 
 static const char *const kActivityList[] = {
     ACTIVITY_TYPE_IN_VEHICLE,
@@ -335,6 +336,7 @@ int ActivityContext::flush() {
     for (int i = COMMS_SENSOR_ACTIVITY_FIRST;
             i <= COMMS_SENSOR_ACTIVITY_LAST; i++) {
         mHubConnection->queueFlush(i);
+        usleep(kFlushDelayMicros);
     }
 
     return 0;
