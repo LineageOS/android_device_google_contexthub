@@ -46,7 +46,7 @@ TOP_ABSPATH := $(realpath $(NANOHUB_DIR)/$(TOP_RELPATH))
 # - explicitly provided in VARIANT_CONFIG_PATH (path, where <variant>_conf.mk is located)
 #
 ifeq ($(VARIANT_CONFIG_PATH),)
-  variant_conf := $(wildcard $(TOP_ABSPATH)/vendor/*/$(VARIANT)/nanohub/$(VARIANT)_conf.mk)
+  variant_conf := $(wildcard $(TOP_ABSPATH)/vendor/*/*/nanohub/$(VARIANT)_conf.mk)
   ifeq ($(words $(variant_conf)),1)
     VARIANT_CONFIG_PATH := $(patsubst $(TOP_ABSPATH)/%/$(VARIANT)_conf.mk,%,$(variant_conf))
   else
