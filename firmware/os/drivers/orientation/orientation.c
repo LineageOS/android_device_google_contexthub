@@ -29,6 +29,7 @@
 #include <nanohub_math.h>
 #include <algos/fusion.h>
 #include <sensors.h>
+#include <variant/inc/sensType.h>
 #include <limits.h>
 #include <slab.h>
 
@@ -51,6 +52,7 @@
 #define EVT_SENSOR_ACC_DATA_RDY     sensorGetMyEventType(SENS_TYPE_ACCEL)
 #define EVT_SENSOR_GYR_DATA_RDY     sensorGetMyEventType(SENS_TYPE_GYRO)
 #define EVT_SENSOR_MAG_DATA_RDY     sensorGetMyEventType(SENS_TYPE_MAG)
+#define EVT_SENSOR_MAG_BIAS         sensorGetMyEventType(SENS_TYPE_MAG_BIAS)
 
 #define kGravityEarth               9.80665f
 #define kRad2deg                    (180.0f / M_PI)
@@ -478,7 +480,7 @@ static void drainSamples()
         case MAG:
             initVec3(&m, mTask.samples[MAG][k].x, mTask.samples[MAG][k].y, mTask.samples[MAG][k].z);
 
-            fusionHandleMag(&mTask.fusion, &m);
+            fusionHandleMag(&mTask.fusion, &m, dT);
 
             --mTask.sample_counts[MAG];
             if (++k == MAX_NUM_SAMPLES)
@@ -589,6 +591,7 @@ static void fusionSetRateMag(void)
             if (sensorRequest(mTask.tid, mTask.magHandle, mTask.raw_sensor_rate[MAG],
                         mTask.raw_sensor_latency)) {
                 osEventSubscribe(mTask.tid, EVT_SENSOR_MAG_DATA_RDY);
+                osEventSubscribe(mTask.tid, EVT_SENSOR_MAG_BIAS);
                 break;
             }
         }
@@ -759,6 +762,13 @@ static void fusionHandleEvent(uint32_t evtType, const void* evtData)
         ev = (struct TripleAxisDataEvent *)evtData;
         fillSamples(ev, GYR);
         drainSamples();
+        break;
+    case EVT_SENSOR_MAG_BIAS:
+        ev = (struct TripleAxisDataEvent *)evtData;
+        if (ev->samples[0].firstSample.biasPresent && mTask.flags & FUSION_FLAG_ENABLED) {
+            //it is a user initiated mag cal event
+            fusionSetMagTrust(&mTask.fusion, MANUAL_MAG_CAL);
+        }
         break;
     case EVT_SENSOR_MAG_DATA_RDY:
         ev = (struct TripleAxisDataEvent *)evtData;
