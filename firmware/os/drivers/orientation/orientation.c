@@ -29,7 +29,7 @@
 #include <nanohub_math.h>
 #include <algos/fusion.h>
 #include <sensors.h>
-#include <variant/inc/sensType.h>
+#include <variant/sensType.h>
 #include <limits.h>
 #include <slab.h>
 
