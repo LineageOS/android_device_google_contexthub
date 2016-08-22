@@ -43,7 +43,7 @@
 #error "PROX_IRQ is not defined; please define in variant.h"
 #endif
 
-#define RPR0521_APP_VERSION 2
+#define RPR0521_APP_VERSION 3
 
 #define I2C_BUS_ID                              0
 #define I2C_SPEED                               400000
@@ -132,6 +132,9 @@ enum {
 
 #define ROHM_RPR0521_ALS_TIMER_DELAY            200000000ULL
 
+#define ROHM_RPR0521_MAX_PENDING_I2C_REQUESTS   4
+#define ROHM_RPR0521_MAX_I2C_TRANSFER_SIZE      16
+
 #define INFO_PRINT(fmt, ...) do { \
         osLog(LOG_INFO, "[Rohm RPR-0521] " fmt, ##__VA_ARGS__); \
     } while (0);
@@ -195,12 +198,17 @@ enum MeasurementTime {
     MEASUREMENT_TIME_ALS_50_PS_50               = 12,
 };
 
+struct I2cTransfer
+{
+  uint8_t txrxBuf[ROHM_RPR0521_MAX_I2C_TRANSFER_SIZE];
+  uint8_t state;
+  bool inUse;
+};
+
 struct SensorData
 {
     struct Gpio *pin;
     struct ChainedIsr isr;
-
-    uint8_t txrxBuf[16];
 
     uint32_t tid;
 
@@ -209,6 +217,8 @@ struct SensorData
     uint32_t alsTimerHandle;
 
     union EmbeddedDataPoint lastAlsSample;
+
+    struct I2cTransfer transfers[ROHM_RPR0521_MAX_PENDING_I2C_REQUESTS];
 
     uint8_t proxState; // enum ProxState
 
@@ -284,6 +294,40 @@ static void alsTimerCallback(uint32_t timerId, void *cookie)
     osEnqueuePrivateEvt(EVT_SENSOR_ALS_TIMER, cookie, NULL, mTask.tid);
 }
 
+// Allocate a buffer and mark it as in use with the given state, or return NULL
+// if no buffers available. Must *not* be called from interrupt context.
+static struct I2cTransfer *allocXfer(uint8_t state)
+{
+    size_t i;
+
+    for (i = 0; i < ARRAY_SIZE(mTask.transfers); i++) {
+        if (!mTask.transfers[i].inUse) {
+            mTask.transfers[i].inUse = true;
+            mTask.transfers[i].state = state;
+            return &mTask.transfers[i];
+        }
+    }
+
+    osLog(LOG_ERROR, "[BMP280]: Ran out of i2c buffers!");
+    return NULL;
+}
+
+// Helper function to write a one byte register. Returns true if we got a
+// successful return value from i2cMasterTx().
+static bool writeRegister(uint8_t reg, uint8_t value, uint8_t state)
+{
+    struct I2cTransfer *xfer = allocXfer(state);
+    int ret = -1;
+
+    if (xfer != NULL) {
+        xfer->txrxBuf[0] = reg;
+        xfer->txrxBuf[1] = value;
+        ret = i2cMasterTx(I2C_BUS_ID, I2C_ADDR, xfer->txrxBuf, 2, i2cCallback, xfer);
+    }
+
+    return (ret == 0);
+}
+
 static inline float getLuxFromAlsData(uint16_t als0, uint16_t als1)
 {
     static const float invGain[] = {1.0f, 0.5f, 1.0f / 64.0f, 1.0f / 128.0f};
@@ -312,8 +356,10 @@ static inline float getLuxFromAlsData(uint16_t als0, uint16_t als1)
     return c1 * d0 + c2 * d1;
 }
 
-static void setMode(bool alsOn, bool proxOn, void *cookie)
+static void setMode(bool alsOn, bool proxOn, uint8_t state)
 {
+    uint8_t ctrl;
+
     static const uint8_t measurementTime[] = {
         MEASUREMENT_TIME_ALS_STANDBY_PS_STANDBY, /* als disabled, prox disabled */
         MEASUREMENT_TIME_ALS_100_PS_100,         /* als enabled, prox disabled */
@@ -321,9 +367,8 @@ static void setMode(bool alsOn, bool proxOn, void *cookie)
         MEASUREMENT_TIME_ALS_100_PS_100,         /* als enabled, prox enabled */
     };
 
-    mTask.txrxBuf[0] = ROHM_RPR0521_REG_MODE_CONTROL;
-    mTask.txrxBuf[1] = measurementTime[alsOn ? 1 : 0 + proxOn ? 2 : 0] | (alsOn ? ALS_EN_BIT : 0) | (proxOn ? PS_EN_BIT : 0);
-    i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 2, &i2cCallback, cookie);
+    ctrl = measurementTime[alsOn ? 1 : 0 + proxOn ? 2 : 0] | (alsOn ? ALS_EN_BIT : 0) | (proxOn ? PS_EN_BIT : 0);
+    writeRegister(ROHM_RPR0521_REG_MODE_CONTROL, ctrl, state);
 }
 
 static bool sensorPowerAls(bool on, void *cookie)
@@ -340,7 +385,7 @@ static bool sensorPowerAls(bool on, void *cookie)
     mTask.lastAlsSample.idata = ROHM_RPR0521_ALS_INVALID;
     mTask.alsOn = on;
 
-    setMode(on, mTask.proxOn, (void *)(on ? SENSOR_STATE_ENABLING_ALS : SENSOR_STATE_DISABLING_ALS));
+    setMode(on, mTask.proxOn, (on ? SENSOR_STATE_ENABLING_ALS : SENSOR_STATE_DISABLING_ALS));
     return true;
 }
 
@@ -390,7 +435,7 @@ static bool sensorPowerProx(bool on, void *cookie)
     mTask.proxState = PROX_STATE_INIT;
     mTask.proxOn = on;
 
-    setMode(mTask.alsOn, on, (void *)(on ? SENSOR_STATE_ENABLING_PROX : SENSOR_STATE_DISABLING_PROX));
+    setMode(mTask.alsOn, on, (on ? SENSOR_STATE_ENABLING_PROX : SENSOR_STATE_DISABLING_PROX));
     return true;
 }
 
@@ -416,17 +461,25 @@ static bool sensorFlushProx(void *cookie)
 
 static bool sensorCfgDataProx(void *data, void *cookie)
 {
+    struct I2cTransfer *xfer;
+
     DEBUG_PRINT("sensorCfgDataProx");
 
     int32_t offset = *(int32_t*)data;
 
     INFO_PRINT("Received cfg data: %d\n", (int)offset);
 
-    mTask.txrxBuf[0] = ROHM_RPR0521_REG_PS_OFFSET_LSB;
-    mTask.txrxBuf[1] = offset & 0xFF;
-    mTask.txrxBuf[2] = (offset >> 8) & 0x3;
-    i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 3, &i2cCallback, (void *)SENSOR_STATE_IDLE);
-    return true;
+    xfer = allocXfer(SENSOR_STATE_IDLE);
+    if (xfer != NULL) {
+        xfer->txrxBuf[0] = ROHM_RPR0521_REG_PS_OFFSET_LSB;
+        xfer->txrxBuf[1] = offset & 0xFF;
+        xfer->txrxBuf[2] = (offset >> 8) & 0x3;
+        i2cMasterTx(I2C_BUS_ID, I2C_ADDR, xfer->txrxBuf, 3, &i2cCallback, xfer);
+
+        return true;
+    }
+
+    return false;
 }
 
 static bool sendLastSampleProx(void *cookie, uint32_t tid) {
@@ -496,58 +549,69 @@ static void __attribute__((unused)) sensorProxFree(void *ptr)
 {
 }
 
-static void handle_i2c_event(int state)
+static void handle_i2c_event(struct I2cTransfer *xfer)
 {
     union EmbeddedDataPoint sample;
     uint16_t als0, als1, ps;
     uint8_t lastProxState;
+    struct I2cTransfer *newXfer;
+    uint8_t regData;
 
-    switch (state) {
+    switch (xfer->state) {
     case SENSOR_STATE_RESET:
-        mTask.txrxBuf[0] = ROHM_RPR0521_REG_ID;
-        i2cMasterTxRx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 1,
-                        mTask.txrxBuf, 1, &i2cCallback,
-                        (void *)SENSOR_STATE_VERIFY_ID);
+        newXfer = allocXfer(SENSOR_STATE_VERIFY_ID);
+        if (newXfer != NULL) {
+            newXfer->txrxBuf[0] = ROHM_RPR0521_REG_ID;
+            i2cMasterTxRx(I2C_BUS_ID, I2C_ADDR, newXfer->txrxBuf, 1, newXfer->txrxBuf, 1, &i2cCallback, newXfer);
+        }
         break;
 
     case SENSOR_STATE_VERIFY_ID:
         /* Check the sensor ID */
-        if (mTask.txrxBuf[0] != ROHM_RPR0521_ID) {
+        if (xfer->txrxBuf[0] != ROHM_RPR0521_ID) {
             INFO_PRINT("not detected\n");
             sensorUnregister(mTask.alsHandle);
             sensorUnregister(mTask.proxHandle);
             break;
         }
 
-        mTask.txrxBuf[0] = ROHM_RPR0521_REG_ALS_PS_CONTROL;
-        mTask.txrxBuf[1] = (ROHM_RPR0521_GAIN_ALS0 << 4) | (ROHM_RPR0521_GAIN_ALS1 << 2) | ROHM_RPR0521_LED_CURRENT;
-        mTask.txrxBuf[2] = (ROHM_RPR0521_GAIN_PS << 4) | PS_PERSISTENCE_ACTIVE_AT_EACH_MEASUREMENT_END;
-        i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 3, &i2cCallback, (void *)SENSOR_STATE_INIT_GAINS);
+        newXfer = allocXfer(SENSOR_STATE_INIT_GAINS);
+        if (newXfer != NULL) {
+            newXfer->txrxBuf[0] = ROHM_RPR0521_REG_ALS_PS_CONTROL;
+            newXfer->txrxBuf[1] = (ROHM_RPR0521_GAIN_ALS0 << 4) | (ROHM_RPR0521_GAIN_ALS1 << 2) | ROHM_RPR0521_LED_CURRENT;
+            newXfer->txrxBuf[2] = (ROHM_RPR0521_GAIN_PS << 4) | PS_PERSISTENCE_ACTIVE_AT_EACH_MEASUREMENT_END;
+            i2cMasterTx(I2C_BUS_ID, I2C_ADDR, newXfer->txrxBuf, 3, &i2cCallback, newXfer);
+        }
         break;
 
     case SENSOR_STATE_INIT_GAINS:
         /* Offset register */
-        mTask.txrxBuf[0] = ROHM_RPR0521_REG_PS_OFFSET_LSB;
-        mTask.txrxBuf[1] = 0;
-        mTask.txrxBuf[2] = 0;
-        i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 3, &i2cCallback, (void *)SENSOR_STATE_INIT_OFFSETS);
+        newXfer = allocXfer(SENSOR_STATE_INIT_OFFSETS);
+        if (newXfer != NULL) {
+            newXfer->txrxBuf[0] = ROHM_RPR0521_REG_PS_OFFSET_LSB;
+            newXfer->txrxBuf[1] = 0;
+            newXfer->txrxBuf[2] = 0;
+            i2cMasterTx(I2C_BUS_ID, I2C_ADDR, newXfer->txrxBuf, 3, &i2cCallback, newXfer);
+        }
         break;
 
     case SENSOR_STATE_INIT_OFFSETS:
         /* PS Threshold register */
-        mTask.txrxBuf[0] = ROHM_RPR0521_REG_PS_TH_LSB;
-        mTask.txrxBuf[1] = (ROHM_RPR0521_THRESHOLD_ASSERT_NEAR & 0xFF);
-        mTask.txrxBuf[2] = (ROHM_RPR0521_THRESHOLD_ASSERT_NEAR & 0xFF00) >> 8;
-        mTask.txrxBuf[3] = (ROHM_RPR0521_THRESHOLD_DEASSERT_NEAR & 0xFF);
-        mTask.txrxBuf[4] = (ROHM_RPR0521_THRESHOLD_DEASSERT_NEAR & 0xFF00) >> 8;
-        i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 5, &i2cCallback, (void *)SENSOR_STATE_INIT_THRESHOLDS);
+        newXfer = allocXfer(SENSOR_STATE_INIT_THRESHOLDS);
+        if (newXfer != NULL) {
+            newXfer->txrxBuf[0] = ROHM_RPR0521_REG_PS_TH_LSB;
+            newXfer->txrxBuf[1] = (ROHM_RPR0521_THRESHOLD_ASSERT_NEAR & 0xFF);
+            newXfer->txrxBuf[2] = (ROHM_RPR0521_THRESHOLD_ASSERT_NEAR & 0xFF00) >> 8;
+            newXfer->txrxBuf[3] = (ROHM_RPR0521_THRESHOLD_DEASSERT_NEAR & 0xFF);
+            newXfer->txrxBuf[4] = (ROHM_RPR0521_THRESHOLD_DEASSERT_NEAR & 0xFF00) >> 8;
+            i2cMasterTx(I2C_BUS_ID, I2C_ADDR, newXfer->txrxBuf, 5, &i2cCallback, newXfer);
+        }
         break;
 
     case SENSOR_STATE_INIT_THRESHOLDS:
         /* Interrupt register */
-        mTask.txrxBuf[0] = ROHM_RPR0521_REG_INTERRUPT;
-        mTask.txrxBuf[1] = (INTERRUPT_MODE_PS_HYSTERESIS << 4) | INTERRUPT_LATCH_BIT | INTERRUPT_TRIGGER_PS;
-        i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 2, &i2cCallback, (void *)SENSOR_STATE_FINISH_INIT);
+        regData = (INTERRUPT_MODE_PS_HYSTERESIS << 4) | INTERRUPT_LATCH_BIT | INTERRUPT_TRIGGER_PS;
+        writeRegister(ROHM_RPR0521_REG_INTERRUPT, regData, SENSOR_STATE_FINISH_INIT);
         break;
 
     case SENSOR_STATE_FINISH_INIT:
@@ -569,16 +633,13 @@ static void handle_i2c_event(int state)
 
     case SENSOR_STATE_DISABLING_PROX:
         // Clear persistence setting
-        mTask.txrxBuf[0] = ROHM_RPR0521_REG_PS_CONTROL;
-        mTask.txrxBuf[1] = (ROHM_RPR0521_GAIN_PS << 4) | PS_PERSISTENCE_ACTIVE_AT_EACH_MEASUREMENT_END;
-        i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 2, &i2cCallback, (void *)SENSOR_STATE_DISABLING_PROX_2);
+        regData = (ROHM_RPR0521_GAIN_PS << 4) | PS_PERSISTENCE_ACTIVE_AT_EACH_MEASUREMENT_END;
+        writeRegister(ROHM_RPR0521_REG_PS_CONTROL, regData, SENSOR_STATE_DISABLING_PROX_2);
         break;
 
     case SENSOR_STATE_DISABLING_PROX_2:
         // Reset interrupt
-        mTask.txrxBuf[0] = ROHM_RPR0521_REG_SYSTEM_CONTROL;
-        mTask.txrxBuf[1] = INT_RESET_BIT;
-        i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 2, &i2cCallback, (void *)SENSOR_STATE_DISABLING_PROX_3);
+        writeRegister(ROHM_RPR0521_REG_SYSTEM_CONTROL, INT_RESET_BIT, SENSOR_STATE_DISABLING_PROX_3);
         break;
 
     case SENSOR_STATE_DISABLING_PROX_3:
@@ -586,8 +647,8 @@ static void handle_i2c_event(int state)
         break;
 
     case SENSOR_STATE_ALS_SAMPLING:
-        als0 = *(uint16_t*)(mTask.txrxBuf);
-        als1 = *(uint16_t*)(mTask.txrxBuf+2);
+        als0 = *(uint16_t*)(xfer->txrxBuf);
+        als1 = *(uint16_t*)(xfer->txrxBuf+2);
 
         DEBUG_PRINT("als sample ready: als0=%u als1=%u\n", als0, als1);
 
@@ -602,7 +663,7 @@ static void handle_i2c_event(int state)
         break;
 
     case SENSOR_STATE_PROX_SAMPLING:
-        ps = *(uint16_t*)(mTask.txrxBuf);
+        ps = *(uint16_t*)(xfer->txrxBuf);
         lastProxState = mTask.proxState;
 
         DEBUG_PRINT("prox sample ready: prox=%u\n", ps);
@@ -621,9 +682,8 @@ static void handle_i2c_event(int state)
 
             // After the first prox sample, change the persistance setting to assert
             // interrupt on-change, rather than after every sample
-            mTask.txrxBuf[0] = ROHM_RPR0521_REG_PS_CONTROL;
-            mTask.txrxBuf[1] = (ROHM_RPR0521_GAIN_PS << 4) | PS_PERSISTENCE_STATUS_UPDATED_AT_EACH_MEASUREMENT_END;
-            i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 2, &i2cCallback, (void *)SENSOR_STATE_IDLE);
+            regData = (ROHM_RPR0521_GAIN_PS << 4) | PS_PERSISTENCE_STATUS_UPDATED_AT_EACH_MEASUREMENT_END;
+            writeRegister(ROHM_RPR0521_REG_PS_CONTROL, regData, SENSOR_STATE_IDLE);
         }
 
         break;
@@ -631,6 +691,8 @@ static void handle_i2c_event(int state)
     default:
         break;
     }
+
+    xfer->inUse = false;
 }
 
 /*
@@ -675,29 +737,35 @@ static void end_app(void)
 
 static void handle_event(uint32_t evtType, const void* evtData)
 {
+    struct I2cTransfer *xfer;
+
     switch (evtType) {
     case EVT_APP_START:
         i2cMasterRequest(I2C_BUS_ID, I2C_SPEED);
 
         /* Reset chip */
-        mTask.txrxBuf[0] = ROHM_RPR0521_REG_SYSTEM_CONTROL;
-        mTask.txrxBuf[1] = SW_RESET_BIT;
-        i2cMasterTx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 2, &i2cCallback, (void *)SENSOR_STATE_RESET);
+        writeRegister(ROHM_RPR0521_REG_SYSTEM_CONTROL, SW_RESET_BIT, SENSOR_STATE_RESET);
         break;
 
     case EVT_SENSOR_I2C:
-        handle_i2c_event((int)evtData);
+        handle_i2c_event((struct I2cTransfer*)evtData);
         break;
 
     case EVT_SENSOR_ALS_TIMER:
-        mTask.txrxBuf[0] = ROHM_RPR0521_REG_ALS_DATA0_LSB;
-        i2cMasterTxRx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 1, mTask.txrxBuf, 4, &i2cCallback, (void *)SENSOR_STATE_ALS_SAMPLING);
+        xfer = allocXfer(SENSOR_STATE_ALS_SAMPLING);
+        if (xfer != NULL) {
+            xfer->txrxBuf[0] = ROHM_RPR0521_REG_ALS_DATA0_LSB;
+            i2cMasterTxRx(I2C_BUS_ID, I2C_ADDR, xfer->txrxBuf, 1, xfer->txrxBuf, 4, &i2cCallback, xfer);
+        }
         break;
 
     case EVT_SENSOR_PROX_INTERRUPT:
         // Over-read to read the INTERRUPT register to clear the interrupt
-        mTask.txrxBuf[0] = ROHM_RPR0521_REG_PS_DATA_LSB;
-        i2cMasterTxRx(I2C_BUS_ID, I2C_ADDR, mTask.txrxBuf, 1, mTask.txrxBuf, 7, &i2cCallback, (void *)SENSOR_STATE_PROX_SAMPLING);
+        xfer = allocXfer(SENSOR_STATE_PROX_SAMPLING);
+        if (xfer != NULL) {
+            xfer->txrxBuf[0] = ROHM_RPR0521_REG_PS_DATA_LSB;
+            i2cMasterTxRx(I2C_BUS_ID, I2C_ADDR, xfer->txrxBuf, 1, xfer->txrxBuf, 7, &i2cCallback, xfer);
+        }
         break;
 
     }
