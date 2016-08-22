@@ -47,7 +47,7 @@
 #define BOSCH_BMP280_REG_PRES_MSB       0xf7
 
 #define BOSCH_BMP280_MAX_PENDING_I2C_REQUESTS   4
-#define BOSCH_BMP280_MAX_I2C_TRANSFER_SIZE      24
+#define BOSCH_BMP280_MAX_I2C_TRANSFER_SIZE      6
 
 // This defines how many baro events we could handle being backed up in the
 // queue. Use this to size our slab
