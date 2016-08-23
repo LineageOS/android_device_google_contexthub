@@ -14,9 +14,10 @@
  * limitations under the License.
  */
 
+#include <errno.h>
+#include <float.h>
 #include <stdlib.h>
 #include <string.h>
-#include <float.h>
 
 #include <eventnums.h>
 #include <gpio.h>
@@ -27,6 +28,7 @@
 #include <nanohubPacket.h>
 #include <sensors.h>
 #include <seos.h>
+#include <timer.h>
 #include <util.h>
 
 #include <plat/exti.h>
@@ -34,7 +36,7 @@
 #include <plat/syscfg.h>
 
 #define S3708_APP_ID                APP_ID_MAKE(NANOHUB_VENDOR_GOOGLE, 13)
-#define S3708_APP_VERSION           0
+#define S3708_APP_VERSION           1
 
 #define I2C_BUS_ID                  0
 #define I2C_SPEED                   400000
@@ -57,10 +59,16 @@
 
 #define S3708_REG_CTRL_BASE         0x1b
 #define S3708_REG_CTRL_20_OFFSET    0x07
+#define S3708_REPORT_MODE_CONT      0x00
 #define S3708_REPORT_MODE_LPWG      0x02
+
+#define S3708_REG_PDT_BASE          0xee
 
 #define MAX_PENDING_I2C_REQUESTS    4
 #define MAX_I2C_TRANSFER_SIZE       8
+#define MAX_I2C_RETRY_DELAY         250000000ull // 250 milliseconds
+#define MAX_I2C_RETRY_COUNT         (15000000000ull / MAX_I2C_RETRY_DELAY) // 15 seconds
+#define HACK_RETRY_SKIP_COUNT       1
 
 #define ENABLE_DEBUG 0
 
@@ -85,6 +93,7 @@ enum SensorEvents
 {
     EVT_SENSOR_I2C = EVT_APP_START + 1,
     EVT_SENSOR_TOUCH_INTERRUPT,
+    EVT_SENSOR_RETRY_TIMER,
 };
 
 enum TaskState
@@ -92,8 +101,11 @@ enum TaskState
     STATE_ENABLE_0,
     STATE_ENABLE_1,
     STATE_ENABLE_2,
+    STATE_DISABLE_0,
     STATE_INT_HANDLE_0,
     STATE_INT_HANDLE_1,
+    STATE_IDLE,
+    STATE_CANCELLED,
 };
 
 struct I2cTransfer
@@ -109,6 +121,8 @@ static struct TaskStruct
     struct ChainedIsr isr;
     uint32_t id;
     uint32_t handle;
+    uint32_t retryTimerHandle;
+    uint32_t retryCnt;
     struct I2cTransfer transfers[MAX_PENDING_I2C_REQUESTS];
     bool on;
 } mTask;
@@ -148,6 +162,11 @@ static void i2cCallback(void *cookie, size_t tx, size_t rx, int err)
     }
 }
 
+static void retryTimerCallback(uint32_t timerId, void *cookie)
+{
+    osEnqueuePrivateEvt(EVT_SENSOR_RETRY_TIMER, cookie, NULL, mTask.id);
+}
+
 // Allocate a buffer and mark it as in use with the given state, or return NULL
 // if no buffers available. Must *not* be called from interrupt context.
 static struct I2cTransfer *allocXfer(uint8_t state)
@@ -158,6 +177,7 @@ static struct I2cTransfer *allocXfer(uint8_t state)
         if (!mTask.transfers[i].inUse) {
             mTask.transfers[i].inUse = true;
             mTask.transfers[i].state = state;
+            memset(mTask.transfers[i].txrxBuf, 0x00, sizeof(mTask.transfers[i].txrxBuf));
             return &mTask.transfers[i];
         }
     }
@@ -205,23 +225,61 @@ static bool writeRegister(uint8_t reg, uint8_t value, uint8_t state)
     return false;
 }
 
+static bool setSleepEnable(bool enable, uint8_t state)
+{
+    return writeRegister(S3708_REG_F01_CTRL_BASE, enable ? S3708_SLEEP_MODE : S3708_NORMAL_MODE, state);
+}
+
+static bool setReportingMode(uint8_t mode, uint8_t state)
+{
+    struct I2cTransfer *xfer;
+
+    xfer = allocXfer(state);
+    if (xfer != NULL) {
+        xfer->txrxBuf[0] = S3708_REG_CTRL_BASE + S3708_REG_CTRL_20_OFFSET;
+        xfer->txrxBuf[1] = 0x00;
+        xfer->txrxBuf[2] = 0x00;
+        xfer->txrxBuf[3] = mode;
+        return performXfer(xfer, 4, 0);
+    }
+
+    return false;
+}
+
 static bool callbackPower(bool on, void *cookie)
 {
     bool ret;
+    size_t i;
 
     INFO_PRINT("enable %d", on);
 
+    // Cancel any pending I2C transactions by changing the callback state
+    for (i = 0; i < ARRAY_SIZE(mTask.transfers); i++) {
+        if (mTask.transfers[i].inUse) {
+            mTask.transfers[i].state = STATE_CANCELLED;
+        }
+    }
+
     if (on) {
+        mTask.retryCnt = 0;
+
         // Set page number to 0x00
         ret = writeRegister(S3708_REG_PAGE_SELECT, 0x00, STATE_ENABLE_0);
     } else {
-        // Turn on sleep mode
-        ret = writeRegister(S3708_REG_F01_CTRL_BASE, S3708_SLEEP_MODE, STATE_ENABLE_2);
+        // Cancel any pending retries
+        if (mTask.retryTimerHandle) {
+            timTimerCancel(mTask.retryTimerHandle);
+            mTask.retryTimerHandle = 0;
+        }
+
+        // Reset to continuous reporting mode
+        ret = setReportingMode(S3708_REPORT_MODE_CONT, STATE_DISABLE_0);
     }
 
     if (ret) {
         mTask.on = on;
         enableInterrupt(mTask.on);
+        sensorSignalInternalEvt(mTask.handle, SENSOR_INTERNAL_EVT_POWER_STATE_CHG, mTask.on, 0);
     }
 
     return ret;
@@ -266,24 +324,47 @@ static void handleI2cEvent(struct I2cTransfer *xfer)
 
     switch (xfer->state) {
         case STATE_ENABLE_0:
-            // Turn off sleep mode
-            writeRegister(S3708_REG_F01_CTRL_BASE, (mTask.on) ? S3708_NORMAL_MODE : S3708_SLEEP_MODE, STATE_ENABLE_1);
+            // Disable sleep
+            setSleepEnable(false, STATE_ENABLE_1);
             break;
 
         case STATE_ENABLE_1:
-            // Set reporting control to lpwg mode
+            // Verify that we can talk to the chip
             nextXfer = allocXfer(STATE_ENABLE_2);
             if (nextXfer != NULL) {
-                nextXfer->txrxBuf[0] = S3708_REG_CTRL_BASE + S3708_REG_CTRL_20_OFFSET;
-                nextXfer->txrxBuf[1] = 0x00;
-                nextXfer->txrxBuf[2] = 0x00;
-                nextXfer->txrxBuf[3] = S3708_REPORT_MODE_LPWG;
-                performXfer(nextXfer, 4, 0);
+                nextXfer->txrxBuf[0] = S3708_REG_PDT_BASE;
+                performXfer(nextXfer, 1, 1);
             }
             break;
 
         case STATE_ENABLE_2:
-            sensorSignalInternalEvt(mTask.handle, SENSOR_INTERNAL_EVT_POWER_STATE_CHG, mTask.on, 0);
+            DEBUG_PRINT("ID: 0x%02x", xfer->txrxBuf[0]);
+
+            // HACK: DozeService reactivates pickup gesture before the screen
+            // comes on, so we need to wait for some time after enabling before
+            // trying to talk to touch controller. We may see the touch
+            // controller on the first few samples and then have communication
+            // switched off. So, wait HACK_RETRY_SKIP_COUNT samples before we
+            // consider the transaction.
+            if ((mTask.retryCnt < HACK_RETRY_SKIP_COUNT) || (xfer->txrxBuf[0] != S3708_ID)) {
+                mTask.retryCnt++;
+                if (mTask.retryCnt < MAX_I2C_RETRY_COUNT) {
+                    mTask.retryTimerHandle = timTimerSet(MAX_I2C_RETRY_DELAY, 0, 50, retryTimerCallback, NULL, true);
+                    if (!mTask.retryTimerHandle) {
+                        ERROR_PRINT("failed to allocate timer");
+                    }
+                } else {
+                    ERROR_PRINT("could not communicate with touch controller");
+                }
+            } else {
+                // Set reporting control to lpwg mode
+                setReportingMode(S3708_REPORT_MODE_LPWG, STATE_IDLE);
+            }
+            break;
+
+        case STATE_DISABLE_0:
+            // Enable sleep
+            setSleepEnable(true, STATE_IDLE);
             break;
 
         case STATE_INT_HANDLE_0:
@@ -316,11 +397,16 @@ static void handleI2cEvent(struct I2cTransfer *xfer)
 static void handleEvent(uint32_t evtType, const void* evtData)
 {
     struct I2cTransfer *xfer;
+    int ret;
 
     switch (evtType) {
         case EVT_APP_START:
             osEventUnsubscribe(mTask.id, EVT_APP_START);
-            if (i2cMasterRequest(I2C_BUS_ID, I2C_SPEED) < 0) {
+            ret = i2cMasterRequest(I2C_BUS_ID, I2C_SPEED);
+            // Since the i2c bus can be shared with other drivers, it is
+            // possible that one of the other drivers requested the bus first.
+            // Therefore, either 0 or -EBUSY is an acceptable return.
+            if ((ret < 0) && (ret != -EBUSY)) {
                 ERROR_PRINT("i2cMasterRequest() failed!");
             }
             sensorRegisterInitComplete(mTask.handle);
@@ -331,11 +417,20 @@ static void handleEvent(uint32_t evtType, const void* evtData)
             break;
 
         case EVT_SENSOR_TOUCH_INTERRUPT:
-            // Read the interrupt status register
-            xfer = allocXfer(STATE_INT_HANDLE_0);
-            if (xfer != NULL) {
-                xfer->txrxBuf[0] = S3708_REG_F01_DATA_BASE;
-                performXfer(xfer, 1, 2);
+            if (mTask.on) {
+                // Read the interrupt status register
+                xfer = allocXfer(STATE_INT_HANDLE_0);
+                if (xfer != NULL) {
+                    xfer->txrxBuf[0] = S3708_REG_F01_DATA_BASE;
+                    performXfer(xfer, 1, 2);
+                }
+            }
+            break;
+
+        case EVT_SENSOR_RETRY_TIMER:
+            if (mTask.on) {
+                // Set page number to 0x00
+                writeRegister(S3708_REG_PAGE_SELECT, 0x00, STATE_ENABLE_0);
             }
             break;
     }
