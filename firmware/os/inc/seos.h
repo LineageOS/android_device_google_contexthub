@@ -95,6 +95,7 @@ struct AppFuncs { /* do not rearrange */
 #define APP_ID_MAKE(vendor, app)   ((((uint64_t)(vendor)) << 24) | ((app) & APP_SEQ_ID_ANY))
 #define KEY_ID_MAKE(vendor, key)   ((((uint64_t)(vendor)) << 24) | ((key) & KEY_SEQ_ID_ANY))
 #define NANOHUB_VENDOR_GOOGLE      UINT64_C(0x476F6F676C) // "Googl"
+#define NANOHUB_VENDOR_STMICRO     UINT64_C(0x53544d6963) // "STMic"
 #define HW_ID_MAKE(vendor, ver)    ((((uint64_t)(vendor)) << 24) | (PLATFORM_ID(ver) & HW_ID_ANY))
 #define APP_VENDOR_ANY             UINT64_C(0xFFFFFFFFFF)
 #define APP_SEQ_ID_ANY             UINT64_C(0xFFFFFF)
