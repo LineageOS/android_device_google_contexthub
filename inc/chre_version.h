@@ -35,9 +35,21 @@ extern "C" {
 /**
  * Value for version 0.1 of the Context Hub Runtime Environment API interface.
  *
+ * This is a legacy version.  Version 1.0 is considered the first official
+ * version of the API.
+ *
  * @see CHRE_API_VERSION
  */
 #define CHRE_API_VERSION_0_1  UINT32_C(0x00010000)
+
+/**
+ * Value for version 1.0 of the Context Hub Runtime Environment API interface.
+ *
+ * The version of the CHRE API which shipped with the Android Nougat release.
+ *
+ * @see CHRE_API_VERSION
+ */
+#define CHRE_API_VERSION_1_0  UINT32_C(0x01000000)
 
 /**
  * Major and Minor Version of this Context Hub Runtime Environment API.
@@ -56,7 +68,7 @@ extern "C" {
  * Note that version numbers can always be numerically compared with
  * expected results, so 1.0.0 < 1.0.4 < 1.1.0 < 2.0.300 < 3.5.0.
  */
-#define CHRE_API_VERSION CHRE_API_VERSION_0_1
+#define CHRE_API_VERSION CHRE_API_VERSION_1_0
 
 
 /**
