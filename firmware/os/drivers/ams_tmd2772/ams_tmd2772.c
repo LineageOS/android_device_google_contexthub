@@ -28,7 +28,7 @@
 #include <eventnums.h>
 #include <util.h>
 
-#define AMS_TMD2772_APP_VERSION 2
+#define AMS_TMD2772_APP_VERSION 3
 
 #define DRIVER_NAME                            "AMS: "
 
@@ -92,8 +92,8 @@
 #define AMS_TMD2772_REPORT_NEAR_VALUE          0.0f // centimeters
 #define AMS_TMD2772_REPORT_FAR_VALUE           5.0f // centimeters
 
-#define AMS_TMD2772_THRESHOLD_ASSERT_NEAR      213  // in PS units
-#define AMS_TMD2772_THRESHOLD_DEASSERT_NEAR    96   // in PS units
+#define AMS_TMD2772_THRESHOLD_ASSERT_NEAR      300   // in PS units
+#define AMS_TMD2772_THRESHOLD_DEASSERT_NEAR    150   // in PS units
 
 #define AMS_TMD2772_ALS_MAX_CHANNEL_COUNT      37888 // in raw data
 #define AMS_TMD2772_ALS_MAX_REPORT_VALUE       10000 // in lux
@@ -600,11 +600,11 @@ static void handle_i2c_event(struct I2cTransfer *xfer)
         break;
 
     case SENSOR_STATE_SAMPLING:
-        /* TEST: log collected data
+#if 0
         osLog(LOG_INFO, DRIVER_NAME "sample ready: status=%02x prox=%u als0=%u als1=%u\n",
               xfer->txrxBuf.sample.status, xfer->txrxBuf.sample.prox,
               xfer->txrxBuf.sample.als[0], xfer->txrxBuf.sample.als[1]);
-        */
+#endif
 
         if (mData.alsOn && mData.alsReading &&
             (xfer->txrxBuf.sample.status & ALS_VALID_BIT)) {
