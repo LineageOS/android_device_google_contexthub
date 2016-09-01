@@ -110,6 +110,9 @@ enum TaskState
 
 struct I2cTransfer
 {
+    size_t tx;
+    size_t rx;
+    int err;
     uint8_t txrxBuf[MAX_I2C_TRANSFER_SIZE];
     uint8_t state;
     bool inUse;
@@ -155,11 +158,15 @@ static bool touchIsr(struct ChainedIsr *localIsr)
 
 static void i2cCallback(void *cookie, size_t tx, size_t rx, int err)
 {
-    if (err == 0) {
-        osEnqueuePrivateEvt(EVT_SENSOR_I2C, cookie, NULL, mTask.id);
-    } else {
-        ERROR_PRINT("I2C error (%d)", err);
-    }
+    struct I2cTransfer *xfer = cookie;
+
+    xfer->tx = tx;
+    xfer->rx = rx;
+    xfer->err = err;
+
+    osEnqueuePrivateEvt(EVT_SENSOR_I2C, cookie, NULL, mTask.id);
+    if (err != 0)
+        ERROR_PRINT("i2c error (tx: %d, rx: %d, err: %d)\n", tx, rx, err);
 }
 
 static void retryTimerCallback(uint32_t timerId, void *cookie)
@@ -346,7 +353,7 @@ static void handleI2cEvent(struct I2cTransfer *xfer)
             // controller on the first few samples and then have communication
             // switched off. So, wait HACK_RETRY_SKIP_COUNT samples before we
             // consider the transaction.
-            if ((mTask.retryCnt < HACK_RETRY_SKIP_COUNT) || (xfer->txrxBuf[0] != S3708_ID)) {
+            if ((mTask.retryCnt < HACK_RETRY_SKIP_COUNT) || (xfer->err != 0) || (xfer->txrxBuf[0] != S3708_ID)) {
                 mTask.retryCnt++;
                 if (mTask.retryCnt < MAX_I2C_RETRY_COUNT) {
                     mTask.retryTimerHandle = timTimerSet(MAX_I2C_RETRY_DELAY, 0, 50, retryTimerCallback, NULL, true);
