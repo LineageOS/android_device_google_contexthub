@@ -184,6 +184,8 @@ HubConnection::HubConnection()
     mSensorState[COMMS_SENSOR_DOUBLE_TAP].rate = SENSOR_RATE_ONCHANGE;
     mSensorState[COMMS_SENSOR_WRIST_TILT].sensorType = SENS_TYPE_WRIST_TILT;
     mSensorState[COMMS_SENSOR_WRIST_TILT].rate = SENSOR_RATE_ONCHANGE;
+    mSensorState[COMMS_SENSOR_DOUBLE_TOUCH].sensorType = SENS_TYPE_DOUBLE_TOUCH;
+    mSensorState[COMMS_SENSOR_DOUBLE_TOUCH].rate = SENSOR_RATE_ONESHOT;
     mSensorState[COMMS_SENSOR_ACTIVITY_IN_VEHICLE_START].sensorType = SENS_TYPE_ACTIVITY_IN_VEHICLE_START;
     mSensorState[COMMS_SENSOR_ACTIVITY_IN_VEHICLE_START].rate = SENSOR_RATE_ONCHANGE;
     mSensorState[COMMS_SENSOR_ACTIVITY_IN_VEHICLE_STOP].sensorType = SENS_TYPE_ACTIVITY_IN_VEHICLE_STOP;
@@ -439,6 +441,7 @@ void HubConnection::processSample(uint64_t timestamp, uint32_t type, uint32_t se
         break;
     case COMMS_SENSOR_GESTURE:
     case COMMS_SENSOR_SYNC:
+    case COMMS_SENSOR_DOUBLE_TOUCH:
         initEv(&nev[cnt++], timestamp, type, sensor)->data[0] = sample->idata;
         break;
     case COMMS_SENSOR_HALL:
@@ -860,6 +863,11 @@ ssize_t HubConnection::processBuf(uint8_t *buf, ssize_t len)
         case SENS_TYPE_TO_EVENT(SENS_TYPE_WRIST_TILT):
             type = SENSOR_TYPE_WRIST_TILT_GESTURE;
             sensor = COMMS_SENSOR_WRIST_TILT;
+            one = true;
+            break;
+        case SENS_TYPE_TO_EVENT(SENS_TYPE_DOUBLE_TOUCH):
+            type = SENSOR_TYPE_DOUBLE_TOUCH;
+            sensor = COMMS_SENSOR_DOUBLE_TOUCH;
             one = true;
             break;
         case SENS_TYPE_TO_EVENT(SENS_TYPE_ACTIVITY_IN_VEHICLE_START):
