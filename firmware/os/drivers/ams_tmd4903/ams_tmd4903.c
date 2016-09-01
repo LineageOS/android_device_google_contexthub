@@ -213,6 +213,9 @@ enum AlsGain
 
 struct AlsProxTransfer
 {
+    size_t tx;
+    size_t rx;
+    int err;
     uint8_t txrxBuf[AMS_TMD4903_MAX_I2C_TRANSFER_SIZE];
     uint8_t state;
     bool inUse;
@@ -365,10 +368,15 @@ static bool disableInterrupt(struct Gpio *pin, struct ChainedIsr *isr)
 
 static void i2cCallback(void *cookie, size_t tx, size_t rx, int err)
 {
-    if (err == 0)
-        osEnqueuePrivateEvt(EVT_SENSOR_I2C, cookie, NULL, mTask.tid);
-    else
-        INFO_PRINT("i2c error (%d)\n", err);
+    struct AlsProxTransfer *xfer = cookie;
+
+    xfer->tx = tx;
+    xfer->rx = rx;
+    xfer->err = err;
+
+    osEnqueuePrivateEvt(EVT_SENSOR_I2C, cookie, NULL, mTask.tid);
+    if (err != 0)
+        INFO_PRINT("i2c error (tx: %d, rx: %d, err: %d)\n", tx, rx, err);
 }
 
 static void alsTimerCallback(uint32_t timerId, void *cookie)
@@ -701,7 +709,7 @@ static void verifySensorId(const struct AlsProxTransfer *xfer)
     DEBUG_PRINT("REVID = 0x%02x, ID = 0x%02x\n", xfer->txrxBuf[0], xfer->txrxBuf[1]);
 
     // Check the sensor ID
-    if (xfer->txrxBuf[1] != AMS_TMD4903_ID) {
+    if (xfer->err != 0 || xfer->txrxBuf[1] != AMS_TMD4903_ID) {
         INFO_PRINT("not detected\n");
         sensorUnregister(mTask.alsHandle);
         sensorUnregister(mTask.proxHandle);

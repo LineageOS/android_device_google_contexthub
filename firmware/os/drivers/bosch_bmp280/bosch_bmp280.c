@@ -90,9 +90,12 @@ struct BMP280CompParams
 
 struct I2cTransfer
 {
-  uint8_t txrxBuf[BOSCH_BMP280_MAX_I2C_TRANSFER_SIZE];
-  uint8_t state;
-  bool inUse;
+    size_t tx;
+    size_t rx;
+    int err;
+    uint8_t txrxBuf[BOSCH_BMP280_MAX_I2C_TRANSFER_SIZE];
+    uint8_t state;
+    bool inUse;
 };
 
 static struct BMP280Task
@@ -225,10 +228,15 @@ static void baroFreeEvt(void *ptr)
 
 static void i2cCallback(void *cookie, size_t tx, size_t rx, int err)
 {
-    if (err == 0)
-        osEnqueuePrivateEvt(EVT_SENSOR_I2C, cookie, NULL, mTask.id);
-    else
-        osLog(LOG_INFO, "[BMP280] i2c error (%d)\n", err);
+    struct I2cTransfer *xfer = cookie;
+
+    xfer->tx = tx;
+    xfer->rx = rx;
+    xfer->err = err;
+
+    osEnqueuePrivateEvt(EVT_SENSOR_I2C, cookie, NULL, mTask.id);
+    if (err != 0)
+        osLog(LOG_INFO, "[BMP280] i2c error (tx: %d, rx: %d, err: %d)\n", tx, rx, err);
 }
 
 static void baroTimerCallback(uint32_t timerId, void *cookie)
@@ -467,14 +475,14 @@ static void handleI2cEvent(struct I2cTransfer *xfer)
             newXfer = allocXfer(STATE_VERIFY_ID);
             if (newXfer != NULL) {
                 newXfer->txrxBuf[0] = BOSCH_BMP280_REG_ID;
-                i2cMasterTxRx(I2C_BUS_ID, I2C_ADDR, newXfer->txrxBuf, 1, newXfer->txrxBuf, 1, &i2cCallback, newXfer);
+                i2cMasterTxRx(I2C_BUS_ID, I2C_ADDR, newXfer->txrxBuf, 1, newXfer->txrxBuf, 1, i2cCallback, newXfer);
             }
             break;
         }
 
         case STATE_VERIFY_ID: {
             /* Check the sensor ID */
-            if (xfer->txrxBuf[0] != BOSCH_BMP280_ID) {
+            if (xfer->err != 0 || xfer->txrxBuf[0] != BOSCH_BMP280_ID) {
                 osLog(LOG_INFO, "[BMP280] not detected\n");
                 break;
             }
@@ -483,7 +491,7 @@ static void handleI2cEvent(struct I2cTransfer *xfer)
             newXfer = allocXfer(STATE_AWAITING_COMP_PARAMS);
             if (newXfer != NULL) {
                 newXfer->txrxBuf[0] = BOSCH_BMP280_REG_DIG_T1;
-                i2cMasterTxRx(I2C_BUS_ID, I2C_ADDR, newXfer->txrxBuf, 1, (uint8_t*)&mTask.comp, 24, &i2cCallback, newXfer);
+                i2cMasterTxRx(I2C_BUS_ID, I2C_ADDR, newXfer->txrxBuf, 1, (uint8_t*)&mTask.comp, 24, i2cCallback, newXfer);
             }
 
             break;
@@ -595,7 +603,7 @@ static void handleEvent(uint32_t evtType, const void* evtData)
                 newXfer = allocXfer(STATE_SAMPLING);
                 if (newXfer != NULL) {
                     newXfer->txrxBuf[0] = BOSCH_BMP280_REG_PRES_MSB;
-                    i2cMasterTxRx(I2C_BUS_ID, I2C_ADDR, newXfer->txrxBuf, 1, newXfer->txrxBuf, 6, &i2cCallback, newXfer);
+                    i2cMasterTxRx(I2C_BUS_ID, I2C_ADDR, newXfer->txrxBuf, 1, newXfer->txrxBuf, 6, i2cCallback, newXfer);
                 }
             }
 
@@ -610,7 +618,7 @@ static void handleEvent(uint32_t evtType, const void* evtData)
                 newXfer = allocXfer(STATE_SAMPLING);
                 if (newXfer != NULL) {
                     newXfer->txrxBuf[0] = BOSCH_BMP280_REG_PRES_MSB;
-                    i2cMasterTxRx(I2C_BUS_ID, I2C_ADDR, newXfer->txrxBuf, 1, newXfer->txrxBuf, 6, &i2cCallback, newXfer);
+                    i2cMasterTxRx(I2C_BUS_ID, I2C_ADDR, newXfer->txrxBuf, 1, newXfer->txrxBuf, 6, i2cCallback, newXfer);
                 }
             }
 
