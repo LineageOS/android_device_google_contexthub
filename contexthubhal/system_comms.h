@@ -92,7 +92,7 @@ struct NanohubMemInfo {
 struct NanohubRsp {
     uint32_t cmd;
     int32_t status;
-    NanohubRsp(MessageBuf &buf, bool no_status = false);
+    explicit NanohubRsp(MessageBuf &buf, bool no_status = false);
 };
 
 inline bool operator == (const hub_app_name_t &a, const hub_app_name_t &b) {
