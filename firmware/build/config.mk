@@ -212,5 +212,3 @@ $(if $(AUX_RECURSIVE_VARIANT_LIST),$(if \
         $(error $(LOCAL_PATH): Recursive variant list mismatch: "$(AUX_RECURSIVE_VARIANT_LIST)" and "$(1))),\
     $(call for-each-variant-unchecked,$(1),$(2),$(3)))
 endef
-
-$(info NANOHUB OS config loaded)
