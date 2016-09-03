@@ -43,8 +43,9 @@ LOCAL_SRC_FILES :=      \
     wf_fmod.c           \
     wf_pow.c            \
 
-LOCAL_CFLAGS :=    \
-    -DARM_MATH_CM4 \
-    -D__FPU_PRESENT\
+LOCAL_CFLAGS :=         \
+    -DARM_MATH_CM4      \
+    -D__FPU_PRESENT     \
+    -D_IEEE_LIBM        \
 
 include $(BUILD_NANOHUB_APP_STATIC_LIBRARY)

@@ -21,9 +21,9 @@
 ################################################################################
 
 
-SRCS := main.c
-BIN := chre_test0
-APP_ID := 476f6f676c549000
+SRCS := main.cpp
+BIN := chre_test1
+APP_ID := 476f6f676c549001
 APP_VERSION := 0
 
 # Nanohub relative path
@@ -32,9 +32,6 @@ NANOHUB_DIR := ../../..
 # Device configuration #########################################################
 
 # select device variant for this app
-# if there is no path of the form $(NANOHUB_DIR)/variant/$(VARIANT), the
-# VARIANT_PATH variable must be set to ANDROID_TOP-relative valid path containing VARIANT subtree
-
 TARGET_PRODUCT ?= nucleo
 VARIANT := $(TARGET_PRODUCT)
 

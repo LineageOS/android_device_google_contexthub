@@ -18,6 +18,7 @@
 #include <seos.h>
 #include <timer.h>
 #include <toolchain.h>
+#include <crt_priv.h>
 
 #include <chre.h>
 
@@ -27,12 +28,14 @@
 
 static bool chreappStart(uint32_t tid)
 {
+    __crt_init();
     return nanoappStart();
 }
 
 static void chreappEnd(void)
 {
     nanoappEnd();
+    __crt_exit();
 }
 
 static void chreappHandle(uint32_t eventTypeAndTid, const void *eventData)

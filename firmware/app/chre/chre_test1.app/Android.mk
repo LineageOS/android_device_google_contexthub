@@ -18,13 +18,21 @@ LOCAL_PATH := $(call my-dir)
 
 include $(CLEAR_NANO_VARS)
 
-LOCAL_MODULE := libnanochre
+LOCAL_MODULE := chre_test1
 LOCAL_MODULE_TAGS := optional
 
-LOCAL_SRC_FILES :=      \
-    chre_app.c          \
-    chre_app_syscalls.c \
+# Googl + T + 0x9001
+LOCAL_NANO_APP_ID := 476f6f676c549001
+LOCAL_NANO_APP_VERSION := 0
 
-LOCAL_STATIC_LIBRARIES += libnanolibc
+LOCAL_WHOLE_STATIC_LIBRARIES := \
+    libnanochre                 \
 
-include $(BUILD_NANOHUB_APP_STATIC_LIBRARY)
+LOCAL_STATIC_LIBRARIES :=       \
+    libnanolibc                 \
+    libnanolibm                 \
+
+LOCAL_SRC_FILES := \
+    main.cpp \
+
+include $(BUILD_NANOHUB_APP_EXECUTABLE)

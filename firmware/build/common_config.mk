@@ -33,12 +33,12 @@ LOCAL_CFLAGS += \
     -fstack-reuse=all \
     -fvisibility=hidden \
 
-LOCAL_CPPFLAGS += \
-    -std=c++11      \
-    -fno-exceptions \
-    -fno-rtti       \
+LOCAL_CPPFLAGS +=       \
+    -std=c++11          \
+    -fno-exceptions     \
+    -fno-rtti           \
 
-LOCAL_LDFLAGS +=                      \
+LOCAL_LDFLAGS +=                        \
     -nostartfiles                       \
     -Wl,--gc-sections                   \
     -Wl,--no-undefined                  \

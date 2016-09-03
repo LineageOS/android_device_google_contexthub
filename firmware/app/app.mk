@@ -167,24 +167,21 @@ CFLAGS += -fdata-sections
 
 # Linker Configuration #########################################################
 
-LD := $(PREFIX)ld
+LD := $(PREFIX)g++
 
 LDFLAGS := -T $(NANOHUB_DIR)/os/platform/$(PLATFORM)/lkr/app.lkr
 LDFLAGS += -nostartfiles
-LDFLAGS += --gc-sections
-LDFLAGS += -Map $(OUT)/$(BIN).map
-LDFLAGS += --cref
+LDFLAGS += -Wl,--gc-sections
+LDFLAGS += -Wl,-Map,$(OUT)/$(BIN).map
+LDFLAGS += -Wl,--cref
+STATIC_LIBS += -lgcc
 ifeq ($(BIN_MODE),static)
-LDFLAGS += -static
-LDFLAGS += --emit-relocs
-LDFLAGS += -L$(wildcard $(TOOLCHAIN_DIR)/lib/gcc/arm-none-eabi/*/armv7e-m/softfp)
-STATIC_LIBS += -lgcc
+LDFLAGS += -Bstatic
+LDFLAGS += -Wl,--emit-relocs
 else
-LDFLAGS += -shared
-LDFLAGS += --no-undefined
-LDFLAGS += --no-allow-shlib-undefined
-LDFLAGS += -L$(wildcard $(TOOLCHAIN_DIR)/lib/gcc/arm-none-eabi/*/armv7e-m/softfp)
-STATIC_LIBS += -lgcc
+LDFLAGS += -Bdynamic
+LDFLAGS += -Wl,--no-undefined
+LDFLAGS += -Wl,--no-allow-shlib-undefined
 endif
 
 # Build Rules ##################################################################
@@ -192,10 +189,12 @@ endif
 AS_SRCS := $(filter %.S, $(SRCS))
 C_SRCS := $(filter %.c, $(SRCS))
 CXX_SRCS := $(filter %.cc, $(SRCS))
+CPP_SRCS := $(filter %.cpp, $(SRCS))
 
 OBJS := $(patsubst %.S, $(OUT)/%.o, $(AS_SRCS))
 OBJS += $(patsubst %.c, $(OUT)/%.o, $(C_SRCS))
 OBJS += $(patsubst %.cc, $(OUT)/%.o, $(CXX_SRCS))
+OBJS += $(patsubst %.cpp, $(OUT)/%.o, $(CPP_SRCS))
 
 UNSIGNED_BIN := $(BIN).unsigned.napp
 
@@ -210,7 +209,7 @@ $(OUT)/$(BIN).napp : $(OUT)/$(UNSIGNED_BIN) $(NANOAPP_SIGN)
 		-m $(NANOHUB_KEY_PATH)/debug.pubkey -s $< $@
 ifdef IMAGE_TARGET_OUT
 $(IMAGE_TARGET_OUT): $(OUT)/$(BIN).napp
-	mkdir -p $(dir $@)
+	@mkdir -p $(dir $@)
 	cp $< $(IMAGE_TARGET_OUT)
 endif
 
@@ -234,7 +233,7 @@ $(OUT)/$(BIN).S : $(OUT)/$(BIN).elf
 
 $(OUT)/$(BIN).elf : $(OBJS)
 	@mkdir -p $(dir $@)
-	$(LD) $(LDFLAGS) $(OBJS) $(STATIC_LIBS) -o $@
+	$(LD) $(CFLAGS) $(CXX_FLAGS) $(LDFLAGS) $(OBJS) $(STATIC_LIBS) -o $@
 
 $(OUT)/%.o : %.S
 	@mkdir -p $(dir $@)
@@ -245,6 +244,10 @@ $(OUT)/%.o : %.c
 	$(CC) $(C_CFLAGS) $(CFLAGS) -c $< -o $@
 
 $(OUT)/%.o : %.cc
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXX_CFLAGS) $(CFLAGS) -c $< -o $@
+
+$(OUT)/%.o : %.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXX_CFLAGS) $(CFLAGS) -c $< -o $@
 
@@ -262,7 +265,7 @@ $(DEPS_C) : $(C_SRCS)
 	@mkdir -p $(dir $@)
 	$(CC) $(C_CFLAGS) $(CFLAGS) -MM $^ > $@
 
-$(DEPS_CXX) : $(CXX_SRCS)
+$(DEPS_CXX) : $(CXX_SRCS) $(CPP_SRCS)
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXX_CFLAGS) $(CFLAGS) -MM $^ > $@
 
@@ -278,7 +281,7 @@ ifneq ($(C_SRCS), )
 -include $(DEPS_C)
 endif
 
-ifneq ($(CXX_SRCS), )
+ifneq ($(CXX_SRCS)$(CPP_SRCS),)
 -include $(DEPS_CXX)
 endif
 

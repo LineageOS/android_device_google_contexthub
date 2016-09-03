@@ -22,6 +22,7 @@ include $(NANO_BUILD)/config_internal.mk
 
 intermediates := $(call intermediates-dir-for,EXECUTABLES,$(LOCAL_MODULE),AUX)
 
+nanohub_linked_map := $(intermediates)/LINKED/$(LOCAL_MODULE).map
 nanohub_unchecked_elf := $(intermediates)/UNCHECKED/$(LOCAL_MODULE).elf
 nanohub_checked_elf := $(intermediates)/CHECKED/$(LOCAL_MODULE).elf
 nanohub_checked_bin := $(intermediates)/CHECKED/$(LOCAL_MODULE).bin
@@ -129,6 +130,7 @@ endif # !UNSIGNED
 endif # TYPE == APP
 
 LOCAL_CUSTOM_BUILD_STEP_OUTPUT := $(nanohub_output)
+LOCAL_LDFLAGS += -Wl,-Map,$(nanohub_linked_map)
 
 ###############################
 include $(BUILD_AUX_EXECUTABLE)

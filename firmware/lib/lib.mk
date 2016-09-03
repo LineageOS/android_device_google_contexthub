@@ -51,11 +51,19 @@ SRCS += $(LIBM_PATH)/wf_pow.c
 
 LIBC_PATH := $(NANOHUB_DIR)/lib/libc
 
-SRCS += $(LIBC_PATH)/bcopy.c
 SRCS += $(LIBC_PATH)/memcmp.c
 #SRCS += $(LIBC_PATH)/memcpy-armv7m.S
 SRCS += $(LIBC_PATH)/memcpy.c
 SRCS += $(LIBC_PATH)/memmove.c
 SRCS += $(LIBC_PATH)/memset.c
 SRCS += $(LIBC_PATH)/strcasecmp.c
+SRCS += $(LIBC_PATH)/strncpy.c
 SRCS += $(LIBC_PATH)/strlen.c
+
+# C++ support
+
+SRCS += $(LIBC_PATH)/crt.c
+SRCS += $(LIBC_PATH)/aeabi.cpp
+SRCS += $(LIBC_PATH)/cxa.cpp
+SRCS += $(LIBC_PATH)/new.cpp
+CFLAGS += -I$(LIBC_PATH)
