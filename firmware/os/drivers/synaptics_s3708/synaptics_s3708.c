@@ -42,8 +42,6 @@
 #define I2C_SPEED                   400000
 #define I2C_ADDR                    0x20
 
-#define S3708_ID                    0x34
-
 #define S3708_REG_PAGE_SELECT       0xFF
 
 #define S3708_REG_F01_DATA_BASE     0x06
@@ -61,8 +59,6 @@
 #define S3708_REG_CTRL_20_OFFSET    0x07
 #define S3708_REPORT_MODE_CONT      0x00
 #define S3708_REPORT_MODE_LPWG      0x02
-
-#define S3708_REG_PDT_BASE          0xee
 
 #define MAX_PENDING_I2C_REQUESTS    4
 #define MAX_I2C_TRANSFER_SIZE       8
@@ -100,7 +96,6 @@ enum TaskState
 {
     STATE_ENABLE_0,
     STATE_ENABLE_1,
-    STATE_ENABLE_2,
     STATE_DISABLE_0,
     STATE_INT_HANDLE_0,
     STATE_INT_HANDLE_1,
@@ -165,8 +160,13 @@ static void i2cCallback(void *cookie, size_t tx, size_t rx, int err)
     xfer->err = err;
 
     osEnqueuePrivateEvt(EVT_SENSOR_I2C, cookie, NULL, mTask.id);
-    if (err != 0)
+    // Do not print error for ENXIO since we expect there to be times where we
+    // cannot talk to the touch controller.
+    if (err == -ENXIO) {
+        DEBUG_PRINT("i2c error (tx: %d, rx: %d, err: %d)\n", tx, rx, err);
+    } else if (err != 0) {
         ERROR_PRINT("i2c error (tx: %d, rx: %d, err: %d)\n", tx, rx, err);
+    }
 }
 
 static void retryTimerCallback(uint32_t timerId, void *cookie)
@@ -253,6 +253,19 @@ static bool setReportingMode(uint8_t mode, uint8_t state)
     return false;
 }
 
+static void setRetryTimer()
+{
+    mTask.retryCnt++;
+    if (mTask.retryCnt < MAX_I2C_RETRY_COUNT) {
+        mTask.retryTimerHandle = timTimerSet(MAX_I2C_RETRY_DELAY, 0, 50, retryTimerCallback, NULL, true);
+        if (!mTask.retryTimerHandle) {
+            ERROR_PRINT("failed to allocate timer");
+        }
+    } else {
+        ERROR_PRINT("could not communicate with touch controller");
+    }
+}
+
 static bool callbackPower(bool on, void *cookie)
 {
     bool ret;
@@ -324,53 +337,31 @@ static const struct SensorOps mSensorOps =
     .sensorFlush = callbackFlush,
 };
 
-static void handleI2cEvent(struct I2cTransfer *xfer)
+static void processI2cResponse(struct I2cTransfer *xfer)
 {
     struct I2cTransfer *nextXfer;
     union EmbeddedDataPoint sample;
 
     switch (xfer->state) {
         case STATE_ENABLE_0:
-            // Disable sleep
             setSleepEnable(false, STATE_ENABLE_1);
             break;
 
         case STATE_ENABLE_1:
-            // Verify that we can talk to the chip
-            nextXfer = allocXfer(STATE_ENABLE_2);
-            if (nextXfer != NULL) {
-                nextXfer->txrxBuf[0] = S3708_REG_PDT_BASE;
-                performXfer(nextXfer, 1, 1);
-            }
-            break;
-
-        case STATE_ENABLE_2:
-            DEBUG_PRINT("ID: 0x%02x", xfer->txrxBuf[0]);
-
             // HACK: DozeService reactivates pickup gesture before the screen
             // comes on, so we need to wait for some time after enabling before
             // trying to talk to touch controller. We may see the touch
             // controller on the first few samples and then have communication
             // switched off. So, wait HACK_RETRY_SKIP_COUNT samples before we
             // consider the transaction.
-            if ((mTask.retryCnt < HACK_RETRY_SKIP_COUNT) || (xfer->err != 0) || (xfer->txrxBuf[0] != S3708_ID)) {
-                mTask.retryCnt++;
-                if (mTask.retryCnt < MAX_I2C_RETRY_COUNT) {
-                    mTask.retryTimerHandle = timTimerSet(MAX_I2C_RETRY_DELAY, 0, 50, retryTimerCallback, NULL, true);
-                    if (!mTask.retryTimerHandle) {
-                        ERROR_PRINT("failed to allocate timer");
-                    }
-                } else {
-                    ERROR_PRINT("could not communicate with touch controller");
-                }
+            if (mTask.retryCnt < HACK_RETRY_SKIP_COUNT) {
+                setRetryTimer();
             } else {
-                // Set reporting control to lpwg mode
                 setReportingMode(S3708_REPORT_MODE_LPWG, STATE_IDLE);
             }
             break;
 
         case STATE_DISABLE_0:
-            // Enable sleep
             setSleepEnable(true, STATE_IDLE);
             break;
 
@@ -396,6 +387,15 @@ static void handleI2cEvent(struct I2cTransfer *xfer)
 
         default:
             break;
+    }
+}
+
+static void handleI2cEvent(struct I2cTransfer *xfer)
+{
+    if (xfer->err == 0) {
+        processI2cResponse(xfer);
+    } else if (xfer->state == STATE_ENABLE_0 || xfer->state == STATE_ENABLE_1) {
+        setRetryTimer();
     }
 
     xfer->inUse = false;
