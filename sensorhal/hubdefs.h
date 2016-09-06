@@ -79,6 +79,7 @@ enum comms_sensor_t {
     COMMS_SENSOR_ACTIVITY_STILL_STOP         = 41,
     COMMS_SENSOR_ACTIVITY_TILTING            = 42,
     COMMS_SENSOR_ACCEL_BIAS                  = 43,
+    COMMS_SENSOR_DOUBLE_TOUCH                = 44,
 
     NUM_COMMS_SENSORS_PLUS_1,
 
@@ -109,6 +110,7 @@ enum {
     SENSOR_TYPE_SYNC                    = SENSOR_TYPE_DEVICE_PRIVATE_BASE + 1,
     SENSOR_TYPE_DOUBLE_TWIST            = SENSOR_TYPE_DEVICE_PRIVATE_BASE + 2,
     SENSOR_TYPE_DOUBLE_TAP              = SENSOR_TYPE_DEVICE_PRIVATE_BASE + 3,
+    SENSOR_TYPE_DOUBLE_TOUCH            = SENSOR_TYPE_DEVICE_PRIVATE_BASE + 4,
 };
 
 }  // namespace android

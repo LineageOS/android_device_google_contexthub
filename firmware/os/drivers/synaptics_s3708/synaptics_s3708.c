@@ -31,6 +31,8 @@
 #include <timer.h>
 #include <util.h>
 
+#include <cpu/cpuMath.h>
+
 #include <plat/exti.h>
 #include <plat/gpio.h>
 #include <plat/syscfg.h>
@@ -66,10 +68,16 @@
 #define MAX_I2C_RETRY_COUNT         (15000000000ull / MAX_I2C_RETRY_DELAY) // 15 seconds
 #define HACK_RETRY_SKIP_COUNT       1
 
+#define DEFAULT_PROX_RATE_HZ        SENSOR_HZ(5.0f)
+#define DEFAULT_PROX_LATENCY        0.0
+#define PROXIMITY_THRESH_NEAR       5.0f    // distance in cm
+
+#define EVT_SENSOR_PROX  sensorGetMyEventType(SENS_TYPE_PROX)
+
 #define ENABLE_DEBUG 0
 
-#define INFO_PRINT(fmt, ...) osLog(LOG_INFO, "[S3708] " fmt, ##__VA_ARGS__)
-#define ERROR_PRINT(fmt, ...) osLog(LOG_ERROR, "[S3708] " fmt, ##__VA_ARGS__)
+#define INFO_PRINT(fmt, ...) osLog(LOG_INFO, "[DoubleTouch] " fmt, ##__VA_ARGS__)
+#define ERROR_PRINT(fmt, ...) osLog(LOG_ERROR, "[DoubleTouch] " fmt, ##__VA_ARGS__)
 #if ENABLE_DEBUG
 #define DEBUG_PRINT(fmt, ...) INFO_PRINT(fmt, ##__VA_ARGS__)
 #else
@@ -113,16 +121,34 @@ struct I2cTransfer
     bool inUse;
 };
 
+struct TaskStatistics {
+    uint64_t enabledTimestamp;
+    uint64_t proxEnabledTimestamp;
+    uint64_t lastProxFarTimestamp;
+    uint64_t totalEnabledTime;
+    uint64_t totalProxEnabledTime;
+    uint64_t totalProxFarTime;
+};
+
+enum ProxState {
+    PROX_STATE_UNKNOWN,
+    PROX_STATE_NEAR,
+    PROX_STATE_FAR
+};
+
 static struct TaskStruct
 {
     struct Gpio *pin;
     struct ChainedIsr isr;
+    struct TaskStatistics stats;
     uint32_t id;
     uint32_t handle;
     uint32_t retryTimerHandle;
     uint32_t retryCnt;
     struct I2cTransfer transfers[MAX_PENDING_I2C_REQUESTS];
     bool on;
+    uint32_t proxHandle;
+    enum ProxState proxState;
 } mTask;
 
 static inline void enableInterrupt(bool enable)
@@ -266,12 +292,12 @@ static void setRetryTimer()
     }
 }
 
-static bool callbackPower(bool on, void *cookie)
+static void setGesturePower(bool enable)
 {
     bool ret;
     size_t i;
 
-    INFO_PRINT("enable %d", on);
+    INFO_PRINT("gesture: %d", enable);
 
     // Cancel any pending I2C transactions by changing the callback state
     for (i = 0; i < ARRAY_SIZE(mTask.transfers); i++) {
@@ -280,7 +306,7 @@ static bool callbackPower(bool on, void *cookie)
         }
     }
 
-    if (on) {
+    if (enable) {
         mTask.retryCnt = 0;
 
         // Set page number to 0x00
@@ -297,12 +323,54 @@ static bool callbackPower(bool on, void *cookie)
     }
 
     if (ret) {
-        mTask.on = on;
-        enableInterrupt(mTask.on);
-        sensorSignalInternalEvt(mTask.handle, SENSOR_INTERNAL_EVT_POWER_STATE_CHG, mTask.on, 0);
+        enableInterrupt(enable);
+    }
+}
+
+static void configProx(bool on) {
+    if (on) {
+        mTask.stats.proxEnabledTimestamp = sensorGetTime();
+        sensorRequest(mTask.id, mTask.proxHandle, DEFAULT_PROX_RATE_HZ,
+                      DEFAULT_PROX_LATENCY);
+        osEventSubscribe(mTask.id, EVT_SENSOR_PROX);
+    } else {
+        sensorRelease(mTask.id, mTask.proxHandle);
+        osEventUnsubscribe(mTask.id, EVT_SENSOR_PROX);
+
+        mTask.stats.totalProxEnabledTime += sensorGetTime() - mTask.stats.proxEnabledTimestamp;
+        if (mTask.proxState == PROX_STATE_FAR) {
+            mTask.stats.totalProxFarTime += sensorGetTime() - mTask.stats.lastProxFarTimestamp;
+        }
+    }
+    mTask.proxState = PROX_STATE_UNKNOWN;
+}
+
+static bool callbackPower(bool on, void *cookie)
+{
+    uint32_t enabledSeconds, proxEnabledSeconds, proxFarSeconds;
+
+    INFO_PRINT("power: %d", on);
+
+    if (on) {
+        mTask.stats.enabledTimestamp = sensorGetTime();
+    } else {
+        mTask.stats.totalEnabledTime += sensorGetTime() - mTask.stats.enabledTimestamp;
     }
 
-    return ret;
+    enabledSeconds = U64_DIV_BY_U64_CONSTANT(mTask.stats.totalEnabledTime, 1000000000);
+    proxEnabledSeconds = U64_DIV_BY_U64_CONSTANT(mTask.stats.totalProxEnabledTime, 1000000000);
+    proxFarSeconds = U64_DIV_BY_U64_CONSTANT(mTask.stats.totalProxFarTime, 1000000000);
+    INFO_PRINT("STATS: enabled %02" PRIu32 ":%02" PRIu32 ":%02" PRIu32
+               ", prox enabled %02" PRIu32 ":%02" PRIu32 ":%02" PRIu32
+               ", prox far %02" PRIu32 ":%02" PRIu32 ":%02" PRIu32,
+        enabledSeconds / 3600, (enabledSeconds % 3600) / 60, enabledSeconds % 60,
+        proxEnabledSeconds / 3600, (proxEnabledSeconds % 3600) / 60, proxEnabledSeconds % 60,
+        proxFarSeconds / 3600, (proxFarSeconds % 3600) / 60, proxFarSeconds % 60);
+
+    mTask.on = on;
+    configProx(on);
+
+    return sensorSignalInternalEvt(mTask.handle, SENSOR_INTERNAL_EVT_POWER_STATE_CHG, mTask.on, 0);
 }
 
 static bool callbackFirmwareUpload(void *cookie)
@@ -325,8 +393,7 @@ static const struct SensorInfo mSensorInfo = {
     .sensorType = SENS_TYPE_DOUBLE_TOUCH,
     .numAxis = NUM_AXIS_EMBEDDED,
     .interrupt = NANOHUB_INT_WAKEUP,
-    .minSamples = 20,
-    .flags1 = SENSOR_INFO_FLAGS1_LOCAL_ONLY
+    .minSamples = 20
 };
 
 static const struct SensorOps mSensorOps =
@@ -404,6 +471,8 @@ static void handleI2cEvent(struct I2cTransfer *xfer)
 static void handleEvent(uint32_t evtType, const void* evtData)
 {
     struct I2cTransfer *xfer;
+    union EmbeddedDataPoint embeddedSample;
+    enum ProxState lastProxState;
     int ret;
 
     switch (evtType) {
@@ -416,6 +485,9 @@ static void handleEvent(uint32_t evtType, const void* evtData)
             if ((ret < 0) && (ret != -EBUSY)) {
                 ERROR_PRINT("i2cMasterRequest() failed!");
             }
+
+            sensorFind(SENS_TYPE_PROX, 0, &mTask.proxHandle);
+
             sensorRegisterInitComplete(mTask.handle);
             break;
 
@@ -431,6 +503,21 @@ static void handleEvent(uint32_t evtType, const void* evtData)
                     xfer->txrxBuf[0] = S3708_REG_F01_DATA_BASE;
                     performXfer(xfer, 1, 2);
                 }
+            }
+            break;
+
+        case EVT_SENSOR_PROX:
+            // cast off the const, and cast to union
+            embeddedSample = (union EmbeddedDataPoint)((void*)evtData);
+            lastProxState = mTask.proxState;
+            mTask.proxState = (embeddedSample.fdata < PROXIMITY_THRESH_NEAR) ? PROX_STATE_NEAR : PROX_STATE_FAR;
+
+            if ((lastProxState != PROX_STATE_FAR) && (mTask.proxState == PROX_STATE_FAR)) {
+                mTask.stats.lastProxFarTimestamp = sensorGetTime();
+                setGesturePower(true);
+            } else if ((lastProxState == PROX_STATE_FAR) && (mTask.proxState == PROX_STATE_NEAR)) {
+                mTask.stats.totalProxFarTime += sensorGetTime() - mTask.stats.lastProxFarTimestamp;
+                setGesturePower(false);
             }
             break;
 
