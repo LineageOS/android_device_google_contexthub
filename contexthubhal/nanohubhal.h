@@ -17,10 +17,10 @@
 #ifndef _NANOHUB_HAL_H_
 #define _NANOHUB_HAL_H_
 
-#include <pthread.h>
+#include <mutex>
+#include <thread>
 
 #include <hardware/context_hub.h>
-#include <utils/Mutex.h>
 
 #define NANOAPP_VENDOR_GOOGLE NANOAPP_VENDOR("Googl")
 
@@ -46,12 +46,12 @@ struct nano_message {
 } __attribute__((packed));
 
 class NanoHub {
-    Mutex mLock;
+    std::mutex mLock;
+    std::thread mPollThread;
     context_hub_callback *mMsgCbkFunc;
     int mThreadClosingPipe[2];
     int mFd; // [0] is read end
     void * mMsgCbkData;
-    pthread_t mWorkerThread;
 
     NanoHub() {
         reset();
@@ -63,11 +63,9 @@ class NanoHub {
         mFd = -1;
         mMsgCbkData = nullptr;
         mMsgCbkFunc = nullptr;
-        mWorkerThread = 0;
     }
 
-    static void* run(void *);
-    void* doRun();
+    void* run();
 
     int openHub();
     int closeHub();

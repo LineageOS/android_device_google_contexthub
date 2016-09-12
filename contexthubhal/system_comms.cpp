@@ -95,8 +95,9 @@ int SystemComm::sendToSystem(const void *data, size_t len) {
     return NanoHub::sendToDevice(&getSystem()->mHostIfAppName, data, len);
 }
 
-int SystemComm::AppInfoSession::setup(const hub_message_t *) {
-    Mutex::Autolock _l(mLock);
+int SystemComm::AppInfoSession::setup(const hub_message_t *)
+{
+    std::lock_guard<std::mutex> _l(mLock);
     int suggestedSize = mAppInfo.size() ? mAppInfo.size() : 20;
 
     mAppInfo.clear();
@@ -118,7 +119,7 @@ inline hub_app_name_t hostAppNameToDevice(const hub_app_name_t src) {
 
 int SystemComm::AppInfoSession::handleRx(MessageBuf &buf)
 {
-    Mutex::Autolock _l(mLock);
+    std::lock_guard<std::mutex> _l(mLock);
 
     NanohubRsp rsp(buf, true);
     if (rsp.cmd != NANOHUB_QUERY_APPS) {
@@ -174,8 +175,9 @@ int SystemComm::AppInfoSession::requestNext()
     return sendToSystem(buf.getData(), buf.getPos());
 }
 
-int SystemComm::GlobalSession::setup(const hub_message_t *) {
-    Mutex::Autolock _l(mLock);
+int SystemComm::GlobalSession::setup(const hub_message_t *)
+{
+    std::lock_guard<std::mutex> _l(mLock);
 
     setState(SESSION_USER);
 
@@ -184,7 +186,7 @@ int SystemComm::GlobalSession::setup(const hub_message_t *) {
 
 int SystemComm::GlobalSession::handleRx(MessageBuf &buf)
 {
-    Mutex::Autolock _l(mLock);
+    std::lock_guard<std::mutex> _l(mLock);
 
     NanohubRsp rsp(buf);
     if (rsp.cmd != NANOHUB_REBOOT) {
@@ -199,7 +201,7 @@ int SystemComm::GlobalSession::handleRx(MessageBuf &buf)
 
 int SystemComm::MemInfoSession::setup(const hub_message_t *)
 {
-    Mutex::Autolock _l(mLock);
+    std::lock_guard<std::mutex> _l(mLock);
     char data[MAX_RX_PACKET];
     MessageBuf buf(data, sizeof(data));
     buf.writeU8(NANOHUB_QUERY_MEMINFO);
@@ -210,7 +212,7 @@ int SystemComm::MemInfoSession::setup(const hub_message_t *)
 
 int SystemComm::MemInfoSession::handleRx(MessageBuf &buf)
 {
-    Mutex::Autolock _l(mLock);
+    std::lock_guard<std::mutex> _l(mLock);
     NanohubRsp rsp(buf, true);
 
     if (rsp.cmd != NANOHUB_QUERY_MEMINFO)
@@ -277,7 +279,7 @@ int SystemComm::MemInfoSession::handleRx(MessageBuf &buf)
 
 int SystemComm::AppMgmtSession::setup(const hub_message_t *appMsg)
 {
-    Mutex::Autolock _l(mLock);
+    std::lock_guard<std::mutex> _l(mLock);
 
     char data[MAX_RX_PACKET];
     MessageBuf buf(data, sizeof(data));
@@ -333,7 +335,7 @@ int SystemComm::AppMgmtSession::setupMgmt(const hub_message_t *appMsg, uint32_t 
 int SystemComm::AppMgmtSession::handleRx(MessageBuf &buf)
 {
     int ret = 0;
-    Mutex::Autolock _l(mLock);
+    std::lock_guard<std::mutex> _l(mLock);
     NanohubRsp rsp(buf);
 
     switch (getState()) {
@@ -477,7 +479,7 @@ int SystemComm::AppMgmtSession::handleMgmt(NanohubRsp &rsp)
 }
 
 int SystemComm::KeyInfoSession::setup(const hub_message_t *) {
-    Mutex::Autolock _l(mLock);
+    std::lock_guard<std::mutex> _l(mLock);
     mRsaKeyData.clear();
     setState(SESSION_USER);
     mStatus = -EBUSY;
@@ -486,7 +488,7 @@ int SystemComm::KeyInfoSession::setup(const hub_message_t *) {
 
 int SystemComm::KeyInfoSession::handleRx(MessageBuf &buf)
 {
-    Mutex::Autolock _l(mLock);
+    std::lock_guard<std::mutex> _l(mLock);
     NanohubRsp rsp(buf, true);
 
     if (getState() != SESSION_USER) {

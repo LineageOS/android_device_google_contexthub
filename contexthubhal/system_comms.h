@@ -18,9 +18,10 @@
 #define _NANOHUB_SYSTEM_COMMS_H_
 
 #include <utils/Condition.h>
-#include <utils/Mutex.h>
 
+#include <condition_variable>
 #include <map>
+#include <mutex>
 #include <vector>
 
 #include <hardware/context_hub.h>
@@ -118,12 +119,12 @@ private:
     class Session : public ISession {
         friend class SessionManager;
 
-        mutable Mutex mDoneLock; // controls condition and state transitions
-        Condition mDoneWait;
+        mutable std::mutex mDoneMutex; // controls condition and state transitions
+        std::condition_variable mDoneCond;
         volatile int mState;
 
     protected:
-        mutable Mutex mLock; // serializes message handling
+        mutable std::mutex mLock; // serializes message handling
         int32_t mStatus;
 
         enum {
@@ -133,43 +134,42 @@ private:
         };
 
         void complete() {
-            Mutex::Autolock _l(mDoneLock);
+            std::unique_lock<std::mutex> lk(mDoneMutex);
             if (mState != SESSION_DONE) {
                 mState = SESSION_DONE;
-                mDoneWait.broadcast();
+                lk.unlock();
+                mDoneCond.notify_all();
             }
         }
         void setState(int state) {
             if (state == SESSION_DONE) {
                 complete();
             } else {
-                Mutex::Autolock _l(mDoneLock);
+                std::lock_guard<std::mutex> _l(mDoneMutex);
                 mState = state;
             }
         }
     public:
         Session() { mState = SESSION_INIT; mStatus = -1; }
         int getStatus() const {
-            Mutex::Autolock _l(mLock);
+            std::lock_guard<std::mutex> _l(mLock);
             return mStatus;
         }
         int wait() {
-            Mutex::Autolock _l(mDoneLock);
-            while (mState != SESSION_DONE) {
-                mDoneWait.wait(mDoneLock);
-            }
+            std::unique_lock<std::mutex> lk(mDoneMutex);
+            mDoneCond.wait(lk, [this] { return mState == SESSION_DONE; });
             return 0;
         }
         virtual int getState() const override {
-            Mutex::Autolock _l(mDoneLock);
+            std::lock_guard<std::mutex> _l(mDoneMutex);
             return mState;
         }
         virtual bool isDone() const {
-            Mutex::Autolock _l(mDoneLock);
+            std::lock_guard<std::mutex> _l(mDoneMutex);
             return mState == SESSION_DONE;
         }
         virtual bool isRunning() const {
-            Mutex::Autolock _l(mDoneLock);
+            std::lock_guard<std::mutex> _l(mDoneMutex);
             return mState > SESSION_DONE;
         }
     };
@@ -218,7 +218,7 @@ private:
         virtual int setup(const hub_message_t *) override;
         virtual int handleRx(MessageBuf &buf) override;
         bool haveKeys() const {
-            Mutex::Autolock _l(mLock);
+            std::lock_guard<std::mutex> _l(mLock);
             return mRsaKeyData.size() > 0 && !isRunning();
         }
     };
@@ -240,13 +240,13 @@ private:
     class SessionManager {
         typedef std::map<int, Session* > SessionMap;
 
-        Mutex lock;
+        std::mutex lock;
         SessionMap sessions_;
         GlobalSession mGlobal;
 
         void next(SessionMap::iterator &pos)
         {
-            Mutex::Autolock _l(lock);
+            std::lock_guard<std::mutex> _l(lock);
             pos->second->isDone() ? pos = sessions_.erase(pos) : ++pos;
         }
 
@@ -256,7 +256,7 @@ private:
         }
         int handleRx(MessageBuf &buf);
         int setup_and_add(int id, Session *session, const hub_message_t *appMsg) {
-            Mutex::Autolock _l(lock);
+            std::lock_guard<std::mutex> _l(lock);
             if (sessions_.count(id) == 0 && !session->isRunning()) {
                 int ret = session->setup(appMsg);
                 if (ret < 0) {

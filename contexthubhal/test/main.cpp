@@ -1,11 +1,16 @@
 #define LOG_TAG "NanohubHAL_Test"
 
+#include <cstddef>
+#include <cstdint>
+#include <functional>
 #include <iostream>
 #include <iomanip>
 #include <map>
 #include <memory>
 #include <cstddef>
 #include <cstdint>
+#include <mutex>
+#include <vector>
 
 #include <unistd.h>
 
@@ -148,9 +153,9 @@ class NanoClient
 {
     CHub::Client *mClient;
     std::ostream &log;
-    android::Mutex lock;
+    std::mutex lock;
     void onMessage(const hub_message_t &msg){
-        android::Mutex::Autolock _l(lock);
+        std::lock_guard<std::mutex> _l(lock);
         dumpBuffer(log, "Rx", msg.app_name, msg.message_type, msg.message, msg.message_len, 0);
         log << std::endl;
     }
@@ -169,7 +174,7 @@ public:
         msg.message_type = cmd;
         msg.app_name = mClient->getSystemApp();
         {
-            android::Mutex::Autolock _l(lock);
+            std::lock_guard<std::mutex> _l(lock);
             dumpBuffer(log, "Tx", msg.app_name, msg.message_type, msg.message, msg.message_len, 0);
             log << std::endl;
         }
@@ -212,6 +217,7 @@ int main(int argc, char *argv[])
             exit(1);
         }
     }
+    // send HAL command
     switch(cmd) {
     case CONTEXT_HUB_APPS_ENABLE:
     {
@@ -234,7 +240,7 @@ int main(int argc, char *argv[])
             req = (load_app_request_t *)loadFile(appFileName, &fileSize);
         if (!req || fileSize < sizeof(*req) || req->app_binary.magic != NANOAPP_MAGIC) {
             std::clog << "Invalid nanoapp image: " << appFileName << std::endl;
-            exit(1);
+            return 1;
         }
         cli.sendMessageToSystem(CONTEXT_HUB_LOAD_APP, req, fileSize);
         free(req);

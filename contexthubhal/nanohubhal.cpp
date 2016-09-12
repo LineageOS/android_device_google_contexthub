@@ -18,7 +18,6 @@
 
 #include <fcntl.h>
 #include <poll.h>
-#include <pthread.h>
 #include <unistd.h>
 #include <sys/inotify.h>
 #include <sys/types.h>
@@ -176,13 +175,7 @@ void NanoHub::doSendToApp(const hub_app_name_t *name, uint32_t typ, const void *
     mMsgCbkFunc(0, &msg, mMsgCbkData);
 }
 
-void* NanoHub::run(void *data)
-{
-    NanoHub *self = static_cast<NanoHub*>(data);
-    return self->doRun();
-}
-
-void* NanoHub::doRun()
+void* NanoHub::run()
 {
     enum {
         IDX_NANOHUB,
@@ -279,17 +272,8 @@ int NanoHub::openHub()
         goto fail_pipe;
     }
 
-    if (pthread_create(&mWorkerThread, NULL, &NanoHub::run, this)) {
-        ALOGE("failed to spawn worker thread");
-        ret = -errno;
-        goto fail_thread;
-    }
-
+    mPollThread = std::thread([this] { run(); });
     return 0;
-
-fail_thread:
-    close(mThreadClosingPipe[0]);
-    close(mThreadClosingPipe[1]);
 
 fail_pipe:
     close(mFd);
@@ -306,7 +290,9 @@ int NanoHub::closeHub(void)
     while(write(mThreadClosingPipe[1], &zero, 1) != 1);
 
     //wait
-    (void)pthread_join(mWorkerThread, NULL);
+    if (mPollThread.joinable()) {
+        mPollThread.join();
+    }
 
     //cleanup
     ::close(mThreadClosingPipe[0]);
@@ -323,7 +309,7 @@ int NanoHub::doSubscribeMessages(uint32_t hub_id, context_hub_callback *cbk, voi
         return -ENODEV;
     }
 
-    Mutex::Autolock _l(mLock);
+    std::lock_guard<std::mutex> _l(mLock);
     int ret = 0;
 
     if (!mMsgCbkFunc && !cbk) { //we're off and staying off - do nothing
@@ -356,7 +342,7 @@ int NanoHub::doSendToNanohub(uint32_t hub_id, const hub_message_t *msg)
     }
 
     int ret = 0;
-    Mutex::Autolock _l(mLock);
+    std::lock_guard<std::mutex> _l(mLock);
 
     if (!mMsgCbkFunc) {
         ALOGW("refusing to send a message when nobody around to get a reply!");
