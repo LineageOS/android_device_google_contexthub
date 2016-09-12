@@ -22,11 +22,11 @@
 
 #include <hardware/context_hub.h>
 
-#define NANOAPP_VENDOR_GOOGLE NANOAPP_VENDOR("Googl")
+#include <nanohub/nanohub.h>
 
 //as per protocol
-#define MAX_RX_PACKET           128
-#define APP_FROM_HOST_EVENT_ID  0x000000F8
+#define MAX_RX_PACKET               128
+#define APP_FROM_HOST_EVENT_ID      0x000000F8
 
 namespace android {
 
@@ -34,14 +34,8 @@ namespace nanohub {
 
 void dumpBuffer(const char *pfx, const hub_app_name_t &appId, uint32_t evtId, const void *data, size_t len, int status = 0);
 
-struct nano_message_hdr {
-    uint32_t event_id;
-    hub_app_name_t app_name;
-    uint8_t len;
-} __attribute__((packed));
-
 struct nano_message {
-    nano_message_hdr hdr;
+    HostMsgHdr hdr;
     uint8_t data[MAX_RX_PACKET];
 } __attribute__((packed));
 

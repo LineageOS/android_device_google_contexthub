@@ -89,19 +89,10 @@ struct AppFuncs { /* do not rearrange */
 #define FL_KEY_HDR_DELETE          0x8000 // key-specific flag: if set key id refers to existing key which has to be deleted
 
 /* app ids are split into vendor and app parts. vendor parts are assigned by google. App parts are free for each vendor to assign at will */
-#define APP_ID_FIRST_USABLE        0x0100000000000000ULL //all app ids lower than this are reserved for google's internal use
-#define APP_ID_GET_VENDOR(appid)   ((appid) >> 24)
-#define APP_ID_GET_SEQ_ID(appid)   ((appid) & 0xFFFFFF)
-#define APP_ID_MAKE(vendor, app)   ((((uint64_t)(vendor)) << 24) | ((app) & APP_SEQ_ID_ANY))
 #define KEY_ID_MAKE(vendor, key)   ((((uint64_t)(vendor)) << 24) | ((key) & KEY_SEQ_ID_ANY))
-#define NANOHUB_VENDOR_GOOGLE      UINT64_C(0x476F6F676C) // "Googl"
-#define NANOHUB_VENDOR_STMICRO     UINT64_C(0x53544d6963) // "STMic"
 #define HW_ID_MAKE(vendor, ver)    ((((uint64_t)(vendor)) << 24) | (PLATFORM_ID(ver) & HW_ID_ANY))
-#define APP_VENDOR_ANY             UINT64_C(0xFFFFFFFFFF)
-#define APP_SEQ_ID_ANY             UINT64_C(0xFFFFFF)
 #define KEY_SEQ_ID_ANY             UINT64_C(0xFFFFFF)
 #define HW_ID_ANY                  UINT64_C(0xFFFFFF)
-#define APP_ID_ANY                 UINT64_C(0xFFFFFFFFFFFFFFFF)
 #define PLATFORM_ID(ver)           ((((PLATFORM_HW_TYPE) & 0xFFFF) << 8) | (ver & 0xFF))
 
 #define APP_INFO_CMD_ADD_KEY 1

@@ -29,6 +29,8 @@
 #include <utils/Log.h>
 #include <cutils/properties.h>
 
+#include <nanohub/nanohub.h>
+
 #include <cinttypes>
 #include <iomanip>
 #include <sstream>
@@ -146,14 +148,14 @@ static void wait_on_dev_lock(pollfd &pfd) {
 
 int NanoHub::doSendToDevice(const hub_app_name_t *name, const void *data, uint32_t len)
 {
-    if (len > MAX_RX_PACKET) {
+    if (len > MAX_RX_PACKET || name == nullptr) {
         return -EINVAL;
     }
 
     nano_message msg = {
         .hdr = {
             .event_id = APP_FROM_HOST_EVENT_ID,
-            .app_name = *name,
+            .app_id = name->id,
             .len = static_cast<uint8_t>(len),
         },
     };
@@ -238,10 +240,11 @@ void* NanoHub::run()
             if (ret < 0) {
                 ALOGE("SystemComm::handleRx() returned %d", ret);
             } else if (ret) {
+                hub_app_name_t app_name = { .id = msg.hdr.app_id };
                 if (messageTracingEnabled()) {
-                    dumpBuffer("DEV -> APP", msg.hdr.app_name, msg.hdr.event_id, &msg.data[0], msg.hdr.len);
+                    dumpBuffer("DEV -> APP", app_name, msg.hdr.event_id, &msg.data[0], msg.hdr.len);
                 }
-                doSendToApp(&msg.hdr.app_name, msg.hdr.event_id, &msg.data[0], msg.hdr.len);
+                doSendToApp(&app_name, msg.hdr.event_id, &msg.data[0], msg.hdr.len);
             }
         }
 

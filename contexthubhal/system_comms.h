@@ -25,6 +25,8 @@
 #include <vector>
 
 #include <hardware/context_hub.h>
+#include <nanohub/nanohub.h>
+
 #include "nanohubhal.h"
 #include "message_buf.h"
 
@@ -272,7 +274,7 @@ private:
     } mSessions;
 
     const hub_app_name_t mHostIfAppName = {
-        .id = NANO_APP_ID(NANOAPP_VENDOR_GOOGLE, 0)
+        .id = APP_ID_MAKE(NANOHUB_VENDOR_GOOGLE, 0)
     };
 
     static SystemComm *getSystem() {

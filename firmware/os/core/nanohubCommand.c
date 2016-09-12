@@ -27,6 +27,7 @@
 
 #include <nanohub/crc.h>
 #include <nanohub/rsa.h>
+#include <nanohub/nanohub.h>
 
 #include <bl.h>
 #include <atomicBitset.h>
@@ -898,25 +899,24 @@ static uint32_t writeEvent(void *rx, uint8_t rx_len, void *tx, uint64_t timestam
     struct NanohubWriteEventRequest *req = rx;
     struct NanohubWriteEventResponse *resp = tx;
     uint8_t *packet;
-    struct HostHubRawPacket *rawPacket;
     uint32_t tid;
     EventFreeF free = slabFree;
 
     if (le32toh(req->evtType) == EVT_APP_FROM_HOST) {
-        rawPacket = (struct HostHubRawPacket *)req->evtData;
-        if (rx_len >= sizeof(req->evtType) + sizeof(struct HostHubRawPacket) &&
-            rx_len == sizeof(req->evtType) + sizeof(struct HostHubRawPacket) + rawPacket->dataLen &&
-            osTidById(&rawPacket->appId, &tid)) {
+        struct HostMsgHdr *hostPacket = rx;
+        if (rx_len >= sizeof(struct HostMsgHdr) &&
+            rx_len == sizeof(struct HostMsgHdr) + hostPacket->len &&
+            osTidById(&hostPacket->app_id, &tid)) {
             packet = slabAllocatorAlloc(mEventSlab);
             if (!packet) {
-                packet = heapAlloc(rawPacket->dataLen + 1);
+                packet = heapAlloc(hostPacket->len + 1);
                 free = heapFree;
             }
             if (!packet) {
                 resp->accepted = false;
             } else {
-                packet[0] = rawPacket->dataLen;
-                memcpy(packet + 1, rawPacket + 1, rawPacket->dataLen);
+                packet[0] = hostPacket->len;
+                memcpy(packet + 1, hostPacket + 1, hostPacket->len);
                 resp->accepted = osEnqueuePrivateEvt(EVT_APP_FROM_HOST, packet, free, tid);
                 if (!resp->accepted)
                     free(packet);

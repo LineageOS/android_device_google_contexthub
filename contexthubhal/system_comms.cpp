@@ -37,15 +37,18 @@ namespace android {
 
 namespace nanohub {
 
-static void readAppName(MessageBuf &buf, hub_app_name_t &name) {
+static void readAppName(MessageBuf &buf, hub_app_name_t &name)
+{
     name.id = buf.readU64();
 }
 
-static void writeAppName(MessageBuf &buf, const hub_app_name_t &name) {
+static void writeAppName(MessageBuf &buf, const hub_app_name_t &name)
+{
     buf.writeU64(name.id);
 }
 
-static void readNanohubAppInfo(MessageBuf &buf, NanohubAppInfo &info) {
+static void readNanohubAppInfo(MessageBuf &buf, NanohubAppInfo &info)
+{
     size_t pos = buf.getPos();
     readAppName(buf, info.name);
     info.version = buf.readU32();
@@ -56,7 +59,8 @@ static void readNanohubAppInfo(MessageBuf &buf, NanohubAppInfo &info) {
     }
 }
 
-static void readNanohubMemInfo(MessageBuf &buf,  NanohubMemInfo &mi) {
+static void readNanohubMemInfo(MessageBuf &buf,  NanohubMemInfo &mi)
+{
     size_t pos = buf.getPos();
     mi.flashSz = buf.readU32();
     mi.blSz = buf.readU32();
@@ -75,7 +79,8 @@ static void readNanohubMemInfo(MessageBuf &buf,  NanohubMemInfo &mi) {
     }
 }
 
-NanohubRsp::NanohubRsp(MessageBuf &buf, bool no_status) {
+NanohubRsp::NanohubRsp(MessageBuf &buf, bool no_status)
+{
     // all responses start with command
     // most of them have 4-byte status (result code)
     cmd = buf.readU8();
@@ -88,7 +93,8 @@ NanohubRsp::NanohubRsp(MessageBuf &buf, bool no_status) {
     }
 }
 
-int SystemComm::sendToSystem(const void *data, size_t len) {
+int SystemComm::sendToSystem(const void *data, size_t len)
+{
     if (NanoHub::messageTracingEnabled()) {
         dumpBuffer("HAL -> SYS", getSystem()->mHostIfAppName, 0, data, len);
     }
@@ -107,12 +113,14 @@ int SystemComm::AppInfoSession::setup(const hub_message_t *)
     return requestNext();
 }
 
-inline hub_app_name_t deviceAppNameToHost(const hub_app_name_t src) {
+inline hub_app_name_t deviceAppNameToHost(const hub_app_name_t src)
+{
     hub_app_name_t res = { .id = le64toh(src.id) };
     return res;
 }
 
-inline hub_app_name_t hostAppNameToDevice(const hub_app_name_t src) {
+inline hub_app_name_t hostAppNameToDevice(const hub_app_name_t src)
+{
     hub_app_name_t res = { .id = htole64(src.id) };
     return res;
 }
@@ -178,9 +186,7 @@ int SystemComm::AppInfoSession::requestNext()
 int SystemComm::GlobalSession::setup(const hub_message_t *)
 {
     std::lock_guard<std::mutex> _l(mLock);
-
     setState(SESSION_USER);
-
     return 0;
 }
 
@@ -523,7 +529,7 @@ int SystemComm::KeyInfoSession::requestRsaKeys(void)
 int SystemComm::doHandleRx(const nano_message *msg)
 {
     //we only care for messages from HostIF
-    if (msg->hdr.app_name != mHostIfAppName)
+    if (msg->hdr.app_id != mHostIfAppName.id)
         return 1;
 
     //they must all be at least 1 byte long
