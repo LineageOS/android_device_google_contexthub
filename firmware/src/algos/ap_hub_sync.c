@@ -35,70 +35,70 @@ enum ApHubSyncState {
     USE_FILTERED
 };
 
-void ahsync_reset(struct ApHubSync* sync) {
+void apHubSyncReset(struct ApHubSync* sync) {
     sync->state = 0;
     if (DEBUG_SYNC) {
         osLog(LOG_DEBUG, "ApHub sync reset");
     }
 }
 
-void ahsync_add_delta(struct ApHubSync* sync, uint64_t ap_time, uint64_t hub_time) {
+void apHubSyncAddDelta(struct ApHubSync* sync, uint64_t apTime, uint64_t hubTime) {
 
-    int64_t delta = ap_time - hub_time;
+    int64_t delta = apTime - hubTime;
 
-    // if data is expired or last_ts is not set before, reset
-    if (ap_time > sync->last_ts + SYNC_EXPIRATION || sync->last_ts == 0) {
-        ahsync_reset(sync);
+    // if data is expired or lastTs is not set before, reset
+    if (apTime > sync->lastTs + SYNC_EXPIRATION || sync->lastTs == 0) {
+        apHubSyncReset(sync);
     }
 
-    sync->last_ts = ap_time;
+    sync->lastTs = apTime;
 
     if (sync->state == NOT_INITED) {
-        // setup the win_max before switching state
-        sync->win_max = delta;
-        sync->win_timeout = ap_time + SYNC_WINDOW_TIMEOUT;
+        // setup the windowMax before switching state
+        sync->windowMax = delta;
+        sync->windowTimeout = apTime + SYNC_WINDOW_TIMEOUT;
 
         sync->state = USE_MAX;
     } else {
-        sync->win_max = (delta > sync->win_max) ? delta : sync->win_max;
-        if (ap_time > sync->win_timeout) {
+        sync->windowMax = (delta > sync->windowMax) ? delta : sync->windowMax;
+        if (apTime > sync->windowTimeout) {
             // collected a window
 
-            // setup delta_est before switching state
+            // setup deltaEstimation before switching state
             if (sync->state == USE_MAX) {
-                sync->delta_est = sync->win_max;
+                sync->deltaEstimation = sync->windowMax;
             } else {
-                sync->delta_est = ((SYNC_FILTER_B - SYNC_FILTER_A) * sync->delta_est +
-                                   SYNC_FILTER_A * sync->win_max) / SYNC_FILTER_B;
+                sync->deltaEstimation = ((SYNC_FILTER_B - SYNC_FILTER_A) * sync->deltaEstimation +
+                                   SYNC_FILTER_A * sync->windowMax) / SYNC_FILTER_B;
             }
             sync->state = USE_FILTERED;
             if (DEBUG_SYNC) {
-                osLog(LOG_DEBUG, "ApHub new sync offset = %" PRId64, sync->delta_est);
+                osLog(LOG_DEBUG, "ApHub new sync offset = %" PRId64, sync->deltaEstimation);
             }
-            // start new window by resetting win_max and win_timeout after this window is done
-            sync->win_max = INT64_MIN;
-            sync->win_timeout = ap_time + SYNC_WINDOW_TIMEOUT;
+            // start new window by resetting windowMax and windowTimeout after this window is done
+            sync->windowMax = INT64_MIN;
+            sync->windowTimeout = apTime + SYNC_WINDOW_TIMEOUT;
         }
     }
 }
 
-int64_t ahsync_get_delta(struct ApHubSync* sync, uint64_t hub_time) {
+int64_t apHubSyncGetDelta(struct ApHubSync* sync, uint64_t hubTime) {
     int64_t ret;
     switch (sync->state) {
         case NOT_INITED:
             ret = 0;
             break;
         case USE_MAX:
-            ret = sync->win_max;
+            ret = sync->windowMax;
             break;
         case USE_FILTERED:
-            ret = sync->delta_est;
+            ret = sync->deltaEstimation;
             break;
         default:
             // indicate error, should never happen
             ret = INT64_MIN;
             osLog(LOG_WARN, "ApHub sync: Invalid sync state %d", sync->state);
-            ahsync_reset(sync);
+            apHubSyncReset(sync);
     }
     return ret;
 }
