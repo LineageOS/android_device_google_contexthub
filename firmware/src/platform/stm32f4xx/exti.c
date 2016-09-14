@@ -16,6 +16,7 @@
 
 #include <errno.h>
 #include <isr.h>
+#include <platform.h>
 
 #include <plat/inc/cmsis.h>
 #include <plat/inc/exti.h>
@@ -94,7 +95,9 @@ static void extiInterruptDisable(struct ChainedInterrupt *irq)
     .irq = i,                               \
 }
 
-static struct ExtiInterrupt gInterrupts[] = {
+uint32_t mMaxLatency = 0;
+
+static struct ExtiInterrupt mInterrupts[] = {
     DECLARE_SHARED_EXTI(EXTI0_IRQn),
     DECLARE_SHARED_EXTI(EXTI1_IRQn),
     DECLARE_SHARED_EXTI(EXTI2_IRQn),
@@ -104,14 +107,39 @@ static struct ExtiInterrupt gInterrupts[] = {
     DECLARE_SHARED_EXTI(EXTI15_10_IRQn),
 };
 
+static void extiUpdateMaxLatency(uint32_t maxLatencyNs)
+{
+    if (!maxLatencyNs && mMaxLatency)
+        platReleaseDevInSleepMode(Stm32sleepDevExti);
+    else if (maxLatencyNs && !mMaxLatency)
+        platRequestDevInSleepMode(Stm32sleepDevExti, maxLatencyNs);
+    else if (maxLatencyNs && mMaxLatency)
+        platAdjustDevInSleepMode(Stm32sleepDevExti, maxLatencyNs);
+    mMaxLatency = maxLatencyNs;
+}
+
+static void extiCalcMaxLatency()
+{
+    int i;
+    uint32_t maxLatency, newMaxLatency = 0;
+    struct ExtiInterrupt *exti = mInterrupts;
+
+    for (i = 0; i < ARRAY_SIZE(mInterrupts); ++i, ++exti) {
+        maxLatency = maxLatencyIsr(&exti->base);
+        if (!newMaxLatency || (maxLatency && maxLatency < newMaxLatency))
+            newMaxLatency = maxLatency;
+    }
+    extiUpdateMaxLatency(newMaxLatency);
+}
+
 static inline struct ExtiInterrupt *extiForIrq(IRQn_Type n)
 {
     if (n >= EXTI0_IRQn && n <= EXTI4_IRQn)
-        return &gInterrupts[n - EXTI0_IRQn];
+        return &mInterrupts[n - EXTI0_IRQn];
     if (n == EXTI9_5_IRQn)
-        return &gInterrupts[ARRAY_SIZE(gInterrupts) - 2];
+        return &mInterrupts[ARRAY_SIZE(mInterrupts) - 2];
     if (n == EXTI15_10_IRQn)
-        return &gInterrupts[ARRAY_SIZE(gInterrupts) - 1];
+        return &mInterrupts[ARRAY_SIZE(mInterrupts) - 1];
     return NULL;
 }
 
@@ -135,6 +163,24 @@ DEFINE_SHARED_EXTI_ISR(4)
 DEFINE_SHARED_EXTI_ISR(9_5)
 DEFINE_SHARED_EXTI_ISR(15_10)
 
+int extiSetMaxLatency(struct ChainedIsr *isr, uint32_t maxLatencyNs)
+{
+    uint32_t latency;
+
+    if (!isr)
+        return -EINVAL;
+
+    if (maxLatencyNs != isr->maxLatencyNs) {
+        latency = isr->maxLatencyNs;
+        isr->maxLatencyNs = maxLatencyNs;
+        if (!mMaxLatency || latency == mMaxLatency || (maxLatencyNs && maxLatencyNs < mMaxLatency)) {
+            extiCalcMaxLatency();
+        }
+    }
+
+    return 0;
+}
+
 int extiChainIsr(IRQn_Type n, struct ChainedIsr *isr)
 {
     struct ExtiInterrupt *exti = extiForIrq(n);
@@ -142,6 +188,9 @@ int extiChainIsr(IRQn_Type n, struct ChainedIsr *isr)
         return -EINVAL;
 
     chainIsr(&exti->base, isr);
+    if (!mMaxLatency || (isr->maxLatencyNs && isr->maxLatencyNs < mMaxLatency))
+        extiUpdateMaxLatency(isr->maxLatencyNs);
+
     return 0;
 }
 
@@ -152,16 +201,19 @@ int extiUnchainIsr(IRQn_Type n, struct ChainedIsr *isr)
         return -EINVAL;
 
     unchainIsr(&exti->base, isr);
+    if (isr->maxLatencyNs && isr->maxLatencyNs == mMaxLatency)
+        extiCalcMaxLatency();
     return 0;
 }
 
 int extiUnchainAll(uint32_t tid)
 {
     int i, count = 0;
-    struct ExtiInterrupt *exti = gInterrupts;
+    struct ExtiInterrupt *exti = mInterrupts;
 
-    for (i = 0; i < ARRAY_SIZE(gInterrupts); ++i, ++exti)
+    for (i = 0; i < ARRAY_SIZE(mInterrupts); ++i, ++exti)
         count += unchainIsrAll(&exti->base, tid);
+    extiCalcMaxLatency();
 
     return count;
 }

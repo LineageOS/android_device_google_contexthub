@@ -38,7 +38,8 @@
 
 // This defines how many vsync events we could handle being backed up in the
 // queue. Use this to size our slab
-#define MAX_VSYNC_EVENTS  4
+#define MAX_VSYNC_EVENTS        4
+#define MAX_VSYNC_INT_LATENCY   1000 /* in ns */
 
 #ifndef VSYNC_PIN
 #error "VSYNC_PIN is not defined; please define in variant.h"
@@ -198,6 +199,7 @@ static bool startTask(uint32_t taskId)
     mTask.sensorHandle = sensorRegister(&mSensorInfo, &mSensorOps, NULL, true);
     mTask.pin = gpioRequest(VSYNC_PIN);
     mTask.isr.func = vsyncIsr;
+    mTask.isr.maxLatencyNs = MAX_VSYNC_INT_LATENCY;
 
     mTask.evtSlab = slabAllocatorNew(sizeof(struct SingleAxisDataEvent) + sizeof(struct SingleAxisDataPoint), 4, MAX_VSYNC_EVENTS);
     if (!mTask.evtSlab) {

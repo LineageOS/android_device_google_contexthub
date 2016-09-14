@@ -68,6 +68,7 @@ bool platSleepClockRequest(uint64_t wakeupTime, uint32_t maxJitterPpm, uint32_t 
 
 /* 0 for any "max" value means "do not care" */
 bool platRequestDevInSleepMode(uint32_t sleepDevID, uint32_t maxWakeupTime); //request that this device remain powered/clocked in sleep mode   (device lists are platform specific)
+bool platAdjustDevInSleepMode(uint32_t sleepDevID, uint32_t maxWakeupTime); //adjust maxWakeupTime for this device
 bool platReleaseDevInSleepMode(uint32_t sleepDevID); //unrequest that this device remain powered/clocked in sleep mode (device lists are platform specific)
 
 
