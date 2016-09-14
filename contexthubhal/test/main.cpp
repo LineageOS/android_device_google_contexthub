@@ -239,7 +239,8 @@ int main(int argc, char *argv[])
         if (appFileName)
             req = (load_app_request_t *)loadFile(appFileName, &fileSize);
         if (!req || fileSize < sizeof(*req) || req->app_binary.magic != NANOAPP_MAGIC) {
-            std::clog << "Invalid nanoapp image: " << appFileName << std::endl;
+            std::clog << "Invalid nanoapp image: " <<
+                         (appFileName != nullptr ? appFileName : "<NULL>") << std::endl;
             return 1;
         }
         cli.sendMessageToSystem(CONTEXT_HUB_LOAD_APP, req, fileSize);
