@@ -297,6 +297,7 @@ int NanoHub::closeHub(void)
     //cleanup
     ::close(mThreadClosingPipe[0]);
     ::close(mThreadClosingPipe[1]);
+    ::close(mFd);
 
     reset();
 
