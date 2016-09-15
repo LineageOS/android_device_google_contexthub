@@ -66,7 +66,7 @@
 #define DEBUG_APHUB_TIME_SYNC   false
 
 #if DEBUG_APHUB_TIME_SYNC
-static void syncdbg_add(uint64_t, uint64_t);
+static void syncDebugAdd(uint64_t, uint64_t);
 #endif
 
 struct DownloadState
@@ -659,14 +659,14 @@ static uint32_t unmaskInterrupt(void *rx, uint8_t rx_len, void *tx, uint64_t tim
 static void addDelta(struct ApHubSync *sync, uint64_t apTime, uint64_t hubTime)
 {
 #if DEBUG_APHUB_TIME_SYNC
-    syncdbg_add(apTime, hubTime);
+    syncDebugAdd(apTime, hubTime);
 #endif
-    ahsync_add_delta(sync, apTime, hubTime);
+    apHubSyncAddDelta(sync, apTime, hubTime);
 }
 
 static int64_t getAvgDelta(struct ApHubSync *sync)
 {
-    return ahsync_get_delta(sync, sensorGetTime());
+    return apHubSyncGetDelta(sync, sensorGetTime());
 }
 
 static int fillBuffer(void *tx, uint32_t totLength, uint32_t *wakeup, uint32_t *nonwakeup)
@@ -1203,82 +1203,82 @@ uint64_t hostGetTime(void)
 
 #define N_APHUB_SYNC_DATA 256
 #define PRINT_DELAY 20000000  // unit ns, 20ms
-struct aphub_sync_debugging_t {
-    uint64_t ap_first;
-    uint64_t hub_first;
-    uint32_t ap_delta[N_APHUB_SYNC_DATA]; // us
-    uint32_t hub_delta[N_APHUB_SYNC_DATA]; // us
-    int print_index; //negative means not printing
-    int write_index;
+struct ApHubSyncDebug {
+    uint64_t apFirst;
+    uint64_t hubFirst;
+    uint32_t apDelta[N_APHUB_SYNC_DATA]; // us
+    uint32_t hubDelta[N_APHUB_SYNC_DATA]; // us
+    int printIndex; //negative means not printing
+    int writeIndex;
 
-    uint32_t timer_id;
+    uint32_t printTimer;
 };
 
-struct aphub_sync_debugging_t aphub_sync_debug = {0};
+struct ApHubSyncDebug mApHubSyncDebug = {0};
 
-static void syncdbg_callback(uint32_t timerId, void *data) {
+static void syncDebugCallback(uint32_t timerId, void *data) {
 
-    if (aphub_sync_debug.print_index >= aphub_sync_debug.write_index ||
-        aphub_sync_debug.print_index >= N_APHUB_SYNC_DATA) {
-        timTimerCancel(aphub_sync_debug.timer_id);
+    if (mApHubSyncDebug.printIndex >= mApHubSyncDebug.writeIndex ||
+        mApHubSyncDebug.printIndex >= N_APHUB_SYNC_DATA) {
+        timTimerCancel(mApHubSyncDebug.printTimer);
 
-        osLog(LOG_DEBUG, "APHUB Done printing %d items", aphub_sync_debug.print_index);
-        aphub_sync_debug.write_index = 0;
-        aphub_sync_debug.print_index = -1;
+        osLog(LOG_DEBUG, "APHUB Done printing %d items", mApHubSyncDebug.printIndex);
+        mApHubSyncDebug.writeIndex = 0;
+        mApHubSyncDebug.printIndex = -1;
 
-        aphub_sync_debug.timer_id = 0;
+        mApHubSyncDebug.printTimer = 0;
     } else {
-        if (aphub_sync_debug.print_index == 0) {
+        if (mApHubSyncDebug.printIndex == 0) {
             osLog(LOG_DEBUG, "APHUB init %" PRIu64 " %" PRIu64,
-                  aphub_sync_debug.ap_first,
-                  aphub_sync_debug.hub_first);
+                  mApHubSyncDebug.apFirst,
+                  mApHubSyncDebug.hubFirst);
         }
 
         osLog(LOG_DEBUG, "APHUB %d %" PRIu32 " %" PRIu32,
-              aphub_sync_debug.print_index,
-              aphub_sync_debug.ap_delta[aphub_sync_debug.print_index],
-              aphub_sync_debug.hub_delta[aphub_sync_debug.print_index]);
+              mApHubSyncDebug.printIndex,
+              mApHubSyncDebug.apDelta[mApHubSyncDebug.printIndex],
+              mApHubSyncDebug.hubDelta[mApHubSyncDebug.printIndex]);
 
-        aphub_sync_debug.print_index++;
+        mApHubSyncDebug.printIndex++;
     }
 }
 
-static void syncdbg_trigger_print() {
-    if (aphub_sync_debug.timer_id) {
+static void syncDebugTriggerPrint() {
+    if (mApHubSyncDebug.printTimer) {
         //printing already going
         return;
     }
 
-    aphub_sync_debug.print_index = 0;
+    mApHubSyncDebug.printIndex = 0;
 
-    syncdbg_callback(0, NULL);
-    if (!(aphub_sync_debug.timer_id =
-          timTimerSet(PRINT_DELAY, 0, 50, syncdbg_callback, NULL, false /*oneShot*/))) {
+    syncDebugCallback(0, NULL);
+    if (!(mApHubSyncDebug.printTimer =
+          timTimerSet(PRINT_DELAY, 0, 50, syncDebugCallback, NULL, false /*oneShot*/))) {
         osLog(LOG_WARN, "Cannot get timer for printing");
 
-        aphub_sync_debug.write_index = 0; // discard all data
-        aphub_sync_debug.print_index = -1; // not printing
+        mApHubSyncDebug.writeIndex = 0; // discard all data
+        mApHubSyncDebug.printIndex = -1; // not printing
     }
 }
 
-static void syncdbg_add(uint64_t ap, uint64_t hub) {
-    if (aphub_sync_debug.write_index >= N_APHUB_SYNC_DATA) {
+static void syncDebugAdd(uint64_t ap, uint64_t hub) {
+    if (mApHubSyncDebug.writeIndex >= N_APHUB_SYNC_DATA) {
         //full
-        syncdbg_trigger_print();
+        syncDebugTriggerPrint();
         return;
     }
 
-    if (aphub_sync_debug.write_index == 0) {
-        aphub_sync_debug.ap_first = ap;
-        aphub_sync_debug.hub_first = hub;
+    if (mApHubSyncDebug.writeIndex == 0) {
+        mApHubSyncDebug.apFirst = ap;
+        mApHubSyncDebug.hubFirst = hub;
     }
 
     // convert ns to us
-    aphub_sync_debug.ap_delta[aphub_sync_debug.write_index] =
-            (uint32_t) U64_DIV_BY_CONST_U16((ap - aphub_sync_debug.ap_first), 1000u);
-    aphub_sync_debug.hub_delta[aphub_sync_debug.write_index] =
-            (uint32_t) U64_DIV_BY_CONST_U16((hub - aphub_sync_debug.hub_first), 1000u);
+    mApHubSyncDebug.apDelta[mApHubSyncDebug.writeIndex] =
+            (uint32_t) U64_DIV_BY_CONST_U16((ap - mApHubSyncDebug.apFirst), 1000u);
+    mApHubSyncDebug.hubDelta[mApHubSyncDebug.writeIndex] =
+            (uint32_t) U64_DIV_BY_CONST_U16((hub - mApHubSyncDebug.hubFirst), 1000u);
 
-    ++aphub_sync_debug.write_index;
+    ++mApHubSyncDebug.writeIndex;
 }
 #endif
