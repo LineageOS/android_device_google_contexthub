@@ -15,7 +15,7 @@
  */
 
 #include <algos/ap_hub_sync.h>
-#include <cpu/inc/cpuMath.h>
+#include <cpu/cpuMath.h>
 
 #include <limits.h>
 #include <seos.h>
