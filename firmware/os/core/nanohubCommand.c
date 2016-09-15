@@ -46,7 +46,7 @@
 #include <timer.h>
 #include <appSec.h>
 #include <cpu.h>
-#include <cpu/inc/cpuMath.h>
+#include <cpu/cpuMath.h>
 #include <algos/ap_hub_sync.h>
 
 #define NANOHUB_COMMAND(_reason, _fastHandler, _handler, _minReqType, _maxReqType) \
