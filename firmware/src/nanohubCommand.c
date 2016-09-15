@@ -46,6 +46,7 @@
 #include <appSec.h>
 #include <cpu.h>
 #include <cpu/inc/cpuMath.h>
+#include <algos/ap_hub_sync.h>
 
 #define NANOHUB_COMMAND(_reason, _fastHandler, _handler, _minReqType, _maxReqType) \
         { .reason = _reason, .fastHandler = _fastHandler, .handler = _handler, \
@@ -53,9 +54,6 @@
 
 #define NANOHUB_HAL_COMMAND(_msg, _handler) \
         { .msg = _msg, .handler = _handler }
-
-#define SYNC_DATAPOINTS 16
-#define SYNC_RESET      10000000000ULL /* 10 seconds, ~100us drift */
 
 // maximum number of bytes to feed into appSecRxData at once
 // The bigger the number, the more time we block other event processing
@@ -87,15 +85,6 @@ struct DownloadState
     bool     eraseScheduled;
 };
 
-struct TimeSync
-{
-    uint64_t lastTime;
-    uint64_t delta[SYNC_DATAPOINTS];
-    uint64_t avgDelta;
-    uint8_t cnt;
-    uint8_t tail;
-};
-
 static struct DownloadState *mDownloadState;
 static AppSecErr mAppSecStatus;
 static struct SlabAllocator *mEventSlab;
@@ -103,7 +92,7 @@ static struct HostIntfDataBuffer mTxCurr, mTxNext;
 static uint8_t mTxCurrLength, mTxNextLength;
 static uint8_t mPrefetchActive, mPrefetchTx;
 static uint32_t mTxWakeCnt[2];
-static struct TimeSync mTimeSync = { };
+static struct ApHubSync mTimeSync;
 
 static inline bool isSensorEvent(uint32_t evtType)
 {
@@ -654,43 +643,17 @@ static uint32_t unmaskInterrupt(void *rx, uint8_t rx_len, void *tx, uint64_t tim
     return sizeof(*resp);
 }
 
-static void addDelta(struct TimeSync *sync, uint64_t apTime, uint64_t hubTime)
+static void addDelta(struct ApHubSync *sync, uint64_t apTime, uint64_t hubTime)
 {
 #if DEBUG_APHUB_TIME_SYNC
     syncdbg_add(apTime, hubTime);
 #endif
-
-    if (apTime - sync->lastTime > SYNC_RESET) {
-        sync->tail = 0;
-        sync->cnt = 0;
-    }
-
-    sync->delta[sync->tail++] = apTime - hubTime;
-
-    sync->lastTime = apTime;
-
-    if (sync->tail >= SYNC_DATAPOINTS)
-        sync->tail = 0;
-
-    if (sync->cnt < SYNC_DATAPOINTS)
-        sync->cnt ++;
-
-    sync->avgDelta = 0ULL;
+    ahsync_add_delta(sync, apTime, hubTime);
 }
 
-static uint64_t getAvgDelta(struct TimeSync *sync)
+static int64_t getAvgDelta(struct ApHubSync *sync)
 {
-    int i;
-    int32_t avg;
-
-    if (!sync->cnt)
-        return 0ULL;
-    else if (!sync->avgDelta) {
-        for (i=1, avg=0; i<sync->cnt; i++)
-            avg += (int32_t)(sync->delta[i] - sync->delta[0]);
-        sync->avgDelta = (avg / sync->cnt) + sync->delta[0];
-    }
-    return sync->avgDelta;
+    return ahsync_get_delta(sync, sensorGetTime());
 }
 
 static int fillBuffer(void *tx, uint32_t totLength, uint32_t *wakeup, uint32_t *nonwakeup)
@@ -1213,9 +1176,9 @@ const struct NanohubHalCommand *nanohubHalFindCommand(uint8_t msg)
 
 uint64_t hostGetTime(void)
 {
-    uint64_t delta = getAvgDelta(&mTimeSync);
+    int64_t delta = getAvgDelta(&mTimeSync);
 
-    if (!delta)
+    if (!delta || delta == INT64_MIN)
         return 0ULL;
     else
         return sensorGetTime() + delta;
