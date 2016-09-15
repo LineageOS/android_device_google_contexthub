@@ -266,6 +266,8 @@ uint32_t osExtAppStopApps(uint64_t appId);
 uint32_t osExtAppEraseApps(uint64_t appId);
 uint32_t osExtAppStartApps(uint64_t appId);
 
+bool osAppIsChre(uint16_t tid);
+
 /* Logging */
 enum LogLevel {
     LOG_ERROR = 'E',

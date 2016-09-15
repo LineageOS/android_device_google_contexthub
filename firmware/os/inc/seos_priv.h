@@ -106,6 +106,7 @@ union SeosInternalSlabData {
 
 uint8_t osTaskIndex(struct Task *task);
 struct Task *osGetCurrentTask();
+struct Task *osTaskFindByTid(uint32_t tid);
 void osTaskAbort(struct Task *task);
 void osTaskInvokeMessageFreeCallback(struct Task *task, void (*freeCallback)(void *, size_t), void *message, uint32_t messageSize);
 void osTaskInvokeEventFreeCallback(struct Task *task, void (*freeCallback)(uint16_t, void *), uint16_t event, void *data);

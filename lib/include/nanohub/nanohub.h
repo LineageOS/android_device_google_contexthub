@@ -62,9 +62,16 @@ struct nano_app_binary_t {
 #endif
 
 struct HostMsgHdr {
-    uint32_t event_id;
-    uint64_t app_id;
+    uint32_t eventId;
+    uint64_t appId;
     uint8_t len;
+} __attribute__((packed));
+
+struct HostMsgHdrChre {
+    uint32_t eventId;
+    uint64_t appId;
+    uint8_t len;
+    uint32_t appEventId;
 } __attribute__((packed));
 
 // we translate AOSP header into FW header: this header is in LE format

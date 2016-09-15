@@ -57,6 +57,13 @@ struct HostHubRawPacket {
 SET_PACKED_STRUCT_MODE_OFF
 
 SET_PACKED_STRUCT_MODE_ON
+struct NanohubMsgChreHdr {
+    uint8_t size;
+    uint32_t appEvent;
+}ATTRIBUTE_PACKED;
+SET_PACKED_STRUCT_MODE_OFF
+
+SET_PACKED_STRUCT_MODE_ON
 struct MarshalledUserEventData {
     //for matching
     uint32_t origEvtType;
@@ -108,7 +115,8 @@ SET_PACKED_STRUCT_MODE_OFF
 // system ends the task unconditionally; no further checks performed (this is SIG_KILL)
 #define EVT_APP_END                      0x000000FD
 //for host comms
-#define EVT_APP_FROM_HOST                0x000000F8    //host data to an app. Type is struct HostHubRawPacket
+#define EVT_APP_FROM_HOST                0x000000F8    //host data to an app. Type is struct HostMsgHdr
+#define EVT_APP_FROM_HOST_CHRE           0x000000F9    //host data to an app. Type is struct HostMsgHdrChre
 
 //for apps that use I2C
 #define EVT_APP_I2C_CBK                  0x000000F0    //data pointer points to struct I2cEventData

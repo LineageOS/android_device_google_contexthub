@@ -90,6 +90,18 @@ static inline bool osTaskTestFlags(struct Task *task, uint32_t mask)
     return (atomicReadByte(&task->flags) & mask) != 0;
 }
 
+static bool osTaskIsChre(const struct Task *task)
+{
+    return (task->app->hdr.fwFlags & FL_APP_HDR_CHRE) != 0;
+}
+
+bool osAppIsChre(uint16_t tid)
+{
+    struct Task *task = osTaskFindByTid(tid);
+
+    return task && osTaskIsChre(task);
+}
+
 static inline uint32_t osTaskClrSetFlags(struct Task *task, uint32_t clrMask, uint32_t setMask)
 {
     while (true) {
@@ -266,7 +278,7 @@ static void osAddTask(struct Task *task)
     osTaskListAddTail(&mTasks, task);
 }
 
-static inline struct Task* osTaskFindByTid(uint32_t tid)
+struct Task* osTaskFindByTid(uint32_t tid)
 {
     TaskIndex idx = TID_TO_TASK_IDX(tid);
 
@@ -310,7 +322,7 @@ static inline void osTaskHandle(struct Task *task, uint32_t evtType, const void*
 {
     struct Task *preempted = osSetCurrentTask(task);
     uint16_t evt = EVENT_GET_EVENT(evtType);
-    if (task->app->hdr.fwFlags & FL_APP_HDR_CHRE)
+    if (osTaskIsChre(task))
         osChreTaskHandle(task, evtType, evtData);
     else
         cpuAppHandle(task->app, &task->platInfo, evt, evtData);

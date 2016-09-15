@@ -867,48 +867,82 @@ static uint32_t readEvent(void *rx, uint8_t rx_len, void *tx, uint64_t timestamp
     return totLength;
 }
 
+static bool forwardPacket(uint32_t event, void *data, size_t data_size,
+                          void *hdr, size_t hdr_size, uint32_t tid)
+{
+    bool res;
+    uint8_t *hostPacket = data;
+    uint8_t *packet = slabAllocatorAlloc(mEventSlab);
+    EventFreeF free = slabFree;
+
+    if (!packet) {
+        packet = heapAlloc(data_size + hdr_size);
+        free = heapFree;
+    }
+    if (!packet)
+        return false;
+
+    if (hdr && hdr_size)
+        memcpy(packet, hdr, hdr_size);
+
+    memcpy(packet + hdr_size, hostPacket, data_size);
+    if (tid) {
+        // send to specific TID
+        res = osEnqueuePrivateEvt(event, packet, free, tid);
+        if (!res)
+            free(packet);
+    } else {
+        // broadcast to all
+        res = osEnqueueEvtOrFree(event, packet, free);
+    }
+
+    return res;
+}
+
 static uint32_t writeEvent(void *rx, uint8_t rx_len, void *tx, uint64_t timestamp)
 {
     struct NanohubWriteEventRequest *req = rx;
     struct NanohubWriteEventResponse *resp = tx;
-    uint8_t *packet;
     uint32_t tid;
-    EventFreeF free = slabFree;
+    uint32_t event = le32toh(req->evtType);
 
-    if (le32toh(req->evtType) == EVT_APP_FROM_HOST) {
+    if (event == EVT_APP_FROM_HOST) {
+        // old version of HAL; message_type is not delivered to CHRE apps
         struct HostMsgHdr *hostPacket = rx;
         if (rx_len >= sizeof(struct HostMsgHdr) &&
             rx_len == sizeof(struct HostMsgHdr) + hostPacket->len &&
-            osTidById(&hostPacket->app_id, &tid)) {
-            packet = slabAllocatorAlloc(mEventSlab);
-            if (!packet) {
-                packet = heapAlloc(hostPacket->len + 1);
-                free = heapFree;
-            }
-            if (!packet) {
-                resp->accepted = false;
+            osTidById(&hostPacket->appId, &tid)) {
+            resp->accepted = forwardPacket(event, hostPacket + 1, hostPacket->len,
+                                           &hostPacket->len, sizeof(hostPacket->len), tid);
+        } else {
+            resp->accepted = false;
+        }
+    } else if (event == EVT_APP_FROM_HOST_CHRE) {
+        // new version of HAL; full support for CHRE apps
+        struct HostMsgHdrChre *hostPacket = rx;
+        if (rx_len >= sizeof(struct HostMsgHdrChre) &&
+            rx_len == sizeof(struct HostMsgHdrChre) + hostPacket->len &&
+            osTidById(&hostPacket->appId, &tid)) {
+            if (osAppIsChre(tid)) {
+                struct NanohubMsgChreHdr hdr = {
+                    .size = hostPacket->len,
+                    .appEvent = hostPacket->appEventId,
+                };
+                // CHRE app receives message in new format
+                resp->accepted = forwardPacket(event, hostPacket + 1, hostPacket->len,
+                                               &hdr, sizeof(hdr), tid);
             } else {
-                packet[0] = hostPacket->len;
-                memcpy(packet + 1, hostPacket + 1, hostPacket->len);
-                resp->accepted = osEnqueuePrivateEvt(EVT_APP_FROM_HOST, packet, free, tid);
-                if (!resp->accepted)
-                    free(packet);
+                // legacy app receives message in old format
+                resp->accepted = forwardPacket(EVT_APP_FROM_HOST, hostPacket + 1, hostPacket->len,
+                                               &hostPacket->len, sizeof(hostPacket->len), tid);
             }
         } else {
             resp->accepted = false;
         }
     } else {
-        packet = slabAllocatorAlloc(mEventSlab);
-        if (!packet) {
-            packet = heapAlloc(rx_len - sizeof(req->evtType));
-            free = heapFree;
-        }
-        if (!packet) {
-            resp->accepted = false;
-        } else {
-            memcpy(packet, req->evtData, rx_len - sizeof(req->evtType));
-            resp->accepted = osEnqueueEvtOrFree(le32toh(req->evtType), packet, free);
-        }
+        resp->accepted = forwardPacket(event,
+                                       req->evtData, rx_len - sizeof(req->evtType),
+                                       NULL, 0, 0);
     }
 
     return sizeof(*resp);
