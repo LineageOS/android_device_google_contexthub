@@ -103,10 +103,11 @@ $(if $(LOCAL_OBJCOPY_SECT),,\
 
 $(nanohub_napp): PRIVATE_NANO_APP_ID  := $(LOCAL_NANO_APP_ID)
 $(nanohub_napp): PRIVATE_NANO_APP_VER := $(LOCAL_NANO_APP_VERSION)
+$(nanohub_napp): PRIVATE_NANO_APP_POSTPROCESS_FLAGS := $(LOCAL_NANO_APP_POSTPROCESS_FLAGS)
 
 $(nanohub_napp): $(nanohub_output) $(NANOAPP_POSTPROCESS)
 	$(hide)echo "nanoapp POSTPROCESS $@ <= $<"
-	$(hide)$(NANOAPP_POSTPROCESS) -a $(PRIVATE_NANO_APP_ID) $< $@
+	$(hide)$(NANOAPP_POSTPROCESS) -a $(PRIVATE_NANO_APP_ID) $(PRIVATE_NANO_APP_POSTPROCESS_FLAGS) $< $@
 nanohub_output := $(nanohub_napp)
 endif # NO_POSTPROCESS
 
