@@ -43,6 +43,7 @@ LOCAL_SRC_FILES := \
     os/core/spi.c \
     os/core/timer.c \
     os/core/trylock.c \
+    os/algos/ap_hub_sync.c \
 
 LOCAL_C_INCLUDES := \
     $(NANOHUB_OS_PATH)/external/freebsd/inc \
