@@ -146,17 +146,19 @@ static void wait_on_dev_lock(pollfd &pfd) {
     }
 }
 
-int NanoHub::doSendToDevice(const hub_app_name_t *name, const void *data, uint32_t len)
+int NanoHub::doSendToDevice(const hub_app_name_t *name, const void *data, uint32_t len, uint32_t messageType)
 {
     if (len > MAX_RX_PACKET || name == nullptr) {
         return -EINVAL;
     }
 
-    nano_message msg = {
+    // transmit message to FW in CHRE format
+    nano_message_chre msg = {
         .hdr = {
-            .eventId = APP_FROM_HOST_EVENT_ID,
+            .eventId = APP_FROM_HOST_CHRE_EVENT_ID,
             .appId = name->id,
             .len = static_cast<uint8_t>(len),
+            .appEventId = messageType,
         },
     };
 
@@ -231,6 +233,7 @@ void* NanoHub::run()
                 break;
             }
 
+            // receive message from FW in legacy format
             if (ret != (int)(sizeof(msg.hdr) + len)) {
                 ALOGE("Expected %zu bytes, read %d bytes", sizeof(msg.hdr) + len, ret);
                 break;
@@ -361,14 +364,14 @@ int NanoHub::doSendToNanohub(uint32_t hub_id, const hub_message_t *msg)
                 dumpBuffer("APP -> HAL", msg->app_name, msg->message_type, msg->message, msg->message_len);
             }
             ret = SystemComm::handleTx(msg);
-        } else if (msg->message_type || msg->message_len > MAX_RX_PACKET) {
+        } else if (msg->message_len > MAX_RX_PACKET) {
             ALOGW("not sending invalid message 2");
             ret = -EINVAL;
         } else {
             if (messageTracingEnabled()) {
-                dumpBuffer("APP -> DEV", msg->app_name, 0, msg->message, msg->message_len);
+                dumpBuffer("APP -> DEV", msg->app_name, msg->message_type, msg->message, msg->message_len);
             }
-            ret = doSendToDevice(&msg->app_name, msg->message, msg->message_len);
+            ret = doSendToDevice(&msg->app_name, msg->message, msg->message_len, msg->message_type);
         }
     }
 

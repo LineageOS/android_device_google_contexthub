@@ -27,12 +27,18 @@
 //as per protocol
 #define MAX_RX_PACKET               128
 #define APP_FROM_HOST_EVENT_ID      0x000000F8
+#define APP_FROM_HOST_CHRE_EVENT_ID 0x000000F9
 
 namespace android {
 
 namespace nanohub {
 
 void dumpBuffer(const char *pfx, const hub_app_name_t &appId, uint32_t evtId, const void *data, size_t len, int status = 0);
+
+struct nano_message_chre {
+    HostMsgHdrChre hdr;
+    uint8_t data[MAX_RX_PACKET];
+} __attribute__((packed));
 
 struct nano_message {
     HostMsgHdr hdr;
@@ -71,7 +77,7 @@ class NanoHub {
 
     int doSubscribeMessages(uint32_t hub_id, context_hub_callback *cbk, void *cookie);
     int doSendToNanohub(uint32_t hub_id, const hub_message_t *msg);
-    int doSendToDevice(const hub_app_name_t *name, const void *data, uint32_t len);
+    int doSendToDevice(const hub_app_name_t *name, const void *data, uint32_t len, uint32_t messageType);
     void doSendToApp(const hub_app_name_t *name, uint32_t typ, const void *data, uint32_t len);
 
     static constexpr unsigned int FL_MESSAGE_TRACING = 1;
@@ -104,7 +110,7 @@ public:
     }
     // passes message to kernel driver directly
     static int sendToDevice(const hub_app_name_t *name, const void *data, uint32_t len) {
-        return hubInstance()->doSendToDevice(name, data, len);
+        return hubInstance()->doSendToDevice(name, data, len, 0);
     }
     // passes message to APP via callback
     static void sendToApp(const hub_app_name_t *name, uint32_t typ, const void *data, uint32_t len) {

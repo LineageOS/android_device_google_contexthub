@@ -12,6 +12,8 @@
 #include <mutex>
 #include <vector>
 
+#include <dlfcn.h>
+#include <signal.h>
 #include <unistd.h>
 
 #include <sys/endian.h>
@@ -78,7 +80,7 @@ public:
             mHandler = handler;
         }
         void onMessage(const hub_message_t &msg) {
-            if((bool)mHandler == true) {
+            if ((bool)mHandler == true) {
                 mHandler(msg);
             }
         }
@@ -113,12 +115,27 @@ private:
         }
     }
 
+    ~CHub() {
+        // destroy all clients first
+        mHubs.clear();
+        if (mMod != nullptr) {
+            // unregister from HAL services
+            mMod->subscribe_messages(0, nullptr, nullptr);
+            // there is no hw_put_module(); release HAL fd directly
+            dlclose(mMod->common.dso);
+            mMod = nullptr;
+        }
+    }
+
     void onMessage(uint32_t hubId, const hub_message_t *msg) {
-        mHubs[hubId]->onMessage(*msg);
+        Client *cli = getClientById(hubId);
+        if (cli != nullptr && msg != nullptr) {
+            cli->onMessage(*msg);
+        }
     }
 
     int sendMessage(uint32_t id, const hub_message_t &msg) {
-        return mMod->send_message(id, &msg);
+        return  (mMod != nullptr) ? mMod->send_message(id, &msg) : 0;
     }
 
     int sendMessage(uint32_t id, hub_app_name_t app, uint32_t typ, void *data, uint32_t len) {
@@ -128,8 +145,10 @@ private:
             .message = data,
             .message_len = len,
         };
-        return mMod->send_message(id, &msg);
+        return sendMessage(id, msg);
     }
+
+    Client *getClientById(size_t id) { return mHubs.count(id) ? mHubs[id].get() : nullptr; }
 
     context_hub_module_t *mMod = nullptr;
     const context_hub_t  *mHubArray = nullptr;
@@ -146,7 +165,6 @@ public:
         return idx < mHubArraySize && mHubArray != nullptr ?
                getClientById(mHubArray[idx].hub_id) : nullptr;
     }
-    Client *getClientById(size_t id) { return mHubs.count(id) ? mHubs[id].get() : nullptr; }
 };
 
 class NanoClient
@@ -175,33 +193,46 @@ public:
         msg.app_name = mClient->getSystemApp();
         {
             std::lock_guard<std::mutex> _l(lock);
-            dumpBuffer(log, "Tx", msg.app_name, msg.message_type, msg.message, msg.message_len, 0);
+            dumpBuffer(log, "TxCmd", msg.app_name, msg.message_type, msg.message, msg.message_len, 0);
             log << std::endl;
         }
         sendMessage(msg);
     }
-    void sendMessageToApp(const hub_app_name_t appName, void * data, size_t dataSize) {
+    void sendMessageToApp(const hub_app_name_t appName, void * data, size_t dataSize, uint32_t msg_type) {
         hub_message_t msg;
         msg.message = data;
         msg.message_len = dataSize;
-        msg.message_type = 0;
+        msg.message_type = msg_type;
         msg.app_name = appName;
+        {
+            std::lock_guard<std::mutex> _l(lock);
+            dumpBuffer(log, "TxMsg", msg.app_name, msg.message_type, msg.message, msg.message_len, 0);
+            log << std::endl;
+        }
         sendMessage(msg);
     }
 };
 
+void sigint_handler(int)
+{
+    exit(0);
+}
+
 int main(int argc, char *argv[])
 {
-    NanoClient cli;
     int opt;
     long cmd = 0;
+    unsigned long msg = 0;
     uint64_t appId = 0;
     const char *appFileName = NULL;
     uint32_t fileSize = 0;
 
-    while((opt = getopt(argc, argv, "c:i:a:")) != -1) {
+    while((opt = getopt(argc, argv, "c:i:a:m:")) != -1) {
         char *end = NULL;
         switch(opt) {
+        case 'm':
+            msg = strtoul(optarg, &end, 16);
+            break;
         case 'c':
             cmd = strtol(optarg, &end, 10);
             break;
@@ -214,58 +245,79 @@ int main(int argc, char *argv[])
         }
         if (end && *end != '\0') {
             std::clog << "Invalid argument: " << optarg << std::endl;
-            exit(1);
-        }
-    }
-    // send HAL command
-    switch(cmd) {
-    case CONTEXT_HUB_APPS_ENABLE:
-    {
-        apps_enable_request_t req;
-        req.app_name.id = appId;
-        cli.sendMessageToSystem(CONTEXT_HUB_APPS_ENABLE, &req, sizeof(req));
-    }
-    break;
-    case CONTEXT_HUB_APPS_DISABLE:
-    {
-        apps_disable_request_t req;
-        req.app_name.id = appId;
-        cli.sendMessageToSystem(CONTEXT_HUB_APPS_DISABLE, &req, sizeof(req));
-    }
-    break;
-    case CONTEXT_HUB_LOAD_APP:
-    {
-        load_app_request_t *req = NULL;
-        if (appFileName)
-            req = (load_app_request_t *)loadFile(appFileName, &fileSize);
-        if (!req || fileSize < sizeof(*req) || req->app_binary.magic != NANOAPP_MAGIC) {
-            std::clog << "Invalid nanoapp image: " <<
-                         (appFileName != nullptr ? appFileName : "<NULL>") << std::endl;
             return 1;
         }
-        cli.sendMessageToSystem(CONTEXT_HUB_LOAD_APP, req, fileSize);
-        free(req);
     }
-    break;
-    case CONTEXT_HUB_UNLOAD_APP:
-    {
-        unload_app_request_t req;
-        req.app_name.id = appId;
-        cli.sendMessageToSystem(CONTEXT_HUB_UNLOAD_APP, &req, sizeof(req));
+
+    NanoClient cli;
+
+    std::vector<uint8_t> data;
+    for (int i = optind; i < argc; ++i) {
+        char *end;
+        unsigned long v = strtoul(argv[i], &end, 16);
+        // ignore any garbage after parsed hex value;
+        // ignore the fact it may not fit 1 byte;
+        // we're not testing user's ability to pass valid data,
+        // we're testing the system ability to transfer data.
+        data.push_back(v);
     }
-    break;
-    case CONTEXT_HUB_QUERY_APPS:
-    {
-        query_apps_request_t req;
-        req.app_name.id = appId;
-        cli.sendMessageToSystem(CONTEXT_HUB_QUERY_APPS, &req, sizeof(req));
+    if (msg != 0) {
+        // send APP message
+        const hub_app_name_t app_name = { .id = appId };
+        cli.sendMessageToApp(app_name, data.data(), data.size(), msg);
+    } else {
+        // send HAL command
+        switch(cmd) {
+        case CONTEXT_HUB_APPS_ENABLE:
+        {
+            apps_enable_request_t req;
+            req.app_name.id = appId;
+            cli.sendMessageToSystem(CONTEXT_HUB_APPS_ENABLE, &req, sizeof(req));
+        }
+        break;
+        case CONTEXT_HUB_APPS_DISABLE:
+        {
+            apps_disable_request_t req;
+            req.app_name.id = appId;
+            cli.sendMessageToSystem(CONTEXT_HUB_APPS_DISABLE, &req, sizeof(req));
+        }
+        break;
+        case CONTEXT_HUB_LOAD_APP:
+        {
+            load_app_request_t *req = NULL;
+            if (appFileName)
+                req = (load_app_request_t *)loadFile(appFileName, &fileSize);
+            if (!req || fileSize < sizeof(*req) || req->app_binary.magic != NANOAPP_MAGIC) {
+                std::clog << "Invalid nanoapp image: " <<
+                             (appFileName != nullptr ? appFileName : "<NULL>") << std::endl;
+                return 1;
+            }
+            cli.sendMessageToSystem(CONTEXT_HUB_LOAD_APP, req, fileSize);
+            free(req);
+        }
+        break;
+        case CONTEXT_HUB_UNLOAD_APP:
+        {
+            unload_app_request_t req;
+            req.app_name.id = appId;
+            cli.sendMessageToSystem(CONTEXT_HUB_UNLOAD_APP, &req, sizeof(req));
+        }
+        break;
+        case CONTEXT_HUB_QUERY_APPS:
+        {
+            query_apps_request_t req;
+            req.app_name.id = appId;
+            cli.sendMessageToSystem(CONTEXT_HUB_QUERY_APPS, &req, sizeof(req));
+        }
+        break;
+        case CONTEXT_HUB_QUERY_MEMORY:
+        default:
+            std::clog << "Unknown command: " << cmd << std::endl;
+            break;
+        }
     }
-    break;
-    case CONTEXT_HUB_QUERY_MEMORY:
-    default:
-        std::clog << "Unknown command: " << cmd << std::endl;
-        exit(1);
-    }
+
+    signal(SIGINT, sigint_handler);
     while(1) {
         sleep(1);
     }
