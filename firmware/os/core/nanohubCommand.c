@@ -1214,9 +1214,10 @@ struct ApHubSyncDebug {
     uint32_t printTimer;
 };
 
-struct ApHubSyncDebug mApHubSyncDebug = {0};
+static struct ApHubSyncDebug mApHubSyncDebug;
 
-static void syncDebugCallback(uint32_t timerId, void *data) {
+static void syncDebugCallback(uint32_t timerId, void *data)
+{
 
     if (mApHubSyncDebug.printIndex >= mApHubSyncDebug.writeIndex ||
         mApHubSyncDebug.printIndex >= N_APHUB_SYNC_DATA) {
@@ -1243,7 +1244,8 @@ static void syncDebugCallback(uint32_t timerId, void *data) {
     }
 }
 
-static void syncDebugTriggerPrint() {
+static void syncDebugTriggerPrint()
+{
     if (mApHubSyncDebug.printTimer) {
         //printing already going
         return;
@@ -1261,7 +1263,8 @@ static void syncDebugTriggerPrint() {
     }
 }
 
-static void syncDebugAdd(uint64_t ap, uint64_t hub) {
+static void syncDebugAdd(uint64_t ap, uint64_t hub)
+{
     if (mApHubSyncDebug.writeIndex >= N_APHUB_SYNC_DATA) {
         //full
         syncDebugTriggerPrint();
