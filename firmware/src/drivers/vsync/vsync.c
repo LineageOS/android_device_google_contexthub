@@ -111,7 +111,7 @@ static bool vsyncIsr(struct ChainedIsr *localIsr)
 
     if (data->on) {
         if (vsyncAllocateEvt(&ev, sensorGetTime())) {
-            if (!osEnqueueEvtOrFree(EVENT_TYPE_BIT_DISCARDABLE | sensorGetMyEventType(SENS_TYPE_VSYNC), ev, vsyncFreeEvt)) {
+            if (!osEnqueueEvtOrFree(sensorGetMyEventType(SENS_TYPE_VSYNC), ev, vsyncFreeEvt)) {
                 ERROR_PRINT("osEnqueueEvtOrFree() failed\n");
             }
         }
