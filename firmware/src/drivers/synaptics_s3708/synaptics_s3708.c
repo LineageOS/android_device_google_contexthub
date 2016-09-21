@@ -141,14 +141,15 @@ static struct TaskStruct
     struct Gpio *pin;
     struct ChainedIsr isr;
     struct TaskStatistics stats;
+    struct I2cTransfer transfers[MAX_PENDING_I2C_REQUESTS];
     uint32_t id;
     uint32_t handle;
     uint32_t retryTimerHandle;
     uint32_t retryCnt;
-    struct I2cTransfer transfers[MAX_PENDING_I2C_REQUESTS];
-    bool on;
     uint32_t proxHandle;
     enum ProxState proxState;
+    bool on;
+    bool gestureEnabled;
 } mTask;
 
 static inline void enableInterrupt(bool enable)
@@ -292,7 +293,7 @@ static void setRetryTimer()
     }
 }
 
-static void setGesturePower(bool enable)
+static void setGesturePower(bool enable, bool skipI2c)
 {
     bool ret;
     size_t i;
@@ -318,11 +319,16 @@ static void setGesturePower(bool enable)
             mTask.retryTimerHandle = 0;
         }
 
-        // Reset to continuous reporting mode
-        ret = setReportingMode(S3708_REPORT_MODE_CONT, STATE_DISABLE_0);
+        if (skipI2c) {
+            ret = true;
+        } else {
+            // Reset to continuous reporting mode
+            ret = setReportingMode(S3708_REPORT_MODE_CONT, STATE_DISABLE_0);
+        }
     }
 
     if (ret) {
+        mTask.gestureEnabled = enable;
         enableInterrupt(enable);
     }
 }
@@ -366,6 +372,12 @@ static bool callbackPower(bool on, void *cookie)
         enabledSeconds / 3600, (enabledSeconds % 3600) / 60, enabledSeconds % 60,
         proxEnabledSeconds / 3600, (proxEnabledSeconds % 3600) / 60, proxEnabledSeconds % 60,
         proxFarSeconds / 3600, (proxFarSeconds % 3600) / 60, proxFarSeconds % 60);
+
+    // If the task is disabled, that means the AP is on and has switched the I2C
+    // mux. Therefore, no I2C transactions will succeed so skip them.
+    if (mTask.gestureEnabled) {
+        setGesturePower(false, true /* skipI2c */);
+    }
 
     mTask.on = on;
     configProx(on);
@@ -507,17 +519,19 @@ static void handleEvent(uint32_t evtType, const void* evtData)
             break;
 
         case EVT_SENSOR_PROX:
-            // cast off the const, and cast to union
-            embeddedSample = (union EmbeddedDataPoint)((void*)evtData);
-            lastProxState = mTask.proxState;
-            mTask.proxState = (embeddedSample.fdata < PROXIMITY_THRESH_NEAR) ? PROX_STATE_NEAR : PROX_STATE_FAR;
+            if (mTask.on) {
+                // cast off the const, and cast to union
+                embeddedSample = (union EmbeddedDataPoint)((void*)evtData);
+                lastProxState = mTask.proxState;
+                mTask.proxState = (embeddedSample.fdata < PROXIMITY_THRESH_NEAR) ? PROX_STATE_NEAR : PROX_STATE_FAR;
 
-            if ((lastProxState != PROX_STATE_FAR) && (mTask.proxState == PROX_STATE_FAR)) {
-                mTask.stats.lastProxFarTimestamp = sensorGetTime();
-                setGesturePower(true);
-            } else if ((lastProxState == PROX_STATE_FAR) && (mTask.proxState == PROX_STATE_NEAR)) {
-                mTask.stats.totalProxFarTime += sensorGetTime() - mTask.stats.lastProxFarTimestamp;
-                setGesturePower(false);
+                if ((lastProxState != PROX_STATE_FAR) && (mTask.proxState == PROX_STATE_FAR)) {
+                    mTask.stats.lastProxFarTimestamp = sensorGetTime();
+                    setGesturePower(true, false);
+                } else if ((lastProxState == PROX_STATE_FAR) && (mTask.proxState == PROX_STATE_NEAR)) {
+                    mTask.stats.totalProxFarTime += sensorGetTime() - mTask.stats.lastProxFarTimestamp;
+                    setGesturePower(false, false);
+                }
             }
             break;
 
