@@ -1898,17 +1898,25 @@ static uint64_t parseSensortime(uint32_t sensor_time24)
 
 static void parseRawData(struct BMI160Sensor *mSensor, uint8_t *buf, float kScale, uint64_t sensorTime)
 {
+    struct TripleAxisDataPoint *sample;
+    uint64_t rtc_time, cur_time;
+    uint32_t delta_time;
     float x, y, z;
     int16_t raw_x, raw_y, raw_z;
-    struct TripleAxisDataPoint *sample;
-    uint32_t delta_time;
-    uint64_t rtc_time;
 #ifdef MAG_SLAVE_PRESENT
     bool newMagBias = false;
 #endif
 
     if (!sensortime_to_rtc_time(sensorTime, &rtc_time)) {
         return;
+    }
+
+    cur_time = sensorGetTime();
+    if (rtc_time > cur_time + kMinRTCTimeIncrementNs) { // + tolerance to prevent frequent tripping
+        INFO_PRINT("Future ts %s: rtc_time = %llu, cur_time = %llu",
+                mSensorInfo[mSensor->idx].sensorName, rtc_time, cur_time);
+        // clamp to current time
+        rtc_time = cur_time + kMinRTCTimeIncrementNs;
     }
 
     if (rtc_time < mSensor->prev_rtc_time + kMinRTCTimeIncrementNs) {
