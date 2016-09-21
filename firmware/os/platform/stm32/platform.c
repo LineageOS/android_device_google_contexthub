@@ -373,6 +373,16 @@ bool platRequestDevInSleepMode(uint32_t sleepDevID, uint32_t maxWakeupTime)
     return true;
 }
 
+bool platAdjustDevInSleepMode(uint32_t sleepDevID, uint32_t maxWakeupTime)
+{
+    if (sleepDevID >= PLAT_MAX_SLEEP_DEVS || sleepDevID >= Stm32sleepDevNum)
+        return false;
+
+    mDevsMaxWakeTime[sleepDevID] = maxWakeupTime;
+
+    return true;
+}
+
 bool platReleaseDevInSleepMode(uint32_t sleepDevID)
 {
     if (sleepDevID >= PLAT_MAX_SLEEP_DEVS || sleepDevID >= Stm32sleepDevNum)
@@ -519,6 +529,7 @@ struct PlatSleepAndClockInfo {
         .jitterPpm = 0,
         .driftPpm = 50,
         .maxWakeupTime = 407000ull,
+        .devsAvail = (1 << Stm32sleepDevExti),
         .prepare = sleepClockRtcPrepare,
         .wake = sleepClockRtcWake,
         .userData = (void*)stm32f411SleepModeStopLPLV,
@@ -532,6 +543,7 @@ struct PlatSleepAndClockInfo {
         .jitterPpm = 0,
         .driftPpm = 50,
         .maxWakeupTime = 130000ull,
+        .devsAvail = (1 << Stm32sleepDevExti),
         .prepare = sleepClockRtcPrepare,
         .wake = sleepClockRtcWake,
         .userData = (void*)stm32f411SleepModeStopLPFD,
@@ -545,6 +557,7 @@ struct PlatSleepAndClockInfo {
         .jitterPpm = 0,
         .driftPpm = 50,
         .maxWakeupTime = 111000ull,
+        .devsAvail = (1 << Stm32sleepDevExti),
         .prepare = sleepClockRtcPrepare,
         .wake = sleepClockRtcWake,
         .userData = (void*)stm32f411SleepModeStopMRFPD,
@@ -558,6 +571,7 @@ struct PlatSleepAndClockInfo {
         .jitterPpm = 0,
         .driftPpm = 50,
         .maxWakeupTime = 14500ull,
+        .devsAvail = (1 << Stm32sleepDevExti),
         .prepare = sleepClockRtcPrepare,
         .wake = sleepClockRtcWake,
         .userData = (void*)stm32f411SleepModeStopMR,
@@ -571,7 +585,7 @@ struct PlatSleepAndClockInfo {
         .jitterPpm = 0,
         .driftPpm = 30,
         .maxWakeupTime = 12ull,
-        .devsAvail = (1 << Stm32sleepDevTim2) | (1 << Stm32sleepDevTim4) | (1 << Stm32sleepDevTim5) | (1 << Stm32sleepDevTim9) | (1 << Stm32sleepWakeup) | (1 << Stm32sleepDevSpi2) | (1 << Stm32sleepDevSpi3) | (1 << Stm32sleepDevI2c1),
+        .devsAvail = (1 << Stm32sleepDevTim2) | (1 << Stm32sleepDevTim4) | (1 << Stm32sleepDevTim5) | (1 << Stm32sleepDevTim9) | (1 << Stm32sleepWakeup) | (1 << Stm32sleepDevSpi2) | (1 << Stm32sleepDevSpi3) | (1 << Stm32sleepDevI2c1) | (1 << Stm32sleepDevExti),
         .prepare = sleepClockTmrPrepare,
         .wake = sleepClockTmrWake,
     },
@@ -583,7 +597,7 @@ struct PlatSleepAndClockInfo {
         .jitterPpm = 0,
         .driftPpm = 0,
         .maxWakeupTime = 0,
-        .devsAvail = (1 << Stm32sleepDevTim2) | (1 << Stm32sleepDevTim4) | (1 << Stm32sleepDevTim5) | (1 << Stm32sleepDevTim9) | (1 << Stm32sleepWakeup) | (1 << Stm32sleepDevSpi2) | (1 << Stm32sleepDevSpi3) | (1 << Stm32sleepDevI2c1),
+        .devsAvail = (1 << Stm32sleepDevTim2) | (1 << Stm32sleepDevTim4) | (1 << Stm32sleepDevTim5) | (1 << Stm32sleepDevTim9) | (1 << Stm32sleepWakeup) | (1 << Stm32sleepDevSpi2) | (1 << Stm32sleepDevSpi3) | (1 << Stm32sleepDevI2c1) | (1 << Stm32sleepDevExti),
         .prepare = sleepClockJustWfiPrepare,
     },
 
@@ -620,7 +634,7 @@ void platSleep(void)
             if (predecrement > length)
                 continue;
 
-            //skip options with too much  drift
+            //skip options with too much drift
             if (sleepClock->driftPpm > mMaxDriftPpm)
                 continue;
 
