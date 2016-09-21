@@ -558,9 +558,9 @@ bool hostIntfPacketDequeue(void *data, uint32_t *wakeup, uint32_t *nonwakeup)
     struct HostIntfDataBuffer *buffer = data;
     bool ret;
     struct ActiveSensor *sensor;
-    uint32_t i, count = 0;
+    uint32_t i;
 
-    ret = simpleQueueDequeue(mOutputQ, data);
+    ret = simpleQueueDequeue(mOutputQ, buffer);
     while (ret) {
         sensor = getActiveSensorByType(buffer->sensType);
         if (sensor) {
@@ -571,8 +571,7 @@ bool hostIntfPacketDequeue(void *data, uint32_t *wakeup, uint32_t *nonwakeup)
                 else if (sensor->interrupt == NANOHUB_INT_NONWAKEUP)
                     mNonWakeupBlocks--;
                 sensor->curSamples -= buffer->firstSample.numSamples;
-                ret = simpleQueueDequeue(mOutputQ, data);
-                count++;
+                ret = simpleQueueDequeue(mOutputQ, buffer);
             } else {
                 break;
             }
@@ -584,9 +583,16 @@ bool hostIntfPacketDequeue(void *data, uint32_t *wakeup, uint32_t *nonwakeup)
     if (!ret) {
         // nothing in queue. look for partial buffers to flush
         for (i = 0; i < mNumSensors; i++, mLastSensor = (mLastSensor + 1) % mNumSensors) {
-            if (mActiveSensorTable[mLastSensor].buffer.length > 0) {
-                memcpy(data, &mActiveSensorTable[mLastSensor].buffer, sizeof(struct HostIntfDataBuffer));
-                resetBuffer(mActiveSensorTable + mLastSensor);
+            sensor = mActiveSensorTable + mLastSensor;
+
+            if (sensor->curSamples != sensor->buffer.firstSample.numSamples) {
+                osLog(LOG_ERROR, "hostIntfPacketDequeue: sensor(%d)->curSamples=%d != buffer->numSamples=%d\n", sensor->buffer.sensType, sensor->curSamples, sensor->buffer.firstSample.numSamples);
+                sensor->curSamples = sensor->buffer.firstSample.numSamples;
+            }
+
+            if (sensor->buffer.length > 0) {
+                memcpy(buffer, &sensor->buffer, sizeof(struct HostIntfDataBuffer));
+                resetBuffer(sensor);
                 ret = true;
                 mLastSensor = (mLastSensor + 1) % mNumSensors;
                 break;
@@ -819,6 +825,7 @@ static bool enqueueSensorBuffer(struct ActiveSensor *sensor)
             mWakeupBlocks--;
         else if (sensor->interrupt == NANOHUB_INT_NONWAKEUP)
             mNonWakeupBlocks--;
+        sensor->curSamples -= sensor->buffer.firstSample.numSamples;
     }
     resetBuffer(sensor);
     return queued;
