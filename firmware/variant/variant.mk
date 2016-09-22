@@ -36,24 +36,41 @@ endif
 MAKE_OUT:=$(OUT)
 endif
 
+ifdef IMAGE_TARGET_OUT
+IMAGE_TARGET_OUT_ELF := $(patsubst %.bin,%.elf,$(IMAGE_TARGET_OUT))
+endif
+
+ifdef IMAGE_OUT
+IMAGE_OUT_ELF := $(patsubst %.bin,%.elf,$(IMAGE_OUT))
+endif
+
 .PHONY: all clean sync
 
 all:
 	make -C $(SRC_PATH) -f firmware.mk VARIANT=$(VARIANT) VARIANT_PATH=$(VARIANT_PATH) OUT=$(MAKE_OUT) PLATFORM=$(PLATFORM) CPU=$(CPU) CHIP=$(CHIP) $(EXTRA_ARGS)
 ifdef IMAGE_OUT
-	cd $(VARIANT_ABSPATH) && cp $(OUT)/full.bin $(IMAGE_OUT)
+	cd $(VARIANT_ABSPATH) && \
+	cp $(OUT)/full.bin $(IMAGE_OUT) && \
+	cp $(OUT)/os.unchecked.elf $(IMAGE_OUT_ELF) && \
+	chmod -x $(IMAGE_OUT_ELF)
 endif
 ifdef IMAGE_TARGET_OUT
-	cd $(VARIANT_ABSPATH) && mkdir -p $(dir $(TOP_ABSPATH)/$(IMAGE_TARGET_OUT)) && cp $(OUT)/full.bin $(TOP_ABSPATH)/$(IMAGE_TARGET_OUT)
+	cd $(VARIANT_ABSPATH) && \
+	mkdir -p $(dir $(TOP_ABSPATH)/$(IMAGE_TARGET_OUT)) && \
+	cp $(OUT)/full.bin $(TOP_ABSPATH)/$(IMAGE_TARGET_OUT) && \
+	cp $(OUT)/os.unchecked.elf $(TOP_ABSPATH)/$(IMAGE_TARGET_OUT_ELF)
+	chmod -x $(TOP_ABSPATH)/$(IMAGE_TARGET_OUT_ELF)
 endif
 
 clean:
 	rm -rf $(OUT)
 ifdef IMAGE_OUT
 	rm $(VARIANT_ABSPATH)/$(IMAGE_OUT)
+	rm $(VARIANT_ABSPATH)/$(IMAGE_OUT_ELF)
 endif
 ifdef IMAGE_TARGET_OUT
 	rm $(TOP_ABSPATH)/$(IMAGE_TARGET_OUT)
+	rm $(TOP_ABSPATH)/$(IMAGE_TARGET_OUT_ELF)
 endif
 
 sync:
