@@ -57,10 +57,19 @@ static void chreappHandle(uint32_t eventTypeAndTid, const void *eventData)
         evt = CHRE_EVENT_MESSAGE_FROM_HOST;
         data = &u.msg;
         u.msg.message = (uint8_t*)eventData + 1;
-        // TODO: fill reservedMessageType with correct value, once it becomes available
         u.msg.reservedMessageType = 0;
         u.msg.messageSize = *(uint8_t*)eventData;
         break;
+    case EVT_APP_FROM_HOST_CHRE:
+    {
+        const struct NanohubMsgChreHdr *hdr = eventData;
+        evt = CHRE_EVENT_MESSAGE_FROM_HOST;
+        data = &u.msg;
+        u.msg.message = hdr + 1;
+        u.msg.reservedMessageType = hdr->appEvent;
+        u.msg.messageSize = hdr->size;
+        break;
+    }
     }
     nanoappHandleEvent(srcTid, evt, data);
 }

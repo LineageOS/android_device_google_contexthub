@@ -529,7 +529,7 @@ int SystemComm::KeyInfoSession::requestRsaKeys(void)
 int SystemComm::doHandleRx(const nano_message *msg)
 {
     //we only care for messages from HostIF
-    if (msg->hdr.app_id != mHostIfAppName.id)
+    if (msg->hdr.appId != mHostIfAppName.id)
         return 1;
 
     //they must all be at least 1 byte long
