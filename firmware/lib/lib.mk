@@ -28,6 +28,7 @@ CFLAGS += -D_IEEE_LIBM
 
 SRCS += $(LIBM_PATH)/ef_atan2.c
 SRCS += $(LIBM_PATH)/ef_asin.c
+SRCS += $(LIBM_PATH)/ef_exp.c
 SRCS += $(LIBM_PATH)/ef_fmod.c
 SRCS += $(LIBM_PATH)/ef_pow.c
 SRCS += $(LIBM_PATH)/ef_rem_pio2.c
@@ -44,6 +45,7 @@ SRCS += $(LIBM_PATH)/sf_scalbn.c
 SRCS += $(LIBM_PATH)/sf_sin.c
 SRCS += $(LIBM_PATH)/wf_atan2.c
 SRCS += $(LIBM_PATH)/wf_asin.c
+SRCS += $(LIBM_PATH)/wf_exp.c
 SRCS += $(LIBM_PATH)/wf_fmod.c
 SRCS += $(LIBM_PATH)/wf_pow.c
 

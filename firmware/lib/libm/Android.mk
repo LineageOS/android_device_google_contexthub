@@ -24,6 +24,7 @@ LOCAL_MODULE_TAGS := optional
 LOCAL_SRC_FILES :=      \
     ef_asin.c           \
     ef_atan2.c          \
+    ef_exp.c            \
     ef_fmod.c           \
     ef_pow.c            \
     ef_rem_pio2.c       \
@@ -40,6 +41,7 @@ LOCAL_SRC_FILES :=      \
     sf_sin.c            \
     wf_asin.c           \
     wf_atan2.c          \
+    wf_exp.c            \
     wf_fmod.c           \
     wf_pow.c            \
 
