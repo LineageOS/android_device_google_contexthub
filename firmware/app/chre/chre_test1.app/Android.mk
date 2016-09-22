@@ -25,14 +25,7 @@ LOCAL_MODULE_TAGS := optional
 LOCAL_NANO_APP_ID := 476f6f676c549001
 LOCAL_NANO_APP_VERSION := 0
 
-LOCAL_WHOLE_STATIC_LIBRARIES := \
-    libnanochre                 \
-
-LOCAL_STATIC_LIBRARIES :=       \
-    libnanolibc                 \
-    libnanolibm                 \
-
 LOCAL_SRC_FILES := \
     main.cpp \
 
-include $(BUILD_NANOHUB_APP_EXECUTABLE)
+include $(BUILD_NANOHUB_APP_CHRE_EXECUTABLE)
