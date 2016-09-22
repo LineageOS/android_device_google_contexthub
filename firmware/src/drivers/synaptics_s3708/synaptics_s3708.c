@@ -150,17 +150,19 @@ static struct TaskStruct
     enum ProxState proxState;
     bool on;
     bool gestureEnabled;
+    bool isrEnabled;
 } mTask;
 
 static inline void enableInterrupt(bool enable)
 {
-    if (enable) {
+    if (!mTask.isrEnabled && enable) {
         extiEnableIntGpio(mTask.pin, EXTI_TRIGGER_FALLING);
         extiChainIsr(TOUCH_IRQ, &mTask.isr);
-    } else {
+    } else if (mTask.isrEnabled && !enable) {
         extiUnchainIsr(TOUCH_IRQ, &mTask.isr);
         extiDisableIntGpio(mTask.pin);
     }
+    mTask.isrEnabled = enable;
 }
 
 static bool touchIsr(struct ChainedIsr *localIsr)
