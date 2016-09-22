@@ -186,6 +186,8 @@ int extiChainIsr(IRQn_Type n, struct ChainedIsr *isr)
     struct ExtiInterrupt *exti = extiForIrq(n);
     if (!exti)
         return -EINVAL;
+    else if (!list_is_empty(&isr->node))
+        return -EINVAL;
 
     chainIsr(&exti->base, isr);
     if (!mMaxLatency || (isr->maxLatencyNs && isr->maxLatencyNs < mMaxLatency))
@@ -198,6 +200,8 @@ int extiUnchainIsr(IRQn_Type n, struct ChainedIsr *isr)
 {
     struct ExtiInterrupt *exti = extiForIrq(n);
     if (!exti)
+        return -EINVAL;
+    else if (list_is_empty(&isr->node))
         return -EINVAL;
 
     unchainIsr(&exti->base, isr);
