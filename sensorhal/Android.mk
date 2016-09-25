@@ -64,6 +64,7 @@ LOCAL_SRC_FILES := \
 	../../../../$(NANOHUB_SENSORHAL_SENSORLIST)
 
 LOCAL_SHARED_LIBRARIES := \
+	liblog \
 	libcutils \
 	libhubconnection \
 	libstagefright_foundation \
