@@ -19,6 +19,7 @@
 
 #include <mutex>
 #include <thread>
+#include <list>
 
 #include <hardware/context_hub.h>
 
@@ -45,9 +46,45 @@ struct nano_message {
     uint8_t data[MAX_RX_PACKET];
 } __attribute__((packed));
 
+class HubMessage : public hub_message_t {
+    std::unique_ptr<uint8_t> data_;
+public:
+    HubMessage(const HubMessage &other) = delete;
+    HubMessage &operator = (const HubMessage &other) = delete;
+
+    HubMessage(const hub_app_name_t *name, uint32_t typ, const void *data, uint32_t len) {
+        app_name = *name;
+        message_type = typ;
+        message_len = len;
+        message = data;
+        if (len > 0 && data != nullptr) {
+            data_ = std::unique_ptr<uint8_t>(new uint8_t[len]);
+            memcpy(data_.get(), data, len);
+            message = data_.get();
+        }
+    }
+
+    HubMessage(HubMessage &&other) {
+        *this = (HubMessage &&)other;
+    }
+
+    HubMessage &operator = (HubMessage &&other) {
+        *static_cast<hub_message_t *>(this) = static_cast<hub_message_t>(other);
+        data_ = std::move(other.data_);
+        other.message = nullptr;
+        other.message_len = 0;
+        return *this;
+    }
+};
+
 class NanoHub {
     std::mutex mLock;
+    bool mAppQuit;
+    std::mutex mAppTxLock;
+    std::condition_variable mAppTxCond;
+    std::list<HubMessage> mAppTxQueue;
     std::thread mPollThread;
+    std::thread mAppThread;
     context_hub_callback *mMsgCbkFunc;
     int mThreadClosingPipe[2];
     int mFd; // [0] is read end
@@ -63,9 +100,11 @@ class NanoHub {
         mFd = -1;
         mMsgCbkData = nullptr;
         mMsgCbkFunc = nullptr;
+        mAppQuit = false;
     }
 
-    void* run();
+    void* runAppTx();
+    void* runDeviceRx();
 
     int openHub();
     int closeHub();
@@ -78,7 +117,7 @@ class NanoHub {
     int doSubscribeMessages(uint32_t hub_id, context_hub_callback *cbk, void *cookie);
     int doSendToNanohub(uint32_t hub_id, const hub_message_t *msg);
     int doSendToDevice(const hub_app_name_t *name, const void *data, uint32_t len, uint32_t messageType);
-    void doSendToApp(const hub_app_name_t *name, uint32_t typ, const void *data, uint32_t len);
+    void doSendToApp(HubMessage &&msg);
 
     static constexpr unsigned int FL_MESSAGE_TRACING = 1;
 
@@ -113,8 +152,8 @@ public:
         return hubInstance()->doSendToDevice(name, data, len, 0);
     }
     // passes message to APP via callback
-    static void sendToApp(const hub_app_name_t *name, uint32_t typ, const void *data, uint32_t len) {
-        hubInstance()->doSendToApp(name, typ, data, len);
+    static void sendToApp(HubMessage &&msg) {
+        hubInstance()->doSendToApp((HubMessage &&)msg);
     }
 };
 

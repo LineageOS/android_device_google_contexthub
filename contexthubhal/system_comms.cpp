@@ -83,6 +83,7 @@ NanohubRsp::NanohubRsp(MessageBuf &buf, bool no_status)
 {
     // all responses start with command
     // most of them have 4-byte status (result code)
+    buf.reset();
     cmd = buf.readU8();
     if (!buf.getSize()) {
         status = -EINVAL;
@@ -181,28 +182,6 @@ int SystemComm::AppInfoSession::requestNext()
     buf.writeU8(NANOHUB_QUERY_APPS);
     buf.writeU32(mAppInfo.size());
     return sendToSystem(buf.getData(), buf.getPos());
-}
-
-int SystemComm::GlobalSession::setup(const hub_message_t *)
-{
-    std::lock_guard<std::mutex> _l(mLock);
-    setState(SESSION_USER);
-    return 0;
-}
-
-int SystemComm::GlobalSession::handleRx(MessageBuf &buf)
-{
-    std::lock_guard<std::mutex> _l(mLock);
-
-    NanohubRsp rsp(buf);
-    if (rsp.cmd != NANOHUB_REBOOT) {
-        return 1;
-    }
-
-    ALOGW("Nanohub reboot status [UNSOLICITED]: %08" PRIX32, rsp.status);
-    sendToApp(CONTEXT_HUB_OS_REBOOT, &rsp.status, sizeof(rsp.status));
-
-    return 0;
 }
 
 int SystemComm::MemInfoSession::setup(const hub_message_t *)
@@ -430,13 +409,6 @@ int SystemComm::AppMgmtSession::handleReload(NanohubRsp &rsp)
 
     sendToApp(mCmd, &result, sizeof(result));
 
-    // in addition to sending response to the CONTEXT_HUB_LOAD_APP command,
-    // we should send unsolicited reboot notification;
-    // I choose to do it here rather than delegate it to global session
-    // because I want the log to clearly differentiate between UNSOLICITED reboots
-    // (meaning FW faults) and REQUESTED reboots.
-    sendToApp(CONTEXT_HUB_OS_REBOOT, &rsp.status, sizeof(rsp.status));
-
     complete();
 
     return 0;
@@ -447,7 +419,7 @@ int SystemComm::AppMgmtSession::handleReboot(NanohubRsp &rsp)
 {
     ALOGI("Nanohub reboot status [USER REQ]: %08" PRIX32, rsp.status);
 
-    sendToApp(mCmd, &rsp.status, sizeof(rsp.status));
+    // reboot notification is sent by SessionManager
     complete();
 
     return 0;
@@ -554,22 +526,62 @@ int SystemComm::doHandleRx(const nano_message *msg)
 int SystemComm::SessionManager::handleRx(MessageBuf &buf)
 {
     int status = 1;
+    std::unique_lock<std::mutex> lk(lock);
 
     // pass message to all active sessions, in arbitrary order
     // 1st session that handles the message terminates the loop
-    for (auto pos = sessions_.begin();
-         pos != sessions_.end() && status > 0; next(pos)) {
+    for (auto pos = sessions_.begin(); pos != sessions_.end() && status > 0; next(pos)) {
+        if (!isActive(pos)) {
+            continue;
+        }
         Session *session = pos->second;
         status = session->handleRx(buf);
         if (status < 0) {
             session->complete();
         }
     }
-    if (status > 0) {
-        status = mGlobal.handleRx(buf);
+
+    NanohubRsp rsp(buf);
+    if (rsp.cmd == NANOHUB_REBOOT) {
+        // if this is reboot notification, kill all sessions
+        for (auto pos = sessions_.begin(); pos != sessions_.end(); next(pos)) {
+            if (!isActive(pos)) {
+                continue;
+            }
+            Session *session = pos->second;
+            session->abort(-EINTR);
+        }
+        lk.unlock();
+        // log the reboot event, if not handled
+        if (status > 0) {
+            ALOGW("Nanohub reboot status [UNSOLICITED]: %08" PRIX32, rsp.status);
+            status = 0;
+        }
+        // report to java apps
+        sendToApp(CONTEXT_HUB_OS_REBOOT, &rsp.status, sizeof(rsp.status));
     }
 
     return status;
+}
+
+int SystemComm::SessionManager::setup_and_add(int id, Session *session, const hub_message_t *appMsg)
+{
+    std::lock_guard<std::mutex> _l(lock);
+
+    // scan sessions to release those that are already done
+    for (auto pos = sessions_.begin(); pos != sessions_.end(); next(pos)) {
+        continue;
+    }
+
+    if (sessions_.count(id) == 0 && !session->isRunning()) {
+        sessions_[id] = session;
+        int ret = session->setup(appMsg);
+        if (ret < 0) {
+            session->complete();
+        }
+        return ret;
+    }
+    return -EBUSY;
 }
 
 int SystemComm::doHandleTx(const hub_message_t *appMsg)

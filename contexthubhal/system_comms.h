@@ -113,6 +113,7 @@ private:
         virtual int handleRx(MessageBuf &buf) = 0;
         virtual int getState() const = 0; // FSM state
         virtual int getStatus() const = 0; // execution status (result code)
+        virtual void abort(int32_t) = 0;
         virtual ~ISession() {}
     };
 
@@ -142,6 +143,11 @@ private:
                 lk.unlock();
                 mDoneCond.notify_all();
             }
+        }
+        void abort(int32_t status) {
+            std::lock_guard<std::mutex> _l(mLock);
+            mStatus = status;
+            complete();
         }
         void setState(int state) {
             if (state == SESSION_DONE) {
@@ -233,44 +239,24 @@ private:
         virtual int handleRx(MessageBuf &buf) override;
     };
 
-    class GlobalSession : public Session {
-    public:
-        virtual int setup(const hub_message_t *) override;
-        virtual int handleRx(MessageBuf &buf) override;
-    };
-
     class SessionManager {
         typedef std::map<int, Session* > SessionMap;
 
         std::mutex lock;
         SessionMap sessions_;
-        GlobalSession mGlobal;
 
+        bool isActive(const SessionMap::iterator &pos) const
+        {
+            return !pos->second->isDone();
+        }
         void next(SessionMap::iterator &pos)
         {
-            std::lock_guard<std::mutex> _l(lock);
-            pos->second->isDone() ? pos = sessions_.erase(pos) : ++pos;
+            isActive(pos) ? pos++ : pos = sessions_.erase(pos);
         }
 
     public:
-        SessionManager() {
-            mGlobal.setup(nullptr);
-        }
         int handleRx(MessageBuf &buf);
-        int setup_and_add(int id, Session *session, const hub_message_t *appMsg) {
-            std::lock_guard<std::mutex> _l(lock);
-            if (sessions_.count(id) == 0 && !session->isRunning()) {
-                int ret = session->setup(appMsg);
-                if (ret < 0) {
-                    session->complete();
-                } else {
-                    sessions_[id] = session;
-                }
-                return ret;
-            }
-            return -EBUSY;
-        }
-
+        int setup_and_add(int id, Session *session, const hub_message_t *appMsg);
     } mSessions;
 
     const hub_app_name_t mHostIfAppName = {
@@ -293,7 +279,7 @@ private:
         if (NanoHub::messageTracingEnabled()) {
             dumpBuffer("HAL -> APP", get_hub_info()->os_app_name, typ, data, len);
         }
-        NanoHub::sendToApp(&get_hub_info()->os_app_name, typ, data, len);
+        NanoHub::sendToApp(HubMessage(&get_hub_info()->os_app_name, typ, data, len));
     }
     static int sendToSystem(const void *data, size_t len);
 

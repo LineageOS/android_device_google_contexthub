@@ -167,19 +167,32 @@ int NanoHub::doSendToDevice(const hub_app_name_t *name, const void *data, uint32
     return rwrite(mFd, &msg, len + sizeof(msg.hdr));
 }
 
-void NanoHub::doSendToApp(const hub_app_name_t *name, uint32_t typ, const void *data, uint32_t len)
+void NanoHub::doSendToApp(HubMessage &&msg)
 {
-    hub_message_t msg = {
-        .app_name = *name,
-        .message_type = typ,
-        .message_len = len,
-        .message = data,
-    };
-
-    mMsgCbkFunc(0, &msg, mMsgCbkData);
+    std::unique_lock<std::mutex> lk(mAppTxLock);
+    mAppTxQueue.push_back((HubMessage &&)msg);
+    lk.unlock();
+    mAppTxCond.notify_all();
 }
 
-void* NanoHub::run()
+void* NanoHub::runAppTx()
+{
+    std::unique_lock<std::mutex> lk(mAppTxLock);
+    while(true) {
+        mAppTxCond.wait(lk, [this] { return !mAppTxQueue.empty() || mAppQuit; });
+        if (mAppQuit) {
+            break;
+        }
+        HubMessage &m = mAppTxQueue.front();
+        lk.unlock();
+        mMsgCbkFunc(0, &m, mMsgCbkData);
+        lk.lock();
+        mAppTxQueue.pop_front();
+    };
+    return NULL;
+}
+
+void* NanoHub::runDeviceRx()
 {
     enum {
         IDX_NANOHUB,
@@ -247,7 +260,7 @@ void* NanoHub::run()
                 if (messageTracingEnabled()) {
                     dumpBuffer("DEV -> APP", app_name, msg.hdr.eventId, &msg.data[0], msg.hdr.len);
                 }
-                doSendToApp(&app_name, msg.hdr.eventId, &msg.data[0], msg.hdr.len);
+                doSendToApp(HubMessage(&app_name, msg.hdr.eventId, &msg.data[0], msg.hdr.len));
             }
         }
 
@@ -278,7 +291,8 @@ int NanoHub::openHub()
         goto fail_pipe;
     }
 
-    mPollThread = std::thread([this] { run(); });
+    mPollThread = std::thread([this] { runDeviceRx(); });
+    mAppThread = std::thread([this] { runAppTx(); });
     return 0;
 
 fail_pipe:
@@ -292,14 +306,28 @@ int NanoHub::closeHub(void)
 {
     char zero = 0;
 
-    //signal
-    while(write(mThreadClosingPipe[1], &zero, 1) != 1);
+    // stop mPollThread
+    while(write(mThreadClosingPipe[1], &zero, 1) != 1) {
+        continue;
+    }
+
+    // stop mAppThread
+    {
+        std::unique_lock<std::mutex> lk(mAppTxLock);
+        mAppQuit = true;
+        lk.unlock();
+        mAppTxCond.notify_all();
+    }
 
     //wait
     if (mPollThread.joinable()) {
         mPollThread.join();
     }
 
+    //wait
+    if (mAppThread.joinable()) {
+        mAppThread.join();
+    }
     //cleanup
     ::close(mThreadClosingPipe[0]);
     ::close(mThreadClosingPipe[1]);
