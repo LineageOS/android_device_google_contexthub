@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+#include <variant/variant.h>
+
 #include <bl.h>
 
 #include <plat/cmsis.h>
