@@ -14,24 +14,27 @@
  * limitations under the License.
  */
 
-#include <android/log.h>
+#define LOG_TAG "nanoapp_cmd"
+
 #include <assert.h>
-#include <stdio.h>
-#include <sys/types.h>
-#include <sys/stat.h>
+#include <errno.h>
 #include <fcntl.h>
+#include <inttypes.h>
+#include <signal.h>
 #include <stdbool.h>
 #include <stdint.h>
-#include <unistd.h>
-#include <string.h>
+#include <stdio.h>
 #include <stdlib.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <string.h>
+#include <unistd.h>
+
+#include <android/log.h>
+
 #include <eventnums.h>
 #include <sensType.h>
-#include <signal.h>
-#include <inttypes.h>
-#include <errno.h>
 
-#define LOG_TAG "nanoapp_cmd"
 #define SENSOR_RATE_ONCHANGE    0xFFFFFF01UL
 #define SENSOR_RATE_ONESHOT     0xFFFFFF02UL
 #define SENSOR_HZ(_hz)          ((uint32_t)((_hz) * 1024.0f))
