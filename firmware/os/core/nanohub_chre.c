@@ -53,7 +53,7 @@ void osChreTaskHandle(struct Task *task, uint32_t evtType, const void *evtData)
     } else if (evt >= EVT_FIRST_CHRE_USER_EVENT) {
         evt = evt - EVT_FIRST_CHRE_USER_EVENT + CHRE_EVENT_FIRST_USER_VALUE;
     }
-    evtType = evt | (task->tid << 16);
+    evtType = EVENT_WITH_ORIGIN(evt, EVENT_GET_ORIGIN(evtType));
     cpuAppHandle(task->app, &task->platInfo, evtType, evtData);
 }
 
