@@ -46,10 +46,6 @@
 #define NANOHUB_FINISH_UPLOAD      8 // () -> (char success)
 #define NANOHUB_REBOOT             9 // () -> (char success)
 
-// Custom defined private messages
-#define CONTEXT_HUB_LOAD_OS (CONTEXT_HUB_TYPE_PRIVATE_MSG_BASE + 1)
-
-
 #define NANOHUB_APP_NOT_LOADED  (-1)
 #define NANOHUB_APP_LOADED      (0)
 
@@ -66,6 +62,18 @@ int system_comms_handle_tx(const hub_message_t *outMsg);
 struct NanohubAppInfo {
     hub_app_name_t name;
     uint32_t version, flashUse, ramUse;
+} __attribute__((packed));
+
+struct MgmtStatus {
+    union {
+        uint32_t value;
+        struct {
+            uint8_t app;
+            uint8_t task;
+            uint8_t op;
+            uint8_t erase;
+        } __attribute__((packed));
+    };
 } __attribute__((packed));
 
 struct NanohubMemInfo {
@@ -186,20 +194,23 @@ private:
         enum {
             TRANSFER = SESSION_USER,
             FINISH,
-            RELOAD,
+            RUN,
+            RUN_FAILED,
             REBOOT,
             MGMT,
         };
-        uint32_t mCmd; // UPLOAD_APP | UPPLOAD_OS
+        uint32_t mCmd; // LOAD_APP, UNLOAD_APP, ENABLE_APP, DISABLE_APP
         uint32_t mResult;
         std::vector<uint8_t> mData;
         uint32_t mLen;
         uint32_t mPos;
+        hub_app_name_t mAppName;
 
         int setupMgmt(const hub_message_t *appMsg, uint32_t cmd);
         int handleTransfer(NanohubRsp &rsp);
         int handleFinish(NanohubRsp &rsp);
-        int handleReload(NanohubRsp &rsp);
+        int handleRun(NanohubRsp &rsp);
+        int handleRunFailed(NanohubRsp &rsp);
         int handleReboot(NanohubRsp &rsp);
         int handleMgmt(NanohubRsp &rsp);
     public:
@@ -208,6 +219,7 @@ private:
             mResult = 0;
             mPos = 0;
             mLen = 0;
+            memset(&mAppName, 0, sizeof(mAppName));
         }
         virtual int handleRx(MessageBuf &buf) override;
         virtual int setup(const hub_message_t *app_msg) override;

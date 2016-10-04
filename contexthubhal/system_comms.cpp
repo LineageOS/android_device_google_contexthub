@@ -281,16 +281,23 @@ int SystemComm::AppMgmtSession::setup(const hub_message_t *appMsg)
         return setupMgmt(appMsg, NANOHUB_EXT_APPS_OFF);
     case  CONTEXT_HUB_UNLOAD_APP:
         return setupMgmt(appMsg, NANOHUB_EXT_APP_DELETE);
-    case  CONTEXT_HUB_LOAD_OS:
     case  CONTEXT_HUB_LOAD_APP:
+    {
         mData.clear();
         mData = std::vector<uint8_t>(msgData, msgData + mLen);
+        const load_app_request_t *appReq = static_cast<const load_app_request_t*>(appMsg->message);
+        if (appReq == nullptr || mLen <= sizeof(*appReq)) {
+            ALOGE("%s: Invalid app header: too short\n", __func__);
+            return -EINVAL;
+        }
+        mAppName = appReq->app_binary.app_id;
         setState(TRANSFER);
 
         buf.writeU8(NANOHUB_START_UPLOAD);
-        buf.writeU8(mCmd == CONTEXT_HUB_LOAD_OS ? 1 : 0);
+        buf.writeU8(0);
         buf.writeU32(mLen);
         return sendToSystem(buf.getData(), buf.getPos());
+    }
 
     case  CONTEXT_HUB_OS_REBOOT:
         setState(REBOOT);
@@ -330,8 +337,11 @@ int SystemComm::AppMgmtSession::handleRx(MessageBuf &buf)
     case FINISH:
         ret = handleFinish(rsp);
         break;
-    case RELOAD:
-        ret = handleReload(rsp);
+    case RUN:
+        ret = handleRun(rsp);
+        break;
+    case RUN_FAILED:
+        ret = handleRunFailed(rsp);
         break;
     case REBOOT:
         ret = handleReboot(rsp);
@@ -386,9 +396,9 @@ int SystemComm::AppMgmtSession::handleFinish(NanohubRsp &rsp)
     if (success) {
         char data[MAX_RX_PACKET];
         MessageBuf buf(data, sizeof(data));
-        // until app header is passed, we don't know who to start, so we reboot
-        buf.writeU8(NANOHUB_REBOOT);
-        setState(RELOAD);
+        buf.writeU8(NANOHUB_EXT_APPS_ON);
+        writeAppName(buf, mAppName);
+        setState(RUN);
         ret = sendToSystem(buf.getData(), buf.getPos());
     } else {
         int32_t result = NANOHUB_APP_NOT_LOADED;
@@ -400,15 +410,48 @@ int SystemComm::AppMgmtSession::handleFinish(NanohubRsp &rsp)
     return ret;
 }
 
-/* reboot notification, when triggered as part of App reload sequence */
-int SystemComm::AppMgmtSession::handleReload(NanohubRsp &rsp)
+int SystemComm::AppMgmtSession::handleRun(NanohubRsp &rsp)
 {
-    int32_t result = NANOHUB_APP_LOADED;
+    if (rsp.cmd != NANOHUB_EXT_APPS_ON)
+        return 1;
 
-    ALOGI("Nanohub reboot status [NEW APP START]: %08" PRIX32, rsp.status);
+    MgmtStatus sts = { .value = (uint32_t)rsp.status };
+
+    // op counter returns number of nanoapps that were started as result of the command
+    // for successful start command it must be > 0
+    int32_t result = sts.value > 0 && sts.op > 0 && sts.op <= 0x7F ? 0 : -1;
+
+    ALOGI("Nanohub NEW APP START: %08" PRIX32 "\n", rsp.status);
+    if (result != 0) {
+        // if nanoapp failed to start we have to unload it
+        char data[MAX_RX_PACKET];
+        MessageBuf buf(data, sizeof(data));
+        buf.writeU8(NANOHUB_EXT_APP_DELETE);
+        writeAppName(buf, mAppName);
+        if (sendToSystem(buf.getData(), buf.getPos()) == 0) {
+            setState(RUN_FAILED);
+            return 0;
+        }
+        ALOGE("%s: failed to send DELETE for failed app\n", __func__);
+    }
+
+    // it is either success, and we report it, or
+    // it is a failure to load, and also failure to send erase command
+    sendToApp(mCmd, &result, sizeof(result));
+    complete();
+    return 0;
+}
+
+int SystemComm::AppMgmtSession::handleRunFailed(NanohubRsp &rsp)
+{
+    if (rsp.cmd != NANOHUB_EXT_APP_DELETE)
+        return 1;
+
+    int32_t result = -1;
+
+    ALOGI("%s: APP DELETE [because it failed]: %08" PRIX32 "\n", __func__, rsp.status);
 
     sendToApp(mCmd, &result, sizeof(result));
-
     complete();
 
     return 0;
@@ -417,7 +460,9 @@ int SystemComm::AppMgmtSession::handleReload(NanohubRsp &rsp)
 /* reboot notification, when triggered by App request */
 int SystemComm::AppMgmtSession::handleReboot(NanohubRsp &rsp)
 {
-    ALOGI("Nanohub reboot status [USER REQ]: %08" PRIX32, rsp.status);
+    if (rsp.cmd != NANOHUB_REBOOT)
+        return 1;
+    ALOGI("Nanohub reboot status [USER REQ]: %08" PRIX32 "\n", rsp.status);
 
     // reboot notification is sent by SessionManager
     complete();
@@ -429,7 +474,6 @@ int SystemComm::AppMgmtSession::handleMgmt(NanohubRsp &rsp)
 {
     bool valid = false;
 
-    ALOGI("Nanohub MGMT response: CMD=%02X; STATUS=%08" PRIX32, rsp.cmd, rsp.status);
     int32_t result = rsp.status;
 
     // TODO: remove this when context hub service can handle non-zero success status
@@ -455,6 +499,7 @@ int SystemComm::AppMgmtSession::handleMgmt(NanohubRsp &rsp)
         return 1;
     }
 
+    ALOGI("Nanohub MGMT response: CMD=%02X; STATUS=%08" PRIX32, rsp.cmd, rsp.status);
     if (!valid) {
         ALOGE("Invalid response for this state: APP CMD=%02X", mCmd);
         return -EINVAL;
