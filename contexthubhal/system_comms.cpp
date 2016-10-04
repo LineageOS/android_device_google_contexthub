@@ -430,6 +430,16 @@ int SystemComm::AppMgmtSession::handleMgmt(NanohubRsp &rsp)
     bool valid = false;
 
     ALOGI("Nanohub MGMT response: CMD=%02X; STATUS=%08" PRIX32, rsp.cmd, rsp.status);
+    int32_t result = rsp.status;
+
+    // TODO: remove this when context hub service can handle non-zero success status
+    if (result > 0) {
+        // something happened; assume it worked
+        result = 0;
+    } else if (result == 0) {
+        // nothing happened; this is provably an error
+        result = -1;
+    }
 
     switch (rsp.cmd) {
     case NANOHUB_EXT_APPS_OFF:
@@ -450,7 +460,7 @@ int SystemComm::AppMgmtSession::handleMgmt(NanohubRsp &rsp)
         return -EINVAL;
     }
 
-    sendToApp(mCmd, &rsp.status, sizeof(rsp.status));
+    sendToApp(mCmd, &result, sizeof(result));
     complete();
 
     return 0;
