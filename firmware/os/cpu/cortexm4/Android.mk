@@ -28,6 +28,7 @@ LOCAL_AUX_CPU := cortexm4
 LOCAL_SRC_FILES := \
     atomic.c \
     atomicBitset.c \
+    cpu.c \
 
 include $(BUILD_NANOHUB_BL_STATIC_LIBRARY)
 
