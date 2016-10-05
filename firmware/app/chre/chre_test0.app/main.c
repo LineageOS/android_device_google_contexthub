@@ -18,6 +18,8 @@
 #include <inttypes.h>
 #include <chre.h>
 
+#define CHRE_APP_TAG "CHRE App 0: "
+
 /* chre.h does not define printf format attribute for chreLog() */
 void chreLog(enum chreLogLevel level, const char *str, ...) __attribute__ ((__format__ (__printf__, 2, 3)));
 
@@ -40,9 +42,17 @@ static uint64_t mMyAppId;
 static int cnt;
 static struct MyTimer mTimer;
 
+static void nanoappFreeEvent(uint16_t eventType, void *data)
+{
+    chreLog(CHRE_LOG_INFO, CHRE_APP_TAG "event callback invoked: eventType=%04" PRIX16
+            "; data=%p\n", eventType, data);
+}
+
 // Default implementation for message free
 static void nanoappFreeMessage(void *msg, size_t size)
 {
+    chreLog(CHRE_LOG_INFO, CHRE_APP_TAG "message callback invoked: msg=%p; size=%08zu\n",
+            msg, size);
     chreHeapFree(msg);
 }
 
@@ -51,14 +61,13 @@ bool nanoappStart(void)
     mMyAppId = chreGetAppId();
     mMyTid = chreGetInstanceId();
     cnt = 3;
-    chreSendEvent(EVT_LOCAL_SETUP, NULL, NULL, mMyTid);
-    chreLog(CHRE_LOG_INFO, "CHRE App 0: init");
+    chreSendEvent(EVT_LOCAL_SETUP, (void*)0x87654321, nanoappFreeEvent, mMyTid);
+    chreLog(CHRE_LOG_INFO, CHRE_APP_TAG "init\n");
     return true;
 }
 
 void nanoappEnd(void)
 {
-    chreLog(CHRE_LOG_INFO, "CHRE App 0: terminating");
 }
 
 void nanoappHandleEvent(uint32_t srcTid, uint16_t evtType, const void* evtData)
@@ -66,7 +75,7 @@ void nanoappHandleEvent(uint32_t srcTid, uint16_t evtType, const void* evtData)
     switch (evtType) {
     case  EVT_LOCAL_SETUP:
         mTimer.timerId = chreTimerSet(kOneSecond, &mTimer, false);
-        chreLog(CHRE_LOG_INFO, "CHRE App 0: started with tid %04" PRIX32
+        chreLog(CHRE_LOG_INFO, CHRE_APP_TAG "started with tid %04" PRIX32
                                " timerid %" PRIu32
                                "\n", mMyTid, mTimer.timerId);
         break;
@@ -75,7 +84,7 @@ void nanoappHandleEvent(uint32_t srcTid, uint16_t evtType, const void* evtData)
         const struct MyTimer *t = (const struct MyTimer *)evtData;
         struct ExtMsg *extMsg = chreHeapAlloc(sizeof(*extMsg));
 
-        chreLog(CHRE_LOG_INFO, "CHRE App 0: received timer %" PRIu32
+        chreLog(CHRE_LOG_INFO, CHRE_APP_TAG "received timer %" PRIu32
                                " (TIME: %" PRIu64
                                ") cnt: %d\n", t->timerId, chreGetTime(), cnt);
         extMsg->msg = 0x01;
@@ -90,7 +99,7 @@ void nanoappHandleEvent(uint32_t srcTid, uint16_t evtType, const void* evtData)
         const struct chreMessageFromHostData *msg = (const struct chreMessageFromHostData *)evtData;
         const uint8_t *data = (const uint8_t *)msg->message;
         const size_t size = msg->messageSize;
-        chreLog(CHRE_LOG_INFO, "CHRE App 0: message=%p; code=%d; size=%zu",
+        chreLog(CHRE_LOG_INFO, CHRE_APP_TAG "message=%p; code=%d; size=%zu\n",
                 data, (data && size) ? data[0] : 0, size);
         break;
     }

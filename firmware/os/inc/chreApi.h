@@ -60,5 +60,7 @@ C_STATIC_ASSERT(uintptr_size, sizeof(uintptr_t) >= sizeof(uint32_t));
 
 //called by os entry point to export the api
 void osChreApiExport(void);
+// release CHRE event and optionally call completion callback
+void osChreFreeEvent(uint32_t tid, void (*free_info)(uint16_t, void *), uint32_t evtType, void * evtData);
 
 #endif

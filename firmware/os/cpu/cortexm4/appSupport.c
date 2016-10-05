@@ -202,6 +202,7 @@ void cpuAppEnd(const struct AppHdr *app, struct PlatAppInfo *platInfo)
         (void)callWithR9((const void*)APP_FLASH_RELOC_BASE(app), app->vec.end, platInfo->data, 0, 0);
     else
         APP_VEC(app)->end();
+    osLog(LOG_INFO, "App ID %016" PRIX64 "; TID=%04" PRIX32 " terminated\n", app->hdr.appId, osGetCurrentTid());
 }
 
 void cpuAppHandle(const struct AppHdr *app, struct PlatAppInfo *platInfo, uint32_t evtType, const void* evtData)

@@ -70,6 +70,10 @@ static void chreappHandle(uint32_t eventTypeAndTid, const void *eventData)
         u.msg.messageSize = hdr->size;
         break;
     }
+    default:
+        // ignore any other system events; OS may send them to any app
+        if (evt < EVT_NO_FIRST_USER_EVENT)
+            return;
     }
     nanoappHandleEvent(srcTid, evt, data);
 }

@@ -20,7 +20,6 @@
 #include <inttypes.h>
 #include <seos.h>
 
-#define EVT_PRIVATE_EVT              0x00000003
 #define NO_NODE (TaskIndex)(-1)
 #define for_each_task(listHead, task) for (task = osTaskByIdx((listHead)->next); task; task = osTaskByIdx(task->list.next))
 
@@ -31,6 +30,9 @@
 #define EVT_SUBSCRIBE_TO_EVT         0x00000000
 #define EVT_UNSUBSCRIBE_TO_EVT       0x00000001
 #define EVT_DEFERRED_CALLBACK        0x00000002
+#define EVT_PRIVATE_EVT              0x00000003
+
+#define EVT_PRIVATE_CLASS_CHRE       0x00000001
 
 #define EVENT_WITH_ORIGIN(evt, origin)       (((evt) & EVT_MASK) | ((origin) << (32 - TASK_TID_BITS)))
 #define EVENT_GET_ORIGIN(evt) ((evt) >> (32 - TASK_TID_BITS))
@@ -106,11 +108,17 @@ union SeosInternalSlabData {
 
 uint8_t osTaskIndex(struct Task *task);
 struct Task *osGetCurrentTask();
+struct Task *osSetCurrentTask(struct Task *task);
 struct Task *osTaskFindByTid(uint32_t tid);
 void osTaskAbort(struct Task *task);
 void osTaskInvokeMessageFreeCallback(struct Task *task, void (*freeCallback)(void *, size_t), void *message, uint32_t messageSize);
 void osTaskInvokeEventFreeCallback(struct Task *task, void (*freeCallback)(uint16_t, void *), uint16_t event, void *data);
 void osChreTaskHandle(struct Task *task, uint32_t evtType, const void *evtData);
+
+static inline bool osTaskIsChre(const struct Task *task)
+{
+    return (task->app->hdr.fwFlags & FL_APP_HDR_CHRE) != 0;
+}
 
 static inline void osTaskMakeNewTid(struct Task *task)
 {

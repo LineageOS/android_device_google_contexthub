@@ -45,17 +45,6 @@ C_STATIC_ASSERT(max_chre_msg_size, CHRE_MESSAGE_TO_HOST_MAX_SIZE <= 240);
  * None of the methods returning uint32_t are cast to uintptr_t
  * This is done in order to let compiler warn us if our assumption is not safe for some reason
  */
-void osChreTaskHandle(struct Task *task, uint32_t evtType, const void *evtData)
-{
-    uint16_t evt = evtType;
-    if (evt < EVT_FIRST_CHRE_USER_EVENT && evt >= EVT_FIRST_CHRE_SYS_EVENT) {
-        evt -= EVT_FIRST_CHRE_SYS_EVENT;
-    } else if (evt >= EVT_FIRST_CHRE_USER_EVENT) {
-        evt = evt - EVT_FIRST_CHRE_USER_EVENT + CHRE_EVENT_FIRST_USER_VALUE;
-    }
-    evtType = EVENT_WITH_ORIGIN(evt, EVENT_GET_ORIGIN(evtType));
-    cpuAppHandle(task->app, &task->platInfo, evtType, evtData);
-}
 
 static inline uint64_t osChreGetAppId(void)
 {
@@ -148,24 +137,33 @@ static void osChreApiHeapFree(uintptr_t *retValP, va_list args)
     heapFree(ptr);
 }
 
+/*
+ * we have no way to verify if this is a CHRE event; just trust the caller to do the right thing
+ */
+void osChreFreeEvent(uint32_t tid, chreEventCompleteFunction *cbFreeEvt, uint32_t evtType, void * evtData)
+{
+    struct Task *chreTask = osTaskFindByTid(tid);
+    struct Task *preempted = osSetCurrentTask(chreTask);
+    if (chreTask && osTaskIsChre(chreTask))
+        osTaskInvokeEventFreeCallback(chreTask, cbFreeEvt, evtType, evtData);
+    osSetCurrentTask(preempted);
+}
+
 static bool osChreSendEvent(uint16_t evtType, void *evtData,
                             chreEventCompleteFunction *evtFreeCallback,
                             uint32_t toTid)
 {
-    uint32_t evt;
-    if (evtType >= CHRE_EVENT_FIRST_USER_VALUE) {
-        evt = evtType - CHRE_EVENT_FIRST_USER_VALUE + EVT_FIRST_CHRE_USER_EVENT;
-        if (evt >= EVT_DEBUG_LOG) {
-            osLog(LOG_INFO, "%s: CHRE User Event %04" PRIX16 " is not compatible with nanohub", __func__, evtType);
-            return false;
-        }
-    } else if (evtType < MAX_CHRE_SYS_EVENTS) {
-        evt = evtType + EVT_FIRST_CHRE_SYS_EVENT;
-    } else {
-        osLog(LOG_INFO, "%s: CHRE System Event %04" PRIX16 " is not compatible with nanohub", __func__, evtType);
+    /*
+     * this primitive may only be used for USER CHRE events;
+     * system events come from the OS itself through different path,
+     * and are interpreted by the CHRE app compatibility library.
+     * therefore, we have to enforce the evtType >= CHRE_EVENT_FIRST_USER_VALUE.
+     */
+    if (evtType < CHRE_EVENT_FIRST_USER_VALUE) {
+        osChreFreeEvent(osGetCurrentTid(), evtFreeCallback, evtType, evtData);
         return false;
     }
-    return osEnqueuePrivateEvtNew(evt, evtData, evtFreeCallback, toTid);
+    return osEnqueuePrivateEvtNew(evtType, evtData, evtFreeCallback, toTid);
 }
 
 static void osChreApiSendEvent(uintptr_t *retValP, va_list args)
@@ -199,7 +197,7 @@ static bool osChreSendMessageToHost(void *message, uint32_t messageSize,
     result = osEnqueueEvtOrFree(EVT_APP_TO_HOST, hostMsg, heapFree);
 
 out:
-    if (freeCallback && message && messageSize)
+    if (freeCallback)
         osTaskInvokeMessageFreeCallback(osGetCurrentTask(), freeCallback, message, messageSize);
     return result;
 }
