@@ -545,7 +545,7 @@ static void firmwareWrite(void *cookie)
 
 static uint32_t doFirmwareChunk(uint8_t *data, uint32_t offset, uint32_t len, void *cookie)
 {
-    uint32_t reply;
+    uint32_t reply, ret;
 
     if (!mDownloadState) {
         reply = NANOHUB_FIRMWARE_CHUNK_REPLY_CANCEL_NO_RETRY;
@@ -557,8 +557,11 @@ static uint32_t doFirmwareChunk(uint8_t *data, uint32_t offset, uint32_t len, vo
     } else {
         if (mDownloadState->erase == true) {
             reply = NANOHUB_FIRMWARE_CHUNK_REPLY_WAIT;
-            if (!mDownloadState->eraseScheduled)
+            if (!mDownloadState->eraseScheduled) {
+                ret = osExtAppStopApps(APP_ID_ANY);
+                osLog(LOG_INFO, "%s: unloaded apps, ret=%08lx\n", __func__, ret);
                 mDownloadState->eraseScheduled = osDefer(firmwareErase, NULL, false);
+            }
         } else if (!mDownloadState->start) {
             // this means we can't allocate enough space even after we did erase
             reply = NANOHUB_FIRMWARE_CHUNK_REPLY_CANCEL_NO_RETRY;
