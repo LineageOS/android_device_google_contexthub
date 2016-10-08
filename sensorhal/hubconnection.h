@@ -26,7 +26,6 @@
 #include <utils/Errors.h>
 #include <utils/Mutex.h>
 #include <utils/Thread.h>
-#include <hardware_legacy/power.h>
 
 #include "activityeventhandler.h"
 #include "eventnums.h"

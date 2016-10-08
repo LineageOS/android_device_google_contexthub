@@ -29,13 +29,15 @@
 #include <unistd.h>
 #include <math.h>
 #include <inttypes.h>
-
-#include <cutils/properties.h>
-#include <linux/input.h>
-#include <linux/uinput.h>
-#include <media/stagefright/foundation/ADebug.h>
 #include <sched.h>
 #include <sys/inotify.h>
+
+#include <linux/input.h>
+#include <linux/uinput.h>
+
+#include <cutils/properties.h>
+#include <hardware_legacy/power.h>
+#include <media/stagefright/foundation/ADebug.h>
 
 #define APP_ID_GET_VENDOR(appid)       ((appid) >> 24)
 #define APP_ID_MAKE(vendor, app)       ((((uint64_t)(vendor)) << 24) | ((app) & 0x00FFFFFF))
