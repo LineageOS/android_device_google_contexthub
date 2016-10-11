@@ -1363,10 +1363,10 @@ void HubConnection::queueDataInternal(int handle, void *data, size_t length)
         else
             ALOGE("queueData: failed to send command: sensor=%d, length=%zu",
                     cmd->sensorType, length);
-        free(cmd);
     } else {
         ALOGI("queueData: unhandled handle=%d", handle);
     }
+    free(cmd);
 }
 
 void HubConnection::queueData(int handle, void *data, size_t length)
