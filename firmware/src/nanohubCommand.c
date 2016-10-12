@@ -512,6 +512,7 @@ static void firmwareWrite(void *cookie)
         return;
     } else if (valid) {
         if (mDownloadState->srcOffset == mDownloadState->size) {
+            mAppSecStatus = appSecRxDataOver(mDownloadState->appSecState);
             finished = true;
             valid = !checkCrc || mDownloadState->crc == ~mDownloadState->srcCrc;
         } else if (mDownloadState->srcOffset > mDownloadState->size) {
