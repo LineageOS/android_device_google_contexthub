@@ -114,6 +114,22 @@
  */
 
 /**
+ * Floating point support.
+ *
+ * The C type 'float' is used in this API, and thus a CHRE implementation
+ * is required to support 'float's.
+ *
+ * Support of the C types 'double' and 'long double' is optional for a
+ * CHRE implementation.  Note that if a CHRE decides to support them, unlike
+ * 'float' support, there is no requirement that this support is particularly
+ * efficient.  So nanoapp authors should be aware this may be inefficient.
+ *
+ * If a CHRE implementation choses not to support 'double' or
+ * 'long double', then the build toolchain setup provided needs to set
+ * the preprocessor define CHRE_NO_DOUBLE_SUPPORT.
+ */
+
+/**
  * CHRE and Nanoapp compatibility.
  *
  * The Android N release introduces the first version of this API.
