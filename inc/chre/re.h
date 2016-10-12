@@ -281,6 +281,8 @@ bool chreTimerCancel(uint32_t timerId);
  * @param abortCode  A value indicating the reason for aborting.  (Note that
  *    in this version of the API, there is no way for anyone to access this
  *    code, but future APIs may expose it.)
+ * @returns Never.  This method does not return, as the CHRE stops nanoapp
+ *    execution immediately.
  */
 void chreAbort(uint32_t abortCode);
 
