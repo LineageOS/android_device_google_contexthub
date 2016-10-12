@@ -239,7 +239,7 @@ extern "C" {
     (CHRE_EVENT_SENSOR_FIRST_EVENT + 0x0100)
 
 /**
- * nanoappHandleEvent argument: struct chreSensorSamplingChangeEvent
+ * nanoappHandleEvent argument: struct chreSensorSamplingStatusEvent
  *
  * Indicates that the interval and/or the latency which this sensor is
  * sampling at has changed.
