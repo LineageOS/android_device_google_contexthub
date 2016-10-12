@@ -172,7 +172,6 @@ uint32_t chreGetInstanceId(void);
  *          leading zeros if needed to meet the minimum.
  *    - 'f' context: Number of digits to output after the decimal
  *          point (to the right of it).
- *    - 'g' context: Maximum number of digits to be output.
  *    - 's' context: Maximum number of characters to output.
  *
  * Integral format specifiers:
