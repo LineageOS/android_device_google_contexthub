@@ -721,11 +721,11 @@ bool chreGetSensorSamplingStatus(uint32_t sensorHandle,
  *
  * For example, the following is valid usage:
  * <code>
- *   chreSensorConfigure(myHandle, interval0, latency0, mode);
+ *   chreSensorConfigure(myHandle, mode, interval0, latency0);
  *   [...]
- *   chreSensorConfigure(myHandle, interval1, latency0, mode);
+ *   chreSensorConfigure(myHandle, mode, interval1, latency0);
  *   [...]
- *   chreSensorConfigure(myHandle, interval1, latency1, mode);
+ *   chreSensorConfigure(myHandle, mode, interval1, latency1);
  *   [...]
  *   chreSensorConfigureModeOnly(myHandle, CHRE_SENSOR_CONFIGURE_MODE_DONE);
  * </code>
@@ -741,7 +741,7 @@ bool chreGetSensorSamplingStatus(uint32_t sensorHandle,
  * DONE mode after that single event triggers.  Thus, the
  * following are legitimate usages:
  * <code>
- *   chreSensorConfigure(myHandle, rate, latency, MODE_ONE_SHOT);
+ *   chreSensorConfigure(myHandle, MODE_ONE_SHOT, rate, latency);
  *   [...]
  *   [myHandle triggers an event]
  *   [no need to configure to DONE].
@@ -749,7 +749,7 @@ bool chreGetSensorSamplingStatus(uint32_t sensorHandle,
  *
  * And:
  * <code>
- *   chreSensorConfigure(myHandle, rate, latency, MODE_ONE_SHOT);
+ *   chreSensorConfigure(myHandle, MODE_ONE_SHOT, rate, latency);
  *   [...]
  *   chreSensorConfigureModeOnly(myHandle, MODE_DONE);
  *   [we cancelled myHandle before it ever triggered an event]
