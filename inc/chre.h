@@ -73,9 +73,15 @@
  * callback, the CHRE is not allowed to call nanoappHandleEvent(), or invoke
  * another memory freeing callback.
  *
- * For a nanoapp author, this means no thought needs to be given to
- * synchronization issues with global objects, as they will, by definition,
- * only be accessed by a single thread at once.
+ * There is one exception to this rule: If an invocation of chreSendEvent()
+ * or chreSendMessageToHost() fails (returns 'false'), it is allowed to
+ * immediately invoke the memory freeing callback passed into that function.
+ * This is a rare case, and one where otherwise a CHRE implementation is
+ * likely to leak memory.
+ *
+ * For a nanoapp author, this means no thought (outside of our one exception)
+ * needs to be given to synchronization issues with global objects, as they
+ * will, by definition, only be accessed by a single thread at once.
  *
  *
  * [1] Note to CHRE implementors: A future version of the CHRE platform may
