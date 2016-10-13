@@ -73,3 +73,16 @@ LOCAL_CFLAGS += \
     -DCHRE_MESSAGE_TO_HOST_MAX_SIZE=128 \
     -DCHRE_NO_DOUBLE_SUPPORT \
 
+# DEBUG/RELEASE-specific
+DEBUG ?= -DDEBUG
+RELEASE ?=
+
+ifneq (,$(filter userdebug eng, $(TARGET_BUILD_VARIANT)))
+LOCAL_CFLAGS += \
+    $(DEBUG) \
+
+else
+LOCAL_CFLAGS += \
+    $(RELEASE) \
+
+endif
