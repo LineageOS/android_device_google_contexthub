@@ -44,7 +44,15 @@ COMMON_CFLAGS := -Wall -Werror -Wextra
 include $(CLEAR_VARS)
 
 ifeq ($(NANOHUB_SENSORHAL_NAME_OVERRIDE),)
+ifeq ($(TARGET_DEVICE),angler_treble)
+LOCAL_MODULE := sensors.angler
+else
+ifeq ($(TARGET_DEVICE),bullhead_treble)
+LOCAL_MODULE := sensors.bullhead
+else
 LOCAL_MODULE := sensors.$(TARGET_DEVICE)
+endif
+endif
 else
 LOCAL_MODULE := $(NANOHUB_SENSORHAL_NAME_OVERRIDE)
 endif
