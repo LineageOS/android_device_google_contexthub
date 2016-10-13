@@ -73,6 +73,7 @@ extern "C" {
 
 #define SENS_TYPE_DOUBLE_TOUCH    52
 #define SENS_TYPE_GAZE            53
+#define SENS_TYPE_UNGAZE          54
 
 #define SENS_TYPE_FIRST_USER      64 // event type necessarily begins with UserSensorEventHdr
 #define SENS_TYPE_LAST_USER       128
