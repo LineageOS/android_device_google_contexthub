@@ -18,82 +18,145 @@
 #include <printf.h>
 #include <cpu/cpuMath.h>
 
+#define FLAG_ALT            (1 << 0)
+#define FLAG_ZERO_EXTEND    (1 << 1)
+#define FLAG_IS_SIGNED      (1 << 2)
+#define FLAG_NEG_PAD        (1 << 3)
+#define FLAG_CAPS           (1 << 4)
 
-static uint32_t StrPrvPrintfEx_number(printf_write_c putc_, void* userData, uint64_t number, bool base10, bool zeroExtend, bool isSigned, uint32_t padToLength, bool caps, bool* bail)
+struct PrintfData
+{
+    uint64_t    number;
+    void       *userData;
+    uint32_t    fieldWidth;
+    uint32_t    precision;
+    uint32_t    flags;
+    uint8_t     posChar;
+    uint8_t     base;
+};
+
+static uint32_t StrPrvPrintfEx_number(printf_write_c putc_, struct PrintfData *data, bool *bail)
 {
     char buf[64];
     uint32_t idx = sizeof(buf) - 1;
     uint32_t chr, i;
-    bool neg = false;
     uint32_t numPrinted = 0;
 
     *bail = false;
 
-    if (padToLength > sizeof(buf) - 1)
-        padToLength = sizeof(buf) - 1;
+#ifdef USE_PRINTF_FLAG_CHARS
+    if (data->fieldWidth > sizeof(buf) - 1)
+        data->fieldWidth = sizeof(buf) - 1;
+
+    if (data->precision > sizeof(buf) - 1)
+        data->precision = sizeof(buf) - 1;
+#endif
 
     buf[idx--] = 0;    //terminate
 
-    if (isSigned) {
+    if (data->flags & FLAG_IS_SIGNED) {
 
-        if (((int64_t)number) < 0) {
+        if (((int64_t)data->number) < 0) {
 
-            neg = true;
-            number = -number;
+            data->posChar = '-';
+            data->number = -data->number;
         }
     }
 
-    do{
-        if (base10) {
-            uint64_t t = U64_DIV_BY_CONST_U16(number, 10);
-            chr = (number - t * 10) + '0';
-            number = t;
+    do {
+        if (data->base == 8) {
+
+            chr = (data->number & 0x07) + '0';
+            data->number >>= 3;
+        }
+        else if (data->base == 10) {
+
+            uint64_t t = U64_DIV_BY_CONST_U16(data->number, 10);
+            chr = (data->number - t * 10) + '0';
+            data->number = t;
         }
         else {
-            chr = number & 0x0F;
-            number >>= 4;
-            chr = (chr >= 10) ? (chr + (caps ? 'A' : 'a') - 10) : (chr + '0');
+
+            chr = data->number & 0x0F;
+            data->number >>= 4;
+            chr = (chr >= 10) ? (chr + (data->flags & FLAG_CAPS ? 'A' : 'a') - 10) : (chr + '0');
         }
 
         buf[idx--] = chr;
 
         numPrinted++;
 
-    } while (number);
+    } while (data->number);
 
-    if (neg) {
+#ifdef USE_PRINTF_FLAG_CHARS
+    while (data->precision > numPrinted) {
 
-        buf[idx--] = '-';
+        buf[idx--] = '0';
         numPrinted++;
     }
 
-    if (padToLength > numPrinted) {
+    if (data->flags & FLAG_ALT) {
 
-        padToLength -= numPrinted;
+        if (data->base == 8) {
+
+            if (buf[idx+1] != '0') {
+                buf[idx--] = '0';
+                numPrinted++;
+            }
+        }
+        else if (data->base == 16) {
+
+            buf[idx--] = data->flags & FLAG_CAPS ? 'X' : 'x';
+            numPrinted++;
+            buf[idx--] = '0';
+            numPrinted++;
+        }
     }
-    else {
 
-        padToLength = 0;
+
+    if (!(data->flags & FLAG_NEG_PAD)) {
+
+        if (data->fieldWidth > 0 && data->posChar != '\0')
+            data->fieldWidth--;
+
+        while (data->fieldWidth > numPrinted) {
+
+            buf[idx--] = data->flags & FLAG_ZERO_EXTEND ? '0' : ' ';
+            numPrinted++;
+        }
     }
+#endif
 
-    while (padToLength--) {
+    if (data->posChar != '\0') {
 
-        buf[idx--] = zeroExtend ? '0' : ' ';
+        buf[idx--] = data->posChar;
         numPrinted++;
     }
 
     idx++;
 
-
     for(i = 0; i < numPrinted; i++) {
 
-        if (!putc_(userData,(buf + idx)[i])) {
+        if (!putc_(data->userData,(buf + idx)[i])) {
 
             *bail = true;
             break;
         }
     }
 
+#ifdef USE_PRINTF_FLAG_CHARS
+    if (!*bail && data->flags & FLAG_NEG_PAD) {
+
+        for(i = numPrinted; i < data->fieldWidth; i++) {
+
+            if (!putc_(data->userData, ' ')) {
+
+                *bail = true;
+                break;
+            }
+        }
+    }
+#endif
 
     return i;
 }
@@ -127,7 +190,11 @@ uint32_t cvprintf(printf_write_c putc_f, void* userData, const char* fmtStr, va_
 
     char c, t;
     uint32_t numPrinted = 0;
-    uint64_t val64;
+    double dbl;
+    long double ldbl;
+    struct PrintfData data;
+
+    data.userData = userData;
 
 #define putc_(_ud,_c)                \
         do {                 \
@@ -143,10 +210,15 @@ uint32_t cvprintf(printf_write_c putc_f, void* userData, const char* fmtStr, va_
             numPrinted++;
         }
         else if (c == '%') {
-
-            bool zeroExtend = false, useLong = false, useLongLong = false, useSizeT = false, bail = false, caps = false;
-            uint32_t padToLength = 0, len, i;
+            uint32_t len, i;
             const char* str;
+            bool useChar = false, useShort = false, useLong = false, useLongLong = false, useLongDouble =false, useSizeT = false, usePtrdiffT = false;
+            bool havePrecision = false, bail = false;
+
+            data.fieldWidth = 0;
+            data.precision = 0;
+            data.flags = 0;
+            data.posChar = 0;
 
 more_fmt:
 
@@ -171,30 +243,47 @@ more_fmt:
 
                     str = va_arg(vl,char*);
                     if (!str) str = "(null)";
-                    if (padToLength)
-                        len = StrVPrintf_StrLen_withMax(str,padToLength);
+
+                    if (data.precision)
+                        len = StrVPrintf_StrLen_withMax(str,data.precision);
                     else
-                        padToLength = len = StrVPrintf_StrLen(str);
+                        len = StrVPrintf_StrLen(str);
 
-                    if (len > padToLength)
-                        len = padToLength;
-                    else {
-                        for(i = len; i < padToLength; i++)
+#ifdef USE_PRINTF_FLAG_CHARS
+                    if (!(data.flags & FLAG_NEG_PAD)) {
+                        for(i = len; i < data.fieldWidth; i++) {
                             putc_(userData, ' ');
+                            numPrinted++;
+                        }
                     }
-                    numPrinted += padToLength;
-                    for(i = 0; i < len; i++)
-                        putc_(userData,*str++);
+#endif
 
-                    numPrinted += len;
+                    for(i = 0; i < len; i++) {
+                        putc_(userData,*str++);
+                        numPrinted++;
+                    }
+
+#ifdef USE_PRINTF_FLAG_CHARS
+                    if (data.flags & FLAG_NEG_PAD) {
+                        for(i = len; i < data.fieldWidth; i++) {
+                            putc_(userData, ' ');
+                            numPrinted++;
+                        }
+                    }
+#endif
+
                     break;
 
-                case '0':
                 case '.':
 
-                    if (!zeroExtend && !padToLength) {
+                    havePrecision = true;
+                    goto more_fmt;
 
-                        zeroExtend = true;
+                case '0':
+
+                    if (!(data.flags & FLAG_ZERO_EXTEND) && !data.fieldWidth && !havePrecision) {
+
+                        data.flags |= FLAG_ZERO_EXTEND;
                         goto more_fmt;
                     }
 
@@ -208,25 +297,57 @@ more_fmt:
                 case '8':
                 case '9':
 
-                    padToLength = (padToLength * 10) + c - '0';
+                    if (havePrecision)
+                        data.precision = (data.precision * 10) + c - '0';
+                    else
+                        data.fieldWidth = (data.fieldWidth * 10) + c - '0';
+                    goto more_fmt;
+
+                case '#':
+
+                    data.flags |= FLAG_ALT;
+                    goto more_fmt;
+
+                case '-':
+
+                    data.flags |= FLAG_NEG_PAD;
+                    goto more_fmt;
+
+                case '+':
+
+                    data.posChar = '+';
+                    goto more_fmt;
+
+                case ' ':
+
+                    if (data.posChar != '+')
+                        data.posChar = ' ';
                     goto more_fmt;
 
 #define GET_UVAL64() \
         useSizeT ? va_arg(vl, size_t) :                 \
+        usePtrdiffT ? va_arg(vl, ptrdiff_t) :           \
         useLongLong ? va_arg(vl, unsigned long long) :  \
         useLong ? va_arg(vl, unsigned long) :           \
+        useChar ? (unsigned char)va_arg(vl, unsigned int) : \
+        useShort ? (unsigned short)va_arg(vl, unsigned int) : \
         va_arg(vl, unsigned int)
 
 #define GET_SVAL64() \
         useSizeT ? va_arg(vl, size_t) :                 \
+        usePtrdiffT ? va_arg(vl, ptrdiff_t) :           \
         useLongLong ? va_arg(vl, signed long long) :    \
         useLong ? va_arg(vl, signed long) :             \
+        useChar ? (signed char)va_arg(vl, signed int) : \
+        useShort ? (signed short)va_arg(vl, signed int) : \
         va_arg(vl, signed int)
 
                 case 'u':
 
-                    val64 = GET_UVAL64();
-                    numPrinted += StrPrvPrintfEx_number(putc_f, userData, val64, true, zeroExtend,0,padToLength,0,&bail);
+                    data.number = GET_UVAL64();
+                    data.base = 10;
+                    data.flags &= ~(FLAG_ALT | FLAG_CAPS);
+                    numPrinted += StrPrvPrintfEx_number(putc_f, &data, &bail);
                     if (bail)
                         goto out;
                     break;
@@ -234,29 +355,48 @@ more_fmt:
                 case 'd':
                 case 'i':
 
-                    val64 = GET_SVAL64();
-                    numPrinted += StrPrvPrintfEx_number(putc_f, userData, val64, true, zeroExtend, true, padToLength, false, &bail);
+                    data.number = GET_SVAL64();
+                    data.base = 10;
+                    data.flags &= ~(FLAG_ALT | FLAG_CAPS);
+                    data.flags |= FLAG_IS_SIGNED;
+                    numPrinted += StrPrvPrintfEx_number(putc_f, &data, &bail);
+                    if (bail)
+                        goto out;
+                    break;
+
+                case 'o':
+
+                    data.number = GET_UVAL64();
+                    data.base = 8;
+                    data.flags &= ~FLAG_CAPS;
+                    data.posChar = '\0';
+                    numPrinted += StrPrvPrintfEx_number(putc_f, &data, &bail);
                     if (bail)
                         goto out;
                     break;
 
                 case 'X':
-                    caps = true;
+
+                    data.flags |= FLAG_CAPS;
 
                 case 'x':
 
-                    val64 = GET_UVAL64();
-                    numPrinted += StrPrvPrintfEx_number(putc_f, userData, val64, false, zeroExtend, false, padToLength, caps, &bail);
+                    data.number = GET_UVAL64();
+                    data.base = 16;
+                    data.posChar = '\0';
+                    numPrinted += StrPrvPrintfEx_number(putc_f, &data, &bail);
                     if (bail)
                         goto out;
                     break;
 
                 case 'p':
-                    putc_(userData,'0');
-                    putc_(userData,'x');
-                    numPrinted += 2;
-                    val64 = (uintptr_t)va_arg(vl, const void*);
-                    numPrinted += StrPrvPrintfEx_number(putc_f, userData, val64, false, zeroExtend, false, padToLength, caps, &bail);
+
+                    data.number = (uintptr_t)va_arg(vl, const void*);
+                    data.base = 16;
+                    data.flags &= ~FLAG_CAPS;
+                    data.flags |= FLAG_ALT;
+                    data.posChar = '\0';
+                    numPrinted += StrPrvPrintfEx_number(putc_f, &data, &bail);
                     if (bail)
                         goto out;
                     break;
@@ -264,23 +404,52 @@ more_fmt:
 #undef GET_UVAL64
 #undef GET_SVAL64
 
+                case 'f':
+                case 'g':
+
+                    if (useLongDouble) {
+                        ldbl = va_arg(vl, long double);
+                        data.number = *(uint64_t *)(&ldbl);
+                    } else {
+                        dbl = va_arg(vl, double);
+                        data.number = *(uint32_t *)(&dbl);
+                    }
+                    data.base = 16;
+                    data.flags &= ~FLAG_CAPS;
+                    data.flags |= FLAG_ALT;
+                    data.posChar = '\0';
+                    numPrinted += StrPrvPrintfEx_number(putc_f, &data, &bail);
+                    if (bail)
+                        goto out;
+                    break;
+
                 case 'h':
-                    // Technically, we're supposed to cast down to short/char, so that
-                    // { int x = 256; printf("%hhd", x); } would yield "0" (assuming 32-bit int
-                    // and 8-bit char). But the more common usage would be to expect the caller
-                    // to do printf("%hhd", (char) x) to get this output, which we're assuming
-                    // here to make our implementation simpler.
+
+                    if (useShort)
+                        useChar = true;
+                    useShort = true;
                     goto more_fmt;
 
                 case 'L':
+
+                    useLongDouble = true;
+                    goto more_fmt;
+
                 case 'l':
+
                     if (useLong)
                         useLongLong = true;
                     useLong = true;
                     goto more_fmt;
 
                 case 'z':
+
                     useSizeT = true;
+                    goto more_fmt;
+
+                case 't':
+
+                    usePtrdiffT = true;
                     goto more_fmt;
 
                 default:
