@@ -218,6 +218,8 @@ HubConnection::HubConnection()
     mSensorState[COMMS_SENSOR_ACTIVITY_TILTING].rate = SENSOR_RATE_ONCHANGE;
     mSensorState[COMMS_SENSOR_GAZE].sensorType = SENS_TYPE_GAZE;
     mSensorState[COMMS_SENSOR_GAZE].rate = SENSOR_RATE_ONESHOT;
+    mSensorState[COMMS_SENSOR_UNGAZE].sensorType = SENS_TYPE_UNGAZE;
+    mSensorState[COMMS_SENSOR_UNGAZE].rate = SENSOR_RATE_ONESHOT;
 
 #ifdef LID_STATE_REPORTING_ENABLED
     initializeUinputNode();
@@ -503,6 +505,7 @@ void HubConnection::processSample(uint64_t timestamp, uint32_t type, uint32_t se
         initEv(&nev[cnt++], timestamp, type, sensor)->data[0] = 1.0f;
         break;
     case COMMS_SENSOR_GAZE:
+    case COMMS_SENSOR_UNGAZE:
     case COMMS_SENSOR_GESTURE:
     case COMMS_SENSOR_SYNC:
     case COMMS_SENSOR_DOUBLE_TOUCH:
@@ -1000,6 +1003,11 @@ ssize_t HubConnection::processBuf(uint8_t *buf, ssize_t len)
         case SENS_TYPE_TO_EVENT(SENS_TYPE_GAZE):
             type = SENSOR_TYPE_GAZE;
             sensor = COMMS_SENSOR_GAZE;
+            one = true;
+            break;
+        case SENS_TYPE_TO_EVENT(SENS_TYPE_UNGAZE):
+            type = SENSOR_TYPE_UNGAZE;
+            sensor = COMMS_SENSOR_UNGAZE;
             one = true;
             break;
         case EVT_RESET_REASON:
