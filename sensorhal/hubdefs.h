@@ -81,6 +81,7 @@ enum comms_sensor_t {
     COMMS_SENSOR_ACCEL_BIAS                  = 43,
     COMMS_SENSOR_DOUBLE_TOUCH                = 44,
     COMMS_SENSOR_GAZE                        = 45,
+    COMMS_SENSOR_UNGAZE                      = 46,
 
     NUM_COMMS_SENSORS_PLUS_1,
 
@@ -113,6 +114,7 @@ enum {
     SENSOR_TYPE_DOUBLE_TAP              = SENSOR_TYPE_DEVICE_PRIVATE_BASE + 3,
     SENSOR_TYPE_DOUBLE_TOUCH            = SENSOR_TYPE_DEVICE_PRIVATE_BASE + 4,
     SENSOR_TYPE_GAZE                    = SENSOR_TYPE_DEVICE_PRIVATE_BASE + 5,
+    SENSOR_TYPE_UNGAZE                  = SENSOR_TYPE_DEVICE_PRIVATE_BASE + 6,
 };
 
 }  // namespace android
