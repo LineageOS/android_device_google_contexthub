@@ -47,6 +47,7 @@ LOCAL_SRC_FILES := \
 
 LOCAL_C_INCLUDES := \
     $(NANOHUB_OS_PATH)/external/freebsd/inc \
+    $(NANOHUB_OS_PATH)/os/algos \
 
 LOCAL_EXPORT_C_INCLUDE_DIRS := $(LOCAL_C_INCLUDES)
 
