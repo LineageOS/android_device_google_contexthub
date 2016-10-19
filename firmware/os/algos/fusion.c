@@ -17,7 +17,6 @@
 // adapted from frameworks/native/services/sensorservice/Fusion.cpp
 
 #include <algos/fusion.h>
-#include <algos/mat.h>
 
 #include <errno.h>
 #include <nanohub_math.h>

@@ -49,9 +49,10 @@ include $(MAKE_PLAT)
 include $(MAKE_CPU)
 include $(MAKE_VAR)
 
+FLAGS += -Ios/algos
+FLAGS += -Ios/cpu/$(CPU)/inc
 FLAGS += -Ios/inc
 FLAGS += -Ios/platform/$(PLATFORM)/inc
-FLAGS += -Ios/cpu/$(CPU)/inc
 FLAGS += -I$(VARIANT_PATH)/inc
 FLAGS += -Iexternal/freebsd/inc
 FLAGS += -I../lib/include

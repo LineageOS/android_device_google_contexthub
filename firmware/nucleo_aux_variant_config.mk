@@ -56,12 +56,12 @@ NANO_VARIANT_C_INCLUDES_$(my_variant) := \
 
 # this is relative to NANOHUB_OS_PATH
 NANO_VARIANT_OSCFG_SRC_FILES_$(my_variant) :=           \
+    os/algos/calibration/magnetometer/mag_cal.c         \
+    os/algos/common/math/mat.c                          \
+    os/algos/common/math/quat.c                         \
+    os/algos/common/math/vec.c                          \
     os/algos/fusion.c                                   \
-    os/algos/mag_cal.c                                  \
-    os/algos/mat.c                                      \
-    os/algos/quat.c                                     \
     os/algos/time_sync.c                                \
-    os/algos/vec.c                                      \
     os/drivers/ams_tmd2772/ams_tmd2772.c                \
     os/drivers/bosch_bmi160/bosch_bmi160.c              \
     os/drivers/bosch_bmi160/bosch_bmm150_slave.c        \

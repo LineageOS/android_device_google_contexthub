@@ -37,16 +37,16 @@
 #include <variant/variant.h>
 
 #ifdef MAG_SLAVE_PRESENT
-#include <algos/mag_cal.h>
+#include <calibration/magnetometer/mag_cal.h>
 #endif
 
 #ifdef ACCEL_CAL_ENABLED
-#include <algos/accel_cal.h>
+#include <calibration/accelerometer/accel_cal.h>
 #endif
 
 #ifdef GYRO_CAL_ENABLED
 // Gyro Cal -- Header.
-#include <algos/gyro_cal.h>
+#include <calibration/gyroscope/gyro_cal.h>
 #endif
 
 #include <limits.h>
@@ -401,7 +401,7 @@ struct BMI160Task {
 
 #ifdef GYRO_CAL_ENABLED
     // Gyro Cal -- Declaration.
-    struct gyroCal_t gyro_cal;
+    struct GyroCal gyro_cal;
   #ifdef GYRO_CAL_DBG_ENABLED
     // Gyro Cal -- Read out Debug data.
     int gyro_debug_state;
@@ -427,7 +427,7 @@ struct BMI160Task {
     struct ChainedIsr Isr1;
     struct ChainedIsr Isr2;
 #ifdef ACCEL_CAL_ENABLED
-    struct accelCal_t acc;
+    struct AccelCal acc;
 #endif
 #ifdef MAG_SLAVE_PRESENT
     struct MagCal moc;
@@ -3598,7 +3598,7 @@ static void endTask(void)
 {
     TDECL();
 #ifdef MAG_SLAVE_PRESENT
-    destroy_mag_cal(&mTask.moc);
+    magCalDestroy(&mTask.moc);
 #endif
 #ifdef ACCEL_CAL_ENABLED
     accelCalDestroy(&mTask.acc);

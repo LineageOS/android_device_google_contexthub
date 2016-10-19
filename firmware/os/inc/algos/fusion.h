@@ -18,9 +18,9 @@
 
 #define FUSION_H_
 
-#include "vec.h"
-#include "mat.h"
-#include "quat.h"
+#include <common/math/vec.h>
+#include <common/math/mat.h>
+#include <common/math/quat.h>
 
 #include <stdbool.h>
 #include <stdint.h>
