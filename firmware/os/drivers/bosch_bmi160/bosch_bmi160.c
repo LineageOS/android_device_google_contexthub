@@ -1496,8 +1496,10 @@ static bool accSetRate(uint32_t rate, uint64_t latency, void *cookie)
     TDECL();
     int odr, osr = 0;
 
-    INFO_PRINT("accSetRate: rate=%ld, latency=%lld, state=%" PRI_STATE "\n", rate, latency,
-            getStateName(GET_STATE()));
+    // change this to DEBUG_PRINT as there will be frequent (un)subscribings
+    // to accel with different rate/latency requirements.
+    DEBUG_PRINT("accSetRate: rate=%ld, latency=%lld, state=%" PRI_STATE "\n",
+                rate, latency, getStateName(GET_STATE()));
 
     if (trySwitchState(SENSOR_CONFIG_CHANGING)) {
         odr = computeOdr(rate);
@@ -1555,8 +1557,8 @@ static bool gyrSetRate(uint32_t rate, uint64_t latency, void *cookie)
 {
     TDECL();
     int odr, osr = 0;
-    INFO_PRINT("gyrSetRate: rate=%ld, latency=%lld, state=%" PRI_STATE "\n", rate, latency,
-            getStateName(GET_STATE()));
+    INFO_PRINT("gyrSetRate: rate=%ld, latency=%lld, state=%" PRI_STATE "\n",
+               rate, latency, getStateName(GET_STATE()));
 
     if (trySwitchState(SENSOR_CONFIG_CHANGING)) {
         odr = computeOdr(rate);
@@ -1616,8 +1618,8 @@ static bool magSetRate(uint32_t rate, uint64_t latency, void *cookie)
     if (rate == SENSOR_RATE_ONCHANGE)
         rate = SENSOR_HZ(100);
 
-    INFO_PRINT("magSetRate: rate=%ld, latency=%lld, state=%" PRI_STATE "\n", rate, latency,
-            getStateName(GET_STATE()));
+    INFO_PRINT("magSetRate: rate=%ld, latency=%lld, state=%" PRI_STATE "\n",
+               rate, latency, getStateName(GET_STATE()));
 
     if (trySwitchState(SENSOR_CONFIG_CHANGING)) {
         mTask.sensors[MAG].rate = rate;
