@@ -282,8 +282,8 @@ static bool allocateDataEvt(struct FusionSensor *mSensor, uint64_t time)
 {
     mSensor->ev = slabAllocatorAlloc(mDataSlab);
     if (mSensor->ev == NULL) {
-        // slab allocation failed
-        osLog(LOG_ERROR, "ORIENTATION: slabAllocatorAlloc() Failed\n");
+        // slab allocation failed, need to stop draining raw samples for now.
+        osLog(LOG_INFO, "ORIENTATION: slabAllocatorAlloc() Failed\n");
         return false;
     }
 
@@ -295,18 +295,27 @@ static bool allocateDataEvt(struct FusionSensor *mSensor, uint64_t time)
     return true;
 }
 
-static void addSample(struct FusionSensor *mSensor, uint64_t time, float x, float y, float z)
+// returns false if addSample() fails
+static bool addSample(struct FusionSensor *mSensor, uint64_t time, float x, float y, float z)
 {
     struct TripleAxisDataPoint *sample;
 
+    // Bypass processing this accel sample.
+    // This is needed after recovering from a slab shortage.
+    if (mSensor->prev_time == time) {
+        osLog(LOG_INFO, "Accel sample has been processed by fusion sensor %d\n",
+              mSensor->idx);
+        return true;
+    }
+
     if (mSensor->ev == NULL) {
         if (!allocateDataEvt(mSensor, time))
-            return;
+            return false;
     }
 
     if (mSensor->ev->samples[0].firstSample.numSamples >= MAX_NUM_COMMS_EVENT_SAMPLES) {
         osLog(LOG_ERROR, "ORIENTATION: BAD_INDEX\n");
-        return;
+        return false;
     }
 
     sample = &mSensor->ev->samples[mSensor->ev->samples[0].firstSample.numSamples++];
@@ -326,24 +335,30 @@ static void addSample(struct FusionSensor *mSensor, uint64_t time, float x, floa
                 mSensor->ev, dataEvtFree);
         mSensor->ev = NULL;
     }
+    return true;
 }
 
-static void updateOutput(ssize_t last_accel_sample_index, uint64_t last_sensor_time)
+// returns false if addSample fails for any fusion sensor
+// (most likely due to slab allocation failure)
+static bool updateOutput(ssize_t last_accel_sample_index, uint64_t last_sensor_time)
 {
     struct Vec4 attitude;
     struct Vec3 g, a;
     struct Mat33 R;  // direction-cosine/rotation matrix, inertial -> device
     bool   rInited;  // indicates if matrix R has been initialzed. for avoiding repeated computation
+    bool ret = true;
 
     if (fusionHasEstimate(&mTask.game)) {
         rInited = false;
         if (mTask.sensors[GAME].active) {
             fusionGetAttitude(&mTask.game, &attitude);
-            addSample(&mTask.sensors[GAME],
+            if (!addSample(&mTask.sensors[GAME],
                     last_sensor_time,
                     attitude.x,
                     attitude.y,
-                    attitude.z);
+                    attitude.z)) {
+                ret = false;
+            }
         }
 
         if (mTask.sensors[GRAVITY].active) {
@@ -351,9 +366,13 @@ static void updateOutput(ssize_t last_accel_sample_index, uint64_t last_sensor_t
             rInited = true;
             initVec3(&g, R.elem[0][2], R.elem[1][2], R.elem[2][2]);
             vec3ScalarMul(&g, kGravityEarth);
-            addSample(&mTask.sensors[GRAVITY],
+            if (!addSample(&mTask.sensors[GRAVITY],
                     last_sensor_time,
-                    g.x, g.y, g.z);
+                    g.x,
+                    g.y,
+                    g.z)) {
+                ret = false;
+            }
         }
 
         if (last_accel_sample_index >= 0
@@ -368,11 +387,13 @@ static void updateOutput(ssize_t last_accel_sample_index, uint64_t last_sensor_t
                     mTask.samples[0][last_accel_sample_index].y,
                     mTask.samples[0][last_accel_sample_index].z);
 
-            addSample(&mTask.sensors[LINEAR],
+            if (!addSample(&mTask.sensors[LINEAR],
                     mTask.samples[0][last_accel_sample_index].time,
                     a.x - g.x,
                     a.y - g.y,
-                    a.z - g.z);
+                    a.z - g.z)) {
+                ret = false;
+            }
         }
     }
 
@@ -390,38 +411,49 @@ static void updateOutput(ssize_t last_accel_sample_index, uint64_t last_sensor_t
                 x += 360.0f;
             }
 
-            addSample(&mTask.sensors[ORIENT],
-                    last_sensor_time, x, y, z);
+            if (!addSample(&mTask.sensors[ORIENT],
+                    last_sensor_time,
+                    x,
+                    y,
+                    z)) {
+                ret = false;
+            }
         }
 
         if (mTask.sensors[GEOMAG].active) {
-            addSample(&mTask.sensors[GEOMAG],
+            if (!addSample(&mTask.sensors[GEOMAG],
                     last_sensor_time,
                     attitude.x,
                     attitude.y,
-                    attitude.z);
+                    attitude.z)) {
+                ret = false;
+            }
         }
 
         if (mTask.sensors[ROTAT].active) {
-            addSample(&mTask.sensors[ROTAT],
+            if (!addSample(&mTask.sensors[ROTAT],
                     last_sensor_time,
                     attitude.x,
                     attitude.y,
-                    attitude.z);
+                    attitude.z)) {
+                ret = false;
+            }
         }
 
     }
+    return ret;
 }
 
 static void drainSamples()
 {
+    struct Vec3 a, w, m;
+    uint64_t a_time, g_time, m_time;
     size_t i = mTask.sample_indices[ACC];
     size_t j = 0;
     size_t k = 0;
     size_t which;
-    struct Vec3 a, w, m;
     float dT;
-    uint64_t a_time, g_time, m_time;
+    bool success = true;
 
     if (mTask.gyro_client_cnt > 0)
         j = mTask.sample_indices[GYR];
@@ -429,9 +461,14 @@ static void drainSamples()
     if (mTask.mag_client_cnt > 0)
         k = mTask.sample_indices[MAG];
 
+    // Keep draining raw samples and producing fusion samples only if
+    // 1) all raw sensors needed are present (to compare timestamp) and
+    // 2) updateOutput() succeeded (no slab shortage)
+    // Otherwise, wait till next raw sample event.
     while (mTask.sample_counts[ACC] > 0
             && (!(mTask.gyro_client_cnt > 0) || mTask.sample_counts[GYR] > 0)
-            && (!(mTask.mag_client_cnt > 0) || mTask.sample_counts[MAG] > 0)) {
+            && (!(mTask.mag_client_cnt > 0) || mTask.sample_counts[MAG] > 0)
+            && success) {
         a_time = mTask.samples[ACC][i].time;
         g_time = mTask.gyro_client_cnt > 0 ? mTask.samples[GYR][j].time
                             : ULONG_LONG_MAX;
@@ -458,11 +495,18 @@ static void drainSamples()
             if (mTask.flags & FUSION_FLAG_GAME_ENABLED)
                 fusionHandleAcc(&mTask.game, &a, dT);
 
-            updateOutput(i, mTask.samples[ACC][i].time);
+            success = updateOutput(i, mTask.samples[ACC][i].time);
 
-            --mTask.sample_counts[ACC];
-            if (++i == MAX_NUM_SAMPLES)
-                i = 0;
+            // Do not remove the accel sample until all active fusion sesnsors
+            // successfully updated the output.
+            // Fusion sensors that have processed this accel sample will bypass
+            // it in addSample().
+            if (success) {
+                --mTask.sample_counts[ACC];
+                if (++i == MAX_NUM_SAMPLES) {
+                    i = 0;
+                }
+            }
             break;
         case GYR:
             initVec3(&w, mTask.samples[GYR][j].x, mTask.samples[GYR][j].y, mTask.samples[GYR][j].z);
