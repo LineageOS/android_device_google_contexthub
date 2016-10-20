@@ -112,20 +112,20 @@ static void cpuDbxDump(struct RamPersistedDataAndDropbox *dbx)
 
     if (dbx) {
         for (i = 0; i < 8; i++)
-            osLog(LOG_INFO, "  R%02lu  = 0x%08lX  R%02lu  = 0x%08lX\n",
+            osLog(LOG_ERROR, "  R%02lu  = 0x%08lX  R%02lu  = 0x%08lX\n",
                   i, dbx->r[i], i + 8, dbx->r[i+8]);
 
         cpuUnpackSrBits(dbx->sr_hfsr_cfsr_lo, dbx->magic & HARD_FAULT_DROPBOX_MAGIC_DATA_MASK, &sr, &hfsr, &cfsr);
 
-        osLog(LOG_INFO, "  xPSR = 0x%08lX  HFSR = 0x%08lX\n", sr, hfsr);
-        osLog(LOG_INFO, "  CFSR = 0x%08lX  BITS = 0x%08lX\n", cfsr, dbx->bits);
+        osLog(LOG_ERROR, "  xPSR = 0x%08lX  HFSR = 0x%08lX\n", sr, hfsr);
+        osLog(LOG_ERROR, "  CFSR = 0x%08lX  BITS = 0x%08lX\n", cfsr, dbx->bits);
         // reboot source (if known), reported as TRIG
         // so far we have 2 reboot sources reported here:
         // 1 - HARD FAULT
         // 2 - WDT
         code = dbx->trig;
         trigName = trigNames[code < ARRAY_SIZE(trigNames) ? code : 0];
-        osLog(LOG_INFO, "  TID  = 0x%04" PRIX16 "  TRIG = 0x%04" PRIX16 " [%s]\n", dbx->tid, dbx->trig, trigName);
+        osLog(LOG_ERROR, "  TID  = 0x%04" PRIX16 "  TRIG = 0x%04" PRIX16 " [%s]\n", dbx->tid, dbx->trig, trigName);
     }
 }
 
@@ -134,13 +134,16 @@ void cpuInitLate(void)
     struct RamPersistedDataAndDropbox *dbx = getInitedPersistedData();
     uint32_t reason = pwrResetReason();
     const char *reasonDesc = "";
+    enum LogLevel level = LOG_INFO;
 
     // if we detected WDT reboot reason, we are likely not having data in dropbox
     // All we can do is report that WDT reset happened
-    if ((reason & (RESET_WINDOW_WATCHDOG|RESET_INDEPENDENT_WATCHDOG)) != 0)
+    if ((reason & (RESET_WINDOW_WATCHDOG|RESET_INDEPENDENT_WATCHDOG)) != 0) {
         reasonDesc = "; HW WDT RESET";
+        level = LOG_ERROR;
+    }
 
-    osLog(LOG_INFO, "Reboot reason: 0x%08" PRIX32 "%s\n", reason, reasonDesc);
+    osLog(level, "Reboot reason: 0x%08" PRIX32 "%s\n", reason, reasonDesc);
 
     /* print and clear dropbox */
     if (dbx->magic & HARD_FAULT_DROPBOX_MAGIC_HAVE_DROP) {
