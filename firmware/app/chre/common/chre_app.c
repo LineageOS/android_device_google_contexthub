@@ -19,8 +19,14 @@
 #include <timer.h>
 #include <toolchain.h>
 #include <crt_priv.h>
+#include <string.h>
 
 #include <chre.h>
+#include <sensors.h>
+#include <syscallDo.h>
+#include <hostIntf.h>
+
+#define SENSOR_TYPE(x)      ((x) & 0xFF)
 
 /*
  * Common CHRE App support code
@@ -36,6 +42,146 @@ static void chreappEnd(void)
 {
     nanoappEnd();
     __crt_exit();
+}
+
+static void initDataHeader(struct chreSensorDataHeader *header, uint64_t timestamp, uint32_t sensorHandle) {
+    header->baseTimestamp = timestamp;
+    header->sensorHandle = sensorHandle;
+    header->readingCount = 1;
+    header->reserved[0] = header->reserved[1] = 0;
+}
+
+static void processTripleAxisData(const struct TripleAxisDataEvent *src, uint32_t sensorHandle, uint8_t sensorType)
+{
+    int i;
+    struct chreSensorThreeAxisData three;
+
+    initDataHeader(&three.header, src->referenceTime, sensorHandle);
+    three.readings[0].timestampDelta = 0;
+
+    for (i=0; i<src->samples[0].firstSample.numSamples; i++) {
+        if (i > 0)
+            three.header.baseTimestamp += src->samples[i].deltaTime;
+        three.readings[0].x = src->samples[i].x;
+        three.readings[0].y = src->samples[i].y;
+        three.readings[0].z = src->samples[i].z;
+
+        nanoappHandleEvent(CHRE_INSTANCE_ID, CHRE_EVENT_SENSOR_DATA_EVENT_BASE | sensorType, &three);
+    }
+}
+
+static void processSingleAxisData(const struct SingleAxisDataEvent *src, uint32_t sensorHandle, uint8_t sensorType)
+{
+    int i;
+
+    switch (sensorType) {
+    case CHRE_SENSOR_TYPE_INSTANT_MOTION_DETECT:
+    case CHRE_SENSOR_TYPE_STATIONARY_DETECT: {
+        struct chreSensorOccurrenceData occ;
+
+        initDataHeader(&occ.header, src->referenceTime, sensorHandle);
+        occ.readings[0].timestampDelta = 0;
+
+        for (i=0; i<src->samples[0].firstSample.numSamples; i++) {
+            if (i > 0)
+                occ.header.baseTimestamp += src->samples[i].deltaTime;
+
+            nanoappHandleEvent(CHRE_INSTANCE_ID, CHRE_EVENT_SENSOR_DATA_EVENT_BASE | sensorType, &occ);
+        }
+        break;
+    }
+    case CHRE_SENSOR_TYPE_LIGHT:
+    case CHRE_SENSOR_TYPE_PRESSURE: {
+        struct chreSensorFloatData flt;
+
+        initDataHeader(&flt.header, src->referenceTime, sensorHandle);
+        flt.readings[0].timestampDelta = 0;
+
+        for (i=0; i<src->samples[0].firstSample.numSamples; i++) {
+            if (i > 0)
+                flt.header.baseTimestamp += src->samples[i].deltaTime;
+            flt.readings[0].value = src->samples[i].fdata;
+
+            nanoappHandleEvent(CHRE_INSTANCE_ID, CHRE_EVENT_SENSOR_DATA_EVENT_BASE | sensorType, &flt);
+        }
+        break;
+    }
+    case CHRE_SENSOR_TYPE_PROXIMITY: {
+        struct chreSensorByteData byte;
+
+        initDataHeader(&byte.header, src->referenceTime, sensorHandle);
+        byte.readings[0].timestampDelta = 0;
+
+        for (i=0; i<src->samples[0].firstSample.numSamples; i++) {
+            if (i > 0)
+                byte.header.baseTimestamp += src->samples[i].deltaTime;
+            byte.readings[0].isNear = src->samples[i].fdata == 0.0f;
+
+            nanoappHandleEvent(CHRE_INSTANCE_ID, CHRE_EVENT_SENSOR_DATA_EVENT_BASE | sensorType, &byte);
+        }
+        break;
+    }
+    }
+}
+
+static void processEmbeddedData(const void *src, uint32_t sensorHandle, uint8_t sensorType)
+{
+    union EmbeddedDataPoint data = (union EmbeddedDataPoint)((void *)src);
+
+    switch (sensorType) {
+    case CHRE_SENSOR_TYPE_INSTANT_MOTION_DETECT:
+    case CHRE_SENSOR_TYPE_STATIONARY_DETECT: {
+        struct chreSensorOccurrenceData occ;
+
+        initDataHeader(&occ.header, eOsSensorGetTime(), sensorHandle);
+        occ.readings[0].timestampDelta = 0;
+
+        nanoappHandleEvent(CHRE_INSTANCE_ID, CHRE_EVENT_SENSOR_DATA_EVENT_BASE | sensorType, &occ);
+        break;
+    }
+    case CHRE_SENSOR_TYPE_LIGHT:
+    case CHRE_SENSOR_TYPE_PRESSURE: {
+        struct chreSensorFloatData flt;
+
+        initDataHeader(&flt.header, eOsSensorGetTime(), sensorHandle);
+        flt.readings[0].timestampDelta = 0;
+        flt.readings[0].value = data.fdata;
+
+        nanoappHandleEvent(CHRE_INSTANCE_ID, CHRE_EVENT_SENSOR_DATA_EVENT_BASE | sensorType, &flt);
+        break;
+    }
+    case CHRE_SENSOR_TYPE_PROXIMITY: {
+        struct chreSensorByteData byte;
+
+        initDataHeader(&byte.header, eOsSensorGetTime(), sensorHandle);
+        byte.readings[0].timestampDelta = 0;
+        byte.readings[0].isNear = data.fdata == 0.0f;
+
+        nanoappHandleEvent(CHRE_INSTANCE_ID, CHRE_EVENT_SENSOR_DATA_EVENT_BASE | sensorType, &byte);
+        break;
+    }
+    }
+}
+
+static void chreappProcessSensorData(uint16_t evt, const void *eventData)
+{
+    const struct SensorInfo *si;
+    uint32_t sensorHandle;
+
+    si = eOsSensorFind(SENSOR_TYPE(evt), 0, &sensorHandle);
+    if (si) {
+        switch (si->numAxis) {
+        case NUM_AXIS_EMBEDDED:
+            processEmbeddedData(eventData, sensorHandle, SENSOR_TYPE(evt));
+            break;
+        case NUM_AXIS_ONE:
+            processSingleAxisData(eventData, sensorHandle, SENSOR_TYPE(evt));
+            break;
+        case NUM_AXIS_THREE:
+            processTripleAxisData(eventData, sensorHandle, SENSOR_TYPE(evt));
+            break;
+        }
+    }
 }
 
 static void chreappHandle(uint32_t eventTypeAndTid, const void *eventData)
@@ -74,6 +220,10 @@ static void chreappHandle(uint32_t eventTypeAndTid, const void *eventData)
         // ignore any other system events; OS may send them to any app
         if (evt < EVT_NO_FIRST_USER_EVENT)
             return;
+        else if (evt > EVT_NO_FIRST_SENSOR_EVENT && evt < EVT_NO_SENSOR_CONFIG_EVENT) {
+            chreappProcessSensorData(evt, data);
+            return;
+        }
     }
     nanoappHandleEvent(srcTid, evt, data);
 }

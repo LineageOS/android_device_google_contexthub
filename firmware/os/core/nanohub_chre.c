@@ -21,6 +21,7 @@
 #include <string.h>
 
 #include <cpu.h>
+#include <cpu/cpuMath.h>
 #include <heap.h>
 #include <sensors.h>
 #include <sensors_priv.h>
@@ -260,10 +261,25 @@ static bool osChreSensorGetSamplingStatus(uint32_t sensorHandle,
     if (!s || !status)
         return false;
 
-    // TODO
-    status->interval = 0;
-    status->latency = 0;
-    status->enabled = 0;
+    if (s->currentRate == SENSOR_RATE_OFF) {
+        status->enabled = 0;
+        status->interval = 0;
+        status->latency = 0;
+    } else {
+        status->enabled = true;
+        if ((s->currentRate == SENSOR_RATE_ONDEMAND ||
+             s->currentRate == SENSOR_RATE_ONCHANGE ||
+             s->currentRate == SENSOR_RATE_ONESHOT))
+            status->interval = CHRE_SENSOR_INTERVAL_DEFAULT;
+        else
+            status->interval = (UINT32_C(1024000000) / s->currentRate) * UINT64_C(1000);
+
+        if (s->currentLatency == SENSOR_LATENCY_NODATA)
+            status->latency = CHRE_SENSOR_INTERVAL_DEFAULT;
+        else
+            status->latency = s->currentLatency;
+    }
+
     return true;
 }
 
@@ -278,9 +294,55 @@ static bool osChreSensorConfigure(uint32_t sensorHandle,
                          enum chreSensorConfigureMode mode,
                          uint64_t interval, uint64_t latency)
 {
-    // TODO
-    osLog(LOG_ERROR, "%s: not implemented\n", __func__);
-    return false;
+    uint32_t rate, interval_us;
+    bool ret;
+    struct Sensor *s = sensorFindByHandle(sensorHandle);
+    if (!s)
+        return false;
+
+    if (mode & CHRE_SENSOR_CONFIGURE_RAW_POWER_ON) {
+        if (interval == CHRE_SENSOR_INTERVAL_DEFAULT) {
+            // use first rate in supported rates list
+            const struct SensorInfo *si = s->si;
+            if (!si)
+                return false;
+
+            if (!si->supportedRates || si->supportedRates[0] == 0)
+                rate = SENSOR_RATE_ONCHANGE;
+            else
+                rate = si->supportedRates[0];
+        } else {
+            interval_us = U64_DIV_BY_CONST_U16(interval, 1000);
+            rate = UINT32_C(1024000000) / interval_us;
+        }
+        if (!rate) // 0 is a reserved value. minimum is 1
+            rate = 1;
+        if (latency == CHRE_SENSOR_LATENCY_DEFAULT)
+            latency = 0ULL;
+        if (s->currentRate == SENSOR_RATE_OFF) {
+            if ((ret = sensorRequest(0, sensorHandle, rate, latency)))
+                ret = osEventSubscribe(0, sensorGetMyEventType(s->si->sensorType));
+            else
+                sensorRelease(0, sensorHandle);
+        } else {
+            ret = sensorRequestRateChange(0, sensorHandle, rate, latency);
+        }
+    } else if (mode & (CHRE_SENSOR_CONFIGURE_RAW_REPORT_CONTINUOUS|CHRE_SENSOR_CONFIGURE_RAW_REPORT_ONE_SHOT)) {
+        // TODO: ONE_SHOT: unsubscribe after receiving a sample
+        if (s->currentRate == SENSOR_RATE_OFF)
+            ret = osEventSubscribe(0, sensorGetMyEventType(s->si->sensorType));
+        else
+            ret = true;
+    } else {
+        if (s->currentRate != SENSOR_RATE_OFF) {
+            if ((ret = sensorRelease(0, sensorHandle)))
+                ret = osEventUnsubscribe(0, sensorGetMyEventType(s->si->sensorType));
+        } else {
+            ret = true;
+        }
+    }
+
+    return ret;
 }
 
 static void osChreApiSensorConfig(uintptr_t *retValP, va_list args)
