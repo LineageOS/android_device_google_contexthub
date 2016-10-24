@@ -37,11 +37,13 @@ MAKE_OUT:=$(OUT)
 endif
 
 ifdef IMAGE_TARGET_OUT
-IMAGE_TARGET_OUT_ELF := $(patsubst %.bin,%.elf,$(IMAGE_TARGET_OUT))
+DIR_TMP := $(dir $(IMAGE_TARGET_OUT))
+IMAGE_TARGET_OUT_ELF := $(DIR_TMP)nanohub.os.$(TARGET_PRODUCT).elf
 endif
 
 ifdef IMAGE_OUT
-IMAGE_OUT_ELF := $(patsubst %.bin,%.elf,$(IMAGE_OUT))
+DIR_TMP := $(dir $(IMAGE_OUT))
+IMAGE_OUT_ELF := $(DIR_TMP)nanohub.os.$(TARGET_PRODUCT).elf
 endif
 
 .PHONY: all clean sync
@@ -58,7 +60,7 @@ ifdef IMAGE_TARGET_OUT
 	cd $(VARIANT_ABSPATH) && \
 	mkdir -p $(dir $(TOP_ABSPATH)/$(IMAGE_TARGET_OUT)) && \
 	cp $(OUT)/full.bin $(TOP_ABSPATH)/$(IMAGE_TARGET_OUT) && \
-	cp $(OUT)/os.unchecked.elf $(TOP_ABSPATH)/$(IMAGE_TARGET_OUT_ELF)
+	cp $(OUT)/os.unchecked.elf $(TOP_ABSPATH)/$(IMAGE_TARGET_OUT_ELF) && \
 	chmod -x $(TOP_ABSPATH)/$(IMAGE_TARGET_OUT_ELF)
 endif
 
