@@ -37,7 +37,7 @@
 
 #define HALL_REPORT_OPENED_VALUE  0
 #define HALL_REPORT_CLOSED_VALUE  1
-#define HALL_DEBOUNCE_TIMER_DELAY 10000000ULL // 10 milliseconds
+#define HALL_DEBOUNCE_TIMER_DELAY 25000000ULL // 25 milliseconds
 
 #ifndef HALL_S_PIN
 #error "HALL_S_PIN is not defined; please define in variant.h"
