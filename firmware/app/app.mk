@@ -237,19 +237,19 @@ $(OUT)/$(BIN).elf : $(OBJS)
 
 $(OUT)/%.o : %.S
 	@mkdir -p $(dir $@)
-	$(AS) $(AS_FLAGS) $(CFLAGS) -c $< -o $@
+	$(AS) $(AS_FLAGS) $(CFLAGS) -DSRC_FILENAME=\"$(notdir $<)\" -c $< -o $@
 
 $(OUT)/%.o : %.c
 	@mkdir -p $(dir $@)
-	$(CC) $(C_CFLAGS) $(CFLAGS) -c $< -o $@
+	$(CC) $(C_CFLAGS) $(CFLAGS) -DSRC_FILENAME=\"$(notdir $<)\" -c $< -o $@
 
 $(OUT)/%.o : %.cc
 	@mkdir -p $(dir $@)
-	$(CXX) $(CXX_CFLAGS) $(CFLAGS) -c $< -o $@
+	$(CXX) $(CXX_CFLAGS) $(CFLAGS) -DSRC_FILENAME=\"$(notdir $<)\" -c $< -o $@
 
 $(OUT)/%.o : %.cpp
 	@mkdir -p $(dir $@)
-	$(CXX) $(CXX_CFLAGS) $(CFLAGS) -c $< -o $@
+	$(CXX) $(CXX_CFLAGS) $(CFLAGS) -DSRC_FILENAME=\"$(notdir $<)\" -c $< -o $@
 
 # Automatic dependency resolution ##############################################
 
