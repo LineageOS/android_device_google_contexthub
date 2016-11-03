@@ -35,9 +35,14 @@
 #include <linux/input.h>
 #include <linux/uinput.h>
 
+#include <cutils/ashmem.h>
 #include <cutils/properties.h>
 #include <hardware_legacy/power.h>
 #include <media/stagefright/foundation/ADebug.h>
+
+#include <algorithm>
+#include <sstream>
+#include <vector>
 
 #define APP_ID_GET_VENDOR(appid)       ((appid) >> 24)
 #define APP_ID_MAKE(vendor, app)       ((((uint64_t)(vendor)) << 24) | ((app) & 0x00FFFFFF))
@@ -237,6 +242,13 @@ HubConnection::HubConnection()
         queueActivate(COMMS_SENSOR_HALL, true /* enable */);
     }
 #endif  // LID_STATE_REPORTING_ENABLED
+
+#ifdef DIRECT_REPORT_ENABLED
+    mDirectChannelHandle = 1;
+    mSensorToChannel.emplace(COMMS_SENSOR_ACCEL, std::unordered_map<int32_t, int32_t>());
+    mSensorToChannel.emplace(COMMS_SENSOR_GYRO, std::unordered_map<int32_t, int32_t>());
+    mSensorToChannel.emplace(COMMS_SENSOR_MAG, std::unordered_map<int32_t, int32_t>());
+#endif // DIRECT_REPORT_ENABLED
 }
 
 HubConnection::~HubConnection()
@@ -557,12 +569,15 @@ void HubConnection::processSample(uint64_t timestamp, uint32_t type, uint32_t se
 
     switch (sensor) {
     case COMMS_SENSOR_ACCEL:
-        if (mSensorState[COMMS_SENSOR_ACCEL].enable) {
-            sv = &initEv(&nev[cnt++], timestamp, type, sensor)->acceleration;
-            sv->x = sample->ix * ACCEL_RAW_KSCALE;
-            sv->y = sample->iy * ACCEL_RAW_KSCALE;
-            sv->z = sample->iz * ACCEL_RAW_KSCALE;
-            sv->status = SENSOR_STATUS_ACCURACY_HIGH;
+        sv = &initEv(&nev[cnt], timestamp, type, sensor)->acceleration;
+        sv->x = sample->ix * ACCEL_RAW_KSCALE;
+        sv->y = sample->iy * ACCEL_RAW_KSCALE;
+        sv->z = sample->iz * ACCEL_RAW_KSCALE;
+        sv->status = SENSOR_STATUS_ACCURACY_HIGH;
+        sendDirectReportEvent(&nev[cnt], 1);
+
+        if (mSensorState[sensor].enable) {
+            ++cnt;
         }
 
         if (mSensorState[COMMS_SENSOR_ACCEL_UNCALIBRATED].enable) {
@@ -600,12 +615,15 @@ void HubConnection::processSample(uint64_t timestamp, uint32_t type, uint32_t se
 
     switch (sensor) {
     case COMMS_SENSOR_ACCEL:
+        sv = &initEv(&nev[cnt], timestamp, type, sensor)->acceleration;
+        sv->x = sample->x;
+        sv->y = sample->y;
+        sv->z = sample->z;
+        sv->status = SENSOR_STATUS_ACCURACY_HIGH;
+        sendDirectReportEvent(&nev[cnt], 1);
+
         if (mSensorState[sensor].enable) {
-            sv = &initEv(&nev[cnt++], timestamp, type, sensor)->acceleration;
-            sv->x = sample->x;
-            sv->y = sample->y;
-            sv->z = sample->z;
-            sv->status = SENSOR_STATUS_ACCURACY_HIGH;
+            ++cnt;
         }
 
         if (mSensorState[COMMS_SENSOR_ACCEL_UNCALIBRATED].enable) {
@@ -621,12 +639,15 @@ void HubConnection::processSample(uint64_t timestamp, uint32_t type, uint32_t se
         }
         break;
     case COMMS_SENSOR_GYRO:
+        sv = &initEv(&nev[cnt], timestamp, type, sensor)->gyro;
+        sv->x = sample->x;
+        sv->y = sample->y;
+        sv->z = sample->z;
+        sv->status = SENSOR_STATUS_ACCURACY_HIGH;
+        sendDirectReportEvent(&nev[cnt], 1);
+
         if (mSensorState[sensor].enable) {
-            sv = &initEv(&nev[cnt++], timestamp, type, sensor)->gyro;
-            sv->x = sample->x;
-            sv->y = sample->y;
-            sv->z = sample->z;
-            sv->status = SENSOR_STATUS_ACCURACY_HIGH;
+            ++cnt;
         }
 
         if (mSensorState[COMMS_SENSOR_GYRO_UNCALIBRATED].enable) {
@@ -656,12 +677,15 @@ void HubConnection::processSample(uint64_t timestamp, uint32_t type, uint32_t se
     case COMMS_SENSOR_MAG:
         magAccuracyUpdate(sample->x, sample->y, sample->z);
 
+        sv = &initEv(&nev[cnt], timestamp, type, sensor)->magnetic;
+        sv->x = sample->x;
+        sv->y = sample->y;
+        sv->z = sample->z;
+        sv->status = mMagAccuracy;
+        sendDirectReportEvent(&nev[cnt], 1);
+
         if (mSensorState[sensor].enable) {
-            sv = &initEv(&nev[cnt++], timestamp, type, sensor)->magnetic;
-            sv->x = sample->x;
-            sv->y = sample->y;
-            sv->z = sample->z;
-            sv->status = mMagAccuracy;
+            ++cnt;
         }
 
         if (mSensorState[COMMS_SENSOR_MAG_UNCALIBRATED].enable) {
@@ -1301,6 +1325,9 @@ void HubConnection::initConfigCmd(struct ConfigCmd *cmd, int handle)
         cmd->rate = mSensorState[handle].rate;
         cmd->latency = mSensorState[handle].latency;
     }
+
+    // will be a nop if direct report mode is not enabled
+    mergeDirectReportRequest(cmd, handle);
 }
 
 void HubConnection::queueActivate(int handle, bool enable)
@@ -1565,5 +1592,216 @@ void HubConnection::sendFolioEvent(int32_t data) {
     }
 }
 #endif  // LID_STATE_REPORTING_ENABLED
+
+#ifdef DIRECT_REPORT_ENABLED
+void HubConnection::sendDirectReportEvent(const sensors_event_t *nev, size_t n) {
+    // short circuit to avoid lock operation
+    if (n == 0) {
+        return;
+    }
+
+    // no intention to block sensor delivery thread. when lock is needed ignore
+    // the event (this only happens when the channel is reconfiured, so it's ok
+    if (mDirectChannelLock.tryLock() == NO_ERROR) {
+        while (n--) {
+            auto i = mSensorToChannel.find(nev->sensor);
+            if (i != mSensorToChannel.end()) {
+                for (auto &j : i->second) {
+                    mDirectChannel[j.first]->write(nev);
+                }
+            }
+            ++nev;
+        }
+        mDirectChannelLock.unlock();
+    }
+}
+
+void HubConnection::mergeDirectReportRequest(struct ConfigCmd *cmd, int handle) {
+    auto j = mSensorToChannel.find(handle);
+    if (j != mSensorToChannel.end()) {
+        bool enable = false;
+        rate_q10_t rate;
+
+        if (!j->second.empty()) {
+            int maxRateLevel = SENSOR_DIRECT_RATE_STOP;
+            for (auto &i : j->second) {
+                maxRateLevel = (i.second) > maxRateLevel ? i.second : maxRateLevel;
+            }
+            switch(maxRateLevel) {
+                case SENSOR_DIRECT_RATE_NORMAL:
+                    enable = true;
+                    rate = period_ns_to_frequency_q10(20000000ull); // NORMAL = 50Hz
+                    break;
+                case SENSOR_DIRECT_RATE_FAST:
+                    enable = true;
+                    rate = period_ns_to_frequency_q10(5000000ull);  // FAST = 200Hz
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        if (enable) {
+            cmd->rate = (rate > cmd->rate || cmd->cmd == CONFIG_CMD_DISABLE) ? rate : cmd->rate;
+            cmd->latency = 0;
+            cmd->cmd = CONFIG_CMD_ENABLE;
+        }
+    }
+}
+
+int HubConnection::addDirectChannel(const struct sensors_direct_mem_t *mem) {
+    std::unique_ptr<DirectChannelBase> ch;
+    int ret = NO_MEMORY;
+
+    switch(mem->type) {
+        case SENSOR_DIRECT_MEM_TYPE_ASHMEM:
+            ch = std::unique_ptr<DirectChannelBase>(new AshmemDirectChannel(mem));
+            if (ch) {
+                if (ch->isValid()) {
+                    Mutex::Autolock autoLock(mDirectChannelLock);
+                    ret = mDirectChannelHandle++;
+                    mDirectChannel.insert(std::make_pair(ret, std::move(ch)));
+                } else {
+                    ret = ch->getError();
+                    ALOGE("AshmemDirectChannel %p has error %d upon init", ch.get(), ret);
+                }
+            }
+            break;
+        case SENSOR_DIRECT_MEM_TYPE_GRALLOC:
+        default:
+            ret = INVALID_OPERATION;
+    }
+
+    return ret;
+}
+
+int HubConnection::removeDirectChannel(int channel_handle) {
+    // make sure no active sensor in this channel
+    std::vector<int32_t> activeSensorList;
+    stopAllDirectReportOnChannel(channel_handle, &activeSensorList);
+
+    // sensor service is responsible for stop all sensors before remove direct
+    // channel. Thus, this is an error.
+    if (!activeSensorList.empty()) {
+        std::stringstream ss;
+        std::copy(activeSensorList.begin(), activeSensorList.end(),
+                std::ostream_iterator<int32_t>(ss, ","));
+        ALOGE("Removing channel %d when sensors (%s) are not stopped.",
+                channel_handle, ss.str().c_str());
+    }
+
+    // remove the channel record
+    Mutex::Autolock autoLock(mDirectChannelLock);
+    mDirectChannel.erase(channel_handle);
+    return NO_ERROR;
+}
+
+int HubConnection::stopAllDirectReportOnChannel(
+        int channel_handle, std::vector<int32_t> *activeSensorList) {
+    Mutex::Autolock autoLock(mDirectChannelLock);
+    if (mDirectChannel.find(channel_handle) == mDirectChannel.end()) {
+        return BAD_VALUE;
+    }
+
+    std::vector<int32_t> sensorToStop;
+    for (auto &it : mSensorToChannel) {
+        auto j = it.second.find(channel_handle);
+        if (j != it.second.end()) {
+            it.second.erase(j);
+            if (it.second.empty()) {
+                sensorToStop.push_back(it.first);
+            }
+        }
+    }
+
+    if (activeSensorList != nullptr) {
+        *activeSensorList = sensorToStop;
+    }
+
+    // re-evaluate and send config for all sensor that need to be stopped
+    bool ret = true;
+    for (auto sensor_handle : sensorToStop) {
+        Mutex::Autolock autoLock2(mLock);
+        struct ConfigCmd cmd;
+        initConfigCmd(&cmd, sensor_handle);
+
+        int result = TEMP_FAILURE_RETRY(write(mFd, &cmd, sizeof(cmd)));
+        ret = ret && (result == sizeof(cmd));
+    }
+    return ret ? NO_ERROR : BAD_VALUE;
+}
+
+int HubConnection::configDirectReport(int sensor_handle, int channel_handle, int rate_level) {
+    if (sensor_handle == -1 && rate_level == SENSOR_DIRECT_RATE_STOP) {
+        return stopAllDirectReportOnChannel(channel_handle, nullptr);
+    }
+
+    if (!isValidHandle(sensor_handle)) {
+        return BAD_VALUE;
+    }
+
+    // clamp to fast
+    if (rate_level > SENSOR_DIRECT_RATE_FAST) {
+        rate_level = SENSOR_DIRECT_RATE_FAST;
+    }
+
+    // manage direct channel data structure
+    Mutex::Autolock autoLock(mDirectChannelLock);
+    auto i = mDirectChannel.find(channel_handle);
+    if (i == mDirectChannel.end()) {
+        return BAD_VALUE;
+    }
+
+    auto j = mSensorToChannel.find(sensor_handle);
+    if (j == mSensorToChannel.end()) {
+        return BAD_VALUE;
+    }
+
+    j->second.erase(channel_handle);
+    if (rate_level != SENSOR_DIRECT_RATE_STOP) {
+        j->second.insert(std::make_pair(channel_handle, rate_level));
+    }
+
+    Mutex::Autolock autoLock2(mLock);
+    struct ConfigCmd cmd;
+    initConfigCmd(&cmd, sensor_handle);
+
+    int ret = TEMP_FAILURE_RETRY(write(mFd, &cmd, sizeof(cmd)));
+
+    if (rate_level == SENSOR_DIRECT_RATE_STOP) {
+        ret = NO_ERROR;
+    } else {
+        ret = (ret == sizeof(cmd)) ? sensor_handle : BAD_VALUE;
+    }
+    return ret;
+}
+
+bool HubConnection::isDirectReportSupported() const {
+    return true;
+}
+#else // DIRECT_REPORT_ENABLED
+// nop functions if feature is turned off
+int HubConnection::addDirectChannel(const struct sensors_direct_mem_t *) {
+    return INVALID_OPERATION;
+}
+
+int HubConnection::removeDirectChannel(int) {
+    return INVALID_OPERATION;
+}
+
+int HubConnection::configDirectReport(int, int, int) {
+    return INVALID_OPERATION;
+}
+
+void HubConnection::sendDirectReportEvent(const sensors_event_t *, size_t) {
+}
+
+void HubConnection::mergeDirectReportRequest(struct ConfigCmd *, int) {
+}
+
+bool HubConnection::isDirectReportSupported() const {
+    return false;
+}
+#endif // DIRECT_REPORT_ENABLED
 
 } // namespace android

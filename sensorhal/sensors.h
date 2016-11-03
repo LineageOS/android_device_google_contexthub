@@ -45,6 +45,13 @@ private:
 
     int flush(int handle);
 
+    int register_direct_channel(
+            const struct sensors_direct_mem_t* mem, int channel_handle);
+
+    int config_direct_report(
+            int sensor_handle, int channel_handle, const struct sensors_direct_cfg_t * config);
+
+    // static wrappers
     static int CloseWrapper(struct hw_device_t *dev);
 
     static int ActivateWrapper(
@@ -64,6 +71,11 @@ private:
             int64_t max_report_latency_ns);
 
     static int FlushWrapper(struct sensors_poll_device_1 *dev, int handle);
+
+    static int RegisterDirectChannelWrapper(struct sensors_poll_device_1 *dev,
+            const struct sensors_direct_mem_t* mem, int channel_handle);
+    static int ConfigDirectReportWrapper(struct sensors_poll_device_1 *dev,
+            int sensor_handle, int channel_handle, const struct sensors_direct_cfg_t * config);
 
     DISALLOW_EVIL_CONSTRUCTORS(SensorContext);
 };

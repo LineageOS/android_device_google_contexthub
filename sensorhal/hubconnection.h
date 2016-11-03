@@ -28,9 +28,12 @@
 #include <utils/Thread.h>
 
 #include "activityeventhandler.h"
+#include "directchannel.h"
 #include "eventnums.h"
 #include "hubdefs.h"
 #include "ring.h"
+
+#include <unordered_map>
 
 #define WAKELOCK_NAME "sensorHal"
 
@@ -93,6 +96,10 @@ private:
             return 1024000000000LL / frequency_q10;
         else
             return (nsecs_t)0;
+    }
+
+    static inline uint64_t frequency_to_frequency_q10(float frequency) {
+        return period_ns_to_frequency_q10(static_cast<nsecs_t>(1e9f/frequency));
     }
 
     enum
@@ -257,6 +264,26 @@ private:
 #ifdef DOUBLE_TOUCH_ENABLED
     int mDoubleTouchPollIndex;
 #endif  // DOUBLE_TOUCH_ENABLED
+
+    // Direct report functions
+public:
+    int addDirectChannel(const struct sensors_direct_mem_t *mem);
+    int removeDirectChannel(int channel_handle);
+    int configDirectReport(int sensor_handle, int channel_handle, int rate_level);
+    bool isDirectReportSupported() const;
+private:
+    void sendDirectReportEvent(const sensors_event_t *nev, size_t n);
+    void mergeDirectReportRequest(struct ConfigCmd *cmd, int handle);
+#ifdef DIRECT_REPORT_ENABLED
+    int stopAllDirectReportOnChannel(
+            int channel_handle, std::vector<int32_t> *unstoppedSensors);
+    Mutex mDirectChannelLock;
+    //sensor_handle=>(channel_handle, rate_level)
+    std::unordered_map<int32_t, std::unordered_map<int32_t, int32_t> > mSensorToChannel;
+    //channel_handle=>ptr of Channel obj
+    std::unordered_map<int32_t, std::unique_ptr<DirectChannelBase>> mDirectChannel;
+    int32_t mDirectChannelHandle;
+#endif
 
     DISALLOW_EVIL_CONSTRUCTORS(HubConnection);
 };
