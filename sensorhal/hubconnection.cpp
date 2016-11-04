@@ -1250,7 +1250,7 @@ void HubConnection::queueActivate(int handle, bool enable)
 
     Mutex::Autolock autoLock(mLock);
 
-    if (mSensorState[handle].sensorType) {
+    if (isValidHandle(handle)) {
         mSensorState[handle].enable = enable;
 
         initConfigCmd(&cmd, handle);
@@ -1274,7 +1274,7 @@ void HubConnection::queueSetDelay(int handle, nsecs_t sampling_period_ns)
 
     Mutex::Autolock autoLock(mLock);
 
-    if (mSensorState[handle].sensorType) {
+    if (isValidHandle(handle)) {
         if (sampling_period_ns > 0 &&
                 mSensorState[handle].rate != SENSOR_RATE_ONCHANGE &&
                 mSensorState[handle].rate != SENSOR_RATE_ONESHOT) {
@@ -1305,7 +1305,7 @@ void HubConnection::queueBatch(
 
     Mutex::Autolock autoLock(mLock);
 
-    if (mSensorState[handle].sensorType) {
+    if (isValidHandle(handle)) {
         if (sampling_period_ns > 0 &&
                 mSensorState[handle].rate != SENSOR_RATE_ONCHANGE &&
                 mSensorState[handle].rate != SENSOR_RATE_ONESHOT) {
@@ -1335,7 +1335,7 @@ void HubConnection::queueFlush(int handle)
 
     Mutex::Autolock autoLock(mLock);
 
-    if (mSensorState[handle].sensorType) {
+    if (isValidHandle(handle)) {
         mSensorState[handle].flushCnt++;
 
         initConfigCmd(&cmd, handle);
@@ -1359,7 +1359,7 @@ void HubConnection::queueDataInternal(int handle, void *data, size_t length)
     struct ConfigCmd *cmd = (struct ConfigCmd *)malloc(sizeof(struct ConfigCmd) + length);
     size_t ret;
 
-    if (cmd && mSensorState[handle].sensorType) {
+    if (cmd && isValidHandle(handle)) {
         initConfigCmd(cmd, handle);
         memcpy(cmd->data, data, length);
         cmd->cmd = CONFIG_CMD_CFG_DATA;
