@@ -25,6 +25,7 @@
 #include <plat/inc/taggedPtr.h>
 #include <plat/inc/bl.h>
 #include <plat/inc/plat.h>
+#include <plat/inc/wdt.h>
 
 #include <nanohub/crc.h>
 #include <nanohub/rsa.h>
@@ -313,10 +314,13 @@ static void deferredUpdateOs(void *cookie)
     // some sanity checks before asking BL to do image lookup
     hostIntfSetBusy(true);
     if (segSize >= (sizeof(*app) + sizeof(*os)) && segSize > os->size) {
-        if (osWriteShared(&os->marker, &marker, sizeof(os->marker)))
+        if (osWriteShared(&os->marker, &marker, sizeof(os->marker))) {
+            wdtDisableClk();
             uploadStatus = BL.blVerifyOsUpdate();
-        else
+            wdtEnableClk();
+        } else {
             osLog(LOG_ERROR, "%s: could not set marker on OS image\n", __func__);
+        }
     }
     hostIntfSetBusy(false);
     osLog(LOG_INFO, "%s: status=%" PRIu32 "\n", __func__, uploadStatus);
