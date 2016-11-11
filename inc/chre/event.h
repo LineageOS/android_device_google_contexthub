@@ -254,9 +254,9 @@ bool chreSendEvent(uint16_t eventType, void *eventData,
  *     to be NULL, in which case no callback will be invoked.
  * @returns true if the message was accepted for transmission, false otherwise.
  *     Note that even if this method returns 'false', the 'freeCallback' will
- *     be invoked, if non-NULL.  Note in the 'false' case, the 'freeCallback'
- *     may be invoked directly from within chreSendMessageToHost(), so it's
- *     necessary for nanoapp authors to avoid possible recursion with this.
+ *     be invoked, if non-NULL.  In either case, the 'freeCallback' may be
+ *     invoked directly from within chreSendMessageToHost(), so it's necessary
+ *     for nanoapp authors to avoid possible recursion with this.
  *
  * @see chreMessageFreeFunction
  */
