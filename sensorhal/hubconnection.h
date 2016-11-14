@@ -219,6 +219,12 @@ private:
     void postOsLog(uint8_t *buf, ssize_t len);
     ssize_t processBuf(uint8_t *buf, ssize_t len);
 
+    inline bool isValidHandle(int handle) {
+        return handle >= 0
+            && handle < NUM_COMMS_SENSORS_PLUS_1
+            && mSensorState[handle].sensorType;
+    }
+
     void initConfigCmd(struct ConfigCmd *cmd, int handle);
 
     void queueDataInternal(int handle, void *data, size_t length);
