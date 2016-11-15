@@ -794,7 +794,7 @@ void HubConnection::postOsLog(uint8_t *buf, ssize_t len)
     }
 }
 
-ssize_t HubConnection::processBuf(uint8_t *buf, ssize_t len)
+ssize_t HubConnection::processBuf(uint8_t *buf, size_t len)
 {
     struct nAxisEvent *data = (struct nAxisEvent *)buf;
     uint32_t type, sensor, bias, currSensor;
@@ -804,7 +804,7 @@ ssize_t HubConnection::processBuf(uint8_t *buf, ssize_t len)
     uint64_t timestamp;
     ssize_t ret = 0;
 
-    if (len >= 4) {
+    if (len >= sizeof(data->evtType)) {
         ret = sizeof(data->evtType);
         one = three = rawThree = false;
         bias = 0;
@@ -1017,11 +1017,15 @@ ssize_t HubConnection::processBuf(uint8_t *buf, ssize_t len)
             restoreSensorState();
             return 0;
         default:
-            return 0;
+            ALOGE("unknown evtType: 0x%08x\n", data->evtType);
+            return -1;
         }
+    } else {
+        ALOGE("too little data: len=%zu\n", len);
+        return -1;
     }
 
-    if (len >= 16) {
+    if (len >= sizeof(data->evtType) + sizeof(data->referenceTime) + sizeof(data->firstSample)) {
         ret += sizeof(data->referenceTime);
         timestamp = data->referenceTime;
         numSamples = data->firstSample.numSamples;
@@ -1032,20 +1036,35 @@ ssize_t HubConnection::processBuf(uint8_t *buf, ssize_t len)
                 currSensor = sensor;
 
             if (one) {
+                if (ret + sizeof(data->oneSamples[i]) > len) {
+                    ALOGE("sensor %d (one): ret=%zd, numSamples=%d, i=%d\n", currSensor, ret, numSamples, i);
+                    return -1;
+                }
                 if (i > 0)
                     timestamp += ((uint64_t)data->oneSamples[i].deltaTime) << delta_time_shift_table[data->oneSamples[i].deltaTime & delta_time_encoded];
                 processSample(timestamp, type, currSensor, &data->oneSamples[i], data->firstSample.highAccuracy);
                 ret += sizeof(data->oneSamples[i]);
             } else if (rawThree) {
+                if (ret + sizeof(data->rawThreeSamples[i]) > len) {
+                    ALOGE("sensor %d (rawThree): ret=%zd, numSamples=%d, i=%d\n", currSensor, ret, numSamples, i);
+                    return -1;
+                }
                 if (i > 0)
                     timestamp += ((uint64_t)data->rawThreeSamples[i].deltaTime) << delta_time_shift_table[data->rawThreeSamples[i].deltaTime & delta_time_encoded];
                 processSample(timestamp, type, currSensor, &data->rawThreeSamples[i], data->firstSample.highAccuracy);
                 ret += sizeof(data->rawThreeSamples[i]);
             } else if (three) {
+                if (ret + sizeof(data->threeSamples[i]) > len) {
+                    ALOGE("sensor %d (three): ret=%zd, numSamples=%d, i=%d\n", currSensor, ret, numSamples, i);
+                    return -1;
+                }
                 if (i > 0)
                     timestamp += ((uint64_t)data->threeSamples[i].deltaTime) << delta_time_shift_table[data->threeSamples[i].deltaTime & delta_time_encoded];
                 processSample(timestamp, type, currSensor, &data->threeSamples[i], data->firstSample.highAccuracy);
                 ret += sizeof(data->threeSamples[i]);
+            } else {
+                ALOGE("sensor %d (unknown): cannot processSample\n", currSensor);
+                return -1;
             }
         }
 
@@ -1074,6 +1093,9 @@ ssize_t HubConnection::processBuf(uint8_t *buf, ssize_t len)
                 ALOGI("flushing %d", ev.meta_data.sensor);
             }
         }
+    } else {
+        ALOGE("too little data for sensor %d: len=%zu\n", sensor, len);
+        return -1;
     }
 
     return ret;
@@ -1189,13 +1211,17 @@ bool HubConnection::threadLoop() {
             uint8_t recv[256];
             ssize_t len = ::read(mFd, recv, sizeof(recv));
 
-            for (ssize_t offset = 0; offset < len;) {
-                ret = processBuf(recv + offset, len - offset);
+            if (len >= 0) {
+                for (ssize_t offset = 0; offset < len;) {
+                    ret = processBuf(recv + offset, len - offset);
 
-                if (ret > 0)
-                    offset += ret;
-                else
-                    break;
+                    if (ret > 0)
+                        offset += ret;
+                    else
+                        break;
+                }
+            } else {
+                ALOGE("read -1: errno=%d\n", errno);
             }
         }
     }
