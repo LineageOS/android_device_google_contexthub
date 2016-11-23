@@ -3226,8 +3226,13 @@ static void sensorInit(void)
         SPI_WRITE(BMI160_REG_INT_TAP_1, TAP_THRESHOLD, 450);
 
         // config step detector
+#ifdef BMI160_STEP_COUNT_MODE_SENSITIVE
+        SPI_WRITE(BMI160_REG_STEP_CONF_0, 0x2D, 450);
+        SPI_WRITE(BMI160_REG_STEP_CONF_1, 0x00, 450);
+#else
         SPI_WRITE(BMI160_REG_STEP_CONF_0, 0x15, 450);
         SPI_WRITE(BMI160_REG_STEP_CONF_1, 0x03, 450);
+#endif
 
         // int_flat_theta = 44.8 deg * (16/64) = 11.2 deg
         SPI_WRITE(BMI160_REG_INT_FLAT_0, 0x10, 450);
