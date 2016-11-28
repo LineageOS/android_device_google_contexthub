@@ -104,6 +104,7 @@ enum TaskState
 {
     STATE_ENABLE_0,
     STATE_ENABLE_1,
+    STATE_ENABLE_2,
     STATE_DISABLE_0,
     STATE_INT_HANDLE_0,
     STATE_INT_HANDLE_1,
@@ -438,7 +439,17 @@ static void processI2cResponse(struct I2cTransfer *xfer)
             if (mTask.retryCnt < HACK_RETRY_SKIP_COUNT) {
                 setRetryTimer();
             } else {
-                setReportingMode(S3708_REPORT_MODE_LPWG, STATE_IDLE);
+                setReportingMode(S3708_REPORT_MODE_LPWG, STATE_ENABLE_2);
+            }
+            break;
+
+        case STATE_ENABLE_2:
+            // Poll the GPIO line to see if it is low/active (it might have been
+            // low when we enabled the ISR, e.g. due to a pending touch event).
+            // Only do this after arming the LPWG, so it happens after we know
+            // that we can talk to the touch controller.
+            if (!gpioGet(mTask.pin)) {
+                osEnqueuePrivateEvt(EVT_SENSOR_TOUCH_INTERRUPT, NULL, NULL, mTask.id);
             }
             break;
 
