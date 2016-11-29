@@ -1,6 +1,3 @@
-#ifndef LOCATION_LBS_CONTEXTHUB_NANOAPPS_COMMON_MATH_QUAT_H_
-#define LOCATION_LBS_CONTEXTHUB_NANOAPPS_COMMON_MATH_QUAT_H_
-
 /*
  * Copyright (C) 2016 The Android Open Source Project
  *
@@ -16,6 +13,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#ifndef LOCATION_LBS_CONTEXTHUB_NANOAPPS_COMMON_MATH_QUAT_H_
+#define LOCATION_LBS_CONTEXTHUB_NANOAPPS_COMMON_MATH_QUAT_H_
 
 #include "common/math/mat.h"
 #include "common/math/vec.h"
