@@ -21,14 +21,14 @@
 #include <nanohub_math.h>
 #include <string.h>
 
-#define MAX_EIGEN_RATIO     25.0f
-#define MAX_EIGEN_MAG       80.0f   // uT
-#define MIN_EIGEN_MAG       10.0f   // uT
+#define MAX_EIGEN_RATIO     15.0f
+#define MAX_EIGEN_MAG       60.0f   // uT
+#define MIN_EIGEN_MAG       30.0f   // uT
 
-#define MAX_FIT_MAG         80.0f
-#define MIN_FIT_MAG         10.0f
+#define MAX_FIT_MAG         70.0f
+#define MIN_FIT_MAG         20.0f
 
-#define MIN_BATCH_WINDOW    1000000UL   // 1 sec
+#define MIN_BATCH_WINDOW    3000000UL   // 3 sec
 #define MAX_BATCH_WINDOW    15000000UL  // 15 sec
 #define MIN_BATCH_SIZE      25      // samples
 
