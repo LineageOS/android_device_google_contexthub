@@ -146,9 +146,9 @@ static void wait_on_dev_lock(pollfd &pfd) {
     }
 }
 
-int NanoHub::doSendToDevice(const hub_app_name_t *name, const void *data, uint32_t len, uint32_t messageType)
+int NanoHub::doSendToDevice(const hub_app_name_t name, const void *data, uint32_t len, uint32_t messageType)
 {
-    if (len > MAX_RX_PACKET || name == nullptr) {
+    if (len > MAX_RX_PACKET) {
         return -EINVAL;
     }
 
@@ -156,7 +156,7 @@ int NanoHub::doSendToDevice(const hub_app_name_t *name, const void *data, uint32
     nano_message_chre msg = {
         .hdr = {
             .eventId = APP_FROM_HOST_CHRE_EVENT_ID,
-            .appId = name->id,
+            .appId = name.id,
             .len = static_cast<uint8_t>(len),
             .appEventId = messageType,
         },
@@ -399,7 +399,7 @@ int NanoHub::doSendToNanohub(uint32_t hub_id, const hub_message_t *msg)
             if (messageTracingEnabled()) {
                 dumpBuffer("APP -> DEV", msg->app_name, msg->message_type, msg->message, msg->message_len);
             }
-            ret = doSendToDevice(&msg->app_name, msg->message, msg->message_len, msg->message_type);
+            ret = doSendToDevice(msg->app_name, msg->message, msg->message_len, msg->message_type);
         }
     }
 
