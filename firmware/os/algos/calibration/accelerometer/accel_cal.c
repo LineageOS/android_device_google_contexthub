@@ -156,12 +156,7 @@ static void accelCalAlgoInit(struct AccelCalAlgo *acc, uint32_t fx,
                              uint32_t fxb, uint32_t fy, uint32_t fyb,
                              uint32_t fz, uint32_t fzb, uint32_t fle) {
   accelGoodDataInit(&acc->agd, fx, fxb, fy, fyb, fz, fzb, fle);
-
-  initMagCal(&acc->amoc,         // mag_cal_t struct need for accel cal
-             0.0f, 0.0f, 0.0f,   // bias x, y, z
-             1.0f, 0.0f, 0.0f,   // c00, c01, c02
-             0.0f, 1.0f, 0.0f,   // c10, c11, c12
-             0.0f, 0.0f, 1.0f);  // c20, c21, c22
+  initKasa(&acc->akf);
 }
 
 // Accel cal init.
@@ -265,28 +260,28 @@ static int accelStillnessDetection(struct AccelStillDet *asd,
 }
 
 // Accumulate data for KASA fit.
-static void accelCalUpdate(struct MagCal *amoc, struct AccelStillDet *asd) {
+static void accelCalUpdate(struct KasaFit *akf, struct AccelStillDet *asd) {
   // Run accumulators.
   float w = asd->mean_x * asd->mean_x + asd->mean_y * asd->mean_y +
             asd->mean_z * asd->mean_z;
 
-  amoc->acc_x += asd->mean_x;
-  amoc->acc_y += asd->mean_y;
-  amoc->acc_z += asd->mean_z;
-  amoc->acc_w += w;
+  akf->acc_x += asd->mean_x;
+  akf->acc_y += asd->mean_y;
+  akf->acc_z += asd->mean_z;
+  akf->acc_w += w;
 
-  amoc->acc_xx += asd->mean_x * asd->mean_x;
-  amoc->acc_xy += asd->mean_x * asd->mean_y;
-  amoc->acc_xz += asd->mean_x * asd->mean_z;
-  amoc->acc_xw += asd->mean_x * w;
+  akf->acc_xx += asd->mean_x * asd->mean_x;
+  akf->acc_xy += asd->mean_x * asd->mean_y;
+  akf->acc_xz += asd->mean_x * asd->mean_z;
+  akf->acc_xw += asd->mean_x * w;
 
-  amoc->acc_yy += asd->mean_y * asd->mean_y;
-  amoc->acc_yz += asd->mean_y * asd->mean_z;
-  amoc->acc_yw += asd->mean_y * w;
+  akf->acc_yy += asd->mean_y * asd->mean_y;
+  akf->acc_yz += asd->mean_y * asd->mean_z;
+  akf->acc_yw += asd->mean_y * w;
 
-  amoc->acc_zz += asd->mean_z * asd->mean_z;
-  amoc->acc_zw += asd->mean_z * w;
-  amoc->nsamples += 1;
+  akf->acc_zz += asd->mean_z * asd->mean_z;
+  akf->acc_zw += asd->mean_z * w;
+  akf->nsamples += 1;
 }
 
 // Good data detection, sorting and accumulate the data for Kasa.
@@ -301,42 +296,42 @@ static int accelGoodData(struct AccelStillDet *asd, struct AccelCalAlgo *ac1,
     ac1->agd.nx += 1;
     ac1->agd.acc_t += temp;
     ac1->agd.acc_tt += temp * temp;
-    accelCalUpdate(&ac1->amoc, asd);
+    accelCalUpdate(&ac1->akf, asd);
   }
   // Negative x bucket nxb.
   if (PHIb > asd->mean_x && ac1->agd.nxb < ac1->agd.nfxb) {
     ac1->agd.nxb += 1;
     ac1->agd.acc_t += temp;
     ac1->agd.acc_tt += temp * temp;
-    accelCalUpdate(&ac1->amoc, asd);
+    accelCalUpdate(&ac1->akf, asd);
   }
   // Y bucket ny.
   if (PHI < asd->mean_y && ac1->agd.ny < ac1->agd.nfy) {
     ac1->agd.ny += 1;
     ac1->agd.acc_t += temp;
     ac1->agd.acc_tt += temp * temp;
-    accelCalUpdate(&ac1->amoc, asd);
+    accelCalUpdate(&ac1->akf, asd);
   }
   // Negative y bucket nyb.
   if (PHIb > asd->mean_y && ac1->agd.nyb < ac1->agd.nfyb) {
     ac1->agd.nyb += 1;
     ac1->agd.acc_t += temp;
     ac1->agd.acc_tt += temp * temp;
-    accelCalUpdate(&ac1->amoc, asd);
+    accelCalUpdate(&ac1->akf, asd);
   }
   // Z bucket nz.
   if (PHIZ < asd->mean_z && ac1->agd.nz < ac1->agd.nfz) {
     ac1->agd.nz += 1;
     ac1->agd.acc_t += temp;
     ac1->agd.acc_tt += temp * temp;
-    accelCalUpdate(&ac1->amoc, asd);
+    accelCalUpdate(&ac1->akf, asd);
   }
   // Negative z bucket nzb.
   if (PHIZb > asd->mean_z && ac1->agd.nzb < ac1->agd.nfzb) {
     ac1->agd.nzb += 1;
     ac1->agd.acc_t += temp;
     ac1->agd.acc_tt += temp * temp;
-    accelCalUpdate(&ac1->amoc, asd);
+    accelCalUpdate(&ac1->akf, asd);
   }
   // The leftover bucket nle.
   if (PHI > asd->mean_x && PHIb < asd->mean_x && PHI > asd->mean_y &&
@@ -345,39 +340,39 @@ static int accelGoodData(struct AccelStillDet *asd, struct AccelCalAlgo *ac1,
     ac1->agd.nle += 1;
     ac1->agd.acc_t += temp;
     ac1->agd.acc_tt += temp * temp;
-    accelCalUpdate(&ac1->amoc, asd);
+    accelCalUpdate(&ac1->akf, asd);
   }
   // Checking if all buckets are full.
   if (ac1->agd.nx == ac1->agd.nfx && ac1->agd.nxb == ac1->agd.nfxb &&
       ac1->agd.ny == ac1->agd.nfy && ac1->agd.nyb == ac1->agd.nfyb &&
       ac1->agd.nz == ac1->agd.nfz && ac1->agd.nzb == ac1->agd.nfzb) {
-    //  Check if amoc->nsamples is zero.
-    if (ac1->amoc.nsamples == 0) {
+    //  Check if akf->nsamples is zero.
+    if (ac1->akf.nsamples == 0) {
       agdReset(&ac1->agd);
-      magCalReset(&ac1->amoc);
+      magKasaReset(&ac1->akf);
       complete = 0;
       return complete;
     } else {
       // Normalize the data to the sample numbers.
-      inv = 1.0f / ac1->amoc.nsamples;
+      inv = 1.0f / ac1->akf.nsamples;
     }
 
-    ac1->amoc.acc_x *= inv;
-    ac1->amoc.acc_y *= inv;
-    ac1->amoc.acc_z *= inv;
-    ac1->amoc.acc_w *= inv;
+    ac1->akf.acc_x *= inv;
+    ac1->akf.acc_y *= inv;
+    ac1->akf.acc_z *= inv;
+    ac1->akf.acc_w *= inv;
 
-    ac1->amoc.acc_xx *= inv;
-    ac1->amoc.acc_xy *= inv;
-    ac1->amoc.acc_xz *= inv;
-    ac1->amoc.acc_xw *= inv;
+    ac1->akf.acc_xx *= inv;
+    ac1->akf.acc_xy *= inv;
+    ac1->akf.acc_xz *= inv;
+    ac1->akf.acc_xw *= inv;
 
-    ac1->amoc.acc_yy *= inv;
-    ac1->amoc.acc_yz *= inv;
-    ac1->amoc.acc_yw *= inv;
+    ac1->akf.acc_yy *= inv;
+    ac1->akf.acc_yz *= inv;
+    ac1->akf.acc_yw *= inv;
 
-    ac1->amoc.acc_zz *= inv;
-    ac1->amoc.acc_zw *= inv;
+    ac1->akf.acc_zz *= inv;
+    ac1->akf.acc_zw *= inv;
 
     // Calculate the temp VAR and MEA.N
     ac1->agd.var_t =
@@ -392,7 +387,7 @@ static int accelGoodData(struct AccelStillDet *asd, struct AccelCalAlgo *ac1,
       ac1->agd.ny > ac1->agd.nfy || ac1->agd.nyb > ac1->agd.nfyb ||
       ac1->agd.nz > ac1->agd.nfz || ac1->agd.nzb > ac1->agd.nfzb) {
     agdReset(&ac1->agd);
-    magCalReset(&ac1->amoc);
+    magKasaReset(&ac1->akf);
     complete = 0;
     return complete;
   }
@@ -400,15 +395,15 @@ static int accelGoodData(struct AccelStillDet *asd, struct AccelCalAlgo *ac1,
 }
 
 // Eigen value magnitude and ratio test.
-static int mocEigenTest(struct MagCal *moc, struct AccelGoodData *agd) {
+static int accEigenTest(struct KasaFit *akf, struct AccelGoodData *agd) {
   // covariance matrix.
   struct Mat33 S;
-  S.elem[0][0] = moc->acc_xx - moc->acc_x * moc->acc_x;
-  S.elem[0][1] = S.elem[1][0] = moc->acc_xy - moc->acc_x * moc->acc_y;
-  S.elem[0][2] = S.elem[2][0] = moc->acc_xz - moc->acc_x * moc->acc_z;
-  S.elem[1][1] = moc->acc_yy - moc->acc_y * moc->acc_y;
-  S.elem[1][2] = S.elem[2][1] = moc->acc_yz - moc->acc_y * moc->acc_z;
-  S.elem[2][2] = moc->acc_zz - moc->acc_z * moc->acc_z;
+  S.elem[0][0] = akf->acc_xx - akf->acc_x * akf->acc_x;
+  S.elem[0][1] = S.elem[1][0] = akf->acc_xy - akf->acc_x * akf->acc_y;
+  S.elem[0][2] = S.elem[2][0] = akf->acc_xz - akf->acc_x * akf->acc_z;
+  S.elem[1][1] = akf->acc_yy - akf->acc_y * akf->acc_y;
+  S.elem[1][2] = S.elem[2][1] = akf->acc_yz - akf->acc_y * akf->acc_z;
+  S.elem[2][2] = akf->acc_zz - akf->acc_z * akf->acc_z;
 
   struct Vec3 eigenvals;
   struct Mat33 eigenvecs;
@@ -502,13 +497,13 @@ void accelCalRun(struct AccelCal *acc, uint64_t sample_time_nsec, float x,
         float radius;
 
         // Grabbing the fit from the MAG cal.
-        magCalFit(&acc->ac1[temp_gate].amoc, &bias, &radius);
+        magKasaFit(&acc->ac1[temp_gate].akf, &bias, &radius);
 
         // If offset is too large don't take.
         if (fabsf(bias.x) < MAX_OFF && fabsf(bias.y) < MAX_OFF &&
             fabsf(bias.z) < MAX_OFF) {
           // Eigen Ratio Test.
-          if (mocEigenTest(&acc->ac1[temp_gate].amoc,
+          if (accEigenTest(&acc->ac1[temp_gate].akf,
                            &acc->ac1[temp_gate].agd)) {
             // Storing the new offsets.
             acc->x_bias_new = bias.x * KSCALE2;
@@ -545,7 +540,7 @@ void accelCalRun(struct AccelCal *acc, uint64_t sample_time_nsec, float x,
 
         // Resetting the structs for a new accel cal run.
         agdReset(&acc->ac1[temp_gate].agd);
-        magCalReset(&acc->ac1[temp_gate].amoc);
+        magKasaReset(&acc->ac1[temp_gate].akf);
       }
     }
   }
@@ -730,7 +725,7 @@ void accelCalDebPrint(struct AccelCal *acc, float temp) {
         (unsigned)acc->ac1[0].agd.nx, (unsigned)acc->ac1[0].agd.nxb,
         (unsigned)acc->ac1[0].agd.ny, (unsigned)acc->ac1[0].agd.nyb,
         (unsigned)acc->ac1[0].agd.nz, (unsigned)acc->ac1[0].agd.nzb,
-        (unsigned)acc->ac1[0].agd.nle, (unsigned)acc->ac1[0].amoc.nsamples);
+        (unsigned)acc->ac1[0].agd.nle, (unsigned)acc->ac1[0].akf.nsamples);
     // Live bucket count hogher.
     CAL_DEBUG_LOG(
         "[BMI160]",
@@ -739,7 +734,7 @@ void accelCalDebPrint(struct AccelCal *acc, float temp) {
         (unsigned)acc->ac1[1].agd.nx, (unsigned)acc->ac1[1].agd.nxb,
         (unsigned)acc->ac1[1].agd.ny, (unsigned)acc->ac1[1].agd.nyb,
         (unsigned)acc->ac1[1].agd.nz, (unsigned)acc->ac1[1].agd.nzb,
-        (unsigned)acc->ac1[1].agd.nle, (unsigned)acc->ac1[1].amoc.nsamples);
+        (unsigned)acc->ac1[1].agd.nle, (unsigned)acc->ac1[1].akf.nsamples);
     // Offset used.
     CAL_DEBUG_LOG(
         "[BMI160]",
