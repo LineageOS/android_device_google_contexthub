@@ -45,9 +45,11 @@
 #endif
 
 #ifdef GYRO_CAL_ENABLED
-// Gyro Cal -- Header.
 #include <calibration/gyroscope/gyro_cal.h>
-#endif
+#ifdef OVERTEMPCAL_ENABLED
+#include <calibration/over_temp/over_temp_cal.h>
+#endif  // OVERTEMPCAL_ENABLED
+#endif  // GYRO_CAL_ENABLED
 
 #include <limits.h>
 #include <stdlib.h>
@@ -245,7 +247,9 @@
 #define BUF_MARGIN 32   // some extra buffer for additional reg RW when a FIFO read happens
 #define SPI_BUF_SIZE (FIFO_READ_SIZE + CHUNKED_READ_SIZE + BUF_MARGIN)
 
+#ifndef ABS
 #define ABS(x) (((x) > 0) ? (x) : -(x))
+#endif
 
 enum SensorIndex {
     FIRST_CONT_SENSOR = 0,
@@ -402,11 +406,12 @@ struct BMI160Task {
 #ifdef GYRO_CAL_ENABLED
     // Gyro Cal -- Declaration.
     struct GyroCal gyro_cal;
-  #ifdef GYRO_CAL_DBG_ENABLED
-    // Gyro Cal -- Read out Debug data.
-    int gyro_debug_state;
-  #endif
-#endif
+
+#ifdef OVERTEMPCAL_ENABLED
+    // Over-temp gyro calibration object.
+    struct OverTempCal over_temp_gyro_cal;
+#endif  //  OVERTEMPCAL_ENABLED
+#endif  // GYRO_CAL_ENABLED
 
     // time keeping.
     uint64_t last_sensortime;
@@ -1979,24 +1984,43 @@ static void parseRawData(struct BMI160Sensor *mSensor, uint8_t *buf, float kScal
           gyroCalUpdateAccel(&mTask.gyro_cal,
                              rtc_time,  // nsec
                              x, y, z);
-#endif
+#endif  // GYRO_CAL_ENABLED
         } else if (mSensor->idx == GYR) {
-
 #ifdef GYRO_CAL_ENABLED
-            // Gyro Cal -- Add gyroscope and temperature sample.
-            gyroCalUpdateGyro(&mTask.gyro_cal,
-                              rtc_time,  // nsec
-                              x, y, z,
-                              mTask.tempCelsius);
+          // Gyro Cal -- Add gyroscope and temperature sample.
+          gyroCalUpdateGyro(&mTask.gyro_cal,
+                            rtc_time,  // nsec
+                            x, y, z, mTask.tempCelsius);
 
-            // Gyro Cal -- Apply calibration correction.
-            gyroCalRemoveBias(&mTask.gyro_cal,
-                              x, y, z,  /* input values */
-                              &x, &y, &z  /* calibrated output */);
-#endif
+#ifdef GYRO_CAL_DBG_ENABLED
+          // Gyro Cal -- Read out Debug data.
+          gyroCalDebugPrint(&mTask.gyro_cal, rtc_time);
+#endif  // GYRO_CAL_DBG_ENABLED
 
+#ifdef OVERTEMPCAL_ENABLED
+#ifdef OVERTEMPCAL_DBG_ENABLED
+          overTempCalDebugPrint(&mTask.over_temp_gyro_cal, rtc_time);
+#endif  // OVERTEMPCAL_DBG_ENABLED
+#endif  // OVERTEMPCAL_ENABLED
+
+#ifdef OVERTEMPCAL_ENABLED
+          // Over-Temp Gyro Cal -- Update measured temperature.
+          overTempCalSetTemperature(&mTask.over_temp_gyro_cal, rtc_time,
+                                    mTask.tempCelsius);
+
+          // Over-Temp Gyro Cal -- Apply over-temp calibration correction.
+          overTempCalRemoveOffset(&mTask.over_temp_gyro_cal, rtc_time, x, y,
+                                  z, /* input values */
+                                  &x, &y, &z /* calibrated output */);
+#else
+          // Gyro Cal -- Apply calibration correction.
+          gyroCalRemoveBias(&mTask.gyro_cal, x, y, z, /* input values */
+                            &x, &y, &z /* calibrated output */);
+#endif  // OVERTEMPCAL_ENABLED
+#endif  // GYRO_CAL_ENABLED
         }
     }
+
 
     if (mSensor->data_evt == NULL) {
         if (!allocateDataEvt(mSensor, rtc_time)) {
@@ -2040,7 +2064,8 @@ static void parseRawData(struct BMI160Sensor *mSensor, uint8_t *buf, float kScal
 #endif
 #ifdef GYRO_CAL_ENABLED
     // Gyro Cal -- Notify HAL about new gyro bias calibration
-    if (mSensor->idx == GYR && gyroCalNewBiasAvailable(&mTask.gyro_cal)) {
+    bool new_gyro_cal_update =  gyroCalNewBiasAvailable(&mTask.gyro_cal);
+    if (mSensor->idx == GYR && new_gyro_cal_update) {
         if (mSensor->data_evt->samples[0].firstSample.numSamples > 0) {
             // flush existing samples so the bias appears after them
             flushData(mSensor,
@@ -2061,7 +2086,32 @@ static void parseRawData(struct BMI160Sensor *mSensor, uint8_t *buf, float kScal
             return;
         }
     }
-#endif
+#ifdef OVERTEMPCAL_ENABLED
+    // Over-Temp Gyro Cal -- Send new gyro cal result to the over-temp cal.
+    float offset[3] = {0.0f, 0.0f, 0.0f};
+    if (new_gyro_cal_update) {
+      // Gets the gyro cal offset value.
+      gyroCalGetBias(&mTask.gyro_cal, &offset[0], &offset[1], &offset[2]);
+
+      // Sends it to the over-temp cal along with the current temperature and
+      // time stamp.
+      overTempCalUpdateSensorEstimate(&mTask.over_temp_gyro_cal, rtc_time,
+                                      offset, mTask.tempCelsius);
+    }
+
+    // Over-Temp Gyro Cal -- Notify HAL about new over-temp bias model data.
+    if (mSensor->idx == GYR &&
+        overTempCalNewModelUpdateAvailable(&mTask.over_temp_gyro_cal)) {
+      float offset_temp = 0.0f;
+      float temp_sensitivity[3] = {0.0f, 0.0f, 0.0f};
+      float sensor_intercept[3] = {0.0f, 0.0f, 0.0f};
+      overTempCalGetModel(&mTask.over_temp_gyro_cal,
+                          offset, &offset_temp, &rtc_time,
+                          temp_sensitivity, sensor_intercept);
+      // TODO(davejacobs, pengxu) -- Send data to HAL.
+    }
+#endif  // OVERTEMPCAL_ENABLED
+#endif  // GYRO_CAL_ENABLED
 
     sample = &mSensor->data_evt->samples[mSensor->data_evt->samples[0].firstSample.numSamples++];
 
@@ -2910,7 +2960,7 @@ static bool gyrCfgData(void *data, void *cookie)
 
 #ifdef GYRO_CAL_ENABLED
     gyroCalSetBias(&mTask.gyro_cal, values->sw[0], values->sw[1], values->sw[2], sensorGetTime());
-#endif
+#endif  // GYRO_CAL_ENABLED
 
     INFO_PRINT("gyrCfgData: data=%02lx, %02lx, %02lx\n",
             values->hw[0] & 0xFF, values->hw[1] & 0xFF, values->hw[2] & 0xFF);
@@ -3560,18 +3610,37 @@ static bool startTask(uint32_t task_id)
                 0.25,     // magnetometer confidence delta [uT]^2
                 0.95f,    // stillness threshold [0,1]
                 1);       // 1=gyro calibrations will be applied
-#endif
+
+#ifdef OVERTEMPCAL_ENABLED
+    // Initialize over-temp calibration.
+    overTempCalInit(
+        &mTask.over_temp_gyro_cal,
+        5,                          // Min num of points to enable model update.
+        5000000000,                 // Min model update interval [nsec].
+        2.0f,                       // Temperature span of bin method [C].
+        50.0e-3f * M_PI / 180.0f,   // Model fit tolerance [rad/sec].
+        172800000000000,            // Model data point age limit [nsec].
+        50.0e-3f * M_PI / 180.0f,   // Limit for temp. sensitivity [rad/sec/C].
+        3.0f * M_PI / 180.0f,       // Limit for model intercept parameter [C].
+        true);                      // Over-temp compensation enable.
+#endif  // OVERTEMPCAL_ENABLED
+#endif  // GYRO_CAL_ENABLED
 
 #ifdef MAG_SLAVE_PRESENT
-    initMagCal(&mTask.moc,
-            0.0f, 0.0f, 0.0f,      // bias x, y, z
-            1.0f, 0.0f, 0.0f,      // c00, c01, c02
-            0.0f, 1.0f, 0.0f,      // c10, c11, c12
-            0.0f, 0.0f, 1.0f);     // c20, c21, c22
+    initMagCal(&mTask.moc, 0.0f, 0.0f, 0.0f,  // bias x, y, z
+               1.0f, 0.0f, 0.0f,              // c00, c01, c02
+               0.0f, 1.0f, 0.0f,              // c10, c11, c12
+               0.0f, 0.0f, 1.0f,              // c20, c21, c22
+               600.0f,                        // threshold
+               11000.0f,                      // max_distance
+               8,                             // min_num_diverse_vectors
+               1,                             // max_num_max_distance
+               6.0f,                          // var_threshold
+               10.0f);                        // max_min_threshold
 #endif
 
     slabSize = sizeof(struct TripleAxisDataEvent) +
-        MAX_NUM_COMMS_EVENT_SAMPLES * sizeof(struct TripleAxisDataPoint);
+               MAX_NUM_COMMS_EVENT_SAMPLES * sizeof(struct TripleAxisDataPoint);
 
     // each event has 15 samples, with 7 bytes per sample from the fifo.
     // the fifo size is 1K.
