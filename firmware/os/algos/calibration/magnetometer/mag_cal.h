@@ -1,3 +1,6 @@
+#ifndef LOCATION_LBS_CONTEXTHUB_NANOAPPS_CALIBRATION_MAGNETOMETER_MAG_CAL_H_
+#define LOCATION_LBS_CONTEXTHUB_NANOAPPS_CALIBRATION_MAGNETOMETER_MAG_CAL_H_
+
 /*
  * Copyright (C) 2016 The Android Open Source Project
  *
@@ -13,50 +16,35 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#ifndef LOCATION_LBS_CONTEXTHUB_NANOAPPS_CALIBRATION_MAGNETOMETER_MAG_CAL_H_
-#define LOCATION_LBS_CONTEXTHUB_NANOAPPS_CALIBRATION_MAGNETOMETER_MAG_CAL_H_
 
 #include <stdbool.h>
 #include <stdint.h>
 #include <sys/types.h>
-#include "calibration/common/diversity_checker.h"
 #include "common/math/mat.h"
-#include "common/math/vec.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-struct KasaFit {
+struct MagCal {
+  uint64_t start_time;
+  uint64_t update_time;
+
   float acc_x, acc_y, acc_z, acc_w;
   float acc_xx, acc_xy, acc_xz, acc_xw;
   float acc_yy, acc_yz, acc_yw, acc_zz, acc_zw;
-  size_t nsamples;
-};
-
-struct MagCal {
-  struct DiversityChecker diversity_checker;
-  struct KasaFit kasa;
-
-  uint64_t start_time;
-  uint64_t update_time;
 
   float x_bias, y_bias, z_bias;
   float radius;
 
   float c00, c01, c02, c10, c11, c12, c20, c21, c22;
-};
 
-void initKasa(struct KasaFit *kasa);
+  size_t nsamples;
+};
 
 void initMagCal(struct MagCal *moc, float x_bias, float y_bias, float z_bias,
                 float c00, float c01, float c02, float c10, float c11,
-                float c12, float c20, float c21, float c22,
-                float threshold, float max_distance,
-                size_t min_num_diverse_vectors,
-                size_t max_num_max_distance,
-                float var_threshold,
-                float max_min_threshold);
+                float c12, float c20, float c21, float c22);
 
 void magCalDestroy(struct MagCal *moc);
 
@@ -77,11 +65,9 @@ void magCalSetSoftiron(struct MagCal *moc, float c00, float c01, float c02,
 void magCalRemoveSoftiron(struct MagCal *moc, float xi, float yi, float zi,
                           float *xo, float *yo, float *zo);
 
-void magKasaReset(struct KasaFit *kasa);
-
 void magCalReset(struct MagCal *moc);
 
-int magKasaFit(struct KasaFit *kasa, struct Vec3 *bias, float *radius);
+int magCalFit(struct MagCal *moc, struct Vec3 *bias, float *radius);
 
 #ifdef __cplusplus
 }
