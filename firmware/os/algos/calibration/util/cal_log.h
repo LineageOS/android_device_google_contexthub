@@ -1,3 +1,6 @@
+#ifndef LOCATION_LBS_CONTEXTHUB_NANOAPPS_CALIBRATION_UTIL_CAL_LOG_H_
+#define LOCATION_LBS_CONTEXTHUB_NANOAPPS_CALIBRATION_UTIL_CAL_LOG_H_
+
 /*
  * Copyright (C) 2016 The Android Open Source Project
  *
@@ -19,23 +22,16 @@
  * Logging macros for printing formatted strings to Nanohub.
  */
 ///////////////////////////////////////////////////////////////
-#ifndef LOCATION_LBS_CONTEXTHUB_NANOAPPS_CALIBRATION_UTIL_CAL_LOG_H_
-#define LOCATION_LBS_CONTEXTHUB_NANOAPPS_CALIBRATION_UTIL_CAL_LOG_H_
 
-#ifdef GCC_DEBUG_LOG
-# include <stdio.h>
-# define CAL_DEBUG_LOG(tag, fmt, ...) \
-  printf("%s " fmt "\n", tag, ##__VA_ARGS__);
-#else  // GCC_DEBUG_LOG
-# include <seos.h>
-# ifndef LOG_FUNC
-#  define LOG_FUNC(level, fmt, ...) osLog(level, fmt, ##__VA_ARGS__)
-# endif  // LOG_FUNC
-# define LOGD_TAG(tag, fmt, ...) \
-  LOG_FUNC(LOG_DEBUG, "%s " fmt "\n", tag, ##__VA_ARGS__)
-# define CAL_DEBUG_LOG(tag, fmt, ...) \
-  osLog(LOG_DEBUG, "%s " fmt, tag, ##__VA_ARGS__);
-#endif  // GCC_DEBUG_LOG
+
+#ifndef LOG_FUNC
+#include <seos.h>
+#define LOG_FUNC(level, fmt, ...) osLog(level, fmt, ##__VA_ARGS__)
+#define LOGD_TAG(tag, fmt, ...) \
+    LOG_FUNC(LOG_DEBUG, "%s " fmt "\n", tag, ##__VA_ARGS__)
+#endif
+
+#define CAL_DEBUG_LOG LOGD_TAG
 
 #ifdef __cplusplus
 extern "C" {

@@ -52,7 +52,7 @@ void gyroStillDetUpdate(struct GyroStillDet* gyro_still_det,
                         float x, float y, float z) {
   // Using the method of the assumed mean to preserve some numerical
   // stability while avoiding per-sample divisions that the more
-  // numerically stable Welford method would afford.
+  // numerically stabe Welford method would afford.
 
   // Reference for the numerical method used below to compute the
   // online mean and variance statistics:
