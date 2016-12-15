@@ -1,6 +1,3 @@
-#ifndef LOCATION_LBS_CONTEXTHUB_NANOAPPS_CALIBRATION_ACCELEROMETER_ACCEL_CAL_H_
-#define LOCATION_LBS_CONTEXTHUB_NANOAPPS_CALIBRATION_ACCELEROMETER_ACCEL_CAL_H_
-
 /*
  * Copyright (C) 2016 The Android Open Source Project
  *
@@ -25,6 +22,8 @@
  * the vectors should end onto a sphere. Furthermore the offset values are
  * subtracted from the accelerometer data calibrating the sensor.
  */
+#ifndef LOCATION_LBS_CONTEXTHUB_NANOAPPS_CALIBRATION_ACCELEROMETER_ACCEL_CAL_H_
+#define LOCATION_LBS_CONTEXTHUB_NANOAPPS_CALIBRATION_ACCELEROMETER_ACCEL_CAL_H_
 
 #include <stdint.h>
 #include <sys/types.h>
@@ -124,7 +123,8 @@ struct AccelStatsMem {
 // Struct for an accel calibration for a single temperature window.
 struct AccelCalAlgo {
   struct AccelGoodData agd;
-  struct MagCal amoc;
+  // TODO(mkramerm): Replace all abbreviations.
+  struct KasaFit akf;
 };
 
 // Complete accel calibration struct.
