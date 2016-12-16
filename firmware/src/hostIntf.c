@@ -656,9 +656,11 @@ static bool initSensors()
     const struct SensorInfo *si;
     uint32_t handle;
     static uint8_t errorCnt = 0;
+    uint32_t totalBlocks = 0;
+    uint8_t numSensors = 0;
+    ATOMIC_BITSET_DECL(sensorPresent, SENS_TYPE_LAST_USER - SENS_TYPE_INVALID,);
 
-    mTotalBlocks = 0;
-    mNumSensors = 0;
+    atomicBitsetInit(sensorPresent, SENS_TYPE_LAST_USER - SENS_TYPE_INVALID);
 
     for (i = SENS_TYPE_INVALID + 1; i <= SENS_TYPE_LAST_USER; i++) {
         for (j = 0, present = 0, error = 0; (si = sensorFind(i, j, &handle)) != NULL; j++) {
@@ -711,28 +713,31 @@ static bool initSensors()
         }
 
         if (present && !error) {
-            mNumSensors++;
-            mTotalBlocks += maxBlocks;
+            atomicBitsetSetBit(sensorPresent, i - 1);
+            numSensors++;
+            totalBlocks += maxBlocks;
         }
     }
 
-    if (mTotalBlocks > MAX_NUM_BLOCKS) {
-        osLog(LOG_INFO, "initSensors: mTotalBlocks of %ld exceeds maximum of %d\n", mTotalBlocks, MAX_NUM_BLOCKS);
-        mTotalBlocks = MAX_NUM_BLOCKS;
-    } else if (mTotalBlocks < MIN_NUM_BLOCKS) {
-        mTotalBlocks = MIN_NUM_BLOCKS;
+    if (totalBlocks > MAX_NUM_BLOCKS) {
+        osLog(LOG_INFO, "initSensors: totalBlocks of %ld exceeds maximum of %d\n", totalBlocks, MAX_NUM_BLOCKS);
+        totalBlocks = MAX_NUM_BLOCKS;
+    } else if (totalBlocks < MIN_NUM_BLOCKS) {
+        totalBlocks = MIN_NUM_BLOCKS;
     }
 
-    mOutputQ = simpleQueueAlloc(mTotalBlocks, sizeof(struct HostIntfDataBuffer), queueDiscard);
-    mActiveSensorTable = heapAlloc(mNumSensors * sizeof(struct ActiveSensor));
-    memset(mActiveSensorTable, 0x00, mNumSensors * sizeof(struct ActiveSensor));
+    mOutputQ = simpleQueueAlloc(totalBlocks, sizeof(struct HostIntfDataBuffer), queueDiscard);
+    mActiveSensorTable = heapAlloc(numSensors * sizeof(struct ActiveSensor));
+    memset(mActiveSensorTable, 0x00, numSensors * sizeof(struct ActiveSensor));
 
     for (i = SENS_TYPE_INVALID; i < SENS_TYPE_LAST_USER; i++) {
         mSensorList[i] = MAX_REGISTERED_SENSORS;
     }
 
-    for (i = SENS_TYPE_INVALID + 1, j = 0; i <= SENS_TYPE_LAST_USER && j < mNumSensors; i++) {
-        if ((si = sensorFind(i, 0, &handle)) != NULL && !(si->flags1 & SENSOR_INFO_FLAGS1_LOCAL_ONLY)) {
+    for (i = SENS_TYPE_INVALID + 1, j = 0; i <= SENS_TYPE_LAST_USER && j < numSensors; i++) {
+        if (atomicBitsetGetBit(sensorPresent, i - 1)
+            && (si = sensorFind(i, 0, &handle)) != NULL
+            && !(si->flags1 & SENSOR_INFO_FLAGS1_LOCAL_ONLY)) {
             mSensorList[i - 1] = j;
             resetBuffer(mActiveSensorTable + j);
             mActiveSensorTable[j].buffer.sensType = i;
@@ -776,6 +781,9 @@ static bool initSensors()
             j++;
         }
     }
+
+    mTotalBlocks = totalBlocks;
+    mNumSensors = numSensors;
 
     return true;
 }
