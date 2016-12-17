@@ -110,6 +110,7 @@ static void fatalUsage(const char *name, const char *msg, const char *arg)
                     "       -i <layout id>   : 1 (app), 2 (key), 3 (os)\n"
                     "       -f <layout flags>: 16-bit hex value, stored as layout-specific flags\n"
                     "       -a <app ID>      : 64-bit hex number != 0\n"
+                    "       -e <app version> : 32-bit hex number\n"
                     "       -k <key ID>      : 64-bit hex number != 0\n"
                     "       -r               : bare (no AOSP header); used only for inner OS image generation\n"
                     "       -s               : treat input as statically linked ELF (app layout only)\n"
@@ -284,7 +285,7 @@ static int finalizeAndWrite(uint8_t *buf, uint32_t bufUsed, uint32_t bufSz, FILE
     return ret;
 }
 
-static int handleApp(uint8_t **pbuf, uint32_t bufUsed, FILE *out, uint32_t layoutFlags, uint64_t appId, bool verbose)
+static int handleApp(uint8_t **pbuf, uint32_t bufUsed, FILE *out, uint32_t layoutFlags, uint64_t appId, uint32_t appVer, bool verbose)
 {
     uint32_t i, numRelocs, numSyms, outNumRelocs = 0, packedNanoRelocSz;
     struct NanoRelocEntry *nanoRelocs = NULL;
@@ -317,6 +318,7 @@ static int handleApp(uint8_t **pbuf, uint32_t bufUsed, FILE *out, uint32_t layou
     }
 
     sect = &bin->sect;
+    bin->hdr.appVer = appVer;
 
     //do some math
     relocs = (struct RelocEntry*)(buf + sect->rel_start - FLASH_BASE);
@@ -784,7 +786,7 @@ out:
     return success;
 }
 
-static int handleAppStatic(const char *fileName, FILE *out, uint32_t layoutFlags, uint64_t appId, bool verbose)
+static int handleAppStatic(const char *fileName, FILE *out, uint32_t layoutFlags, uint64_t appId, uint32_t appVer, bool verbose)
 {
     struct ElfNanoApp app;
 
@@ -819,6 +821,7 @@ static int handleAppStatic(const char *fileName, FILE *out, uint32_t layoutFlags
     // Update rel_end in the header to reflect the packed reloc size
     struct BinHdr *hdr = (struct BinHdr *) buf;
     hdr->sect.rel_end = hdr->sect.rel_start + app.packedNanoRelocs.size;
+    hdr->hdr.appVer = appVer;
 
     return finalizeAndWrite(buf, offset, bufSize, out, layoutFlags, appId);
     // TODO: should free all memory we allocated... just letting the OS handle
@@ -892,6 +895,7 @@ int main(int argc, char **argv)
     uint8_t *buf = NULL;
     uint64_t appId = 0;
     uint64_t keyId = 0;
+    uint32_t appVer = 0;
     uint32_t layoutId = 0;
     uint32_t layoutFlags = 0;
     int ret = -1;
@@ -919,6 +923,8 @@ int main(int argc, char **argv)
                 staticElf = true;
             else if (!strcmp(argv[i], "-a"))
                 u64Arg = &appId;
+            else if (!strcmp(argv[i], "-e"))
+                u32Arg = &appVer;
             else if (!strcmp(argv[i], "-k"))
                 u64Arg = &keyId;
             else if (!strcmp(argv[i], "-n"))
@@ -994,9 +1000,9 @@ int main(int argc, char **argv)
     switch(layoutId) {
     case LAYOUT_APP:
         if (staticElf) {
-            ret = handleAppStatic(posArg[0], out, layoutFlags, appId, verbose);
+            ret = handleAppStatic(posArg[0], out, layoutFlags, appId, appVer, verbose);
         } else {
-            ret = handleApp(&buf, bufUsed, out, layoutFlags, appId, verbose);
+            ret = handleApp(&buf, bufUsed, out, layoutFlags, appId, appVer, verbose);
         }
         break;
     case LAYOUT_KEY:

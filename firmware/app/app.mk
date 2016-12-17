@@ -213,14 +213,18 @@ $(IMAGE_TARGET_OUT): $(OUT)/$(BIN).napp
 	cp $< $(IMAGE_TARGET_OUT)
 endif
 
+ifeq ($(APP_VERSION),)
+APP_VERSION := 0
+endif
+
 ifeq ($(BIN_MODE),static)
 $(OUT)/$(UNSIGNED_BIN) : $(OUT)/$(BIN).elf $(NANOAPP_POSTPROCESS)
 	@mkdir -p $(dir $@)
-	$(NANOAPP_POSTPROCESS) -s -a $(APP_ID) -v $(BIN_POSTPROCESS_ARGS) $< $@
+	$(NANOAPP_POSTPROCESS) -s -a $(APP_ID) -e $(APP_VERSION) -v $(BIN_POSTPROCESS_ARGS) $< $@
 else
 $(OUT)/$(UNSIGNED_BIN) : $(OUT)/$(BIN).bin $(NANOAPP_POSTPROCESS)
 	@mkdir -p $(dir $@)
-	$(NANOAPP_POSTPROCESS) -a $(APP_ID) -v $(BIN_POSTPROCESS_ARGS) $< $@
+	$(NANOAPP_POSTPROCESS) -a $(APP_ID) -e $(APP_VERSION) -v $(BIN_POSTPROCESS_ARGS) $< $@
 
 $(OUT)/$(BIN).bin : $(OUT)/$(BIN).elf
 	@mkdir -p $(dir $@)

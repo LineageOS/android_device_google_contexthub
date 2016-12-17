@@ -63,6 +63,10 @@ endif
 LOCAL_ADDITIONAL_DEPENDENCIES += $(linker_script)
 LOCAL_LDFLAGS += -T $(linker_script)
 
+ifneq ($(LOCAL_NANO_APP_VERSION),)
+LOCAL_NANO_APP_POSTPROCESS_FLAGS += -e $(LOCAL_NANO_APP_VERSION)
+endif
+
 $(nanohub_checked_elf): $(nanohub_unchecked_elf)
 	$(hide)echo "nanohub Symcheck $@ <= $<"
 	$(copy-file-to-target)
