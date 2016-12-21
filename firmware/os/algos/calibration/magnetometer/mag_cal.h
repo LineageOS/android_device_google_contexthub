@@ -19,7 +19,9 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <sys/types.h>
+#ifdef DIVERSITY_CHECK_ENABLED
 #include "calibration/common/diversity_checker.h"
+#endif
 #include "common/math/mat.h"
 #include "common/math/vec.h"
 
@@ -35,7 +37,9 @@ struct KasaFit {
 };
 
 struct MagCal {
+#ifdef DIVERSITY_CHECK_ENABLED
   struct DiversityChecker diversity_checker;
+#endif
   struct KasaFit kasa;
 
   uint64_t start_time;
@@ -49,6 +53,7 @@ struct MagCal {
 
 void initKasa(struct KasaFit *kasa);
 
+#ifdef DIVERSITY_CHECK_ENABLED
 void initMagCal(struct MagCal *moc, float x_bias, float y_bias, float z_bias,
                 float c00, float c01, float c02, float c10, float c11,
                 float c12, float c20, float c21, float c22,
@@ -57,6 +62,11 @@ void initMagCal(struct MagCal *moc, float x_bias, float y_bias, float z_bias,
                 size_t max_num_max_distance,
                 float var_threshold,
                 float max_min_threshold);
+#else
+void initMagCal(struct MagCal *moc, float x_bias, float y_bias, float z_bias,
+                float c00, float c01, float c02, float c10, float c11,
+                float c12, float c20, float c21, float c22);
+#endif
 
 void magCalDestroy(struct MagCal *moc);
 

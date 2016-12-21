@@ -19,18 +19,29 @@
 #include <nanohub_math.h>
 #include <string.h>
 
+#ifdef MAG_CAL_ORIGINAL_TUNING
 #define MAX_EIGEN_RATIO 25.0f
-#define MAX_EIGEN_MAG 80.0f  // uT
-#define MIN_EIGEN_MAG 10.0f  // uT
-
+#define MAX_EIGEN_MAG 80.0f          // uT
+#define MIN_EIGEN_MAG 10.0f          // uT
 #define MAX_FIT_MAG 80.0f
 #define MIN_FIT_MAG 10.0f
-
 #define MIN_BATCH_WINDOW 1000000UL   // 1 sec
 #define MAX_BATCH_WINDOW 15000000UL  // 15 sec
 #define MIN_BATCH_SIZE 25            // samples
+#else
+#define MAX_EIGEN_RATIO 15.0f
+#define MAX_EIGEN_MAG 60.0f          // uT
+#define MIN_EIGEN_MAG 30.0f          // uT
+#define MAX_FIT_MAG 70.0f
+#define MIN_FIT_MAG 20.0f
+#define MIN_BATCH_WINDOW 3000000UL   // 3 sec
+#define MAX_BATCH_WINDOW 15000000UL  // 15 sec
+#define MIN_BATCH_SIZE 25            // samples
+#endif
 
+#ifdef DIVERSITY_CHECK_ENABLED
 #define MAX_DISTANCE_VIOLATIONS 2
+#endif
 
 // eigen value magnitude and ratio test
 static int moc_eigen_test(struct KasaFit *kasa) {
@@ -125,7 +136,9 @@ void magKasaReset(struct KasaFit *kasa) {
 
 void magCalReset(struct MagCal *moc) {
   magKasaReset(&moc->kasa);
+#ifdef DIVERSITY_CHECK_ENABLED
   diversityCheckerReset(&moc->diversity_checker);
+#endif
   moc->start_time = 0;
 }
 
@@ -136,9 +149,13 @@ static int moc_batch_complete(struct MagCal *moc, uint64_t sample_time_us) {
       (moc->kasa.nsamples > MIN_BATCH_SIZE)) {
     complete = 1;
 
-  } else if (sample_time_us - moc->start_time > MAX_BATCH_WINDOW ||
+  } else if (sample_time_us - moc->start_time > MAX_BATCH_WINDOW
+#ifdef DIVERSITY_CHECK_ENABLED
+             ||
              moc->diversity_checker.num_max_dist_violations
-             >= MAX_DISTANCE_VIOLATIONS) {
+             >= MAX_DISTANCE_VIOLATIONS
+#endif
+             ) {
     // not enough samples collected in MAX_BATCH_WINDOW or too many
     // maximum distance violations detected.
     magCalReset(moc);
@@ -153,12 +170,15 @@ void initKasa(struct KasaFit *kasa) {
 
 void initMagCal(struct MagCal *moc, float x_bias, float y_bias, float z_bias,
                 float c00, float c01, float c02, float c10, float c11,
-                float c12, float c20, float c21, float c22,
-                float threshold, float max_distance,
-                size_t min_num_diverse_vectors,
-                size_t max_num_max_distance,
-                float var_threshold,
-                float max_min_threshold) {
+                float c12, float c20, float c21, float c22
+#ifdef DIVERSITY_CHECK_ENABLED
+                ,float threshold, float max_distance
+                ,size_t min_num_diverse_vectors
+                ,size_t max_num_max_distance
+                ,float var_threshold
+                ,float max_min_threshold
+#endif
+                ) {
   magCalReset(moc);
   moc->update_time = 0;
   moc->radius = 0.0f;
@@ -177,6 +197,7 @@ void initMagCal(struct MagCal *moc, float x_bias, float y_bias, float z_bias,
   moc->c21 = c21;
   moc->c22 = c22;
 
+#ifdef DIVERSITY_CHECK_ENABLED
   // Diversity Checker Init
   diversityCheckerInit(&moc->diversity_checker,
                        threshold,
@@ -185,6 +206,7 @@ void initMagCal(struct MagCal *moc, float x_bias, float y_bias, float z_bias,
                        max_num_max_distance,
                        var_threshold,
                        max_min_threshold);
+#endif
 }
 
 void magCalDestroy(struct MagCal *moc) { (void)moc; }
@@ -193,8 +215,10 @@ bool magCalUpdate(struct MagCal *moc, uint64_t sample_time_us, float x, float y,
                   float z) {
   bool new_bias = false;
 
+#ifdef DIVERSITY_CHECK_ENABLED
   // Diversity Checker Update.
   diversityCheckerUpdate(&moc->diversity_checker, x, y, z);
+#endif
 
   // 1. run accumulators
   float w = x * x + y * y + z * z;
@@ -248,10 +272,12 @@ bool magCalUpdate(struct MagCal *moc, uint64_t sample_time_us, float x, float y,
 
       // 4. Kasa sphere fitting
       if (magKasaFit(&moc->kasa, &bias, &radius)) {
+#ifdef DIVERSITY_CHECK_ENABLED
         if (diversityCheckerNormQuality(&moc->diversity_checker,
                                         bias.x,
                                         bias.y,
                                         bias.z)) {
+#endif
           moc->x_bias = bias.x;
           moc->y_bias = bias.y;
           moc->z_bias = bias.z;
@@ -260,7 +286,9 @@ bool magCalUpdate(struct MagCal *moc, uint64_t sample_time_us, float x, float y,
           moc->update_time = sample_time_us;
 
           new_bias = true;
+#ifdef DIVERSITY_CHECK_ENABLED
         }
+#endif
       }
     }
 
