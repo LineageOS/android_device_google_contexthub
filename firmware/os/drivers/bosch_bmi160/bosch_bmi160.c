@@ -3627,16 +3627,23 @@ static bool startTask(uint32_t task_id)
 #endif  // GYRO_CAL_ENABLED
 
 #ifdef MAG_SLAVE_PRESENT
+#ifdef DIVERSITY_CHECK_ENABLED
     initMagCal(&mTask.moc, 0.0f, 0.0f, 0.0f,  // bias x, y, z
                1.0f, 0.0f, 0.0f,              // c00, c01, c02
                0.0f, 1.0f, 0.0f,              // c10, c11, c12
                0.0f, 0.0f, 1.0f,              // c20, c21, c22
-               600.0f,                        // threshold
-               11000.0f,                      // max_distance
-               8,                             // min_num_diverse_vectors
+               500.0f,                        // threshold
+               15000.0f,                      // max_distance
+               7,                             // min_num_diverse_vectors
                1,                             // max_num_max_distance
                6.0f,                          // var_threshold
                10.0f);                        // max_min_threshold
+#else
+    initMagCal(&mTask.moc, 0.0f, 0.0f, 0.0f,  // bias x, y, z
+               1.0f, 0.0f, 0.0f,              // c00, c01, c02
+               0.0f, 1.0f, 0.0f,              // c10, c11, c12
+               0.0f, 0.0f, 1.0f);             // c20, c21, c22
+#endif
 #endif
 
     slabSize = sizeof(struct TripleAxisDataEvent) +
