@@ -130,21 +130,20 @@ LOCAL_CFLAGS += -DDOUBLE_TOUCH_ENABLED
 endif
 
 LOCAL_C_INCLUDES += \
-	device/google/contexthub/firmware/os/inc \
-	device/google/contexthub/util/common
+    device/google/contexthub/firmware/os/inc
 
 LOCAL_SRC_FILES := \
-	hubconnection.cpp \
-	../util/common/file.cpp \
-	../util/common/JSONObject.cpp \
-	../util/common/ring.cpp
+    hubconnection.cpp
+
+LOCAL_STATIC_LIBRARIES := \
+    libhubutilcommon
 
 LOCAL_SHARED_LIBRARIES := \
-	libcutils \
-	liblog \
-	libstagefright_foundation \
-	libhardware_legacy \
-	libutils
+    libcutils \
+    liblog \
+    libstagefright_foundation \
+    libhardware_legacy \
+    libutils
 
 include $(BUILD_SHARED_LIBRARY)
 
