@@ -794,7 +794,9 @@ ssize_t HubConnection::processBuf(uint8_t *buf, size_t len)
             one = true;
             break;
         case SENS_TYPE_TO_EVENT(SENS_TYPE_TEMP):
-            type = SENSOR_TYPE_AMBIENT_TEMPERATURE;
+            // nanohub only has one temperature sensor type, which is mapped to
+            // internal temp because we currently don't have ambient temp
+            type = SENSOR_TYPE_INTERNAL_TEMPERATURE;
             sensor = COMMS_SENSOR_TEMPERATURE;
             one = true;
             break;
