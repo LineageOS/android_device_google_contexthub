@@ -313,11 +313,12 @@ static inline void osTaskEnd(struct Task *task)
     osSetCurrentTask(preempted);
 }
 
-static inline void osTaskHandle(struct Task *task, uint32_t evtType, const void* evtData)
+static inline void osTaskHandle(struct Task *task, uint16_t evtType, uint16_t fromTid, const void* evtData)
 {
     struct Task *preempted = osSetCurrentTask(task);
     cpuAppHandle(task->app, &task->platInfo,
-                 osTaskIsChre(task) ? evtType : EVENT_GET_EVENT(evtType), evtData);
+                 EVENT_WITH_ORIGIN(evtType, osTaskIsChre(task) ? fromTid : 0),
+                 evtData);
     osSetCurrentTask(preempted);
 }
 
@@ -367,7 +368,7 @@ static void handleEventFreeing(uint32_t evtType, void *evtData, TaggedPtr evtFre
     } else {
         // this is for external non-CHRE tasks
         struct AppEventFreeData fd = {.evtType = evtType, .evtData = evtData};
-        osTaskHandle(srcTask, EVT_APP_FREE_EVT_DATA, &fd);
+        osTaskHandle(srcTask, EVT_APP_FREE_EVT_DATA, OS_SYSTEM_TID, &fd);
     }
     osTaskAddIoCount(srcTask, -1);
 }
@@ -704,7 +705,7 @@ static bool osStopTask(struct Task *task)
 
     if (osTaskGetIoCount(task))
     {
-        osTaskHandle(task, EVT_APP_STOP, NULL);
+        osTaskHandle(task, EVT_APP_STOP, OS_SYSTEM_TID, NULL);
         osEnqueueEvtOrFree(EVT_APP_END, task, NULL);
     } else {
         osTaskEnd(task); // calls app END() and Release()
@@ -985,13 +986,13 @@ static void osInternalEvtHandle(uint32_t evtType, void *evtData)
 
     case EVT_PRIVATE_EVT:
         task = osTaskFindByTid(da->privateEvt.toTid);
-        evtType = EVENT_WITH_ORIGIN(da->privateEvt.evtType & EVT_MASK, da->privateEvt.fromTid);
+        evtType = da->privateEvt.evtType & EVT_MASK;
         evtData = da->privateEvt.evtData;
         if (task) {
             //private events cannot be retained
             TaggedPtr *tmp = mCurEvtEventFreeingInfo;
             mCurEvtEventFreeingInfo = NULL;
-            osTaskHandle(task, evtType, da->privateEvt.evtData);
+            osTaskHandle(task, evtType, da->privateEvt.fromTid, da->privateEvt.evtData);
             mCurEvtEventFreeingInfo = tmp;
         }
         if ((da->privateEvt.evtType >> 16) == EVT_PRIVATE_CLASS_CHRE) {
@@ -1054,7 +1055,7 @@ void osMainDequeueLoop(void)
     uint32_t evtType, j;
     void *evtData;
     struct Task *task;
-    uint16_t evt;
+    uint16_t tid, evt;
 
     /* get an event */
     if (!evtQueueDequeue(mEvtsInternal, &evtType, &evtData, &evtFreeingInfo, true))
@@ -1062,6 +1063,7 @@ void osMainDequeueLoop(void)
 
     /* by default we free them when we're done with them */
     mCurEvtEventFreeingInfo = &evtFreeingInfo;
+    tid = EVENT_GET_ORIGIN(evtType);
     evt = EVENT_GET_EVENT(evtType);
 
     if (evt < EVT_NO_FIRST_USER_EVENT) {
@@ -1072,7 +1074,7 @@ void osMainDequeueLoop(void)
         for_each_task(&mTasks, task) {
             for (j = 0; j < task->subbedEvtCount; j++) {
                 if (task->subbedEvents[j] == evt) {
-                    osTaskHandle(task, evtType, evtData);
+                    osTaskHandle(task, evt, tid, evtData);
                     break;
                 }
             }
