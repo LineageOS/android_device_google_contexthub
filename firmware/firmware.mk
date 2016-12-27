@@ -63,6 +63,7 @@ FLAGS += -Wall -Werror -fshort-double
 FLAGS += -Wmissing-declarations -Wlogical-op -Waddress -Wempty-body -Wpointer-arith -Wenum-compare -Wdouble-promotion -Wfloat-equal -Wshadow -fno-strict-aliasing
 
 OSFLAGS += -g -ggdb3 -D_OS_BUILD_ -O2
+OSFLAGS_os += -DUSE_PRINTF_FLAG_CHARS
 
 #debug mode
 FLAGS += $(DEBUG)

@@ -20,7 +20,8 @@ LOCAL_CFLAGS += \
     -g \
     -ggdb3 \
     -D_OS_BUILD_ \
-    -O2
+    -DUSE_PRINTF_FLAG_CHARS \
+    -O2 \
 
 LOCAL_CFLAGS_x86 += \
     -m32
