@@ -295,7 +295,7 @@ static void osTaskRelease(struct Task *task)
     osSetCurrentTask(mSystemTask);
 
     platFreeResources(tid); // HW resources cleanup (IRQ, DMA etc)
-    sensorUnregisterAll(tid);
+    sensorFreeAll(tid);
     timTimerCancelAll(tid);
     heapFreeAll(tid);
 }
@@ -686,7 +686,7 @@ static bool osStartApp(const struct AppHdr *app)
         done = osTaskInit(task);
 
         if (!done) {
-            osLog(LOG_WARN, "App @ %p ID %016" PRIX64 "failed to init\n", task->app, task->app->hdr.appId);
+            osLog(LOG_WARN, "App @ %p ID %016" PRIX64 " failed to init\n", task->app, task->app->hdr.appId);
             osUnloadApp(task);
         } else {
             osAddTask(task);

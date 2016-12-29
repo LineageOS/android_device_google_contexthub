@@ -266,6 +266,7 @@ const struct SensorInfo* sensorFind(uint32_t sensorType, uint32_t idx, uint32_t 
 bool sensorRequest(uint32_t clientTid, uint32_t sensorHandle, uint32_t rate, uint64_t latency);
 bool sensorRequestRateChange(uint32_t clientTid, uint32_t sensorHandle, uint32_t newRate, uint64_t newLatency);
 bool sensorRelease(uint32_t clientTid, uint32_t sensorHandle);
+uint32_t sensorFreeAll(uint32_t clientTid);
 bool sensorTriggerOndemand(uint32_t clientTid, uint32_t sensorHandle);
 bool sensorFlush(uint32_t sensorHandle);
 bool sensorCalibrate(uint32_t sensorHandle);
@@ -276,7 +277,6 @@ uint64_t sensorGetCurLatency(uint32_t sensorHandle);
 uint64_t sensorGetTime(void);
 bool sensorGetInitComplete(uint32_t sensorHandle); // DO NOT poll on this value
 bool sensorMarshallEvent(uint32_t sensorHandle, uint32_t evtType, void *evtData, TaggedPtr *evtFreeingInfoP);
-int sensorUnregisterAll(uint32_t tid);
 
 /*
  * convenience funcs

@@ -115,7 +115,7 @@ static void osChreApiTimerCancel(uintptr_t *retValP, va_list args)
 static inline void osChreAbort(uint32_t abortCode)
 {
     struct Task *task = osGetCurrentTask();
-    osLog(LOG_ERROR, "APP ID=0x%" PRIX64 "TID=0x%" PRIX16 " aborted [code 0x%" PRIX32 "]",
+    osLog(LOG_ERROR, "APP ID=0x%" PRIX64 " TID=0x%" PRIX16 " aborted [code 0x%" PRIX32 "]",
           task->app->hdr.appId, task->tid, abortCode);
     osTaskAbort(task);
 }

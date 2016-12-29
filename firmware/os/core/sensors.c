@@ -710,6 +710,29 @@ bool sensorRelease(uint32_t unusedTid, uint32_t sensorHandle)
     return true;
 }
 
+uint32_t sensorFreeAll(uint32_t clientTid)
+{
+    int i;
+    uint16_t count1 = 0, count2 = 0;
+    struct Sensor *s;
+
+    for (i = 0; i < MAX_REGISTERED_SENSORS; i++) {
+        if (mSensors[i].handle) {
+            s = mSensors + i;
+            if (sensorDeleteRequestor(s->handle, clientTid)) {
+                sensorReconfig(s, sensorCalcHwRate(s, 0, 0), sensorCalcHwLatency(s));
+                count1 ++;
+            }
+            if (HANDLE_TO_TID(s->handle) == clientTid) {
+                sensorUnregister(s->handle);
+                count2 ++;
+            }
+        }
+    }
+
+    return (count1 << 16) | count2;
+}
+
 bool sensorTriggerOndemand(uint32_t unusedTid, uint32_t sensorHandle)
 {
     struct Sensor* s = sensorFindByHandle(sensorHandle);
@@ -808,17 +831,4 @@ bool sensorMarshallEvent(uint32_t sensorHandle, uint32_t evtType, void *evtData,
         return false;
 
     return sensorCallFuncMarshall(s, evtType, evtData, evtFreeingInfoP);
-}
-
-int sensorUnregisterAll(uint32_t tid)
-{
-    int i, count = 0;
-
-    for (i = 0; i < MAX_REGISTERED_SENSORS; i++)
-        if (HANDLE_TO_TID(mSensors[i].handle) == tid) {
-            sensorUnregister(mSensors[i].handle);
-            count++;
-        }
-
-    return count;
 }
