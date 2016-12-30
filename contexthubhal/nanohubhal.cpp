@@ -146,6 +146,17 @@ static void wait_on_dev_lock(pollfd &pfd) {
     }
 }
 
+NanoHub::NanoHub() {
+    reset();
+}
+
+NanoHub::~NanoHub() {
+    if (mMsgCbkFunc) {
+        ALOGD("Shutting down");
+        closeHub();
+    }
+}
+
 int NanoHub::doSendToDevice(const hub_app_name_t name, const void *data, uint32_t len, uint32_t messageType)
 {
     if (len > MAX_RX_PACKET) {

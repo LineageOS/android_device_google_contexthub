@@ -90,9 +90,8 @@ class NanoHub {
     int mFd; // [0] is read end
     void * mMsgCbkData;
 
-    NanoHub() {
-        reset();
-    }
+    NanoHub();
+    ~NanoHub();
 
     void reset() {
         mThreadClosingPipe[0] = -1;
