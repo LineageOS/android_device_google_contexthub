@@ -34,6 +34,8 @@
 #include <chre.h>
 #include <chreApi.h>
 
+#define MINIMUM_INTERVAL_DEFAULT_HZ SENSOR_HZ(1.0f)
+
 /*
  * This is to ensure that message size and some extra headers will stay representable with 1 byte
  * Code relies on that in many places.
@@ -240,9 +242,12 @@ static bool osChreSensorGetInfo(uint32_t sensorHandle, struct chreSensorInfo *in
     info->sensorType = si->sensorType;
     info->unusedFlags = 0;
 
-    // TODO: check if the two lines below deliver intended semantics
+    if (si->sensorType == CHRE_SENSOR_TYPE_INSTANT_MOTION_DETECT
+        || si->sensorType == CHRE_SENSOR_TYPE_STATIONARY_DETECT)
+        info->isOneShot = true;
+    else
+        info->isOneShot = false;
     info->isOnChange = s->hasOnchange;
-    info->isOneShot = s->hasOndemand;
 
     return true;
 }
@@ -261,15 +266,16 @@ static bool osChreSensorGetSamplingStatus(uint32_t sensorHandle,
     if (!s || !status)
         return false;
 
-    if (s->currentRate == SENSOR_RATE_OFF) {
+    if (s->currentRate == SENSOR_RATE_OFF
+        || s->currentRate >= SENSOR_RATE_POWERING_ON) {
         status->enabled = 0;
         status->interval = 0;
         status->latency = 0;
     } else {
         status->enabled = true;
-        if ((s->currentRate == SENSOR_RATE_ONDEMAND ||
-             s->currentRate == SENSOR_RATE_ONCHANGE ||
-             s->currentRate == SENSOR_RATE_ONESHOT))
+        if (s->currentRate == SENSOR_RATE_ONDEMAND
+            || s->currentRate == SENSOR_RATE_ONCHANGE
+            || s->currentRate == SENSOR_RATE_ONESHOT)
             status->interval = CHRE_SENSOR_INTERVAL_DEFAULT;
         else
             status->interval = (UINT32_C(1024000000) / s->currentRate) * UINT64_C(1000);
@@ -297,20 +303,26 @@ static bool osChreSensorConfigure(uint32_t sensorHandle,
     uint32_t rate, interval_us;
     bool ret;
     struct Sensor *s = sensorFindByHandle(sensorHandle);
+    int i;
     if (!s)
         return false;
 
     if (mode & CHRE_SENSOR_CONFIGURE_RAW_POWER_ON) {
         if (interval == CHRE_SENSOR_INTERVAL_DEFAULT) {
-            // use first rate in supported rates list
+            // use first rate in supported rates list > minimum (if avaliable)
             const struct SensorInfo *si = s->si;
             if (!si)
                 return false;
 
             if (!si->supportedRates || si->supportedRates[0] == 0)
                 rate = SENSOR_RATE_ONCHANGE;
-            else
-                rate = si->supportedRates[0];
+            else {
+                for (i = 0; si->supportedRates[i] != 0; i++) {
+                    rate = si->supportedRates[i];
+                    if (rate >= MINIMUM_INTERVAL_DEFAULT_HZ)
+                        break;
+                }
+            }
         } else {
             interval_us = U64_DIV_BY_CONST_U16(interval, 1000);
             rate = UINT32_C(1024000000) / interval_us;
@@ -328,8 +340,10 @@ static bool osChreSensorConfigure(uint32_t sensorHandle,
             ret = sensorRequestRateChange(0, sensorHandle, rate, latency);
         }
     } else if (mode & (CHRE_SENSOR_CONFIGURE_RAW_REPORT_CONTINUOUS|CHRE_SENSOR_CONFIGURE_RAW_REPORT_ONE_SHOT)) {
-        // TODO: ONE_SHOT: unsubscribe after receiving a sample
-        if (s->currentRate == SENSOR_RATE_OFF)
+        if (interval != CHRE_SENSOR_INTERVAL_DEFAULT
+            || latency != CHRE_SENSOR_LATENCY_DEFAULT)
+            ret = false;
+        else if (s->currentRate == SENSOR_RATE_OFF)
             ret = osEventSubscribe(0, sensorGetMyEventType(s->si->sensorType));
         else
             ret = true;

@@ -116,6 +116,8 @@ static void processSingleAxisData(const struct SingleAxisDataEvent *src, uint32_
             if (i > 0)
                 byte.header.baseTimestamp += src->samples[i].deltaTime;
             byte.readings[0].isNear = src->samples[i].fdata == 0.0f;
+            byte.readings[0].invalid = false;
+            byte.readings[0].padding0 = 0;
 
             nanoappHandleEvent(CHRE_INSTANCE_ID, CHRE_EVENT_SENSOR_DATA_EVENT_BASE | sensorType, &byte);
         }
@@ -156,6 +158,8 @@ static void processEmbeddedData(const void *src, uint32_t sensorHandle, uint8_t 
         initDataHeader(&byte.header, eOsSensorGetTime(), sensorHandle);
         byte.readings[0].timestampDelta = 0;
         byte.readings[0].isNear = data.fdata == 0.0f;
+        byte.readings[0].invalid = false;
+        byte.readings[0].padding0 = 0;
 
         nanoappHandleEvent(CHRE_INSTANCE_ID, CHRE_EVENT_SENSOR_DATA_EVENT_BASE | sensorType, &byte);
         break;
@@ -180,6 +184,12 @@ static void chreappProcessSensorData(uint16_t evt, const void *eventData)
         case NUM_AXIS_THREE:
             processTripleAxisData(eventData, sensorHandle, SENSOR_TYPE(evt));
             break;
+        }
+
+        if (SENSOR_TYPE(evt) == CHRE_SENSOR_TYPE_INSTANT_MOTION_DETECT
+            || SENSOR_TYPE(evt) == CHRE_SENSOR_TYPE_STATIONARY_DETECT) {
+            // one-shot, disable after receiving sample
+            chreSensorConfigure(sensorHandle, CHRE_SENSOR_CONFIGURE_MODE_DONE, CHRE_SENSOR_INTERVAL_DEFAULT, CHRE_SENSOR_LATENCY_DEFAULT);
         }
     }
 }
