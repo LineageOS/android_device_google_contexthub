@@ -331,7 +331,7 @@ static bool osChreSensorConfigure(uint32_t sensorHandle,
             rate = 1;
         if (latency == CHRE_SENSOR_LATENCY_DEFAULT)
             latency = 0ULL;
-        if (s->currentRate == SENSOR_RATE_OFF) {
+        if (sensorGetReqRate(sensorHandle) == SENSOR_RATE_OFF) {
             if ((ret = sensorRequest(0, sensorHandle, rate, latency)))
                 ret = osEventSubscribe(0, sensorGetMyEventType(s->si->sensorType));
             else
@@ -343,16 +343,16 @@ static bool osChreSensorConfigure(uint32_t sensorHandle,
         if (interval != CHRE_SENSOR_INTERVAL_DEFAULT
             || latency != CHRE_SENSOR_LATENCY_DEFAULT)
             ret = false;
-        else if (s->currentRate == SENSOR_RATE_OFF)
+        else if (sensorGetReqRate(sensorHandle) == SENSOR_RATE_OFF)
             ret = osEventSubscribe(0, sensorGetMyEventType(s->si->sensorType));
         else
             ret = true;
     } else {
-        if (s->currentRate != SENSOR_RATE_OFF) {
+        if (sensorGetReqRate(sensorHandle) != SENSOR_RATE_OFF) {
             if ((ret = sensorRelease(0, sensorHandle)))
                 ret = osEventUnsubscribe(0, sensorGetMyEventType(s->si->sensorType));
         } else {
-            ret = true;
+            ret = osEventUnsubscribe(0, sensorGetMyEventType(s->si->sensorType));
         }
     }
 
