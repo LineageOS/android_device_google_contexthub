@@ -935,7 +935,7 @@ static void osInternalEvtHandle(uint32_t evtType, void *evtData)
 {
     union SeosInternalSlabData *da = (union SeosInternalSlabData*)evtData;
     struct Task *task;
-    uint32_t i;
+    uint32_t i, j;
     uint16_t tid = EVENT_GET_ORIGIN(evtType);
     uint16_t evt = EVENT_GET_EVENT(evtType);
     struct Task *srcTask = osTaskFindByTid(tid);
@@ -949,27 +949,29 @@ static void osInternalEvtHandle(uint32_t evtType, void *evtData)
         if (!task)
             break;
 
-        /* find if subscribed to this evt */
-        for (i = 0; i < task->subbedEvtCount && task->subbedEvents[i] != da->evtSub.evt; i++);
+        for (j = 0; j < da->evtSub.numEvts; j++) {
+            /* find if subscribed to this evt */
+            for (i = 0; i < task->subbedEvtCount && task->subbedEvents[i] != da->evtSub.evts[j]; i++);
 
-        /* if unsub & found -> unsub */
-        if (evt == EVT_UNSUBSCRIBE_TO_EVT && i != task->subbedEvtCount)
-            task->subbedEvents[i] = task->subbedEvents[--task->subbedEvtCount];
-        /* if sub & not found -> sub */
-        else if (evt == EVT_SUBSCRIBE_TO_EVT && i == task->subbedEvtCount) {
-            if (task->subbedEvtListSz == task->subbedEvtCount) { /* enlarge the list */
-                uint32_t newSz = (task->subbedEvtListSz * 3 + 1) / 2;
-                uint32_t *newList = heapAlloc(sizeof(uint32_t[newSz])); /* grow by 50% */
-                if (newList) {
-                    memcpy(newList, task->subbedEvents, sizeof(uint32_t[task->subbedEvtListSz]));
-                    if (task->subbedEvents != task->subbedEventsInt)
-                        heapFree(task->subbedEvents);
-                    task->subbedEvents = newList;
-                    task->subbedEvtListSz = newSz;
+            /* if unsub & found -> unsub */
+            if (evt == EVT_UNSUBSCRIBE_TO_EVT && i != task->subbedEvtCount)
+                task->subbedEvents[i] = task->subbedEvents[--task->subbedEvtCount];
+            /* if sub & not found -> sub */
+            else if (evt == EVT_SUBSCRIBE_TO_EVT && i == task->subbedEvtCount) {
+                if (task->subbedEvtListSz == task->subbedEvtCount) { /* enlarge the list */
+                    uint32_t newSz = (task->subbedEvtListSz * 3 + 1) / 2;
+                    uint32_t *newList = heapAlloc(sizeof(uint32_t[newSz])); /* grow by 50% */
+                    if (newList) {
+                        memcpy(newList, task->subbedEvents, sizeof(uint32_t[task->subbedEvtListSz]));
+                        if (task->subbedEvents != task->subbedEventsInt)
+                            heapFree(task->subbedEvents);
+                        task->subbedEvents = newList;
+                        task->subbedEvtListSz = newSz;
+                    }
                 }
-            }
-            if (task->subbedEvtListSz > task->subbedEvtCount) { /* have space ? */
-                task->subbedEvents[task->subbedEvtCount++] = da->evtSub.evt;
+                if (task->subbedEvtListSz > task->subbedEvtCount) { /* have space ? */
+                    task->subbedEvents[task->subbedEvtCount++] = da->evtSub.evts[j];
+                }
             }
         }
         break;
@@ -1105,28 +1107,68 @@ static void osDeferredActionFreeF(void* event)
     slabAllocatorFree(mMiscInternalThingsSlab, event);
 }
 
-static bool osEventSubscribeUnsubscribe(uint32_t tid, uint32_t evtType, bool sub)
+static bool osEventsSubscribeUnsubscribeV(bool sub, uint32_t numEvts, va_list ap)
 {
     union SeosInternalSlabData *act = slabAllocatorAlloc(mMiscInternalThingsSlab);
+    int i;
 
-    if (!act)
+    if (!act || numEvts > MAX_EVT_SUB_CNT)
         return false;
-    act->evtSub.evt = evtType;
-    act->evtSub.tid = tid;
+
+    act->evtSub.tid = osGetCurrentTid();
+    act->evtSub.numEvts = numEvts;
+    for (i = 0; i < numEvts; i++)
+        act->evtSub.evts[i] = va_arg(ap, uint32_t);
 
     return osEnqueueEvtOrFree(sub ? EVT_SUBSCRIBE_TO_EVT : EVT_UNSUBSCRIBE_TO_EVT, act, osDeferredActionFreeF);
+}
+
+static bool osEventsSubscribeUnsubscribe(bool sub, uint32_t numEvts, ...)
+{
+    bool ret;
+    va_list ap;
+
+    va_start(ap, numEvts);
+    ret = osEventsSubscribeUnsubscribeV(sub, numEvts, ap);
+    va_end(ap);
+
+    return ret;
 }
 
 bool osEventSubscribe(uint32_t tid, uint32_t evtType)
 {
     (void)tid;
-    return osEventSubscribeUnsubscribe(osGetCurrentTid(), evtType, true);
+    return osEventsSubscribeUnsubscribe(true, 1, evtType);
 }
 
 bool osEventUnsubscribe(uint32_t tid, uint32_t evtType)
 {
     (void)tid;
-    return osEventSubscribeUnsubscribe(osGetCurrentTid(), evtType, false);
+    return osEventsSubscribeUnsubscribe(false, 1, evtType);
+}
+
+bool osEventsSubscribe(uint32_t numEvts, ...)
+{
+    bool ret;
+    va_list ap;
+
+    va_start(ap, numEvts);
+    ret = osEventsSubscribeUnsubscribeV(true, numEvts, ap);
+    va_end(ap);
+
+    return ret;
+}
+
+bool osEventsUnsubscribe(uint32_t numEvts, ...)
+{
+    bool ret;
+    va_list ap;
+
+    va_start(ap, numEvts);
+    ret = osEventsSubscribeUnsubscribeV(false, numEvts, ap);
+    va_end(ap);
+
+    return ret;
 }
 
 static bool osEnqueueEvtCommon(uint32_t evt, void *evtData, TaggedPtr evtFreeInfo, bool urgent)

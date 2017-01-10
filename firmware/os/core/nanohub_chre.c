@@ -332,10 +332,10 @@ static bool osChreSensorConfigure(uint32_t sensorHandle,
         if (latency == CHRE_SENSOR_LATENCY_DEFAULT)
             latency = 0ULL;
         if (sensorGetReqRate(sensorHandle) == SENSOR_RATE_OFF) {
-            if ((ret = sensorRequest(0, sensorHandle, rate, latency)))
-                ret = osEventSubscribe(0, sensorGetMyEventType(s->si->sensorType));
-            else
-                sensorRelease(0, sensorHandle);
+            if ((ret = sensorRequest(0, sensorHandle, rate, latency))) {
+                if (!(ret = osEventsSubscribe(2, sensorGetMyEventType(s->si->sensorType), sensorGetMyCfgEventType(s->si->sensorType))))
+                    sensorRelease(0, sensorHandle);
+            }
         } else {
             ret = sensorRequestRateChange(0, sensorHandle, rate, latency);
         }
@@ -344,15 +344,15 @@ static bool osChreSensorConfigure(uint32_t sensorHandle,
             || latency != CHRE_SENSOR_LATENCY_DEFAULT)
             ret = false;
         else if (sensorGetReqRate(sensorHandle) == SENSOR_RATE_OFF)
-            ret = osEventSubscribe(0, sensorGetMyEventType(s->si->sensorType));
+            ret = osEventsSubscribe(2, sensorGetMyEventType(s->si->sensorType), sensorGetMyCfgEventType(s->si->sensorType));
         else
             ret = true;
     } else {
         if (sensorGetReqRate(sensorHandle) != SENSOR_RATE_OFF) {
             if ((ret = sensorRelease(0, sensorHandle)))
-                ret = osEventUnsubscribe(0, sensorGetMyEventType(s->si->sensorType));
+                ret = osEventsUnsubscribe(2, sensorGetMyEventType(s->si->sensorType), sensorGetMyCfgEventType(s->si->sensorType));
         } else {
-            ret = osEventUnsubscribe(0, sensorGetMyEventType(s->si->sensorType));
+            ret = osEventsUnsubscribe(2, sensorGetMyEventType(s->si->sensorType), sensorGetMyCfgEventType(s->si->sensorType));
         }
     }
 

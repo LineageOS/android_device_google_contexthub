@@ -128,6 +128,12 @@ struct UserSensorEventHdr {  //all user sensor events start with this struct
 
 #define SENSOR_DATA_EVENT_FLUSH (void *)0xFFFFFFFF // flush for all data
 
+struct SensorRateChangeEvent {
+    uint32_t sensorHandle;
+    uint32_t newRate;
+    uint64_t newLatency;
+};
+
 struct SensorPowerEvent {
     void *callData;
     bool on;
@@ -257,6 +263,7 @@ bool sensorUnregister(uint32_t handle); /* your job to be sure it is off already
 bool sensorSignalInternalEvt(uint32_t handle, uint32_t intEvtNum, uint32_t value1, uint64_t value2);
 
 #define sensorGetMyEventType(_sensorType) (EVT_NO_FIRST_SENSOR_EVENT + (_sensorType))
+#define sensorGetMyCfgEventType(_sensorType) (EVT_NO_SENSOR_CONFIG_EVENT + (_sensorType))
 
 
 /*
