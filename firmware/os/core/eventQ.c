@@ -48,6 +48,18 @@ struct EvtQueue {
     EvtQueueForciblyDiscardEvtCbkF forceDiscardCbk;
 };
 
+static inline void __evtListDel(struct EvtList *prev, struct EvtList *next)
+{
+    next->prev = prev;
+    prev->next = next;
+}
+
+static inline void evtListDel(struct EvtList *entry)
+{
+    __evtListDel(entry->prev, entry->next);
+    entry->next = entry->prev = NULL;
+}
+
 struct EvtQueue* evtQueueAlloc(uint32_t size, EvtQueueForciblyDiscardEvtCbkF forceDiscardCbk)
 {
     struct EvtQueue *q = heapAlloc(sizeof(struct EvtQueue));
@@ -105,12 +117,8 @@ bool evtQueueEnqueue(struct EvtQueue* q, uint32_t evtType, void *evtData,
             rec = container_of(pos, struct EvtRecord, item);
             if (!(rec->evtType & EVENT_TYPE_BIT_DISCARDABLE))
                 continue;
-            a = pos->prev;
-            b = pos->next;
-
             q->forceDiscardCbk(rec->evtType, rec->evtData, rec->evtFreeData);
-            a->next = b;
-            b->prev = a;
+            evtListDel(pos);
             item = pos;
         }
         cpuIntsRestore (intSta);
@@ -159,6 +167,7 @@ void evtQueueRemoveAllMatching(struct EvtQueue* q,
 
         if (match(rec->evtType, rec->evtData, context)) {
             q->forceDiscardCbk(rec->evtType, rec->evtData, rec->evtFreeData);
+            evtListDel(pos);
             slabAllocatorFree(q->evtsSlab, rec);
         }
     }
@@ -172,17 +181,13 @@ bool evtQueueDequeue(struct EvtQueue* q, uint32_t *evtTypeP, void **evtDataP,
     uint64_t intSta;
 
     while(1) {
-        struct EvtList *pos, *a, *b;
+        struct EvtList *pos;
         intSta = cpuIntsOff();
 
         pos = q->head.next;
         if (pos != &q->head) {
-            a = pos->prev;
-            b = pos->next;
-            a->next = b;
-            b->prev = a;
-            pos->prev = pos->next = NULL;
             rec = container_of(pos, struct EvtRecord, item);
+            evtListDel(pos);
             break;
         }
         else if (!sleepIfNone)
