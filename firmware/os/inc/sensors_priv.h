@@ -39,6 +39,7 @@ struct SensorsInternalEvent {
             uint32_t value1;
             uint64_t value2;
         };
+        struct SensorRateChangeEvent rateChangeEvt;
         struct SensorPowerEvent externalPowerEvt;
         struct SensorSetRateEvent externalSetRateEvt;
         struct SensorCfgDataEvent externalCfgDataEvt;

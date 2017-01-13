@@ -155,6 +155,8 @@ void osMain(void);
 
 bool osEventSubscribe(uint32_t tid, uint32_t evtType); /* async */
 bool osEventUnsubscribe(uint32_t tid, uint32_t evtType);  /* async */
+bool osEventsSubscribe(uint32_t numEvts, ...); /* async */
+bool osEventsUnsubscribe(uint32_t numEvts, ...); /* async */
 // event free callback used to free event data which was previously allocated by heapAlloc()
 void osEventHeapFree(uint16_t event, void *data);
 

@@ -38,6 +38,7 @@
 #define EVENT_GET_ORIGIN(evt) ((evt) >> (32 - TASK_TID_BITS))
 #define EVENT_GET_EVENT(evt) ((evt) & (EVT_MASK & ~EVENT_TYPE_BIT_DISCARDABLE))
 
+#define MAX_EVT_SUB_CNT              6
 
 SET_PACKED_STRUCT_MODE_ON
 struct TaskList {
@@ -86,11 +87,12 @@ union OsApiSlabItem {
     } i2cAppCbkInfo;
 };
 
-/* this is a system salb allocator internal data type */
+/* this is a system slab allocator internal data type */
 union SeosInternalSlabData {
     struct {
-        uint32_t tid;
-        uint32_t evt;
+        uint16_t tid;
+        uint8_t numEvts;
+        uint16_t evts[MAX_EVT_SUB_CNT];
     } evtSub;
     struct {
         OsDeferCbkF callback;

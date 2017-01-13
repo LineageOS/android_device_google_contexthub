@@ -194,6 +194,34 @@ static void chreappProcessSensorData(uint16_t evt, const void *eventData)
     }
 }
 
+static void chreappProcessConfigEvt(uint16_t evt, const void *eventData)
+{
+    const struct SensorRateChangeEvent *msg = eventData;
+    struct chreSensorSamplingStatusEvent change;
+
+    change.sensorHandle = msg->sensorHandle;
+    if (!msg->newRate) {
+        change.status.enabled = 0;
+        change.status.interval = 0;
+        change.status.latency = 0;
+    } else {
+        change.status.enabled = true;
+        if (msg->newRate == SENSOR_RATE_ONDEMAND
+            || msg->newRate == SENSOR_RATE_ONCHANGE
+            || msg->newRate == SENSOR_RATE_ONESHOT)
+            change.status.interval = CHRE_SENSOR_INTERVAL_DEFAULT;
+        else
+            change.status.interval = (UINT32_C(1024000000) / msg->newRate) * UINT64_C(1000);
+
+        if (msg->newLatency == SENSOR_LATENCY_NODATA)
+            change.status.latency = CHRE_SENSOR_INTERVAL_DEFAULT;
+        else
+            change.status.latency = msg->newLatency;
+    }
+
+    nanoappHandleEvent(CHRE_INSTANCE_ID, CHRE_EVENT_SENSOR_SAMPLING_CHANGE, &change);
+}
+
 static void chreappHandle(uint32_t eventTypeAndTid, const void *eventData)
 {
     uint16_t evt = eventTypeAndTid;
@@ -231,8 +259,9 @@ static void chreappHandle(uint32_t eventTypeAndTid, const void *eventData)
         if (evt < EVT_NO_FIRST_USER_EVENT)
             return;
         else if (evt > EVT_NO_FIRST_SENSOR_EVENT && evt < EVT_NO_SENSOR_CONFIG_EVENT) {
-            chreappProcessSensorData(evt, data);
-            return;
+            return chreappProcessSensorData(evt, data);
+        } else if (evt > EVT_NO_SENSOR_CONFIG_EVENT && evt < EVT_APP_START) {
+            return chreappProcessConfigEvt(evt, data);
         }
     }
     nanoappHandleEvent(srcTid, evt, data);

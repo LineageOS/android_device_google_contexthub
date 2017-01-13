@@ -460,6 +460,11 @@ static uint32_t sensorCalcHwRate(struct Sensor* s, uint32_t extraReqedRate, uint
     return SENSOR_RATE_IMPOSSIBLE;
 }
 
+static void sensorInternalEvtFreeF(void *evtP)
+{
+    slabAllocatorFree(mInternalEvents, evtP);
+}
+
 static void sensorInternalFwStateChanged(void *evtP)
 {
     struct SensorsInternalEvent *evt = (struct SensorsInternalEvent*)evtP;
@@ -499,6 +504,8 @@ static void sensorInternalPowerStateChanged(void *evtP)
         else if (s->currentRate == SENSOR_RATE_POWERING_OFF && !evt->value1) {   //we're now off
             s->currentRate = SENSOR_RATE_OFF;
             s->currentLatency = SENSOR_LATENCY_INVALID;
+            osEnqueueEvtOrFree(sensorGetMyCfgEventType(s->si->sensorType), evt, sensorInternalEvtFreeF);
+            return;
         }
         else if (s->currentRate == SENSOR_RATE_POWERING_ON && !evt->value1) {    //we need to power back on
             sensorCallFuncPower(s, true);
@@ -519,8 +526,10 @@ static void sensorInternalRateChanged(void *evtP)
     if (s && s->currentRate != SENSOR_RATE_OFF && s->currentRate < SENSOR_RATE_POWERING_ON) {
         s->currentRate = evt->value1;
         s->currentLatency = evt->value2;
+        osEnqueueEvtOrFree(sensorGetMyCfgEventType(s->si->sensorType), evt, sensorInternalEvtFreeF);
+    } else {
+        slabAllocatorFree(mInternalEvents, evt);
     }
-    slabAllocatorFree(mInternalEvents, evt);
 }
 
 bool sensorSignalInternalEvt(uint32_t handle, uint32_t intEvtNum, uint32_t value1, uint64_t value2)
