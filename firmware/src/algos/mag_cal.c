@@ -22,8 +22,8 @@
 #include <string.h>
 
 #define MAX_EIGEN_RATIO     15.0f
-#define MAX_EIGEN_MAG       60.0f   // uT
-#define MIN_EIGEN_MAG       30.0f   // uT
+#define MAX_EIGEN_MAG       70.0f   // uT
+#define MIN_EIGEN_MAG       20.0f   // uT
 
 #define MAX_FIT_MAG         70.0f
 #define MIN_FIT_MAG         20.0f
