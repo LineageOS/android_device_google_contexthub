@@ -18,14 +18,20 @@ LOCAL_PATH := $(call my-dir)
 
 include $(CLEAR_NANO_VARS)
 
-LOCAL_MODULE := libnanochre
+LOCAL_MODULE := libnanobuiltins
 LOCAL_MODULE_TAGS := optional
 
-LOCAL_SRC_FILES :=      \
-    chre_app.c          \
-    chre_app_syscalls.c \
+LOCAL_SRC_FILES_cortexm4 := \
+    aeabi_ldivmod.S         \
+    aeabi_uldivmod.S        \
+    divdi3.c                \
+    divmoddi4.c             \
+    moddi3.c                \
+    udivmoddi4.c            \
+    umoddi3.c               \
 
-LOCAL_STATIC_LIBRARIES += libnanobuiltins
-LOCAL_STATIC_LIBRARIES += libnanolibc
+LOCAL_C_INCLUDES = $(LOCAL_PATH)
+LOCAL_EXPORT_C_INCLUDE_DIRS := \
+    $(LOCAL_C_INCLUDES)
 
 include $(BUILD_NANOHUB_APP_STATIC_LIBRARY)

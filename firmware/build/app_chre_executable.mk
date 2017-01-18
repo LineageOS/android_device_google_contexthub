@@ -33,6 +33,7 @@ LOCAL_WHOLE_STATIC_LIBRARIES += \
 
 # add standard libaries
 LOCAL_STATIC_LIBRARIES +=       \
+    libnanobuiltins             \
     libnanolibc                 \
     libnanolibm                 \
 
