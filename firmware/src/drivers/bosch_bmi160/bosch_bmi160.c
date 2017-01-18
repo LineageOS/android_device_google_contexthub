@@ -3228,7 +3228,7 @@ static void sensorInit(void)
         // config step detector
 #ifdef BMI160_STEP_COUNT_MODE_SENSITIVE
         SPI_WRITE(BMI160_REG_STEP_CONF_0, 0x2D, 450);
-        SPI_WRITE(BMI160_REG_STEP_CONF_1, 0x00, 450);
+        SPI_WRITE(BMI160_REG_STEP_CONF_1, 0x02, 450);
 #else
         SPI_WRITE(BMI160_REG_STEP_CONF_0, 0x15, 450);
         SPI_WRITE(BMI160_REG_STEP_CONF_1, 0x03, 450);
