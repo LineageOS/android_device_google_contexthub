@@ -82,6 +82,7 @@ enum comms_sensor_t {
     COMMS_SENSOR_DOUBLE_TOUCH                = 44,
     COMMS_SENSOR_GAZE                        = 45,
     COMMS_SENSOR_UNGAZE                      = 46,
+    COMMS_SENSOR_ACCEL_UNCALIBRATED          = 47,
 
     NUM_COMMS_SENSORS_PLUS_1,
 

@@ -153,6 +153,9 @@ HubConnection::HubConnection()
 #endif  // DOUBLE_TOUCH_ENABLED
 
     mSensorState[COMMS_SENSOR_ACCEL].sensorType = SENS_TYPE_ACCEL;
+    mSensorState[COMMS_SENSOR_ACCEL].alt = COMMS_SENSOR_ACCEL_UNCALIBRATED;
+    mSensorState[COMMS_SENSOR_ACCEL_UNCALIBRATED].sensorType = SENS_TYPE_ACCEL;
+    mSensorState[COMMS_SENSOR_ACCEL_UNCALIBRATED].alt = COMMS_SENSOR_ACCEL;
     mSensorState[COMMS_SENSOR_GYRO].sensorType = SENS_TYPE_GYRO;
     mSensorState[COMMS_SENSOR_GYRO].alt = COMMS_SENSOR_GYRO_UNCALIBRATED;
     mSensorState[COMMS_SENSOR_GYRO_UNCALIBRATED].sensorType = SENS_TYPE_GYRO;
@@ -548,16 +551,31 @@ void HubConnection::magAccuracyUpdate(float x, float y, float z)
 void HubConnection::processSample(uint64_t timestamp, uint32_t type, uint32_t sensor, struct RawThreeAxisSample *sample, __attribute__((unused)) bool highAccuracy)
 {
     sensors_vec_t *sv;
+    uncalibrated_event_t *ue;
     sensors_event_t nev[2];
     int cnt = 0;
 
     switch (sensor) {
     case COMMS_SENSOR_ACCEL:
-        sv = &initEv(&nev[cnt++], timestamp, type, sensor)->acceleration;
-        sv->x = sample->ix * ACCEL_RAW_KSCALE;
-        sv->y = sample->iy * ACCEL_RAW_KSCALE;
-        sv->z = sample->iz * ACCEL_RAW_KSCALE;
-        sv->status = SENSOR_STATUS_ACCURACY_HIGH;
+        if (mSensorState[COMMS_SENSOR_ACCEL].enable) {
+            sv = &initEv(&nev[cnt++], timestamp, type, sensor)->acceleration;
+            sv->x = sample->ix * ACCEL_RAW_KSCALE;
+            sv->y = sample->iy * ACCEL_RAW_KSCALE;
+            sv->z = sample->iz * ACCEL_RAW_KSCALE;
+            sv->status = SENSOR_STATUS_ACCURACY_HIGH;
+        }
+
+        if (mSensorState[COMMS_SENSOR_ACCEL_UNCALIBRATED].enable) {
+            ue = &initEv(&nev[cnt++], timestamp,
+                SENSOR_TYPE_ACCELEROMETER_UNCALIBRATED,
+                COMMS_SENSOR_ACCEL_UNCALIBRATED)->uncalibrated_accelerometer;
+            ue->x_uncalib = sample->ix * ACCEL_RAW_KSCALE + mAccelBias[0];
+            ue->y_uncalib = sample->iy * ACCEL_RAW_KSCALE + mAccelBias[1];
+            ue->z_uncalib = sample->iz * ACCEL_RAW_KSCALE + mAccelBias[2];
+            ue->x_bias = mAccelBias[0];
+            ue->y_bias = mAccelBias[1];
+            ue->z_bias = mAccelBias[2];
+        }
         break;
     default:
         break;
@@ -582,11 +600,25 @@ void HubConnection::processSample(uint64_t timestamp, uint32_t type, uint32_t se
 
     switch (sensor) {
     case COMMS_SENSOR_ACCEL:
-        sv = &initEv(&nev[cnt++], timestamp, type, sensor)->acceleration;
-        sv->x = sample->x;
-        sv->y = sample->y;
-        sv->z = sample->z;
-        sv->status = SENSOR_STATUS_ACCURACY_HIGH;
+        if (mSensorState[sensor].enable) {
+            sv = &initEv(&nev[cnt++], timestamp, type, sensor)->acceleration;
+            sv->x = sample->x;
+            sv->y = sample->y;
+            sv->z = sample->z;
+            sv->status = SENSOR_STATUS_ACCURACY_HIGH;
+        }
+
+        if (mSensorState[COMMS_SENSOR_ACCEL_UNCALIBRATED].enable) {
+            ue = &initEv(&nev[cnt++], timestamp,
+                SENSOR_TYPE_ACCELEROMETER_UNCALIBRATED,
+                COMMS_SENSOR_ACCEL_UNCALIBRATED)->uncalibrated_accelerometer;
+            ue->x_uncalib = sample->x + mAccelBias[0];
+            ue->y_uncalib = sample->y + mAccelBias[1];
+            ue->z_uncalib = sample->z + mAccelBias[2];
+            ue->x_bias = mAccelBias[0];
+            ue->y_bias = mAccelBias[1];
+            ue->z_bias = mAccelBias[2];
+        }
         break;
     case COMMS_SENSOR_GYRO:
         if (mSensorState[sensor].enable) {
