@@ -102,7 +102,9 @@ static struct usart mDbgUart;
 #endif
 
 #ifdef DEBUG_LOG_EVT
+#ifndef EARLY_LOG_BUF_SIZE
 #define EARLY_LOG_BUF_SIZE      1024
+#endif
 #define HOSTINTF_HEADER_SIZE    4
 uint8_t *mEarlyLogBuffer;
 uint16_t mEarlyLogBufferCnt;
