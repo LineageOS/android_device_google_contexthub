@@ -63,10 +63,6 @@ LOCAL_MODULE_OWNER := google
 
 LOCAL_CFLAGS += $(COMMON_CFLAGS)
 
-ifeq ($(NANOHUB_SENSORHAL_DIRECT_REPORT_ENABLED), true)
-LOCAL_CFLAGS += -DDIRECT_REPORT_ENABLED
-endif
-
 LOCAL_C_INCLUDES += \
 	device/google/contexthub/firmware/os/inc \
 	device/google/contexthub/util/common
@@ -81,6 +77,15 @@ LOCAL_SHARED_LIBRARIES := \
 	libhubconnection \
 	libstagefright_foundation \
 	libutils
+
+ifeq ($(NANOHUB_SENSORHAL_DIRECT_REPORT_ENABLED), true)
+LOCAL_CFLAGS += -DDIRECT_REPORT_ENABLED
+endif
+
+ifeq ($(NANOHUB_SENSORHAL_DYNAMIC_SENSOR_EXT_ENABLED), true)
+LOCAL_CFLAGS += -DDYNAMIC_SENSOR_EXT_ENABLED
+LOCAL_SHARED_LIBRARIES += libdynamic_sensor_ext
+endif
 
 include $(BUILD_SHARED_LIBRARY)
 
