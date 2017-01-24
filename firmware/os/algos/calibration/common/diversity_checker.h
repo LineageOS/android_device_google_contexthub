@@ -53,7 +53,7 @@ extern "C" {
 #endif
 
 #define THREE_AXIS_DATA_DIM (3)   // data is three-dimensional.
-#define NUM_DIVERSE_VECTORS (10)  // Storing 10 data points.
+#define NUM_DIVERSE_VECTORS (20)  // Storing 20 data points.
 
 // Main data struct.
 struct DiversityChecker {
@@ -69,8 +69,16 @@ struct DiversityChecker {
   // Threshold value that is used to check k against.
   float threshold;
 
+  // Threshold tuning paramter used to calculate threshold (k_algo):
+  // threshold = threshold_tuning_param_sq * (local_field)^2.
+  float threshold_tuning_param_sq;
+
   // Maximum distance value.
   float max_distance;
+
+  // Max Distance tuning parameter:
+  // max_distance = max_distance_tuning_param_sq * (local_field)^2.
+  float max_distance_tuning_param_sq;
 
   // Data full bit.
   bool data_full;
@@ -84,9 +92,6 @@ struct DiversityChecker {
 };
 
 // Initialization of the function/struct, input:
-// threshold -> sets the threshold value, only distances k that are equal
-//              or higher than that will be stored.
-// max_distance -> sets the maximum allowed distance of k.
 // min_num_diverse_vectors -> sets the gate for a minimum number of data points
 //                           in the memory
 // max_num_max_distance -> sets the value for a max distance violation number
@@ -94,13 +99,17 @@ struct DiversityChecker {
 // var_threshold -> is a threshold value for a Norm variance gate.
 // max_min_threshold -> is a value for a gate that rejects Norm variations
 //                      that are larger than this number.
+// local_field -> is the assumed local_field (radius of the sphere).
+// threshold_tuning_param ->  threshold tuning parameter used to calculate
+//                            threshold (k_algo).
+// max_distance_tuning_param -> Max distance tuning parameter used to calculate
+//                             max_distance.
 void diversityCheckerInit(struct DiversityChecker* diverse_data,
-                          float threshold,
-                          float max_distance,
                           size_t min_num_diverse_vectors,
-                          size_t max_num_max_distance,
-                          float var_threshold,
-                          float max_min_threshold);
+                          size_t max_num_max_distance, float var_threshold,
+                          float max_min_threshold, float local_field,
+                          float threshold_tuning_param,
+                          float max_distance_tuning_param);
 
 // Resetting the memory and the counters, leaves threshold and max_distance
 // as well as the setup variables for NormQuality check untouched.
@@ -126,6 +135,14 @@ bool diversityCheckerNormQuality(struct DiversityChecker* diverse_data,
                                  float y_bias,
                                  float z_bias);
 
+// This function updates the threshold value and max distance value based on the
+// local field. This ensures a local field independent operation of the
+// diversity checker.
+//
+// threshold = (threshold_tuning_param * local_field)^2
+// max_distance = (max_distance_tuning_param * local_field)^2
+void diversityCheckerLocalFieldUpdate(struct DiversityChecker* diverse_data,
+                                      float local_field);
 #ifdef __cplusplus
 }
 #endif

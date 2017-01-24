@@ -122,28 +122,41 @@ void gyroStillDetUpdate(struct GyroStillDet* gyro_still_det,
 // Calculates and returns the stillness confidence score [0,1].
 float gyroStillDetCompute(struct GyroStillDet* gyro_still_det) {
   float tmp_denom = 1.f;
-  float tmp_mean = 1.f;
+  float tmp_denom_mean = 1.f;
 
   // Don't divide by zero (not likely, but a precaution).
   if (gyro_still_det->num_acc_win_samples > 1) {
     tmp_denom = 1.f / (gyro_still_det->num_acc_win_samples - 1);
+    tmp_denom_mean = 1.f / gyro_still_det->num_acc_win_samples;
   } else {
     // Return zero stillness confidence.
     gyro_still_det->stillness_confidence = 0;
     return gyro_still_det->stillness_confidence;
   }
 
-  // Update the final calculation of variance.
-  // variance_x = win_var_x / (num_samples - 1).
-  tmp_mean = gyro_still_det->win_mean_x * tmp_denom;
+  // Update the final calculation of window mean and variance.
+  float tmp = gyro_still_det->win_mean_x;
+  gyro_still_det->win_mean_x *= tmp_denom_mean;
   gyro_still_det->win_var_x =
-      (gyro_still_det->acc_var_x * tmp_denom) - tmp_mean * tmp_mean;
-  tmp_mean = gyro_still_det->win_mean_y * tmp_denom;
+      (gyro_still_det->acc_var_x - gyro_still_det->win_mean_x * tmp) *
+      tmp_denom;
+
+  tmp = gyro_still_det->win_mean_y;
+  gyro_still_det->win_mean_y *= tmp_denom_mean;
   gyro_still_det->win_var_y =
-      (gyro_still_det->acc_var_y * tmp_denom) - tmp_mean * tmp_mean;
-  tmp_mean = gyro_still_det->win_mean_z * tmp_denom;
+      (gyro_still_det->acc_var_y - gyro_still_det->win_mean_y * tmp) *
+      tmp_denom;
+
+  tmp = gyro_still_det->win_mean_z;
+  gyro_still_det->win_mean_z *= tmp_denom_mean;
   gyro_still_det->win_var_z =
-      (gyro_still_det->acc_var_z * tmp_denom) - tmp_mean * tmp_mean;
+      (gyro_still_det->acc_var_z - gyro_still_det->win_mean_z * tmp) *
+      tmp_denom;
+
+  // Adds the assumed mean value back to the total mean calculation.
+  gyro_still_det->win_mean_x += gyro_still_det->assumed_mean_x;
+  gyro_still_det->win_mean_y += gyro_still_det->assumed_mean_y;
+  gyro_still_det->win_mean_z += gyro_still_det->assumed_mean_z;
 
   // Define the variance thresholds.
   float upper_var_thresh =
