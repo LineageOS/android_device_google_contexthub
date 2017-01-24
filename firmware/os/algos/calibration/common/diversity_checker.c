@@ -25,24 +25,37 @@
 // Struct initialization.
 void diversityCheckerInit(
     struct DiversityChecker* diverse_data,
-    float threshold,
-    float max_distance,
     size_t min_num_diverse_vectors,
     size_t max_num_max_distance,
     float var_threshold,
-    float max_min_threshold) {
+    float max_min_threshold,
+    float local_field,
+    float threshold_tuning_param,
+    float max_distance_tuning_param) {
   ASSERT_NOT_NULL(diverse_data);
+
   // Initialize parameters.
-  diverse_data->threshold = threshold;
-  diverse_data->max_distance = max_distance;
+  diverse_data->threshold_tuning_param_sq =
+      (threshold_tuning_param * threshold_tuning_param);
+  diverse_data->max_distance_tuning_param_sq =
+      (max_distance_tuning_param * max_distance_tuning_param);
+
+  // Updating the threshold and max_distance using assumed local field.
+  // Testing for zero and negative local_field.
+  if (local_field <= 0) {
+    local_field = 1;
+  }
+  diversityCheckerLocalFieldUpdate(diverse_data, local_field);
   diverse_data->min_num_diverse_vectors = min_num_diverse_vectors;
-  // checking for min_num_diverse_vectors = 0
+
+  // Checking for min_num_diverse_vectors = 0.
   if (min_num_diverse_vectors < 1) {
     diverse_data->min_num_diverse_vectors = 1;
   }
   diverse_data->max_num_max_distance = max_num_max_distance;
   diverse_data->var_threshold = var_threshold;
   diverse_data->max_min_threshold = max_min_threshold;
+
   // Setting the rest to zero.
   diversityCheckerReset(diverse_data);
 }
@@ -53,6 +66,7 @@ void diversityCheckerReset(struct DiversityChecker* diverse_data) {
   // Clear data memory.
   memset(&diverse_data->diverse_data, 0,
          sizeof(diverse_data->diverse_data));
+
   // Resetting counters and data full bit.
   diverse_data->num_points = 0;
   diverse_data->num_max_dist_violations = 0;
@@ -62,10 +76,13 @@ void diversityCheckerReset(struct DiversityChecker* diverse_data) {
 void diversityCheckerUpdate(
     struct DiversityChecker* diverse_data, float x, float y, float z) {
   ASSERT_NOT_NULL(diverse_data);
+
   // Converting three single inputs to a vector.
   const float vec[3] = {x, y, z};
+
   // Result vector for vector difference.
   float vec_diff[3];
+
   // normSquared result (k)
   float norm_squared_result;
 
@@ -79,18 +96,22 @@ void diversityCheckerUpdate(
              &diverse_data->diverse_data[i * THREE_AXIS_DATA_DIM],
              vec,
              THREE_AXIS_DATA_DIM);
+
       // k = |v|^2
       norm_squared_result = vecNormSquared(vec_diff, THREE_AXIS_DATA_DIM);
+
       // if k < Threshold then leave the function.
       if (norm_squared_result < diverse_data->threshold) {
         return;
       }
+
       // if k > max_distance, count and leave the function.
       if (norm_squared_result > diverse_data->max_distance) {
         diverse_data->num_max_dist_violations++;
         return;
       }
     }
+
     // If none of the above caused to leave the function, data is diverse.
     // Notice that the first data vector will be stored no matter what.
     memcpy(&diverse_data->
@@ -99,6 +120,7 @@ void diversityCheckerUpdate(
            sizeof(float) * THREE_AXIS_DATA_DIM);
     // Count new data point.
     diverse_data->num_points++;
+
     // Setting data_full to 1, if memory is full.
     if (diverse_data->num_points == NUM_DIVERSE_VECTORS) {
       diverse_data->data_full = true;
@@ -162,4 +184,17 @@ bool diversityCheckerNormQuality(struct DiversityChecker* diverse_data,
   float inv = 1.0f / diverse_data->num_points;
   float var = (acc_norm_square - (acc_norm * acc_norm) * inv) * inv;
   return (var < diverse_data->var_threshold);
+}
+
+void diversityCheckerLocalFieldUpdate(struct DiversityChecker* diverse_data,
+                                      float local_field) {
+  if ( local_field > 0 ) {
+    // Updating threshold based on the local field information.
+    diverse_data->threshold = diverse_data->threshold_tuning_param_sq *
+        (local_field * local_field);
+
+    // Updating max distance based on the local field information.
+    diverse_data->max_distance = diverse_data->max_distance_tuning_param_sq *
+        (local_field * local_field);
+  }
 }
