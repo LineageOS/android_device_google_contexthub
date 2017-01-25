@@ -63,6 +63,10 @@ LOCAL_MODULE_OWNER := google
 
 LOCAL_CFLAGS += $(COMMON_CFLAGS)
 
+ifeq ($(NANOHUB_SENSORHAL_DIRECT_REPORT_ENABLED), true)
+LOCAL_CFLAGS += -DDIRECT_REPORT_ENABLED
+endif
+
 LOCAL_C_INCLUDES += \
 	device/google/contexthub/firmware/os/inc \
 	device/google/contexthub/util/common
@@ -129,11 +133,16 @@ ifeq ($(NANOHUB_SENSORHAL_DOUBLE_TOUCH_ENABLED), true)
 LOCAL_CFLAGS += -DDOUBLE_TOUCH_ENABLED
 endif
 
+ifeq ($(NANOHUB_SENSORHAL_DIRECT_REPORT_ENABLED), true)
+LOCAL_CFLAGS += -DDIRECT_REPORT_ENABLED
+endif
+
 LOCAL_C_INCLUDES += \
     device/google/contexthub/firmware/os/inc
 
 LOCAL_SRC_FILES := \
-    hubconnection.cpp
+    hubconnection.cpp \
+    directchannel.cpp
 
 LOCAL_STATIC_LIBRARIES := \
     libhubutilcommon

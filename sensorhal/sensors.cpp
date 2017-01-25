@@ -22,10 +22,12 @@
 #include "sensorlist.h"
 #include "sensors.h"
 
+#include <cutils/ashmem.h>
 #include <errno.h>
 #include <math.h>
 #include <media/stagefright/foundation/ADebug.h>
 #include <string.h>
+#include <sys/mman.h>
 
 using namespace android;
 
@@ -44,7 +46,10 @@ SensorContext::SensorContext(const struct hw_module_t *module)
     device.poll = PollWrapper;
     device.batch = BatchWrapper;
     device.flush = FlushWrapper;
-
+    if (mHubConnection->isDirectReportSupported()) {
+        device.register_direct_channel = RegisterDirectChannelWrapper;
+        device.config_direct_report = ConfigDirectReportWrapper;
+    }
     mHubAlive = (mHubConnection->initCheck() == OK
         && mHubConnection->getAliveCheck() == OK);
 }
@@ -197,6 +202,38 @@ int SensorContext::BatchWrapper(
 // static
 int SensorContext::FlushWrapper(struct sensors_poll_device_1 *dev, int handle) {
     return reinterpret_cast<SensorContext *>(dev)->flush(handle);
+}
+
+int SensorContext::register_direct_channel(
+        const struct sensors_direct_mem_t *mem, int32_t channel_handle) {
+    if (mem) {
+        //add
+        return mHubConnection->addDirectChannel(mem);
+    } else {
+        //remove
+        mHubConnection->removeDirectChannel(channel_handle);
+        return NO_ERROR;
+    }
+}
+
+int SensorContext::config_direct_report(
+        int32_t sensor_handle, int32_t channel_handle, const struct sensors_direct_cfg_t * config) {
+    int rate_level = config->rate_level;
+    return mHubConnection->configDirectReport(sensor_handle, channel_handle, rate_level);
+}
+
+// static
+int SensorContext::RegisterDirectChannelWrapper(struct sensors_poll_device_1 *dev,
+        const struct sensors_direct_mem_t* mem, int channel_handle) {
+    return reinterpret_cast<SensorContext *>(dev)->register_direct_channel(
+            mem, channel_handle);
+}
+
+// static
+int SensorContext::ConfigDirectReportWrapper(struct sensors_poll_device_1 *dev,
+        int sensor_handle, int channel_handle, const struct sensors_direct_cfg_t * config) {
+    return reinterpret_cast<SensorContext *>(dev)->config_direct_report(
+            sensor_handle, channel_handle, config);
 }
 
 bool SensorContext::getHubAlive() {
