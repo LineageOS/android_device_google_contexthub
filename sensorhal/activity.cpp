@@ -329,8 +329,16 @@ int ActivityContext::disableActivityEvent(uint32_t activity_handle,
 }
 
 int ActivityContext::flush() {
-    mOutstandingFlushEvents +=
-        (COMMS_SENSOR_ACTIVITY_LAST - COMMS_SENSOR_ACTIVITY_FIRST) + 1;
+    {
+        // Aquire a lock for the mOutstandingFlushEvents shared state. OnFlush
+        // modifies this value as flush results are returned. Nested scope is
+        // used here to control the lifecycle of the lock as OnFlush may be
+        // invoked before this method returns.
+        Mutex::Autolock autoLock(mCallbackLock);
+
+        mOutstandingFlushEvents +=
+            (COMMS_SENSOR_ACTIVITY_LAST - COMMS_SENSOR_ACTIVITY_FIRST) + 1;
+    }
 
     // Flush all activity sensors.
     for (int i = COMMS_SENSOR_ACTIVITY_FIRST;
