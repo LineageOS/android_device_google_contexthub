@@ -32,6 +32,7 @@ static const int kVersionMinor = 0;
 // The maximum delta between events at which point their timestamps are to be
 // considered equal.
 static const int64_t kEventTimestampThresholdNanos = 100000000; // 100ms.
+static const int64_t kMaxEventAgeNanos = 10000000000; // 10000ms.
 static const useconds_t kFlushDelayMicros = 10000; // 10ms.
 
 static const char *const kActivityList[] = {
@@ -202,6 +203,40 @@ void ActivityContext::PublishEvent(const ActivityEvent& event) {
     mNewestPublishedEventIndexIsKnown = true;
 }
 
+void ActivityContext::DiscardExpiredUnpublishedEvents(uint64_t whenNs) {
+    // Determine the current oldest buffered event.
+    uint64_t oldestEventTimestamp = UINT64_MAX;
+    for (size_t i = 0; i < mUnpublishedEvents.size(); i++) {
+        const ActivityEvent *event = &mUnpublishedEvents[i];
+        if (event->whenNs < oldestEventTimestamp) {
+            oldestEventTimestamp = event->whenNs;
+        }
+    }
+
+    // If the age of the oldest buffered event is too large an AR sample
+    // has been lost. When this happens all AR transitions are set to
+    // ACTIVITY_EVENT_EXIT and the event ordering logic is reset.
+    if (oldestEventTimestamp != UINT64_MAX
+        && (whenNs - oldestEventTimestamp) > kMaxEventAgeNanos) {
+        ALOGD("Lost event detected, discarding buffered events");
+
+        // Publish stop events for all activity types except for TILTING.
+        for (uint32_t activity = 0;
+             activity < (ARRAY_SIZE(kActivityList) - 1); activity++) {
+            activity_event_t halEvent;
+            memset(&halEvent, 0, sizeof(halEvent));
+
+            halEvent.activity = activity;
+            halEvent.timestamp = oldestEventTimestamp;
+            halEvent.event_type = ACTIVITY_EVENT_EXIT;
+            (*mCallback->activity_callback)(mCallback, &halEvent, 1);
+        }
+
+        // Reset the event reordering logic.
+        OnSensorHubReset();
+    }
+}
+
 void ActivityContext::OnActivityEvent(int sensorIndex, uint8_t eventIndex,
                                       uint64_t whenNs) {
     ALOGD("OnActivityEvent sensorIndex = %d, eventIndex = %" PRIu8
@@ -211,6 +246,8 @@ void ActivityContext::OnActivityEvent(int sensorIndex, uint8_t eventIndex,
     if (!mCallback) {
         return;
     }
+
+    DiscardExpiredUnpublishedEvents(whenNs);
 
     ActivityEvent event = {
         .eventIndex = eventIndex,
@@ -335,7 +372,6 @@ int ActivityContext::flush() {
         // used here to control the lifecycle of the lock as OnFlush may be
         // invoked before this method returns.
         Mutex::Autolock autoLock(mCallbackLock);
-
         mOutstandingFlushEvents +=
             (COMMS_SENSOR_ACTIVITY_LAST - COMMS_SENSOR_ACTIVITY_FIRST) + 1;
     }

@@ -96,6 +96,10 @@ class ActivityContext : public ActivityEventHandler {
     // Publishes an AR event to the AR HAL client.
     void PublishEvent(const ActivityEvent& event);
 
+    // Searches for very old AR events, discards them and publishes EVENT_EXIT
+    // transitions for all activities.
+    void DiscardExpiredUnpublishedEvents(uint64_t whenNs);
+
     DISALLOW_EVIL_CONSTRUCTORS(ActivityContext);
 };
 
