@@ -129,6 +129,8 @@ struct TaskStatistics {
     uint64_t totalEnabledTime;
     uint64_t totalProxEnabledTime;
     uint64_t totalProxFarTime;
+    uint32_t totalProxBecomesFar;
+    uint32_t totalProxBecomesNear;
 };
 
 enum ProxState {
@@ -371,10 +373,14 @@ static bool callbackPower(bool on, void *cookie)
     proxFarSeconds = U64_DIV_BY_U64_CONSTANT(mTask.stats.totalProxFarTime, 1000000000);
     INFO_PRINT("STATS: enabled %02" PRIu32 ":%02" PRIu32 ":%02" PRIu32
                ", prox enabled %02" PRIu32 ":%02" PRIu32 ":%02" PRIu32
-               ", prox far %02" PRIu32 ":%02" PRIu32 ":%02" PRIu32,
+               ", prox far %02" PRIu32 ":%02" PRIu32 ":%02" PRIu32
+               ", prox *->f %" PRIu32
+               ", prox *->n %" PRIu32,
         enabledSeconds / 3600, (enabledSeconds % 3600) / 60, enabledSeconds % 60,
         proxEnabledSeconds / 3600, (proxEnabledSeconds % 3600) / 60, proxEnabledSeconds % 60,
-        proxFarSeconds / 3600, (proxFarSeconds % 3600) / 60, proxFarSeconds % 60);
+        proxFarSeconds / 3600, (proxFarSeconds % 3600) / 60, proxFarSeconds % 60,
+        mTask.stats.totalProxBecomesFar,
+        mTask.stats.totalProxBecomesNear);
 
     // If the task is disabled, that means the AP is on and has switched the I2C
     // mux. Therefore, no I2C transactions will succeed so skip them.
@@ -539,11 +545,15 @@ static void handleEvent(uint32_t evtType, const void* evtData)
                 mTask.proxState = (embeddedSample.fdata < PROXIMITY_THRESH_NEAR) ? PROX_STATE_NEAR : PROX_STATE_FAR;
 
                 if ((lastProxState != PROX_STATE_FAR) && (mTask.proxState == PROX_STATE_FAR)) {
+                    ++mTask.stats.totalProxBecomesFar;
                     mTask.stats.lastProxFarTimestamp = sensorGetTime();
                     setGesturePower(true, false);
-                } else if ((lastProxState == PROX_STATE_FAR) && (mTask.proxState == PROX_STATE_NEAR)) {
-                    mTask.stats.totalProxFarTime += sensorGetTime() - mTask.stats.lastProxFarTimestamp;
-                    setGesturePower(false, false);
+                } else if ((lastProxState != PROX_STATE_NEAR) && (mTask.proxState == PROX_STATE_NEAR)) {
+                    ++mTask.stats.totalProxBecomesNear;
+                    if (lastProxState == PROX_STATE_FAR) {
+                        mTask.stats.totalProxFarTime += sensorGetTime() - mTask.stats.lastProxFarTimestamp;
+                        setGesturePower(false, false);
+                    }
                 }
             }
             break;
@@ -566,6 +576,9 @@ static bool startTask(uint32_t taskId)
     gpioConfigInput(mTask.pin, GPIO_SPEED_LOW, GPIO_PULL_NONE);
     syscfgSetExtiPort(mTask.pin);
     mTask.isr.func = touchIsr;
+
+    mTask.stats.totalProxBecomesFar = 0;
+    mTask.stats.totalProxBecomesNear = 0;
 
     osEventSubscribe(taskId, EVT_APP_START);
     return true;
