@@ -38,6 +38,7 @@ struct SpiDeviceState {
     size_t n;
     size_t currentBuf;
     struct SpiMode mode;
+    uint16_t tid;
 
     SpiCbkF rxTxCallback;
     void *rxTxCookie;
@@ -155,7 +156,9 @@ static void spiMasterDone(struct SpiDeviceState *state, int err)
     SpiCbkF callback = state->rxTxCallback;
     void *cookie = state->rxTxCookie;
 
+    uint16_t oldTid = osSetCurrentTid(state->tid);
     callback(cookie, err);
+    osSetCurrentTid(oldTid);
 }
 
 static int spiSlaveStart(struct SpiDeviceState *state,
@@ -213,7 +216,9 @@ void spiSlaveCsInactive(struct SpiDevice *dev)
     state->finishCallback = NULL;
     state->finishCookie = NULL;
 
+    uint16_t oldTid = osSetCurrentTid(state->tid);
     callback(cookie, 0);
+    osSetCurrentTid(oldTid);
 }
 
 static void spiSlaveNext(struct SpiDeviceState *state)
@@ -245,7 +250,9 @@ static void spiSlaveIdle(struct SpiDeviceState *state, int err)
     if (!err)
         err = dev->ops->slaveIdle(dev, &state->mode);
 
+    uint16_t oldTid = osSetCurrentTid(state->tid);
     callback(cookie, err);
+    osSetCurrentTid(oldTid);
 }
 
 void spiSlaveStopAsyncDone(struct SpiDevice *dev, int err)
@@ -272,6 +279,7 @@ static int spiSetupRxTx(struct SpiDeviceState *state,
     state->currentBuf = 0;
     state->rxTxCallback = callback;
     state->rxTxCookie = cookie;
+    state->tid = osGetCurrentTid();
 
     return 0;
 }

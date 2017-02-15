@@ -44,6 +44,7 @@ struct ChainedIsr {
 static inline void chainIsr(struct ChainedInterrupt *interrupt, struct ChainedIsr *isr)
 {
     interrupt->disable(interrupt);
+    isr->tid = osGetCurrentTid();
     list_add_tail(&interrupt->isrs, &isr->node);
     interrupt->enable(interrupt);
 }

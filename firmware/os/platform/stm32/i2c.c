@@ -225,6 +225,7 @@ struct StmI2cXfer
     void           *cookie;
     uint8_t         busId; /* for us these are both fine in a uint 8 */
     uint8_t         addr;
+    uint16_t        tid;
 };
 
 ATOMIC_BITSET_DECL(mXfersValid, I2C_MAX_QUEUE_DEPTH, static);
@@ -520,6 +521,7 @@ static inline void stmI2cMasterTxRxDone(struct StmI2cDev *pdev, int err)
             state->rx.size = xfer->rxSize;
             state->rx.callback = NULL;
             state->rx.cookie = NULL;
+            state->tid = xfer->tid;
             atomicWriteByte(&state->masterState, STM_I2C_MASTER_START);
             if (pdev->board->sleepDev >= 0)
                 platRequestDevInSleepMode(pdev->board->sleepDev, 12);
@@ -876,6 +878,7 @@ int i2cMasterTxRx(uint32_t busId, uint32_t addr,
         xfer->rxSize = rxSize;
         xfer->callback = callback;
         xfer->cookie = cookie;
+        xfer->tid = osGetCurrentTid();
 
         do {
             id = atomicAdd32bits(&pdev->last, 1);
@@ -904,7 +907,7 @@ int i2cMasterTxRx(uint32_t busId, uint32_t addr,
                 state->rx.size = xfer->rxSize;
                 state->rx.callback = NULL;
                 state->rx.cookie = NULL;
-                state->tid = osGetCurrentTid();
+                state->tid = xfer->tid;
                 if (pdev->board->sleepDev >= 0)
                     platRequestDevInSleepMode(pdev->board->sleepDev, 12);
                 stmI2cPutXfer(xfer);
