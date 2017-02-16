@@ -83,7 +83,7 @@
 #define DBG_WM_CALC               0
 #define TIMESTAMP_DBG             0
 
-#define BMI160_APP_VERSION 12
+#define BMI160_APP_VERSION 13
 
 // fixme: to list required definitions for a slave mag
 #ifdef USE_BMM150
@@ -966,8 +966,8 @@ static void magConfigIf(void)
     // set mag to SLEEP mode
     MAG_WRITE(BMM150_REG_CTRL_1, 0x01);
 #elif USE_AK09915
-    // set "low" Noise Suppression Filter (NSF) settings
-    MAG_WRITE(AKM_AK09915_REG_CNTL1, 0x20);
+    // Disable Noise Suppression Filter (NSF) settings
+    MAG_WRITE(AKM_AK09915_REG_CNTL1, 0x00);
 #endif
 }
 
