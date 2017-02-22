@@ -32,6 +32,8 @@
 #include "hubdefs.h"
 #include "ring.h"
 
+#define WAKELOCK_NAME "sensorHal"
+
 namespace android {
 
 struct HubConnection : public Thread {
@@ -57,6 +59,11 @@ struct HubConnection : public Thread {
     void queueFlush(int handle);
     void queueData(int handle, void *data, size_t length);
 
+    bool isWakeEvent(int32_t sensor);
+    void releaseWakeLockIfAppropriate();
+    ssize_t getWakeEventCount();
+    ssize_t decrementWakeEventCount();
+
     ssize_t read(sensors_event_t *ev, size_t size);
 
     void setActivityCallback(ActivityEventHandler *eventHandler);
@@ -71,6 +78,11 @@ protected:
 
 private:
     typedef uint32_t rate_q10_t;  // q10 means lower 10 bits are for fractions
+
+    bool mWakelockHeld;
+    int32_t mWakeEventCount;
+
+    void protectIfWakeEvent(int32_t sensor);
 
     static inline uint64_t period_ns_to_frequency_q10(nsecs_t period_ns) {
         return 1024000000000ULL / period_ns;
@@ -206,6 +218,12 @@ private:
     void processSample(uint64_t timestamp, uint32_t type, uint32_t sensor, struct ThreeAxisSample *sample, bool highAccuracy);
     void postOsLog(uint8_t *buf, ssize_t len);
     ssize_t processBuf(uint8_t *buf, size_t len);
+
+    inline bool isValidHandle(int handle) {
+        return handle >= 0
+            && handle < NUM_COMMS_SENSORS_PLUS_1
+            && mSensorState[handle].sensorType;
+    }
 
     void initConfigCmd(struct ConfigCmd *cmd, int handle);
 

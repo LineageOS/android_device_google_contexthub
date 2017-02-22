@@ -19,7 +19,7 @@ include $(CLEAR_VARS)
 
 LOCAL_SRC_FILES:= nanoapp_cmd.c
 
-LOCAL_C_INCLUDES := $(LOCAL_PATH)/../../firmware/inc
+LOCAL_C_INCLUDES := $(LOCAL_PATH)/../../firmware/os/inc
 LOCAL_CFLAGS := -Wall -Werror -Wextra
 
 LOCAL_MODULE:= nanoapp_cmd
@@ -27,8 +27,7 @@ LOCAL_MODULE:= nanoapp_cmd
 LOCAL_MODULE_TAGS:= optional
 LOCAL_MODULE_OWNER := google
 
-LOCAL_LDLIBS := \
-	-L$(SYSROOT)/usr/lib -llog
+LOCAL_LDLIBS := -llog
 
 LOCAL_SHARED_LIBRARIES := \
 	libutils \

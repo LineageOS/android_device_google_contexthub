@@ -29,13 +29,15 @@
 #include <unistd.h>
 #include <math.h>
 #include <inttypes.h>
-
-#include <cutils/properties.h>
-#include <linux/input.h>
-#include <linux/uinput.h>
-#include <media/stagefright/foundation/ADebug.h>
 #include <sched.h>
 #include <sys/inotify.h>
+
+#include <linux/input.h>
+#include <linux/uinput.h>
+
+#include <cutils/properties.h>
+#include <hardware_legacy/power.h>
+#include <media/stagefright/foundation/ADebug.h>
 
 #define APP_ID_GET_VENDOR(appid)       ((appid) >> 24)
 #define APP_ID_MAKE(vendor, app)       ((((uint64_t)(vendor)) << 24) | ((app) & 0x00FFFFFF))
@@ -115,6 +117,9 @@ HubConnection::HubConnection()
     mPollFds[0].events = POLLIN;
     mPollFds[0].revents = 0;
     mNumPollFds = 1;
+
+    mWakelockHeld = false;
+    mWakeEventCount = 0;
 
     initNanohubLock();
 
@@ -409,6 +414,49 @@ sensors_event_t *HubConnection::initEv(sensors_event_t *ev, uint64_t timestamp, 
     return ev;
 }
 
+ssize_t HubConnection::getWakeEventCount()
+{
+    return mWakeEventCount;
+}
+
+ssize_t HubConnection::decrementWakeEventCount()
+{
+    return --mWakeEventCount;
+}
+
+bool HubConnection::isWakeEvent(int32_t sensor)
+{
+    switch (sensor) {
+    case COMMS_SENSOR_PROXIMITY:
+    case COMMS_SENSOR_SIGNIFICANT_MOTION:
+    case COMMS_SENSOR_TILT:
+    case COMMS_SENSOR_DOUBLE_TWIST:
+    case COMMS_SENSOR_GESTURE:
+        return true;
+    default:
+        return false;
+    }
+}
+
+void HubConnection::protectIfWakeEvent(int32_t sensor)
+{
+    if (isWakeEvent(sensor)) {
+        if (mWakelockHeld == false) {
+            acquire_wake_lock(PARTIAL_WAKE_LOCK, WAKELOCK_NAME);
+            mWakelockHeld = true;
+        }
+        mWakeEventCount++;
+    }
+}
+
+void HubConnection::releaseWakeLockIfAppropriate()
+{
+    if (mWakelockHeld && (mWakeEventCount == 0)) {
+        mWakelockHeld = false;
+        release_wake_lock(WAKELOCK_NAME);
+    }
+}
+
 void HubConnection::processSample(uint64_t timestamp, uint32_t type, uint32_t sensor, struct OneAxisSample *sample, __attribute__((unused)) bool highAccuracy)
 {
     sensors_event_t nev[1];
@@ -475,8 +523,11 @@ void HubConnection::processSample(uint64_t timestamp, uint32_t type, uint32_t se
         break;
     }
 
-    if (cnt > 0)
+    if (cnt > 0) {
+        // If event is a wake event, protect it with a wakelock
+        protectIfWakeEvent(sensor);
         mRing.write(nev, cnt);
+    }
 }
 
 void HubConnection::magAccuracyUpdate(float x, float y, float z)
@@ -512,8 +563,11 @@ void HubConnection::processSample(uint64_t timestamp, uint32_t type, uint32_t se
         break;
     }
 
-    if (cnt > 0)
+    if (cnt > 0) {
+        // If event is a wake event, protect it with a wakelock
+        protectIfWakeEvent(sensor);
         mRing.write(nev, cnt);
+    }
 }
 
 void HubConnection::processSample(uint64_t timestamp, uint32_t type, uint32_t sensor, struct ThreeAxisSample *sample, bool highAccuracy)
@@ -643,8 +697,11 @@ void HubConnection::processSample(uint64_t timestamp, uint32_t type, uint32_t se
         break;
     }
 
-    if (cnt > 0)
+    if (cnt > 0) {
+        // If event is a wake event, protect it with a wakelock
+        protectIfWakeEvent(sensor);
         mRing.write(nev, cnt);
+    }
 }
 
 void HubConnection::discardInotifyEvent() {
@@ -1221,7 +1278,7 @@ void HubConnection::queueActivate(int handle, bool enable)
 
     Mutex::Autolock autoLock(mLock);
 
-    if (mSensorState[handle].sensorType) {
+    if (isValidHandle(handle)) {
         mSensorState[handle].enable = enable;
 
         initConfigCmd(&cmd, handle);
@@ -1245,7 +1302,7 @@ void HubConnection::queueSetDelay(int handle, nsecs_t sampling_period_ns)
 
     Mutex::Autolock autoLock(mLock);
 
-    if (mSensorState[handle].sensorType) {
+    if (isValidHandle(handle)) {
         if (sampling_period_ns > 0 &&
                 mSensorState[handle].rate != SENSOR_RATE_ONCHANGE &&
                 mSensorState[handle].rate != SENSOR_RATE_ONESHOT) {
@@ -1276,7 +1333,7 @@ void HubConnection::queueBatch(
 
     Mutex::Autolock autoLock(mLock);
 
-    if (mSensorState[handle].sensorType) {
+    if (isValidHandle(handle)) {
         if (sampling_period_ns > 0 &&
                 mSensorState[handle].rate != SENSOR_RATE_ONCHANGE &&
                 mSensorState[handle].rate != SENSOR_RATE_ONESHOT) {
@@ -1306,7 +1363,7 @@ void HubConnection::queueFlush(int handle)
 
     Mutex::Autolock autoLock(mLock);
 
-    if (mSensorState[handle].sensorType) {
+    if (isValidHandle(handle)) {
         mSensorState[handle].flushCnt++;
 
         initConfigCmd(&cmd, handle);
@@ -1330,7 +1387,7 @@ void HubConnection::queueDataInternal(int handle, void *data, size_t length)
     struct ConfigCmd *cmd = (struct ConfigCmd *)malloc(sizeof(struct ConfigCmd) + length);
     size_t ret;
 
-    if (cmd && mSensorState[handle].sensorType) {
+    if (cmd && isValidHandle(handle)) {
         initConfigCmd(cmd, handle);
         memcpy(cmd->data, data, length);
         cmd->cmd = CONFIG_CMD_CFG_DATA;

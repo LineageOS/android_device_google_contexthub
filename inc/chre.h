@@ -30,11 +30,11 @@
  * for overall platform information.
  */
 
-#include "chre_event.h"
-#include "chre_nanoapp.h"
-#include "chre_re.h"
-#include "chre_sensor.h"
-#include "chre_version.h"
+#include <chre/event.h>
+#include <chre/nanoapp.h>
+#include <chre/re.h>
+#include <chre/sensor.h>
+#include <chre/version.h>
 
 
 /**
@@ -73,15 +73,19 @@
  * callback, the CHRE is not allowed to call nanoappHandleEvent(), or invoke
  * another memory freeing callback.
  *
- * There is one exception to this rule: If an invocation of chreSendEvent()
- * or chreSendMessageToHost() fails (returns 'false'), it is allowed to
- * immediately invoke the memory freeing callback passed into that function.
- * This is a rare case, and one where otherwise a CHRE implementation is
- * likely to leak memory.
+ * There are two exceptions to this rule: If an invocation of chreSendEvent()
+ * fails (returns 'false'), it is allowed to immediately invoke the memory
+ * freeing callback passed into that function.  This is a rare case, and one
+ * where otherwise a CHRE implementation is likely to leak memory. Similarly,
+ * chreSendMessageToHost() is allowed to invoke the memory freeing callback
+ * directly, whether it returns 'true' or 'false'.  This is because the CHRE
+ * implementation may copy the message data to its own buffer, and therefore
+ * wouldn't need the nanoapp-supplied buffer after chreSendMessageToHost()
+ * returns.
  *
- * For a nanoapp author, this means no thought (outside of our one exception)
- * needs to be given to synchronization issues with global objects, as they
- * will, by definition, only be accessed by a single thread at once.
+ * For a nanoapp author, this means no thought needs to be given to
+ * synchronization issues with global objects, as they will, by definition,
+ * only be accessed by a single thread at once.
  *
  *
  * [1] Note to CHRE implementors: A future version of the CHRE platform may

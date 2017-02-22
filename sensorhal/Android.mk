@@ -44,7 +44,15 @@ COMMON_CFLAGS := -Wall -Werror -Wextra
 include $(CLEAR_VARS)
 
 ifeq ($(NANOHUB_SENSORHAL_NAME_OVERRIDE),)
+ifeq ($(TARGET_DEVICE),angler_treble)
+LOCAL_MODULE := sensors.angler
+else
+ifeq ($(TARGET_DEVICE),bullhead_treble)
+LOCAL_MODULE := sensors.bullhead
+else
 LOCAL_MODULE := sensors.$(TARGET_DEVICE)
+endif
+endif
 else
 LOCAL_MODULE := $(NANOHUB_SENSORHAL_NAME_OVERRIDE)
 endif
@@ -56,7 +64,7 @@ LOCAL_MODULE_OWNER := google
 LOCAL_CFLAGS += $(COMMON_CFLAGS)
 
 LOCAL_C_INCLUDES += \
-	device/google/contexthub/firmware/inc \
+	device/google/contexthub/firmware/os/inc \
 	device/google/contexthub/util/common
 
 LOCAL_SRC_FILES := \
@@ -84,7 +92,7 @@ LOCAL_MODULE_OWNER := google
 LOCAL_CFLAGS += $(COMMON_CFLAGS)
 
 LOCAL_C_INCLUDES += \
-	device/google/contexthub/firmware/inc \
+	device/google/contexthub/firmware/os/inc \
 	device/google/contexthub/util/common
 
 LOCAL_SRC_FILES := \
@@ -122,20 +130,20 @@ LOCAL_CFLAGS += -DDOUBLE_TOUCH_ENABLED
 endif
 
 LOCAL_C_INCLUDES += \
-	device/google/contexthub/firmware/inc \
-	device/google/contexthub/util/common
+    device/google/contexthub/firmware/os/inc
 
 LOCAL_SRC_FILES := \
-	hubconnection.cpp \
-	../util/common/file.cpp \
-	../util/common/JSONObject.cpp \
-	../util/common/ring.cpp
+    hubconnection.cpp
+
+LOCAL_STATIC_LIBRARIES := \
+    libhubutilcommon
 
 LOCAL_SHARED_LIBRARIES := \
-	libcutils \
-	liblog \
-	libstagefright_foundation \
-	libutils
+    libcutils \
+    liblog \
+    libstagefright_foundation \
+    libhardware_legacy \
+    libutils
 
 include $(BUILD_SHARED_LIBRARY)
 
