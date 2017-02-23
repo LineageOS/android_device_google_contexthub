@@ -367,7 +367,7 @@ static void handleEventFreeing(uint32_t evtType, void *evtData, TaggedPtr evtFre
         osSetCurrentTask(preempted);
     } else {
         // this is for external non-CHRE tasks
-        struct AppEventFreeData fd = {.evtType = evtType, .evtData = evtData};
+        struct AppEventFreeData fd = {.evtType = EVENT_GET_EVENT(evtType), .evtData = evtData};
         osTaskHandle(srcTask, EVT_APP_FREE_EVT_DATA, OS_SYSTEM_TID, &fd);
     }
     osTaskAddIoCount(srcTask, -1);
