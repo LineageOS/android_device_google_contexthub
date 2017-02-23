@@ -65,8 +65,6 @@
 #define MIN_MAG_SQ              (10.0f * 10.0f)
 #define MAX_MAG_SQ              (80.0f * 80.0f)
 
-#define ACCEL_RAW_KSCALE        (8.0f * 9.81f / 32768.0f)
-
 #define OS_LOG_EVENT            0x474F4C41  // ascii: ALOG
 
 #define HUBCONNECTION_SCHED_FIFO_PRIORITY 10
@@ -107,6 +105,8 @@ HubConnection::HubConnection()
     : Thread(false /* canCallJava */),
       mRing(10 *1024),
       mActivityEventHandler(NULL),
+      mScaleAccel(1.0f),
+      mScaleMag(1.0f),
       mStepCounterOffset(0ull),
       mLastStepCount(0ull)
 {
@@ -545,9 +545,9 @@ void HubConnection::processSample(uint64_t timestamp, uint32_t type, uint32_t se
     }
 }
 
-void HubConnection::magAccuracyUpdate(float x, float y, float z)
+uint8_t HubConnection::magAccuracyUpdate(sensors_vec_t *sv)
 {
-    float magSq = x * x + y * y + z * z;
+    float magSq = sv->x * sv->x + sv->y * sv->y + sv->z * sv->z;
 
     if (magSq < MIN_MAG_SQ || magSq > MAX_MAG_SQ) {
         // save last good accuracy (either MEDIUM or HIGH)
@@ -558,6 +558,8 @@ void HubConnection::magAccuracyUpdate(float x, float y, float z)
         // restore
         mMagAccuracy = mMagAccuracyRestore;
     }
+
+    return mMagAccuracy;
 }
 
 void HubConnection::processSample(uint64_t timestamp, uint32_t type, uint32_t sensor, struct RawThreeAxisSample *sample, __attribute__((unused)) bool highAccuracy)
@@ -570,9 +572,9 @@ void HubConnection::processSample(uint64_t timestamp, uint32_t type, uint32_t se
     switch (sensor) {
     case COMMS_SENSOR_ACCEL:
         sv = &initEv(&nev[cnt], timestamp, type, sensor)->acceleration;
-        sv->x = sample->ix * ACCEL_RAW_KSCALE;
-        sv->y = sample->iy * ACCEL_RAW_KSCALE;
-        sv->z = sample->iz * ACCEL_RAW_KSCALE;
+        sv->x = sample->ix * mScaleAccel;
+        sv->y = sample->iy * mScaleAccel;
+        sv->z = sample->iz * mScaleAccel;
         sv->status = SENSOR_STATUS_ACCURACY_HIGH;
         sendDirectReportEvent(&nev[cnt], 1);
 
@@ -584,14 +586,37 @@ void HubConnection::processSample(uint64_t timestamp, uint32_t type, uint32_t se
             ue = &initEv(&nev[cnt++], timestamp,
                 SENSOR_TYPE_ACCELEROMETER_UNCALIBRATED,
                 COMMS_SENSOR_ACCEL_UNCALIBRATED)->uncalibrated_accelerometer;
-            ue->x_uncalib = sample->ix * ACCEL_RAW_KSCALE + mAccelBias[0];
-            ue->y_uncalib = sample->iy * ACCEL_RAW_KSCALE + mAccelBias[1];
-            ue->z_uncalib = sample->iz * ACCEL_RAW_KSCALE + mAccelBias[2];
+            ue->x_uncalib = sample->ix * mScaleAccel + mAccelBias[0];
+            ue->y_uncalib = sample->iy * mScaleAccel + mAccelBias[1];
+            ue->z_uncalib = sample->iz * mScaleAccel + mAccelBias[2];
             ue->x_bias = mAccelBias[0];
             ue->y_bias = mAccelBias[1];
             ue->z_bias = mAccelBias[2];
         }
         break;
+    case COMMS_SENSOR_MAG:
+        sv = &initEv(&nev[cnt], timestamp, type, sensor)->magnetic;
+        sv->x = sample->ix * mScaleMag;
+        sv->y = sample->iy * mScaleMag;
+        sv->z = sample->iz * mScaleMag;
+        sv->status = magAccuracyUpdate(sv);
+        sendDirectReportEvent(&nev[cnt], 1);
+
+        if (mSensorState[sensor].enable) {
+            ++cnt;
+        }
+
+        if (mSensorState[COMMS_SENSOR_MAG_UNCALIBRATED].enable) {
+            ue = &initEv(&nev[cnt++], timestamp,
+                SENSOR_TYPE_MAGNETIC_FIELD_UNCALIBRATED,
+                COMMS_SENSOR_MAG_UNCALIBRATED)->uncalibrated_magnetic;
+            ue->x_uncalib = sample->ix * mScaleMag + mMagBias[0];
+            ue->y_uncalib = sample->iy * mScaleMag + mMagBias[1];
+            ue->z_uncalib = sample->iz * mScaleMag + mMagBias[2];
+            ue->x_bias = mMagBias[0];
+            ue->y_bias = mMagBias[1];
+            ue->z_bias = mMagBias[2];
+        }
     default:
         break;
     }
@@ -675,13 +700,11 @@ void HubConnection::processSample(uint64_t timestamp, uint32_t type, uint32_t se
         saveSensorSettings();
         break;
     case COMMS_SENSOR_MAG:
-        magAccuracyUpdate(sample->x, sample->y, sample->z);
-
         sv = &initEv(&nev[cnt], timestamp, type, sensor)->magnetic;
         sv->x = sample->x;
         sv->y = sample->y;
         sv->z = sample->z;
-        sv->status = mMagAccuracy;
+        sv->status = magAccuracyUpdate(sv);
         sendDirectReportEvent(&nev[cnt], 1);
 
         if (mSensorState[sensor].enable) {
@@ -890,6 +913,11 @@ ssize_t HubConnection::processBuf(uint8_t *buf, size_t len)
             sensor = COMMS_SENSOR_MAG;
             bias = COMMS_SENSOR_MAG_BIAS;
             three = true;
+            break;
+        case SENS_TYPE_TO_EVENT(SENS_TYPE_MAG_RAW):
+            type = SENSOR_TYPE_MAGNETIC_FIELD;
+            sensor = COMMS_SENSOR_MAG;
+            rawThree = true;
             break;
         case SENS_TYPE_TO_EVENT(SENS_TYPE_ALS):
             type = SENSOR_TYPE_LIGHT;

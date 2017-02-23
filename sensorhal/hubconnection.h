@@ -73,6 +73,11 @@ struct HubConnection : public Thread {
 
     void saveSensorSettings() const;
 
+    void setRawScale(float scaleAccel, float scaleMag) {
+        mScaleAccel = scaleAccel;
+        mScaleMag = scaleMag;
+    }
+
 protected:
     HubConnection();
     virtual ~HubConnection();
@@ -208,6 +213,8 @@ private:
 
     float mGyroBias[3], mAccelBias[3];
 
+    float mScaleAccel, mScaleMag;
+
     SensorState mSensorState[NUM_COMMS_SENSORS_PLUS_1];
 
     uint64_t mStepCounterOffset;
@@ -219,7 +226,7 @@ private:
     int mNumPollFds;
 
     sensors_event_t *initEv(sensors_event_t *ev, uint64_t timestamp, uint32_t type, uint32_t sensor);
-    void magAccuracyUpdate(float x, float y, float z);
+    uint8_t magAccuracyUpdate(sensors_vec_t *sv);
     void processSample(uint64_t timestamp, uint32_t type, uint32_t sensor, struct OneAxisSample *sample, bool highAccuracy);
     void processSample(uint64_t timestamp, uint32_t type, uint32_t sensor, struct RawThreeAxisSample *sample, bool highAccuracy);
     void processSample(uint64_t timestamp, uint32_t type, uint32_t sensor, struct ThreeAxisSample *sample, bool highAccuracy);

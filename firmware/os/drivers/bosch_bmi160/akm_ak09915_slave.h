@@ -25,6 +25,8 @@
 extern "C" {
 #endif
 
+#define kScale_mag 0.15f
+
 #define AKM_AK09915_DEVICE_ID     0x1048
 #define AKM_AK09915_REG_WIA1      0x00
 #define AKM_AK09915_REG_DATA      0x11

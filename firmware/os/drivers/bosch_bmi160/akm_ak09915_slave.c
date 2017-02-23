@@ -17,8 +17,6 @@
 #include <string.h>
 #include "akm_ak09915_slave.h"
 
-#define kScale_mag 0.15f
-
 void parseMagData(struct MagTask *magTask, uint8_t *buf, float *x, float *y, float *z) {
     int32_t raw_x = (*(int16_t *)&buf[0]);
     int32_t raw_y = (*(int16_t *)&buf[2]);

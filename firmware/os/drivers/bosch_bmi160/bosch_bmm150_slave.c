@@ -17,8 +17,6 @@
 #include <string.h>
 #include "bosch_bmm150_slave.h"
 
-#define kScale_mag 0.0625f         // 1.0f / 16.0f;
-
 void bmm150SaveDigData(struct MagTask *magTask, uint8_t *data, size_t offset)
 {
     // magnetometer temperature calibration data is read in 3 bursts of 8 byte

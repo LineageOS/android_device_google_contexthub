@@ -46,6 +46,7 @@ SensorContext::SensorContext(const struct hw_module_t *module)
     device.poll = PollWrapper;
     device.batch = BatchWrapper;
     device.flush = FlushWrapper;
+    mHubConnection->setRawScale(kScaleAccel, kScaleMag);
     if (mHubConnection->isDirectReportSupported()) {
         device.register_direct_channel = RegisterDirectChannelWrapper;
         device.config_direct_report = ConfigDirectReportWrapper;

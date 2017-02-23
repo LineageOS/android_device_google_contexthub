@@ -675,8 +675,9 @@ static const struct SensorInfo mSensorInfo[NUM_OF_SENSOR] =
     { DEC_INFO_RATE_BIAS("Gyroscope", GyrRates, SENS_TYPE_GYRO, NUM_AXIS_THREE,
             NANOHUB_INT_NONWAKEUP, 20, SENS_TYPE_GYRO_BIAS) },
 #ifdef MAG_SLAVE_PRESENT
-    { DEC_INFO_RATE_BIAS("Magnetometer", MagRates, SENS_TYPE_MAG, NUM_AXIS_THREE,
-            NANOHUB_INT_NONWAKEUP, 600, SENS_TYPE_MAG_BIAS) },
+    { DEC_INFO_RATE_RAW_BIAS("Magnetometer", MagRates, SENS_TYPE_MAG, NUM_AXIS_THREE,
+            NANOHUB_INT_NONWAKEUP, 600, SENS_TYPE_MAG_RAW, 1.0/kScale_mag,
+            SENS_TYPE_MAG_BIAS) },
 #endif
     { DEC_INFO("Step Detector", SENS_TYPE_STEP_DETECT, NUM_AXIS_EMBEDDED,
             NANOHUB_INT_NONWAKEUP, 100) },

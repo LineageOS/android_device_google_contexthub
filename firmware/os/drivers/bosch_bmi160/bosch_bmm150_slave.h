@@ -25,6 +25,8 @@
 extern "C" {
 #endif
 
+#define kScale_mag 0.0625f         // 1.0f / 16.0f;
+
 #define BMM150_REG_DATA           0x42
 #define BMM150_REG_CTRL_1         0x4b
 #define BMM150_REG_CTRL_2         0x4c
