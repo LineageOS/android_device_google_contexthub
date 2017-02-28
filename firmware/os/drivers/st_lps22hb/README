@@ -18,6 +18,7 @@ file of the specific variant:
   LPS22HB_I2C_BUS_ID    /* specify I2C Bus ID */
   LPS22HB_I2C_SPEED     /* specify I2C Bus speed in hz */
   LPS22HB_I2C_ADDR      /* specify device I2C address */
+  LPS22HB_DBG_ENABLED   /* Enable debug messages */
 
 Example:
 

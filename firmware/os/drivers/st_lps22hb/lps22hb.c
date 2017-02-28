@@ -63,6 +63,28 @@
 #define LPS22HB_HECTO_PASCAL(baro_val)  (baro_val/4096)
 #define LPS22HB_CENTIGRADES(temp_val)   (temp_val/100)
 
+#define INFO_PRINT(fmt, ...) \
+    do { \
+        osLog(LOG_INFO, "%s " fmt, "[LPS22HB]", ##__VA_ARGS__); \
+    } while (0);
+
+#define DEBUG_PRINT(fmt, ...) \
+    do { \
+        if (LPS22HB_DBG_ENABLED) { \
+            osLog(LOG_DEBUG, "%s " fmt, "[LPS22HB]", ##__VA_ARGS__); \
+        } \
+    } while (0);
+
+#define ERROR_PRINT(fmt, ...) \
+    do { \
+        osLog(LOG_ERROR, "%s " fmt, "[LPS22HB]", ##__VA_ARGS__); \
+    } while (0);
+
+/* DO NOT MODIFY, just to avoid compiler error if not defined using FLAGS */
+#ifndef LPS22HB_DBG_ENABLED
+#define LPS22HB_DBG_ENABLED                           0
+#endif /* LPS22HB_DBG_ENABLED */
+
 enum lps22hbSensorEvents
 {
     EVT_COMM_DONE = EVT_APP_START + 1,
@@ -165,7 +187,7 @@ static struct I2cTransfer *allocXfer(uint8_t state)
         }
     }
 
-    osLog(LOG_ERROR, "[LPS22HB]: Ran out of i2c buffers!");
+    ERROR_PRINT("Ran out of i2c buffers!");
     return NULL;
 }
 
@@ -179,7 +201,7 @@ static void i2cCallback(void *cookie, size_t tx, size_t rx, int err)
 
     osEnqueuePrivateEvt(EVT_COMM_DONE, cookie, NULL, mTask.tid);
     if (err != 0)
-        osLog(LOG_INFO, "[LPS22HB] i2c error (tx: %d, rx: %d, err: %d)\n", tx, rx, err);
+        ERROR_PRINT("i2c error (tx: %d, rx: %d, err: %d)\n", tx, rx, err);
 }
 
 static void i2c_read(uint8_t addr, uint16_t len, uint32_t delay, uint8_t state)
@@ -264,7 +286,7 @@ static bool baroPower(bool on, void *cookie)
     bool newMode = on || mTask.tempOn;
     uint32_t state = on ? SENSOR_BARO_POWER_UP : SENSOR_BARO_POWER_DOWN;
 
-    //osLog(LOG_INFO, "baro power %d (%d) %d %d\n", oldMode, newMode,  mTask.baroOn, mTask.tempOn);
+    DEBUG_PRINT("baroPower %s\n", on ? "enable" : "disable");
     if (!on && mTask.baroTimerHandle) {
         timTimerCancel(mTask.baroTimerHandle);
         mTask.baroTimerHandle = 0;
@@ -292,7 +314,7 @@ static bool baroFwUpload(void *cookie)
 
 static bool baroSetRate(uint32_t rate, uint64_t latency, void *cookie)
 {
-    //osLog(LOG_INFO, "baro set rate %ld (%lld)\n", rate, latency);
+    DEBUG_PRINT("baroSetRate %ld (%lld)\n", rate, latency);
     if (mTask.baroTimerHandle)
         timTimerCancel(mTask.baroTimerHandle);
 
@@ -314,7 +336,7 @@ static bool tempPower(bool on, void *cookie)
     bool newMode = on || mTask.baroOn;
     uint32_t state = on ? SENSOR_TEMP_POWER_UP : SENSOR_TEMP_POWER_DOWN;
 
-    //osLog(LOG_INFO, "temp power %d (%d) %d %d\n", oldMode, newMode,  mTask.baroOn, mTask.tempOn);
+    DEBUG_PRINT("tempPower %s\n", on ? "enable" : "disable");
     if (!on && mTask.tempTimerHandle) {
         timTimerCancel(mTask.tempTimerHandle);
         mTask.tempTimerHandle = 0;
@@ -345,7 +367,7 @@ static bool tempSetRate(uint32_t rate, uint64_t latency, void *cookie)
     if (mTask.tempTimerHandle)
         timTimerCancel(mTask.tempTimerHandle);
 
-    //osLog(LOG_INFO, "temp set rate %ld (%lld)\n", rate, latency);
+    DEBUG_PRINT("tempSetRate %ld (%lld)\n", rate, latency);
     mTask.tempTimerHandle = timTimerSet(sensorTimerLookupCommon(lps22hbRates,
                 lps22hbRatesRateVals, rate), 0, 50, sensorTempTimerCallback, NULL, false);
 
@@ -381,7 +403,7 @@ static void handleCommDoneEvt(const void* evtData)
     short temp_val;
     //uint32_t state = (uint32_t)evtData;
     union EmbeddedDataPoint sample;
-	struct I2cTransfer *xfer = (struct I2cTransfer *)evtData;
+    struct I2cTransfer *xfer = (struct I2cTransfer *)evtData;
 
     switch (xfer->state) {
     case SENSOR_BOOT:
@@ -391,12 +413,12 @@ static void handleCommDoneEvt(const void* evtData)
     case SENSOR_VERIFY_ID:
         /* Check the sensor ID */
         if (xfer->err != 0 || xfer->txrxBuf[0] != LPS22HB_WAI_REG_VAL) {
-            osLog(LOG_INFO, "[LPS22HB] WAI returned is: %02x\n", xfer->txrxBuf[0]);
+            INFO_PRINT("WAI returned is: %02x\n", xfer->txrxBuf[0]);
             break;
         }
 
 
-        osLog(LOG_INFO, "[LPS22HB] Device ID is correct! (%02x)\n", xfer->txrxBuf[0]);
+        INFO_PRINT("Device ID is correct! (%02x)\n", xfer->txrxBuf[0]);
         for (i = 0; i < NUM_OF_SENSOR; i++)
             sensorRegisterInitComplete(mTask.sensors[i].handle);
 
@@ -471,7 +493,7 @@ static void handleEvent(uint32_t evtType, const void* evtData)
 {
     switch (evtType) {
     case EVT_APP_START:
-        osLog(LOG_INFO, "LPS22HB DRIVER: EVT_APP_START\n");
+        INFO_PRINT("EVT_APP_START\n");
         osEventUnsubscribe(mTask.tid, EVT_APP_START);
 
         mTask.comm_tx(LPS22HB_SOFT_RESET_REG_ADDR,
@@ -479,12 +501,12 @@ static void handleEvent(uint32_t evtType, const void* evtData)
         break;
 
     case EVT_COMM_DONE:
-        //osLog(LOG_INFO, "LPS22HB DRIVER: EVT_COMM_DONE %d\n", (int)evtData);
+        //INFO_PRINT("EVT_COMM_DONE %d\n", (int)evtData);
         handleCommDoneEvt(evtData);
         break;
 
     case EVT_SENSOR_BARO_TIMER:
-        //osLog(LOG_INFO, "LPS22HB DRIVER: EVT_SENSOR_BARO_TIMER\n");
+        //INFO_PRINT("EVT_SENSOR_BARO_TIMER\n");
 
         mTask.baroWantRead = true;
 
@@ -498,7 +520,7 @@ static void handleEvent(uint32_t evtType, const void* evtData)
         break;
 
     case EVT_SENSOR_TEMP_TIMER:
-        //osLog(LOG_INFO, "LPS22HB DRIVER: EVT_SENSOR_TEMP_TIMER\n");
+        //INFO_PRINT("EVT_SENSOR_TEMP_TIMER\n");
 
         mTask.tempWantRead = true;
 
@@ -512,11 +534,11 @@ static void handleEvent(uint32_t evtType, const void* evtData)
         break;
 
     case EVT_INT1_RAISED:
-        osLog(LOG_INFO, "LPS22HB DRIVER: EVT_INT1_RAISED\n");
+        INFO_PRINT("EVT_INT1_RAISED\n");
         break;
 
     case EVT_TEST:
-        osLog(LOG_INFO, "LPS22HB DRIVER: EVT_TEST\n");
+        INFO_PRINT("EVT_TEST\n");
 
         baroPower(true, NULL);
         tempPower(true, NULL);
@@ -536,7 +558,7 @@ static bool startTask(uint32_t task_id)
 
     mTask.tid = task_id;
 
-    osLog(LOG_INFO, "LPS22HB DRIVER started\n");
+    INFO_PRINT("task started\n");
 
     mTask.baroOn = mTask.tempOn = false;
     mTask.baroReading = mTask.tempReading = false;
@@ -559,7 +581,7 @@ static bool startTask(uint32_t task_id)
 
 static void endTask(void)
 {
-    osLog(LOG_INFO, "LPS22HB DRIVER ended\n");
+    INFO_PRINT("task ended\n");
 }
 
 INTERNAL_APP_INIT(LPS22HB_APP_ID, 0, startTask, endTask, handleEvent);
