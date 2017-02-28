@@ -23,7 +23,6 @@
 #include <plat/syscfg.h>
 #include <sensors.h>
 #include <seos.h>
-#include <spi.h>
 #include <i2c.h>
 #include <timer.h>
 #include <stdlib.h>
@@ -85,7 +84,6 @@ enum lps22hbSensorState {
     SENSOR_DO_NOTHING,
 };
 
-#if defined(LPS22HB_USE_I2C)
 #ifndef LPS22HB_I2C_BUS_ID
 #error "LPS22HB_I2C_BUS_ID is not defined; please define in variant.h"
 #endif
@@ -98,25 +96,6 @@ enum lps22hbSensorState {
 #error "LPS22HB_I2C_ADDR is not defined; please define in variant.h"
 #endif
 
-#else  /* #if defined(LPS22HB_USE_I2C) */
-
-#define SPI_READ        0x80
-#define SPI_WRITE       0x00
-#define SPI_MAX_PCK_NUM     1
-
-#ifndef LPS22HB_SPI_BUS_ID
-#error "LPS22HB_SPI_BUS_ID define missing: forced definition in driver"
-#endif
-
-#ifndef LPS22HB_SPI_SPEED_HZ
-#error "LPS22HB_SPI_SPEED_HZ define missing: forced definition in driver"
-#endif
-
-#ifndef LPS22HB_SPI_GPIO_NSS
-#error "LPS22HB_SPI_GPIO_NSS define missing: forced definition in driver"
-#endif
-#endif /* #if defined(LPS22HB_USE_I2C) */
-
 enum lps22hbSensorIndex {
     BARO = 0,
     TEMP,
@@ -127,6 +106,19 @@ enum lps22hbSensorIndex {
 
 struct lps22hbSensor {
     uint32_t handle;
+};
+
+#define LPS22HB_MAX_PENDING_I2C_REQUESTS   4
+#define LPS22HB_MAX_I2C_TRANSFER_SIZE      6
+
+struct I2cTransfer
+{
+    size_t tx;
+    size_t rx;
+    int err;
+    uint8_t txrxBuf[LPS22HB_MAX_I2C_TRANSFER_SIZE];
+    uint8_t state;
+    bool inUse;
 };
 
 /* Task structure */
@@ -147,18 +139,11 @@ struct lps22hbTask {
 
     //int sensLastRead;
 
-#if !defined(LPS22HB_USE_I2C)
-    /* SPI */
-    spi_cs_t            cs;
-    struct SpiMode      mode;
-    struct SpiDevice    *spiDev;
-    struct SpiPacket    spi_pck[SPI_MAX_PCK_NUM];
-#endif
-    unsigned char       sens_buf[6];
+    struct I2cTransfer transfers[LPS22HB_MAX_PENDING_I2C_REQUESTS];
 
     /* Communication functions */
-    void (*comm_tx)(uint8_t addr, uint8_t data, uint32_t delay, void *cookie);
-    void (*comm_rx)(uint8_t addr, uint16_t len, uint32_t delay, void *cookie);
+    void (*comm_tx)(uint8_t addr, uint8_t data, uint32_t delay, uint8_t state);
+    void (*comm_rx)(uint8_t addr, uint16_t len, uint32_t delay, uint8_t state);
 
     /* sensors */
     struct lps22hbSensor sensors[NUM_OF_SENSOR];
@@ -166,66 +151,61 @@ struct lps22hbTask {
 
 static struct lps22hbTask mTask;
 
-#if defined(LPS22HB_USE_I2C)
+// Allocate a buffer and mark it as in use with the given state, or return NULL
+// if no buffers available. Must *not* be called from interrupt context.
+static struct I2cTransfer *allocXfer(uint8_t state)
+{
+    size_t i;
+
+    for (i = 0; i < ARRAY_SIZE(mTask.transfers); i++) {
+        if (!mTask.transfers[i].inUse) {
+            mTask.transfers[i].inUse = true;
+            mTask.transfers[i].state = state;
+            return &mTask.transfers[i];
+        }
+    }
+
+    osLog(LOG_ERROR, "[LPS22HB]: Ran out of i2c buffers!");
+    return NULL;
+}
+
 static void i2cCallback(void *cookie, size_t tx, size_t rx, int err)
-#else
-static void spiCallback(void *cookie, int err)
-#endif
 {
+    struct I2cTransfer *xfer = cookie;
+
+    xfer->tx = tx;
+    xfer->rx = rx;
+    xfer->err = err;
+
     osEnqueuePrivateEvt(EVT_COMM_DONE, cookie, NULL, mTask.tid);
+    if (err != 0)
+        osLog(LOG_INFO, "[LPS22HB] i2c error (tx: %d, rx: %d, err: %d)\n", tx, rx, err);
 }
 
-#if defined(LPS22HB_USE_I2C)
-static void i2c_read(uint8_t addr, uint16_t len, uint32_t delay, void *cookie)
+static void i2c_read(uint8_t addr, uint16_t len, uint32_t delay, uint8_t state)
 {
-    mTask.sens_buf[0] = 0x80 | addr;
-    i2cMasterTxRx(LPS22HB_I2C_BUS_ID, LPS22HB_I2C_ADDR, &mTask.sens_buf[0], 1,
-                        &mTask.sens_buf[1], len, &i2cCallback, cookie);
+    struct I2cTransfer *xfer = allocXfer(state);
+    //int ret = -1;
+
+    if (xfer != NULL) {
+        xfer->txrxBuf[0] = 0x80 | addr;
+        i2cMasterTxRx(LPS22HB_I2C_BUS_ID, LPS22HB_I2C_ADDR, xfer->txrxBuf, 1, xfer->txrxBuf, len, i2cCallback, xfer);
+    }
 }
 
-static void i2c_write(uint8_t addr, uint8_t data, uint32_t delay, void *cookie)
+static void i2c_write(uint8_t addr, uint8_t data, uint32_t delay, uint8_t state)
 {
-    mTask.sens_buf[0] = addr;
-    mTask.sens_buf[1] = data;
-    i2cMasterTx(LPS22HB_I2C_BUS_ID, LPS22HB_I2C_ADDR, mTask.sens_buf, 2, &i2cCallback, cookie);
+    struct I2cTransfer *xfer = allocXfer(state);
+    //int ret = -1;
+
+    if (xfer != NULL) {
+        xfer->txrxBuf[0] = addr;
+        xfer->txrxBuf[1] = data;
+        i2cMasterTx(LPS22HB_I2C_BUS_ID, LPS22HB_I2C_ADDR, xfer->txrxBuf, 2, i2cCallback, xfer);
+    }
+
+    //return (ret == 0);
 }
-
-#else
-static void spi_read(uint8_t addr, uint16_t len, uint32_t delay, void *cookie)
-{
-    mTask.sens_buf[0] = SPI_READ | addr;
-
-    mTask.spi_pck[0].size = len + 1;
-    mTask.spi_pck[0].txBuf = mTask.spi_pck[0].rxBuf = &mTask.sens_buf[0];
-    mTask.spi_pck[0].delay = delay * 1000;
-
-    spiMasterRxTx(mTask.spiDev, mTask.cs, &mTask.spi_pck[0], 1/*mTask.spi_pck_num*/, &mTask.mode, spiCallback, cookie);
-}
-
-static void spi_write(uint8_t addr, uint8_t data, uint32_t delay, void *cookie)
-{
-    mTask.sens_buf[0] = SPI_WRITE | addr;
-    mTask.sens_buf[1] = data;
-
-    mTask.spi_pck[0].size = 2;
-    mTask.spi_pck[0].txBuf = mTask.spi_pck[0].rxBuf = &mTask.sens_buf[0];
-    mTask.spi_pck[0].delay = delay * 1000;
-
-    spiMasterRxTx(mTask.spiDev, mTask.cs, &mTask.spi_pck[0], 1/*mTask.spi_pck_num*/, &mTask.mode, spiCallback, cookie);
-}
-
-static void spi_init(void)
-{
-    mTask.mode.speed = LPS22HB_SPI_SPEED_HZ;
-    mTask.mode.bitsPerWord = 8;
-    mTask.mode.cpol = SPI_CPOL_IDLE_HI;
-    mTask.mode.cpha = SPI_CPHA_TRAILING_EDGE;
-    mTask.mode.nssChange = true;
-    mTask.mode.format = SPI_FORMAT_MSB_FIRST;
-    mTask.cs = LPS22HB_SPI_GPIO_NSS;
-    spiMasterRequest(LPS22HB_SPI_BUS_ID, &(mTask.spiDev));
-}
-#endif
 
 /* Sensor Info */
 static void sensorBaroTimerCallback(uint32_t timerId, void *data)
@@ -293,9 +273,9 @@ static bool baroPower(bool on, void *cookie)
 
     if (oldMode != newMode) {
         if (on)
-            mTask.comm_tx(LPS22HB_ODR_REG_ADDR, LPS22HB_ODR_10_HZ, 0, (void *)state);
+            mTask.comm_tx(LPS22HB_ODR_REG_ADDR, LPS22HB_ODR_10_HZ, 0, state);
         else
-            mTask.comm_tx(LPS22HB_ODR_REG_ADDR, LPS22HB_ODR_ONE_SHOT, 0, (void *)state);
+            mTask.comm_tx(LPS22HB_ODR_REG_ADDR, LPS22HB_ODR_ONE_SHOT, 0, state);
     } else
         sensorSignalInternalEvt(mTask.sensors[BARO].handle,
                     SENSOR_INTERNAL_EVT_POWER_STATE_CHG, on, 0);
@@ -343,9 +323,9 @@ static bool tempPower(bool on, void *cookie)
 
     if (oldMode != newMode) {
         if (on)
-            mTask.comm_tx(LPS22HB_ODR_REG_ADDR, LPS22HB_ODR_10_HZ, 0, (void *)state);
+            mTask.comm_tx(LPS22HB_ODR_REG_ADDR, LPS22HB_ODR_10_HZ, 0, state);
         else
-            mTask.comm_tx(LPS22HB_ODR_REG_ADDR, LPS22HB_ODR_ONE_SHOT, 0, (void *)state);
+            mTask.comm_tx(LPS22HB_ODR_REG_ADDR, LPS22HB_ODR_ONE_SHOT, 0, state);
     } else
         sensorSignalInternalEvt(mTask.sensors[TEMP].handle,
                     SENSOR_INTERNAL_EVT_POWER_STATE_CHG, on, 0);
@@ -392,7 +372,6 @@ static const struct SensorOps lps22hbSensorOps[NUM_OF_SENSOR] =
     { DEC_OPS(tempPower, tempFwUpload, tempSetRate, tempFlush, NULL, NULL) },
 };
 
-static uint8_t *wai;
 static uint8_t *baro_samples;
 static uint8_t *temp_samples;
 static void handleCommDoneEvt(const void* evtData)
@@ -400,31 +379,26 @@ static void handleCommDoneEvt(const void* evtData)
     uint8_t i;
     int baro_val;
     short temp_val;
-    uint32_t state = (uint32_t)evtData;
+    //uint32_t state = (uint32_t)evtData;
     union EmbeddedDataPoint sample;
+	struct I2cTransfer *xfer = (struct I2cTransfer *)evtData;
 
-    switch (state) {
+    switch (xfer->state) {
     case SENSOR_BOOT:
-        mTask.comm_rx(LPS22HB_WAI_REG_ADDR, 1, 1, (void *)SENSOR_VERIFY_ID);
+        mTask.comm_rx(LPS22HB_WAI_REG_ADDR, 1, 1, SENSOR_VERIFY_ID);
         break;
 
     case SENSOR_VERIFY_ID:
-        wai = &mTask.sens_buf[1];
-
-        if (LPS22HB_WAI_REG_VAL != wai[0]) {
-            osLog(LOG_INFO, "WAI returned is: %02x\n", *wai);
+        /* Check the sensor ID */
+        if (xfer->err != 0 || xfer->txrxBuf[0] != LPS22HB_WAI_REG_VAL) {
+            osLog(LOG_INFO, "[LPS22HB] WAI returned is: %02x\n", xfer->txrxBuf[0]);
             break;
         }
 
-        osLog(LOG_INFO, "Device ID is correct! (%02x)\n", *wai);
+
+        osLog(LOG_INFO, "[LPS22HB] Device ID is correct! (%02x)\n", xfer->txrxBuf[0]);
         for (i = 0; i < NUM_OF_SENSOR; i++)
             sensorRegisterInitComplete(mTask.sensors[i].handle);
-
-#if !defined(LPS22HB_USE_I2C)
-        mTask.comm_tx(LPS22HB_SOFT_RESET_REG_ADDR,
-                    LPS22HB_I2C_DIS | LPS22HB_IF_ADD_INC, 0,
-                    (void *)SENSOR_DO_NOTHING);
-#endif
 
         /* TEST the environment in standalone mode */
         //osEnqueuePrivateEvt(EVT_TEST, NULL, NULL, mTask.tid);
@@ -458,7 +432,7 @@ static void handleCommDoneEvt(const void* evtData)
     case SENSOR_READ_SAMPLES:
         if (mTask.baroOn && mTask.baroWantRead) {
             mTask.baroWantRead = false;
-            baro_samples = &mTask.sens_buf[1];
+            baro_samples = xfer->txrxBuf;
 
             baro_val = ((baro_samples[2] << 16) & 0xff0000) |
                     ((baro_samples[1] << 8) & 0xff00) |
@@ -472,7 +446,7 @@ static void handleCommDoneEvt(const void* evtData)
 
         if (mTask.tempOn && mTask.tempWantRead) {
             mTask.tempWantRead = false;
-            temp_samples = &mTask.sens_buf[4];
+            temp_samples = &xfer->txrxBuf[3];
 
             temp_val  = ((temp_samples[1] << 8) & 0xff00) |
                     (temp_samples[0]);
@@ -489,6 +463,8 @@ static void handleCommDoneEvt(const void* evtData)
     default:
         break;
     }
+
+    xfer->inUse = false;
 }
 
 static void handleEvent(uint32_t evtType, const void* evtData)
@@ -499,7 +475,7 @@ static void handleEvent(uint32_t evtType, const void* evtData)
         osEventUnsubscribe(mTask.tid, EVT_APP_START);
 
         mTask.comm_tx(LPS22HB_SOFT_RESET_REG_ADDR,
-                    LPS22HB_SOFT_RESET_BIT, 0, (void *)SENSOR_BOOT);
+                    LPS22HB_SOFT_RESET_BIT, 0, SENSOR_BOOT);
         break;
 
     case EVT_COMM_DONE:
@@ -516,7 +492,7 @@ static void handleEvent(uint32_t evtType, const void* evtData)
         if (!mTask.baroReading && !mTask.tempReading) {
             mTask.baroReading = true;
 
-            mTask.comm_rx(LPS22HB_PRESS_OUTXL_REG_ADDR, 5, 1, (void *)SENSOR_READ_SAMPLES);
+            mTask.comm_rx(LPS22HB_PRESS_OUTXL_REG_ADDR, 5, 1, SENSOR_READ_SAMPLES);
         }
 
         break;
@@ -530,7 +506,7 @@ static void handleEvent(uint32_t evtType, const void* evtData)
         if (!mTask.baroReading && !mTask.tempReading) {
             mTask.tempReading = true;
 
-            mTask.comm_rx(LPS22HB_PRESS_OUTXL_REG_ADDR, 5, 1, (void *)SENSOR_READ_SAMPLES);
+            mTask.comm_rx(LPS22HB_PRESS_OUTXL_REG_ADDR, 5, 1, SENSOR_READ_SAMPLES);
         }
 
         break;
@@ -566,17 +542,10 @@ static bool startTask(uint32_t task_id)
     mTask.baroReading = mTask.tempReading = false;
 
     /* Init the communication part */
-#if defined(LPS22HB_USE_I2C)
     i2cMasterRequest(LPS22HB_I2C_BUS_ID, LPS22HB_I2C_SPEED);
 
     mTask.comm_tx = i2c_write;
     mTask.comm_rx = i2c_read;
-#else
-    spi_init();
-
-    mTask.comm_tx = spi_write;
-    mTask.comm_rx = spi_read;
-#endif
 
     for (i = 0; i < NUM_OF_SENSOR; i++) {
         mTask.sensors[i].handle =
@@ -591,10 +560,6 @@ static bool startTask(uint32_t task_id)
 static void endTask(void)
 {
     osLog(LOG_INFO, "LPS22HB DRIVER ended\n");
-#if defined(LPS22HB_USE_I2C)
-#else
-    spiMasterRelease(mTask.spiDev);
-#endif
 }
 
 INTERNAL_APP_INIT(LPS22HB_APP_ID, 0, startTask, endTask, handleEvent);
