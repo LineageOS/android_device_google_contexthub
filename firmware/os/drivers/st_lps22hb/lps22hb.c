@@ -28,10 +28,9 @@
 #include <timer.h>
 #include <stdlib.h>
 #include <string.h>
+#include <variant/variant.h>
 
 #define LPS22HB_APP_ID              APP_ID_MAKE(NANOHUB_VENDOR_STMICRO, 1)
-#define LPS22HB_SPI_BUS_ID      1
-#define LPS22HB_SPI_SPEED_HZ    8000000
 
 /* Sensor defs */
 #define LPS22HB_INT_CFG_REG_ADDR    0x0B
@@ -42,6 +41,8 @@
 
 #define LPS22HB_SOFT_RESET_REG_ADDR 0x11
 #define LPS22HB_SOFT_RESET_BIT      0x04
+#define LPS22HB_I2C_DIS             0x08
+#define LPS22HB_IF_ADD_INC          0x10
 
 #define LPS22HB_ODR_REG_ADDR    0x10
 #define LPS22HB_ODR_ONE_SHOT    0x00
@@ -81,19 +82,40 @@ enum lps22hbSensorState {
     SENSOR_TEMP_POWER_UP,
     SENSOR_TEMP_POWER_DOWN,
     SENSOR_READ_SAMPLES,
+    SENSOR_DO_NOTHING,
 };
 
-#define LPS22HB_USE_I2C     1
-
 #if defined(LPS22HB_USE_I2C)
-#define I2C_BUS_ID              0
-#define I2C_SPEED               400000
-#define LPS22HB_I2C_ADDR        0x5D
-#else
+#ifndef LPS22HB_I2C_BUS_ID
+#error "LPS22HB_I2C_BUS_ID is not defined; please define in variant.h"
+#endif
+
+#ifndef LPS22HB_I2C_SPEED
+#error "LPS22HB_I2C_SPEED is not defined; please define in variant.h"
+#endif
+
+#ifndef LPS22HB_I2C_ADDR
+#error "LPS22HB_I2C_ADDR is not defined; please define in variant.h"
+#endif
+
+#else  /* #if defined(LPS22HB_USE_I2C) */
+
 #define SPI_READ        0x80
 #define SPI_WRITE       0x00
 #define SPI_MAX_PCK_NUM     1
+
+#ifndef LPS22HB_SPI_BUS_ID
+#error "LPS22HB_SPI_BUS_ID define missing: forced definition in driver"
 #endif
+
+#ifndef LPS22HB_SPI_SPEED_HZ
+#error "LPS22HB_SPI_SPEED_HZ define missing: forced definition in driver"
+#endif
+
+#ifndef LPS22HB_SPI_GPIO_NSS
+#error "LPS22HB_SPI_GPIO_NSS define missing: forced definition in driver"
+#endif
+#endif /* #if defined(LPS22HB_USE_I2C) */
 
 enum lps22hbSensorIndex {
     BARO = 0,
@@ -125,8 +147,7 @@ struct lps22hbTask {
 
     //int sensLastRead;
 
-#if defined(LPS22HB_USE_I2C)
-#else
+#if !defined(LPS22HB_USE_I2C)
     /* SPI */
     spi_cs_t            cs;
     struct SpiMode      mode;
@@ -158,7 +179,7 @@ static void spiCallback(void *cookie, int err)
 static void i2c_read(uint8_t addr, uint16_t len, uint32_t delay, void *cookie)
 {
     mTask.sens_buf[0] = 0x80 | addr;
-    i2cMasterTxRx(I2C_BUS_ID, LPS22HB_I2C_ADDR, &mTask.sens_buf[0], 1,
+    i2cMasterTxRx(LPS22HB_I2C_BUS_ID, LPS22HB_I2C_ADDR, &mTask.sens_buf[0], 1,
                         &mTask.sens_buf[1], len, &i2cCallback, cookie);
 }
 
@@ -166,7 +187,7 @@ static void i2c_write(uint8_t addr, uint8_t data, uint32_t delay, void *cookie)
 {
     mTask.sens_buf[0] = addr;
     mTask.sens_buf[1] = data;
-    i2cMasterTx(I2C_BUS_ID, LPS22HB_I2C_ADDR, mTask.sens_buf, 2, &i2cCallback, cookie);
+    i2cMasterTx(LPS22HB_I2C_BUS_ID, LPS22HB_I2C_ADDR, mTask.sens_buf, 2, &i2cCallback, cookie);
 }
 
 #else
@@ -201,7 +222,7 @@ static void spi_init(void)
     mTask.mode.cpha = SPI_CPHA_TRAILING_EDGE;
     mTask.mode.nssChange = true;
     mTask.mode.format = SPI_FORMAT_MSB_FIRST;
-    mTask.cs = GPIO_PB(12);
+    mTask.cs = LPS22HB_SPI_GPIO_NSS;
     spiMasterRequest(LPS22HB_SPI_BUS_ID, &(mTask.spiDev));
 }
 #endif
@@ -399,6 +420,12 @@ static void handleCommDoneEvt(const void* evtData)
         for (i = 0; i < NUM_OF_SENSOR; i++)
             sensorRegisterInitComplete(mTask.sensors[i].handle);
 
+#if !defined(LPS22HB_USE_I2C)
+        mTask.comm_tx(LPS22HB_SOFT_RESET_REG_ADDR,
+                    LPS22HB_I2C_DIS | LPS22HB_IF_ADD_INC, 0,
+                    (void *)SENSOR_DO_NOTHING);
+#endif
+
         /* TEST the environment in standalone mode */
         //osEnqueuePrivateEvt(EVT_TEST, NULL, NULL, mTask.tid);
         break;
@@ -458,6 +485,7 @@ static void handleCommDoneEvt(const void* evtData)
 
         break;
 
+    case SENSOR_DO_NOTHING:
     default:
         break;
     }
@@ -539,7 +567,7 @@ static bool startTask(uint32_t task_id)
 
     /* Init the communication part */
 #if defined(LPS22HB_USE_I2C)
-    i2cMasterRequest(I2C_BUS_ID, I2C_SPEED);
+    i2cMasterRequest(LPS22HB_I2C_BUS_ID, LPS22HB_I2C_SPEED);
 
     mTask.comm_tx = i2c_write;
     mTask.comm_rx = i2c_read;
