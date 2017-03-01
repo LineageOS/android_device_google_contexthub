@@ -27,6 +27,10 @@
 #endif /* LSM6DSM_I2C_MASTER_MAGNETOMETER_ENABLED */
 #endif /* LSM6DSM_I2C_MASTER_LIS3MDL */
 
+#if !defined(LSM6DSM_LIS3MDL_I2C_ADDRESS)
+#error "LIS3MDL i2c address macro not defined. Please check README file"
+#endif /* LSM6DSM_LIS3MDL_I2C_ADDRESS */
+
 #define LIS3MDL_KSCALE                                  0.043840420868f    /* MAGN scale @12G in uT/LSB */
 #define LIS3MDL_I2C_ADDRESS                             (LSM6DSM_LIS3MDL_I2C_ADDRESS)
 
