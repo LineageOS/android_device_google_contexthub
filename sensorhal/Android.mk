@@ -149,6 +149,7 @@ LOCAL_STATIC_LIBRARIES := \
 
 LOCAL_SHARED_LIBRARIES := \
     libcutils \
+    libhardware \
     liblog \
     libstagefright_foundation \
     libhardware_legacy \

@@ -17,6 +17,10 @@
 #include "directchannel.h"
 
 #include <cutils/ashmem.h>
+#include <hardware/gralloc.h>
+#include <hardware/sensors.h>
+#include <utils/Log.h>
+
 #include <sys/mman.h>
 
 namespace android {
@@ -66,8 +70,120 @@ AshmemDirectChannel::~AshmemDirectChannel() {
     if (mBase) {
         mBuffer = nullptr;
         ::munmap(mBase, mSize);
+        mBase = nullptr;
     }
     ::close(mAshmemFd);
+}
+
+ANDROID_SINGLETON_STATIC_INSTANCE(GrallocHalWrapper);
+
+GrallocHalWrapper::GrallocHalWrapper() {
+    status_t err = ::hw_get_module(GRALLOC_HARDWARE_MODULE_ID,
+                                 (hw_module_t const**)&mGrallocModule);
+    ALOGE_IF(err, "couldn't load %s module (%s)",
+             GRALLOC_HARDWARE_MODULE_ID, strerror(-err));
+
+    if (mGrallocModule != nullptr) {
+        err = ::gralloc_open(&mGrallocModule->common, &mAllocDevice);
+        ALOGE_IF(err, "cannot open alloc device (%s)", strerror(-err));
+        if (mAllocDevice != nullptr) {
+            err = NO_ERROR;
+        }
+    }
+    mError = err;
+}
+
+GrallocHalWrapper::~GrallocHalWrapper() {
+    if (mAllocDevice != nullptr) {
+        ::gralloc_close(mAllocDevice);
+    }
+}
+
+int GrallocHalWrapper::registerBuffer(const native_handle_t *handle) {
+    if (mGrallocModule == nullptr) {
+        return NO_INIT;
+    }
+    return mGrallocModule->registerBuffer(mGrallocModule, handle);
+}
+
+int GrallocHalWrapper::unregisterBuffer(const native_handle_t *handle) {
+    if (mGrallocModule == nullptr) {
+        return NO_INIT;
+    }
+    return mGrallocModule->unregisterBuffer(mGrallocModule, handle);
+}
+
+int GrallocHalWrapper::lock(const native_handle_t *handle,
+                           int usage, int l, int t, int w, int h, void **vaddr) {
+    if (mGrallocModule == nullptr) {
+        return NO_INIT;
+    }
+    return mGrallocModule->lock(mGrallocModule, handle, usage, l, t, w, h, vaddr);
+}
+
+int GrallocHalWrapper::unlock(const native_handle_t *handle) {
+    if (mGrallocModule == nullptr) {
+        return NO_INIT;
+    }
+    return mGrallocModule->unlock(mGrallocModule, handle);
+}
+
+GrallocDirectChannel::GrallocDirectChannel(const struct sensors_direct_mem_t *mem)
+        : mNativeHandle(nullptr) {
+    if (mem->handle == nullptr) {
+        ALOGE("mem->handle == nullptr");
+        mError = BAD_VALUE;
+        return;
+    }
+
+    mNativeHandle = ::native_handle_clone(mem->handle);
+    if (mNativeHandle == nullptr) {
+        ALOGE("clone mem->handle failed...");
+        mError = NO_MEMORY;
+        return;
+    }
+
+    mError = GrallocHalWrapper::getInstance().registerBuffer(mNativeHandle);
+    if (mError != NO_ERROR) {
+        ALOGE("registerBuffer failed");
+        return;
+    }
+
+    mError = GrallocHalWrapper::getInstance().lock(mNativeHandle,
+            GRALLOC_USAGE_SW_WRITE_OFTEN, 0, 0, mem->size, 1, &mBase);
+    if (mError != NO_ERROR) {
+        ALOGE("lock buffer failed");
+        return;
+    }
+
+    if (mBase == nullptr) {
+        ALOGE("lock buffer => nullptr");
+        mError = NO_MEMORY;
+        return;
+    }
+
+    mSize = mem->size;
+    mBuffer = std::make_unique<LockfreeBuffer>(mBase, mSize);
+    if (!mBuffer) {
+        mError = NO_MEMORY;
+        return;
+    }
+
+    mError = NO_ERROR;
+}
+
+GrallocDirectChannel::~GrallocDirectChannel() {
+    if (mNativeHandle != nullptr) {
+        if (mBase) {
+            mBuffer = nullptr;
+            GrallocHalWrapper::getInstance().unlock(mNativeHandle);
+            mBase = nullptr;
+        }
+        GrallocHalWrapper::getInstance().unregisterBuffer(mNativeHandle);
+        ::native_handle_close(mNativeHandle);
+        ::native_handle_delete(mNativeHandle);
+        mNativeHandle = nullptr;
+    }
 }
 
 } // namespace android

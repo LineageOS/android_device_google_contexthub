@@ -1683,21 +1683,24 @@ int HubConnection::addDirectChannel(const struct sensors_direct_mem_t *mem) {
 
     switch(mem->type) {
         case SENSOR_DIRECT_MEM_TYPE_ASHMEM:
-            ch = std::unique_ptr<DirectChannelBase>(new AshmemDirectChannel(mem));
-            if (ch) {
-                if (ch->isValid()) {
-                    Mutex::Autolock autoLock(mDirectChannelLock);
-                    ret = mDirectChannelHandle++;
-                    mDirectChannel.insert(std::make_pair(ret, std::move(ch)));
-                } else {
-                    ret = ch->getError();
-                    ALOGE("AshmemDirectChannel %p has error %d upon init", ch.get(), ret);
-                }
-            }
+            ch = std::make_unique<AshmemDirectChannel>(mem);
             break;
         case SENSOR_DIRECT_MEM_TYPE_GRALLOC:
+            ch = std::make_unique<GrallocDirectChannel>(mem);
+            break;
         default:
             ret = INVALID_OPERATION;
+    }
+
+    if (ch) {
+        if (ch->isValid()) {
+            Mutex::Autolock autoLock(mDirectChannelLock);
+            ret = mDirectChannelHandle++;
+            mDirectChannel.insert(std::make_pair(ret, std::move(ch)));
+        } else {
+            ret = ch->getError();
+            ALOGE("Direct channel object(type:%d) has error %d upon init", mem->type, ret);
+        }
     }
 
     return ret;

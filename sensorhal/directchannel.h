@@ -18,14 +18,17 @@
 #define DIRECTCHANNEL_H_
 
 #include "ring.h"
+#include <cutils/native_handle.h>
+#include <hardware/gralloc.h>
 #include <hardware/sensors.h>
+#include <utils/Singleton.h>
 #include <memory>
 
 namespace android {
 
 class DirectChannelBase {
 public:
-    DirectChannelBase() : mError(NO_ERROR) { }
+    DirectChannelBase() : mError(NO_INIT), mSize(0), mBase(nullptr) { }
     virtual ~DirectChannelBase() {}
 
     bool isValid();
@@ -46,6 +49,30 @@ public:
     virtual ~AshmemDirectChannel();
 private:
     int mAshmemFd;
+};
+
+class GrallocHalWrapper : public Singleton<GrallocHalWrapper> {
+public:
+    int registerBuffer(const native_handle_t *handle);
+    int unregisterBuffer(const native_handle_t *handle);
+    int lock(const native_handle_t *handle, int usage, int l, int t, int w, int h, void **vaddr);
+    int unlock(const native_handle_t *handle);
+private:
+    friend class Singleton<GrallocHalWrapper>;
+    GrallocHalWrapper();
+    ~GrallocHalWrapper();
+
+    alloc_device_t *mAllocDevice;
+    gralloc_module_t *mGrallocModule;
+    int mError;
+};
+
+class GrallocDirectChannel : public DirectChannelBase {
+public:
+    GrallocDirectChannel(const struct sensors_direct_mem_t *mem);
+    virtual ~GrallocDirectChannel();
+private:
+    native_handle_t *mNativeHandle;
 };
 
 } // namespace android
