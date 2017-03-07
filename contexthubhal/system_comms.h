@@ -19,6 +19,7 @@
 
 #include <utils/Condition.h>
 
+#include <chrono>
 #include <condition_variable>
 #include <map>
 #include <mutex>
@@ -173,8 +174,13 @@ private:
         }
         int wait() {
             std::unique_lock<std::mutex> lk(mDoneMutex);
-            mDoneCond.wait(lk, [this] { return mState == SESSION_DONE; });
-            return 0;
+            bool success = mDoneCond.wait_for(
+                    lk, std::chrono::seconds(30),
+                    [this] { return mState == SESSION_DONE; });
+            if (!success) {
+                ALOGE("Timed out waiting for response");
+            }
+            return success ? 0 : -1;
         }
         virtual int getState() const override {
             std::lock_guard<std::mutex> _l(mDoneMutex);
