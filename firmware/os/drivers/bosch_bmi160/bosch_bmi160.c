@@ -19,6 +19,7 @@
 #include <cpu/cpuMath.h>
 #include <gpio.h>
 #include <heap.h>
+#include <halIntf.h>
 #include <hostIntf.h>
 #include <isr.h>
 #include <nanohub_math.h>
@@ -399,6 +400,12 @@ struct BMI160Sensor {
     enum SensorIndex idx;
 };
 
+struct OtcGyroUpdateBuffer {
+    struct AppToSensorHalDataBuffer head;
+    struct GyroOtcData data;
+    volatile uint8_t lock; // lock for static object
+} __attribute__((packed));
+
 struct BMI160Task {
     uint32_t tid;
     struct BMI160Sensor sensors[NUM_OF_SENSOR];
@@ -410,6 +417,7 @@ struct BMI160Task {
 #ifdef OVERTEMPCAL_ENABLED
     // Over-temp gyro calibration object.
     struct OverTempCal over_temp_gyro_cal;
+    struct OtcGyroUpdateBuffer otcGyroUpdateBuffer;
 #endif  //  OVERTEMPCAL_ENABLED
 #endif  // GYRO_CAL_ENABLED
 
@@ -654,6 +662,15 @@ static void chunkedReadSpiCallback(void *cookie, int error);
 static void initiateFifoRead_(TASK, bool isInterruptContext);
 #define initiateFifoRead(a) initiateFifoRead_(_task, (a))
 static uint8_t* shallowParseFrame(uint8_t * buf, int size);
+
+#if defined(GYRO_CAL_ENABLED) && defined(OVERTEMPCAL_ENABLED)
+// otc gyro cal save restore functions
+static void handleOtcGyroConfig_(TASK, const struct AppToSensorHalDataPayload *data);
+#define handleOtcGyroConfig(a) handleOtcGyroConfig_(_task, (a))
+static bool sendOtcGyroUpdate_();
+#define sendOtcGyroUpdate() sendOtcGyroUpdate_(_task)
+static void unlockOtcGyroUpdateBuffer();
+#endif //defined(GYRO_CAL_ENABLED) && defined(OVERTEMPCAL_ENABLED)
 
 // Binary dump to osLog
 static void dumpBinary(void* buf, unsigned int address, size_t size);
@@ -1906,6 +1923,7 @@ static uint64_t parseSensortime(uint32_t sensor_time24)
 
 static void parseRawData(struct BMI160Sensor *mSensor, uint8_t *buf, float kScale, uint64_t sensorTime)
 {
+    TDECL();
     struct TripleAxisDataPoint *sample;
     uint64_t rtc_time, cur_time;
     uint32_t delta_time;
@@ -2114,7 +2132,11 @@ static void parseRawData(struct BMI160Sensor *mSensor, uint8_t *buf, float kScal
                                       offset, sample_temp_celsius);
     }
 
-    // TODO: Over-Temp Gyro Cal -- Notify HAL about the new gyro bias calibration.
+    // TODO: Notify HAL about the new gyro OTC calibration.
+    //
+    if (false /*needToUpdateOtcGyroInHal*/) {
+         sendOtcGyroUpdate();
+    }
 #endif  // OVERTEMPCAL_ENABLED
 #endif  // GYRO_CAL_ENABLED
 
@@ -2952,32 +2974,33 @@ static bool gyrCalibration(void *cookie)
 
 static bool gyrCfgData(void *data, void *cookie)
 {
-    struct CfgData {
-        int32_t hw[3];
-        float sw[3];
-    };
-    struct CfgData *values = data;
-
-    mTask.sensors[GYR].offset[0] = values->hw[0];
-    mTask.sensors[GYR].offset[1] = values->hw[1];
-    mTask.sensors[GYR].offset[2] = values->hw[2];
-    mTask.sensors[GYR].offset_enable = true;
+    TDECL();
+    const struct AppToSensorHalDataPayload *p = data;
+    if (p->type == HALINTF_TYPE_GYRO_CAL_BIAS && p->size == sizeof(struct GyroCalBias)) {
+        const struct GyroCalBias *bias = p->gyroCalBias;
+        mTask.sensors[GYR].offset[0] = bias->hardwareBias[0];
+        mTask.sensors[GYR].offset[1] = bias->hardwareBias[1];
+        mTask.sensors[GYR].offset[2] = bias->hardwareBias[2];
+        mTask.sensors[GYR].offset_enable = true;
+        INFO_PRINT("gyrCfgData hw bias: data=%02lx, %02lx, %02lx\n",
+                bias->hardwareBias[0] & 0xFF,
+                bias->hardwareBias[1] & 0xFF,
+                bias->hardwareBias[2] & 0xFF);
 
 #ifdef GYRO_CAL_ENABLED
-    gyroCalSetBias(&mTask.gyro_cal, values->sw[0], values->sw[1], values->sw[2], sensorGetTime());
-
-#ifdef OVERTEMPCAL_ENABLED
-    // TODO: Over-Temp Gyro Cal -- Recall over-temperature calibration data from HAL.
-#endif  // OVERTEMPCAL_ENABLED
+        gyroCalSetBias(&T(gyro_cal), bias->softwareBias[0], bias->softwareBias[1],
+                       bias->softwareBias[2], sensorGetTime());
 #endif  // GYRO_CAL_ENABLED
-
-    INFO_PRINT("gyrCfgData: data=%02lx, %02lx, %02lx\n",
-            values->hw[0] & 0xFF, values->hw[1] & 0xFF, values->hw[2] & 0xFF);
-
-    if (!saveCalibration()) {
-        mTask.pending_calibration_save = true;
+        if (!saveCalibration()) {
+            T(pending_calibration_save) = true;
+        }
+#if defined(GYRO_CAL_ENABLED) && defined(OVERTEMPCAL_ENABLED)
+    } else if (p->type == HALINTF_TYPE_GYRO_OTC_DATA && p->size == sizeof(struct GyroOtcData)) {
+        handleOtcGyroConfig(data);
+#endif // defined(GYRO_CAL_ENABLED) && defined(OVERTEMPCAL_ENABLED)
+    } else {
+        ERROR_PRINT("Unknown gyro config data type 0x%04x, size %d\n", p->type, p->size);
     }
-
     return true;
 }
 
@@ -4020,5 +4043,56 @@ static void dumpBinary(void* buf, unsigned int address, size_t size) {
         address += 0x10;
     }
 }
+
+#if defined(GYRO_CAL_ENABLED) && defined(OVERTEMPCAL_ENABLED)
+static void handleOtcGyroConfig_(TASK, const struct AppToSensorHalDataPayload *data) {
+    const struct GyroOtcData *d = data->gyroOtcData;
+
+    INFO_PRINT("gyrCfgData otc-data: off %d %d %d, t %d, s %d %d %d, i %d %d %d",
+            (int)(d->lastOffset[0]), (int)(d->lastOffset[1]), (int)(d->lastOffset[2]),
+            (int)(d->lastTemperature),
+            (int)(d->sensitivity[0]), (int)(d->sensitivity[1]), (int)(d->sensitivity[2]),
+            (int)(d->intercept[0]), (int)(d->intercept[1]), (int)(d->intercept[2]));
+
+    overTempCalSetModel(&T(over_temp_gyro_cal), d->lastOffset, d->lastTemperature,
+                        sensorGetTime(), d->sensitivity, d->intercept, true /*jumpstart*/);
+}
+
+static bool sendOtcGyroUpdate_(TASK) {
+    int step = 0;
+    if (atomicCmpXchgByte(&T(otcGyroUpdateBuffer).lock, false, true)) {
+        ++step;
+        //fill HostIntfDataBuffer header
+        struct HostIntfDataBuffer *p = (struct HostIntfDataBuffer *)(&T(otcGyroUpdateBuffer));
+        p->sensType = SENS_TYPE_INVALID;
+        p->length = sizeof(struct AppToSensorHalDataPayload) + sizeof(struct GyroOtcData);
+        p->dataType = HOSTINTF_DATA_TYPE_APP_TO_SENSOR_HAL;
+        p->interrupt = NANOHUB_INT_NONWAKEUP;
+
+        //fill AppToSensorHalDataPayload header
+        struct AppToSensorHalDataBuffer *q = (struct AppToSensorHalDataBuffer *)p;
+        q->payload.size = sizeof(struct GyroOtcData);
+        q->payload.type = HALINTF_TYPE_GYRO_OTC_DATA; // bit-or EVENT_TYPE_BIT_DISCARDABLE
+                                                      // to make it discardable
+
+        // fill payload data
+        struct GyroOtcData *data = q->payload.gyroOtcData;
+        uint64_t timestamp;
+        overTempCalGetModel(&T(over_temp_gyro_cal), data->lastOffset, &data->lastTemperature,
+                            &timestamp, data->sensitivity, data->intercept);
+        if (osEnqueueEvtOrFree(EVT_APP_TO_SENSOR_HAL_DATA, // bit-or EVENT_TYPE_BIT_DISCARDABLE
+                                                          // to make event discardable
+                               p, unlockOtcGyroUpdateBuffer)) {
+            ++step;
+        }
+    }
+    DEBUG_PRINT("otc gyro update, finished at step %d", step);
+    return step == 2;
+}
+
+static void unlockOtcGyroUpdateBuffer(void *event) {
+    atomicXchgByte(&(((struct OtcGyroUpdateBuffer*)(event))->lock), false);
+}
+#endif //defined(GYRO_CAL_ENABLED) && defined(OVERTEMPCAL_ENABLED)
 
 INTERNAL_APP_INIT(BMI160_APP_ID, BMI160_APP_VERSION, startTask, endTask, handleEvent);

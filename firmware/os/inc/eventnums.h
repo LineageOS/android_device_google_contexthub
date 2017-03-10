@@ -29,6 +29,7 @@
 #define EVT_APP_TO_HOST                  0x00000401    //app data to host. Type is struct HostHubRawPacket
 #define EVT_MARSHALLED_SENSOR_DATA       0x00000402    //marshalled event data. Type is MarshalledUserEventData
 #define EVT_RESET_REASON                 0x00000403    //reset reason to host.
+#define EVT_APP_TO_SENSOR_HAL_DATA       0x00000404    // sensor driver out of band data update to sensor hal
 #define EVT_DEBUG_LOG                    0x00007F01    // send message payload to Linux kernel log
 #define EVT_MASK                         0x0000FFFF
 

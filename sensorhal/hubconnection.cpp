@@ -15,8 +15,6 @@
  */
 
 #include "hubconnection.h"
-#include "eventnums.h"
-#include "sensType.h"
 
 #define LOG_TAG "nanohub"
 #include <utils/Log.h>
@@ -345,6 +343,32 @@ static bool getCalibrationFloat(
     return true;
 }
 
+static std::vector<int32_t> getInt32Setting(const sp<JSONObject> &settings, const char *key) {
+    std::vector<int32_t> ret;
+
+    sp<JSONArray> array;
+    if (settings->getArray(key, &array)) {
+        ret.resize(array->size());
+        for (size_t i = 0; i < array->size(); ++i) {
+            array->getInt32(i, &ret[i]);
+        }
+    }
+    return ret;
+}
+
+static std::vector<float> getFloatSetting(const sp<JSONObject> &settings, const char *key) {
+    std::vector<float> ret;
+
+    sp<JSONArray> array;
+    if (settings->getArray(key, &array)) {
+        ret.resize(array->size());
+        for (size_t i = 0; i < array->size(); ++i) {
+            array->getFloat(i, &ret[i]);
+        }
+    }
+    return ret;
+}
+
 static void loadSensorSettings(sp<JSONObject>* settings,
                                sp<JSONObject>* saved_settings) {
     File settings_file(CONTEXTHUB_SETTINGS_PATH, "r");
@@ -407,6 +431,16 @@ void HubConnection::saveSensorSettings() const {
     accelArray->addFloat(mAccelBias[1]);
     accelArray->addFloat(mAccelBias[2]);
     settingsObject->setArray("accel_sw", accelArray);
+
+    // Add overtemp calibration values for gyro
+    sp<JSONArray> gyroOtcDataArray = new JSONArray;
+    const float *f;
+    size_t i;
+    for (f = reinterpret_cast<const float *>(&mGyroOtcData), i = 0;
+            i < sizeof(mGyroOtcData)/sizeof(float); ++i, ++f) {
+        gyroOtcDataArray->addFloat(*f);
+    }
+    settingsObject->setArray(GYRO_OTC_DATA_TAG, gyroOtcDataArray);
 
     // Write the JSON string to disk.
     AString serializedSettings = settingsObject->toString();
@@ -873,6 +907,32 @@ void HubConnection::postOsLog(uint8_t *buf, ssize_t len)
     }
 }
 
+void HubConnection::processAppData(uint8_t *buf, ssize_t len) {
+    if (len < static_cast<ssize_t>(sizeof(AppToSensorHalDataBuffer)))
+        return;
+
+    AppToSensorHalDataPayload *data =
+            &(reinterpret_cast<AppToSensorHalDataBuffer *>(buf)->payload);
+    if (data->size + sizeof(AppToSensorHalDataBuffer) != len) {
+        ALOGE("Received corrupted data update packet, len %zd, size %u", len, data->size);
+        return;
+    }
+
+    switch (data->type & APP_TO_SENSOR_HAL_TYPE_MASK) {
+    case HALINTF_TYPE_GYRO_OTC_DATA:
+        if (data->size != sizeof(GyroOtcData)) {
+            ALOGE("Corrupted HALINTF_TYPE_GYRO_OTC_DATA with size %u", data->size);
+            return;
+        }
+        mGyroOtcData = data->gyroOtcData[0];
+        saveSensorSettings();
+        break;
+    default:
+        ALOGE("Unknown app to hal data type 0x%04x", data->type);
+        break;
+    }
+}
+
 ssize_t HubConnection::processBuf(uint8_t *buf, size_t len)
 {
     struct nAxisEvent *data = (struct nAxisEvent *)buf;
@@ -890,6 +950,9 @@ ssize_t HubConnection::processBuf(uint8_t *buf, size_t len)
         switch (data->evtType) {
         case OS_LOG_EVENT:
             postOsLog(buf, len);
+            return 0;
+        case EVT_APP_TO_SENSOR_HAL_DATA:
+            processAppData(buf, len);
             return 0;
         case SENS_TYPE_TO_EVENT(SENS_TYPE_ACCEL):
             type = SENSOR_TYPE_ACCELEROMETER;
@@ -1103,7 +1166,7 @@ ssize_t HubConnection::processBuf(uint8_t *buf, size_t len)
             restoreSensorState();
             return 0;
         default:
-            ALOGE("unknown evtType: 0x%08x\n", data->evtType);
+            ALOGE("unknown evtType: 0x%08x len: %zu\n", data->evtType, len);
             return -1;
         }
     } else {
@@ -1194,10 +1257,10 @@ void HubConnection::sendCalibrationOffsets()
     struct {
         int32_t hw[3];
         float sw[3];
-    } gyro, accel;
+    } accel;
+
     int32_t proximity, proximity_array[4];
     float barometer, mag[3], light;
-    bool gyro_hw_cal_exists, gyro_sw_cal_exists;
     bool accel_hw_cal_exists, accel_sw_cal_exists;
 
     loadSensorSettings(&settings, &saved_settings);
@@ -1213,15 +1276,31 @@ void HubConnection::sendCalibrationOffsets()
         queueDataInternal(COMMS_SENSOR_ACCEL, &accel, sizeof(accel));
     }
 
-    gyro_hw_cal_exists = getCalibrationInt32(settings, "gyro", gyro.hw, 3);
-    gyro_sw_cal_exists = getCalibrationFloat(saved_settings, "gyro_sw", gyro.sw);
-    if (gyro_hw_cal_exists || gyro_sw_cal_exists) {
-        // Store SW bias so we can remove bias for uncal data
-        mGyroBias[0] = gyro.sw[0];
-        mGyroBias[1] = gyro.sw[1];
-        mGyroBias[2] = gyro.sw[2];
+    std::vector<int32_t> hardwareGyroBias = getInt32Setting(settings, "gyro");
+    std::vector<float> softwareGyroBias = getFloatSetting(settings, "gyro_sw");
+    if (hardwareGyroBias.size() == 3 || softwareGyroBias.size() == 3) {
+        struct {
+            AppToSensorHalDataPayload header;
+            GyroCalBias data;
+        } packet = {
+            .header = {
+                .size = sizeof(GyroCalBias),
+                .type = HALINTF_TYPE_GYRO_CAL_BIAS }
+        };
+        if (hardwareGyroBias.size() == 3) {
+            std::copy(hardwareGyroBias.begin(), hardwareGyroBias.end(),
+                      packet.data.hardwareBias);
+        }
+        if (softwareGyroBias.size() == 3) {
+            // Store SW bias so we can remove bias for uncal data
+            std::copy(softwareGyroBias.begin(), softwareGyroBias.end(),
+                      mGyroBias);
 
-        queueDataInternal(COMMS_SENSOR_GYRO, &gyro, sizeof(gyro));
+            std::copy(softwareGyroBias.begin(), softwareGyroBias.end(),
+                      packet.data.softwareBias);
+        }
+        // send packet to hub
+        queueDataInternal(COMMS_SENSOR_GYRO, &packet, sizeof(packet));
     }
 
     if (settings->getFloat("barometer", &barometer))
@@ -1243,6 +1322,27 @@ void HubConnection::sendCalibrationOffsets()
         mMagBias[2] = mag[2];
 
         queueDataInternal(COMMS_SENSOR_MAG, mag, sizeof(mag));
+    }
+
+    // over temp cal
+    std::vector<float> gyroOtcData = getFloatSetting(saved_settings, GYRO_OTC_DATA_TAG);
+    if (gyroOtcData.size() == sizeof(GyroOtcData) / sizeof(float)) {
+        std::copy(gyroOtcData.begin(), gyroOtcData.end(),
+                  reinterpret_cast<float*>(gyroOtcData.data()));
+        struct {
+            AppToSensorHalDataPayload header;
+            GyroOtcData data;
+        } packet = {
+            .header = {
+                .size = sizeof(GyroOtcData),
+                .type = HALINTF_TYPE_GYRO_OTC_DATA },
+            .data = mGyroOtcData
+        };
+
+        // send it to hub
+        queueDataInternal(COMMS_SENSOR_GYRO, &packet, sizeof(packet));
+    } else {
+        ALOGE("Illegal otc_gyro data size = %zu", gyroOtcData.size());
     }
 }
 

@@ -698,6 +698,9 @@ static int fillBuffer(void *tx, uint32_t totLength, uint32_t *wakeup, uint32_t *
             case HOSTINTF_DATA_TYPE_RESET_REASON:
                 packet->evtType = htole32(EVT_RESET_REASON);
                 break;
+            case HOSTINTF_DATA_TYPE_APP_TO_SENSOR_HAL:
+                packet->evtType = htole32(EVT_APP_TO_SENSOR_HAL_DATA);
+                break;
 #ifdef DEBUG_LOG_EVT
             case HOSTINTF_DATA_TYPE_LOG:
                 packet->evtType = htole32(HOST_EVT_DEBUG_LOG);

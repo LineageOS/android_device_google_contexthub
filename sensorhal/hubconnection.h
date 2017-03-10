@@ -30,12 +30,15 @@
 #include "activityeventhandler.h"
 #include "directchannel.h"
 #include "eventnums.h"
+#include "halIntf.h"
 #include "hubdefs.h"
 #include "ring.h"
 
 #include <unordered_map>
 
 #define WAKELOCK_NAME "sensorHal"
+
+#define GYRO_OTC_DATA_TAG  "gyro_otc"
 
 namespace android {
 
@@ -214,6 +217,7 @@ private:
     uint8_t mMagAccuracyRestore;
 
     float mGyroBias[3], mAccelBias[3];
+    GyroOtcData mGyroOtcData;
 
     float mScaleAccel, mScaleMag;
 
@@ -233,6 +237,7 @@ private:
     void processSample(uint64_t timestamp, uint32_t type, uint32_t sensor, struct RawThreeAxisSample *sample, bool highAccuracy);
     void processSample(uint64_t timestamp, uint32_t type, uint32_t sensor, struct ThreeAxisSample *sample, bool highAccuracy);
     void postOsLog(uint8_t *buf, ssize_t len);
+    void processAppData(uint8_t *buf, ssize_t len);
     ssize_t processBuf(uint8_t *buf, size_t len);
 
     inline bool isValidHandle(int handle) {
