@@ -67,7 +67,9 @@ struct HubConnection : public Thread {
     ssize_t getWakeEventCount();
     ssize_t decrementWakeEventCount();
 
+    //TODO: factor out event ring buffer functionality into a separate class
     ssize_t read(sensors_event_t *ev, size_t size);
+    ssize_t write(const sensors_event_t *ev, size_t n);
 
     void setActivityCallback(ActivityEventHandler *eventHandler);
 

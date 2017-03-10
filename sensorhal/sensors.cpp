@@ -28,13 +28,20 @@
 #include <media/stagefright/foundation/ADebug.h>
 #include <string.h>
 #include <sys/mman.h>
+#include <stdlib.h>
+
+#ifdef DYNAMIC_SENSOR_EXT_ENABLED
+#include <DynamicSensorManager.h>
+#include <SensorEventCallback.h>
+#endif
 
 using namespace android;
 
 ////////////////////////////////////////////////////////////////////////////////
 
 SensorContext::SensorContext(const struct hw_module_t *module)
-    : mHubConnection(HubConnection::getInstance()) {
+        : mSensorList(kSensorList, kSensorList + kSensorCount),
+          mHubConnection(HubConnection::getInstance()) {
     memset(&device, 0, sizeof(device));
 
     device.common.tag = HARDWARE_DEVICE_TAG;
@@ -51,8 +58,10 @@ SensorContext::SensorContext(const struct hw_module_t *module)
         device.register_direct_channel = RegisterDirectChannelWrapper;
         device.config_direct_report = ConfigDirectReportWrapper;
     }
-    mHubAlive = (mHubConnection->initCheck() == OK
-        && mHubConnection->getAliveCheck() == OK);
+
+    mOperationHandler.emplace_back(new HubConnectionOperation(mHubConnection));
+
+    initializeHalExtension();
 }
 
 int SensorContext::close() {
@@ -66,36 +75,23 @@ int SensorContext::close() {
 int SensorContext::activate(int handle, int enabled) {
     ALOGI("activate");
 
-    mHubConnection->queueActivate(handle, enabled);
-
-    return 0;
+    for (auto &h : mOperationHandler) {
+        if (h->owns(handle)) {
+            return h->activate(handle, enabled);
+        }
+    }
+    return INVALID_OPERATION;
 }
 
 int SensorContext::setDelay(int handle, int64_t delayNs) {
     ALOGI("setDelay");
 
-    // clamp sample rate based on minDelay and maxDelay defined in kSensorList
-    int64_t delayNsClamped = delayNs;
-    for (size_t i = 0; i < kSensorCount; i++) {
-        sensor_t sensor = kSensorList[i];
-        if (sensor.handle != handle) {
-            continue;
+    for (auto &h: mOperationHandler) {
+        if (h->owns(handle)) {
+            return h->setDelay(handle, delayNs);
         }
-
-        if ((sensor.flags & REPORTING_MODE_MASK) == SENSOR_FLAG_CONTINUOUS_MODE) {
-            if ((delayNs/1000) < sensor.minDelay) {
-                delayNsClamped = sensor.minDelay * 1000;
-            } else if ((delayNs/1000) > sensor.maxDelay) {
-                delayNsClamped = sensor.maxDelay * 1000;
-            }
-        }
-
-        break;
     }
-
-    mHubConnection->queueSetDelay(handle, delayNsClamped);
-
-    return 0;
+    return INVALID_OPERATION;
 }
 
 int SensorContext::poll(sensors_event_t *data, int count) {
@@ -134,35 +130,41 @@ int SensorContext::batch(
         int64_t max_report_latency_ns) {
     ALOGI("batch");
 
-    // clamp sample rate based on minDelay and maxDelay defined in kSensorList
-    int64_t sampling_period_ns_clamped = sampling_period_ns;
-    for (size_t i = 0; i < kSensorCount; i++) {
-        sensor_t sensor = kSensorList[i];
-        if (sensor.handle != handle) {
-            continue;
+    for (auto &h : mOperationHandler) {
+        if (h->owns(handle)) {
+            return h->batch(handle, sampling_period_ns, max_report_latency_ns);
         }
-
-        if ((sensor.flags & REPORTING_MODE_MASK) == SENSOR_FLAG_CONTINUOUS_MODE) {
-            if ((sampling_period_ns/1000) < sensor.minDelay) {
-                sampling_period_ns_clamped = sensor.minDelay * 1000;
-            } else if ((sampling_period_ns/1000) > sensor.maxDelay) {
-                sampling_period_ns_clamped = sensor.maxDelay * 1000;
-            }
-        }
-
-        break;
     }
-
-    mHubConnection->queueBatch(handle, sampling_period_ns_clamped,
-                               max_report_latency_ns);
-    return 0;
+    return INVALID_OPERATION;
 }
 
 int SensorContext::flush(int handle) {
     ALOGI("flush");
 
-    mHubConnection->queueFlush(handle);
-    return 0;
+    for (auto &h : mOperationHandler) {
+        if (h->owns(handle)) {
+            return h->flush(handle);
+        }
+    }
+    return INVALID_OPERATION;
+}
+
+int SensorContext::register_direct_channel(
+        const struct sensors_direct_mem_t *mem, int32_t channel_handle) {
+    if (mem) {
+        //add
+        return mHubConnection->addDirectChannel(mem);
+    } else {
+        //remove
+        mHubConnection->removeDirectChannel(channel_handle);
+        return NO_ERROR;
+    }
+}
+
+int SensorContext::config_direct_report(
+        int32_t sensor_handle, int32_t channel_handle, const struct sensors_direct_cfg_t * config) {
+    int rate_level = config->rate_level;
+    return mHubConnection->configDirectReport(sensor_handle, channel_handle, rate_level);
 }
 
 // static
@@ -205,24 +207,6 @@ int SensorContext::FlushWrapper(struct sensors_poll_device_1 *dev, int handle) {
     return reinterpret_cast<SensorContext *>(dev)->flush(handle);
 }
 
-int SensorContext::register_direct_channel(
-        const struct sensors_direct_mem_t *mem, int32_t channel_handle) {
-    if (mem) {
-        //add
-        return mHubConnection->addDirectChannel(mem);
-    } else {
-        //remove
-        mHubConnection->removeDirectChannel(channel_handle);
-        return NO_ERROR;
-    }
-}
-
-int SensorContext::config_direct_report(
-        int32_t sensor_handle, int32_t channel_handle, const struct sensors_direct_cfg_t * config) {
-    int rate_level = config->rate_level;
-    return mHubConnection->configDirectReport(sensor_handle, channel_handle, rate_level);
-}
-
 // static
 int SensorContext::RegisterDirectChannelWrapper(struct sensors_poll_device_1 *dev,
         const struct sensors_direct_mem_t* mem, int channel_handle) {
@@ -238,12 +222,151 @@ int SensorContext::ConfigDirectReportWrapper(struct sensors_poll_device_1 *dev,
 }
 
 bool SensorContext::getHubAlive() {
-    return mHubAlive;
+    return (mHubConnection->initCheck() == OK && mHubConnection->getAliveCheck() == OK);
+}
+
+size_t SensorContext::getSensorList(sensor_t const **list) {
+    ALOGE("sensor p = %p, n = %zu", mSensorList.data(), mSensorList.size());
+    *list = mSensorList.data();
+    return mSensorList.size();
+}
+
+// HubConnectionOperation functions
+SensorContext::HubConnectionOperation::HubConnectionOperation(sp<HubConnection> hubConnection)
+        : mHubConnection(hubConnection) {
+    for (size_t i = 0; i < kSensorCount; i++) {
+        mHandles.emplace(kSensorList[i].handle);
+    }
+}
+
+bool SensorContext::HubConnectionOperation::owns(int handle) {
+    return mHandles.find(handle) != mHandles.end();
+}
+
+int SensorContext::HubConnectionOperation::activate(int handle, int enabled) {
+    mHubConnection->queueActivate(handle, enabled);
+    return 0;
+}
+
+int SensorContext::HubConnectionOperation::setDelay(int handle, int64_t delayNs) {
+    // clamp sample rate based on minDelay and maxDelay defined in kSensorList
+    int64_t delayNsClamped = delayNs;
+    for (size_t i = 0; i < kSensorCount; i++) {
+        sensor_t sensor = kSensorList[i];
+        if (sensor.handle != handle) {
+            continue;
+        }
+
+        if ((sensor.flags & REPORTING_MODE_MASK) == SENSOR_FLAG_CONTINUOUS_MODE) {
+            if ((delayNs/1000) < sensor.minDelay) {
+                delayNsClamped = sensor.minDelay * 1000;
+            } else if ((delayNs/1000) > sensor.maxDelay) {
+                delayNsClamped = sensor.maxDelay * 1000;
+            }
+        }
+
+        break;
+    }
+
+    mHubConnection->queueSetDelay(handle, delayNsClamped);
+    return 0;
+}
+
+int SensorContext::HubConnectionOperation::batch(
+        int handle, int64_t sampling_period_ns,
+        int64_t max_report_latency_ns) {
+    // clamp sample rate based on minDelay and maxDelay defined in kSensorList
+    int64_t sampling_period_ns_clamped = sampling_period_ns;
+    for (size_t i = 0; i < kSensorCount; i++) {
+        sensor_t sensor = kSensorList[i];
+        if (sensor.handle != handle) {
+            continue;
+        }
+
+        if ((sensor.flags & REPORTING_MODE_MASK) == SENSOR_FLAG_CONTINUOUS_MODE) {
+            if ((sampling_period_ns/1000) < sensor.minDelay) {
+                sampling_period_ns_clamped = sensor.minDelay * 1000;
+            } else if ((sampling_period_ns/1000) > sensor.maxDelay) {
+                sampling_period_ns_clamped = sensor.maxDelay * 1000;
+            }
+        }
+
+        break;
+    }
+
+    mHubConnection->queueBatch(handle, sampling_period_ns_clamped,
+                               max_report_latency_ns);
+    return 0;
+}
+
+int SensorContext::HubConnectionOperation::flush(int handle) {
+    mHubConnection->queueFlush(handle);
+    return 0;
+}
+
+#ifdef DYNAMIC_SENSOR_EXT_ENABLED
+namespace {
+// adaptor class
+class Callback : public SensorEventCallback {
+public:
+    Callback(sp<HubConnection> hubConnection) : mHubConnection(hubConnection) {}
+    virtual int submitEvent(sp<BaseSensorObject> source, const sensors_event_t &e) override;
+private:
+    sp<HubConnection> mHubConnection;
+};
+
+int Callback::submitEvent(sp<BaseSensorObject> source, const sensors_event_t &e) {
+    (void) source; // irrelavent in this context
+    return (mHubConnection->write(&e, 1) == 1) ? 0 : -ENOSPC;
+}
+} // anonymous namespace
+
+SensorContext::DynamicSensorManagerOperation::DynamicSensorManagerOperation(DynamicSensorManager* manager)
+        : mDynamicSensorManager(manager) {
+}
+
+bool SensorContext::DynamicSensorManagerOperation::owns(int handle) {
+    return mDynamicSensorManager->owns(handle);
+}
+
+int SensorContext::DynamicSensorManagerOperation::activate(int handle, int enabled) {
+    return mDynamicSensorManager->activate(handle, enabled);
+}
+
+int SensorContext::DynamicSensorManagerOperation::setDelay(int handle, int64_t delayNs) {
+    return mDynamicSensorManager->setDelay(handle, delayNs);
+}
+
+int SensorContext::DynamicSensorManagerOperation::batch(int handle, int64_t sampling_period_ns,
+        int64_t max_report_latency_ns) {
+    return mDynamicSensorManager->batch(handle, sampling_period_ns, max_report_latency_ns);
+}
+
+int SensorContext::DynamicSensorManagerOperation::flush(int handle) {
+    return mDynamicSensorManager->flush(handle);
+}
+#endif
+
+void SensorContext::initializeHalExtension() {
+#ifdef DYNAMIC_SENSOR_EXT_ENABLED
+    // initialize callback and dynamic sensor manager
+    mEventCallback.reset(new Callback(mHubConnection));
+    DynamicSensorManager* manager = DynamicSensorManager::createInstance(
+        kDynamicHandleBase, kMaxDynamicHandleCount, mEventCallback.get());
+
+    // add meta sensor to list
+    mSensorList.push_back(manager->getDynamicMetaSensor());
+
+    // register operation
+    mOperationHandler.emplace_back(new DynamicSensorManagerOperation(manager));
+#endif
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 
 static bool gHubAlive;
+static sensor_t const *sensor_list;
+static int n_sensor;
 
 static int open_sensors(
         const struct hw_module_t *module,
@@ -252,7 +375,7 @@ static int open_sensors(
     ALOGI("open_sensors");
 
     SensorContext *ctx = new SensorContext(module);
-
+    n_sensor = ctx->getSensorList(&sensor_list);
     gHubAlive = ctx->getHubAlive();
     *dev = &ctx->device.common;
 
@@ -267,10 +390,9 @@ static int get_sensors_list(
         struct sensors_module_t *,
         struct sensor_t const **list) {
     ALOGI("get_sensors_list");
-
-    if (gHubAlive) {
-        *list = kSensorList;
-        return kSensorCount;
+    if (gHubAlive && sensor_list != nullptr) {
+        *list = sensor_list;
+        return n_sensor;
     } else {
         *list = {};
         return 0;

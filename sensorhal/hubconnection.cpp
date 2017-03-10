@@ -541,7 +541,7 @@ void HubConnection::processSample(uint64_t timestamp, uint32_t type, uint32_t se
     if (cnt > 0) {
         // If event is a wake event, protect it with a wakelock
         protectIfWakeEvent(sensor);
-        mRing.write(nev, cnt);
+        write(nev, cnt);
     }
 }
 
@@ -624,7 +624,7 @@ void HubConnection::processSample(uint64_t timestamp, uint32_t type, uint32_t se
     if (cnt > 0) {
         // If event is a wake event, protect it with a wakelock
         protectIfWakeEvent(sensor);
-        mRing.write(nev, cnt);
+        write(nev, cnt);
     }
 }
 
@@ -779,7 +779,7 @@ void HubConnection::processSample(uint64_t timestamp, uint32_t type, uint32_t se
     if (cnt > 0) {
         // If event is a wake event, protect it with a wakelock
         protectIfWakeEvent(sensor);
-        mRing.write(nev, cnt);
+        write(nev, cnt);
     }
 }
 
@@ -825,7 +825,7 @@ void HubConnection::restoreSensorState()
                   cmd.sensorType, i, mSensorState[i].enable, frequency_q10_to_period_ns(mSensorState[i].rate),
                   mSensorState[i].latency);
 
-            int ret = TEMP_FAILURE_RETRY(write(mFd, &cmd, sizeof(cmd)));
+            int ret = TEMP_FAILURE_RETRY(::write(mFd, &cmd, sizeof(cmd)));
             if (ret != sizeof(cmd)) {
                 ALOGE("failed to send config command to restore sensor %d\n", cmd.sensorType);
             }
@@ -833,7 +833,7 @@ void HubConnection::restoreSensorState()
             cmd.cmd = CONFIG_CMD_FLUSH;
 
             for (int j = 0; j < mSensorState[i].flushCnt; j++) {
-                int ret = TEMP_FAILURE_RETRY(write(mFd, &cmd, sizeof(cmd)));
+                int ret = TEMP_FAILURE_RETRY(::write(mFd, &cmd, sizeof(cmd)));
                 if (ret != sizeof(cmd)) {
                     ALOGE("failed to send flush command to sensor %d\n", cmd.sensorType);
                 }
@@ -1175,7 +1175,7 @@ ssize_t HubConnection::processBuf(uint8_t *buf, size_t len)
                     ev.meta_data.sensor = sensor;
                 }
 
-                mRing.write(&ev, 1);
+                write(&ev, 1);
                 ALOGI("flushing %d", ev.meta_data.sensor);
             }
         }
@@ -1289,7 +1289,7 @@ bool HubConnection::threadLoop() {
             ::read(mPollFds[mDoubleTouchPollIndex].fd, buf, 16);
             sensors_event_t gestureEvent;
             initEv(&gestureEvent, elapsedRealtimeNano(), SENSOR_TYPE_PICK_UP_GESTURE, COMMS_SENSOR_GESTURE)->data[0] = 8;
-            mRing.write(&gestureEvent, 1);
+            write(&gestureEvent, 1);
         }
 #endif // DOUBLE_TOUCH_ENABLED
 
@@ -1370,7 +1370,7 @@ void HubConnection::queueActivate(int handle, bool enable)
 
         initConfigCmd(&cmd, handle);
 
-        ret = TEMP_FAILURE_RETRY(write(mFd, &cmd, sizeof(cmd)));
+        ret = TEMP_FAILURE_RETRY(::write(mFd, &cmd, sizeof(cmd)));
         if (ret == sizeof(cmd))
             ALOGI("queueActivate: sensor=%d, handle=%d, enable=%d",
                     cmd.sensorType, handle, enable);
@@ -1398,7 +1398,7 @@ void HubConnection::queueSetDelay(int handle, nsecs_t sampling_period_ns)
 
         initConfigCmd(&cmd, handle);
 
-        ret = TEMP_FAILURE_RETRY(write(mFd, &cmd, sizeof(cmd)));
+        ret = TEMP_FAILURE_RETRY(::write(mFd, &cmd, sizeof(cmd)));
         if (ret == sizeof(cmd))
             ALOGI("queueSetDelay: sensor=%d, handle=%d, period=%" PRId64,
                     cmd.sensorType, handle, sampling_period_ns);
@@ -1430,7 +1430,7 @@ void HubConnection::queueBatch(
 
         initConfigCmd(&cmd, handle);
 
-        ret = TEMP_FAILURE_RETRY(write(mFd, &cmd, sizeof(cmd)));
+        ret = TEMP_FAILURE_RETRY(::write(mFd, &cmd, sizeof(cmd)));
         if (ret == sizeof(cmd))
             ALOGI("queueBatch: sensor=%d, handle=%d, period=%" PRId64 ", latency=%" PRId64,
                     cmd.sensorType, handle, sampling_period_ns, max_report_latency_ns);
@@ -1456,7 +1456,7 @@ void HubConnection::queueFlush(int handle)
         initConfigCmd(&cmd, handle);
         cmd.cmd = CONFIG_CMD_FLUSH;
 
-        ret = TEMP_FAILURE_RETRY(write(mFd, &cmd, sizeof(cmd)));
+        ret = TEMP_FAILURE_RETRY(::write(mFd, &cmd, sizeof(cmd)));
         if (ret == sizeof(cmd)) {
             ALOGI("queueFlush: sensor=%d, handle=%d",
                     cmd.sensorType, handle);
@@ -1479,7 +1479,7 @@ void HubConnection::queueDataInternal(int handle, void *data, size_t length)
         memcpy(cmd->data, data, length);
         cmd->cmd = CONFIG_CMD_CFG_DATA;
 
-        ret = TEMP_FAILURE_RETRY(write(mFd, cmd, sizeof(*cmd) + length));
+        ret = TEMP_FAILURE_RETRY(::write(mFd, cmd, sizeof(*cmd) + length));
         if (ret == sizeof(*cmd) + length)
             ALOGI("queueData: sensor=%d, length=%zu",
                     cmd->sensorType, length);
@@ -1521,6 +1521,10 @@ void HubConnection::initNanohubLock() {
     }
 }
 
+ssize_t HubConnection::write(const sensors_event_t *ev, size_t n) {
+    return mRing.write(ev, n);
+}
+
 #ifdef USB_MAG_BIAS_REPORTING_ENABLED
 void HubConnection::queueUsbMagBias()
 {
@@ -1533,7 +1537,7 @@ void HubConnection::queueUsbMagBias()
         cmd->msg.dataLen = sizeof(float);
         memcpy((float *)(cmd+1), &mUsbMagBias, sizeof(float));
 
-        ret = TEMP_FAILURE_RETRY(write(mFd, cmd, sizeof(*cmd) + sizeof(float)));
+        ret = TEMP_FAILURE_RETRY(::write(mFd, cmd, sizeof(*cmd) + sizeof(float)));
         if (ret == sizeof(*cmd) + sizeof(float))
             ALOGI("queueUsbMagBias: bias=%f\n", mUsbMagBias);
         else
@@ -1573,7 +1577,7 @@ status_t HubConnection::initializeUinputNode()
     uidev.id.product = 0;
     uidev.id.version = 0;
 
-    ret = TEMP_FAILURE_RETRY(write(mUinputFd, &uidev, sizeof(uidev)));
+    ret = TEMP_FAILURE_RETRY(::write(mUinputFd, &uidev, sizeof(uidev)));
     if (ret < 0) {
         ALOGE("write to uinput node failed: %s", strerror(errno));
         return UNKNOWN_ERROR;
@@ -1597,7 +1601,7 @@ void HubConnection::sendFolioEvent(int32_t data) {
     ev.type = EV_SW;
     ev.code = SW_LID;
     ev.value =  data;
-    ret = TEMP_FAILURE_RETRY(write(mUinputFd, &ev, sizeof(ev)));
+    ret = TEMP_FAILURE_RETRY(::write(mUinputFd, &ev, sizeof(ev)));
     if (ret < 0) {
         ALOGE("write to uinput node failed: %s", strerror(errno));
         return;
@@ -1607,7 +1611,7 @@ void HubConnection::sendFolioEvent(int32_t data) {
     ev.type = EV_SYN;
     ev.code = SYN_REPORT;
     ev.value =  0;
-    ret = TEMP_FAILURE_RETRY(write(mUinputFd, &ev, sizeof(ev)));
+    ret = TEMP_FAILURE_RETRY(::write(mUinputFd, &ev, sizeof(ev)));
     if (ret < 0) {
         ALOGE("write to uinput node failed: %s", strerror(errno));
         return;
@@ -1756,7 +1760,7 @@ int HubConnection::stopAllDirectReportOnChannel(
         struct ConfigCmd cmd;
         initConfigCmd(&cmd, sensor_handle);
 
-        int result = TEMP_FAILURE_RETRY(write(mFd, &cmd, sizeof(cmd)));
+        int result = TEMP_FAILURE_RETRY(::write(mFd, &cmd, sizeof(cmd)));
         ret = ret && (result == sizeof(cmd));
     }
     return ret ? NO_ERROR : BAD_VALUE;
@@ -1797,7 +1801,7 @@ int HubConnection::configDirectReport(int sensor_handle, int channel_handle, int
     struct ConfigCmd cmd;
     initConfigCmd(&cmd, sensor_handle);
 
-    int ret = TEMP_FAILURE_RETRY(write(mFd, &cmd, sizeof(cmd)));
+    int ret = TEMP_FAILURE_RETRY(::write(mFd, &cmd, sizeof(cmd)));
 
     if (rate_level == SENSOR_DIRECT_RATE_STOP) {
         ret = NO_ERROR;
