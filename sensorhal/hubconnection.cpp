@@ -39,6 +39,7 @@
 #include <media/stagefright/foundation/ADebug.h>
 
 #include <algorithm>
+#include <cmath>
 #include <sstream>
 #include <vector>
 
@@ -416,21 +417,21 @@ void HubConnection::saveSensorSettings() const {
 #endif  // USB_MAG_BIAS_REPORTING_ENABLED
     magArray->addFloat(mMagBias[1]);
     magArray->addFloat(mMagBias[2]);
-    settingsObject->setArray("mag", magArray);
+    settingsObject->setArray(MAG_BIAS_TAG, magArray);
 
     // Add gyro settings
     sp<JSONArray> gyroArray = new JSONArray;
     gyroArray->addFloat(mGyroBias[0]);
     gyroArray->addFloat(mGyroBias[1]);
     gyroArray->addFloat(mGyroBias[2]);
-    settingsObject->setArray("gyro_sw", gyroArray);
+    settingsObject->setArray(GYRO_SW_BIAS_TAG, gyroArray);
 
     // Add accel settings
     sp<JSONArray> accelArray = new JSONArray;
     accelArray->addFloat(mAccelBias[0]);
     accelArray->addFloat(mAccelBias[1]);
     accelArray->addFloat(mAccelBias[2]);
-    settingsObject->setArray("accel_sw", accelArray);
+    settingsObject->setArray(ACCEL_SW_BIAS_TAG, accelArray);
 
     // Add overtemp calibration values for gyro
     sp<JSONArray> gyroOtcDataArray = new JSONArray;
@@ -1260,13 +1261,13 @@ void HubConnection::sendCalibrationOffsets()
     } accel;
 
     int32_t proximity, proximity_array[4];
-    float barometer, mag[3], light;
+    float barometer, light;
     bool accel_hw_cal_exists, accel_sw_cal_exists;
 
     loadSensorSettings(&settings, &saved_settings);
 
-    accel_hw_cal_exists = getCalibrationInt32(settings, "accel", accel.hw, 3);
-    accel_sw_cal_exists = getCalibrationFloat(saved_settings, "accel_sw", accel.sw);
+    accel_hw_cal_exists = getCalibrationInt32(settings, ACCEL_BIAS_TAG, accel.hw, 3);
+    accel_sw_cal_exists = getCalibrationFloat(saved_settings, ACCEL_SW_BIAS_TAG, accel.sw);
     if (accel_hw_cal_exists || accel_sw_cal_exists) {
         // Store SW bias so we can remove bias for uncal data
         mAccelBias[0] = accel.sw[0];
@@ -1276,8 +1277,8 @@ void HubConnection::sendCalibrationOffsets()
         queueDataInternal(COMMS_SENSOR_ACCEL, &accel, sizeof(accel));
     }
 
-    std::vector<int32_t> hardwareGyroBias = getInt32Setting(settings, "gyro");
-    std::vector<float> softwareGyroBias = getFloatSetting(settings, "gyro_sw");
+    std::vector<int32_t> hardwareGyroBias = getInt32Setting(settings, GYRO_BIAS_TAG);
+    std::vector<float> softwareGyroBias = getFloatSetting(settings, GYRO_SW_BIAS_TAG);
     if (hardwareGyroBias.size() == 3 || softwareGyroBias.size() == 3) {
         struct {
             AppToSensorHalDataPayload header;
@@ -1315,13 +1316,21 @@ void HubConnection::sendCalibrationOffsets()
     if (settings->getFloat("light", &light))
         queueDataInternal(COMMS_SENSOR_LIGHT, &light, sizeof(light));
 
-    if (getCalibrationFloat(saved_settings, "mag", mag)) {
+    std::vector<float> magBiasData = getFloatSetting(saved_settings, MAG_BIAS_TAG);
+    if (magBiasData.size() == 3) {
         // Store SW bias so we can remove bias for uncal data
-        mMagBias[0] = mag[0];
-        mMagBias[1] = mag[1];
-        mMagBias[2] = mag[2];
+        std::copy(magBiasData.begin(), magBiasData.end(), mMagBias);
 
-        queueDataInternal(COMMS_SENSOR_MAG, mag, sizeof(mag));
+        struct {
+            AppToSensorHalDataPayload header;
+            MagCalBias mag;
+        } packet = {
+            .header = {
+                .size = sizeof(MagCalBias),
+                .type = HALINTF_TYPE_MAG_CAL_BIAS }
+        };
+        std::copy(magBiasData.begin(), magBiasData.end(), packet.mag.bias);
+        queueDataInternal(COMMS_SENSOR_MAG, &packet, sizeof(packet));
     }
 
     // over temp cal
@@ -1596,6 +1605,34 @@ void HubConnection::queueData(int handle, void *data, size_t length)
 {
     Mutex::Autolock autoLock(mLock);
     queueDataInternal(handle, data, length);
+}
+
+void HubConnection::setOperationParameter(const additional_info_event_t &info) {
+    switch (info.type) {
+        case AINFO_LOCAL_GEOMAGNETIC_FIELD: {
+            ALOGV("local geomag field update: strength %fuT, dec %fdeg, inc %fdeg",
+                  static_cast<double>(info.data_float[0]),
+                  info.data_float[1] * 180 / M_PI,
+                  info.data_float[2] * 180 / M_PI);
+
+            struct {
+                AppToSensorHalDataPayload header;
+                MagLocalField magLocalField;
+            } packet = {
+                .header = {
+                    .size = sizeof(MagLocalField),
+                    .type = HALINTF_TYPE_MAG_LOCAL_FIELD },
+                .magLocalField = {
+                    .strength = info.data_float[0],
+                    .declination = info.data_float[1],
+                    .inclination = info.data_float[2]}
+            };
+            queueDataInternal(COMMS_SENSOR_MAG, &packet, sizeof(packet));
+            break;
+        }
+        default:
+            break;
+    }
 }
 
 void HubConnection::initNanohubLock() {

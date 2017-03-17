@@ -38,7 +38,12 @@
 
 #define WAKELOCK_NAME "sensorHal"
 
+#define ACCEL_BIAS_TAG     "accel"
+#define ACCEL_SW_BIAS_TAG  "accel_sw"
+#define GYRO_BIAS_TAG      "gyro"
 #define GYRO_OTC_DATA_TAG  "gyro_otc"
+#define GYRO_SW_BIAS_TAG   "gyro_sw"
+#define MAG_BIAS_TAG       "mag"
 
 namespace android {
 
@@ -64,6 +69,8 @@ struct HubConnection : public Thread {
             nsecs_t max_report_latency_ns);
     void queueFlush(int handle);
     void queueData(int handle, void *data, size_t length);
+
+    void setOperationParameter(const additional_info_event_t &info);
 
     bool isWakeEvent(int32_t sensor);
     void releaseWakeLockIfAppropriate();

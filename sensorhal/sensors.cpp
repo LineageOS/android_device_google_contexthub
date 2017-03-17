@@ -45,7 +45,7 @@ SensorContext::SensorContext(const struct hw_module_t *module)
     memset(&device, 0, sizeof(device));
 
     device.common.tag = HARDWARE_DEVICE_TAG;
-    device.common.version = SENSORS_DEVICE_API_VERSION_1_3;
+    device.common.version = SENSORS_DEVICE_API_VERSION_1_4;
     device.common.module = const_cast<hw_module_t *>(module);
     device.common.close = CloseWrapper;
     device.activate = ActivateWrapper;
@@ -53,6 +53,7 @@ SensorContext::SensorContext(const struct hw_module_t *module)
     device.poll = PollWrapper;
     device.batch = BatchWrapper;
     device.flush = FlushWrapper;
+    device.inject_sensor_data = InjectSensorDataWrapper;
     mHubConnection->setRawScale(kScaleAccel, kScaleMag);
     if (mHubConnection->isDirectReportSupported()) {
         device.register_direct_channel = RegisterDirectChannelWrapper;
@@ -216,9 +217,36 @@ int SensorContext::RegisterDirectChannelWrapper(struct sensors_poll_device_1 *de
 
 // static
 int SensorContext::ConfigDirectReportWrapper(struct sensors_poll_device_1 *dev,
-        int sensor_handle, int channel_handle, const struct sensors_direct_cfg_t * config) {
+        int sensor_handle, int channel_handle, const sensors_direct_cfg_t * config) {
     return reinterpret_cast<SensorContext *>(dev)->config_direct_report(
             sensor_handle, channel_handle, config);
+}
+
+int SensorContext::inject_sensor_data(const sensors_event_t *event) {
+    ALOGV("inject_sensor_data");
+
+    // only support set operation parameter, which will have handle == 0
+    if (event == nullptr || event->type != SENSOR_TYPE_ADDITIONAL_INFO) {
+        return -EINVAL;
+    }
+
+    if (event->sensor != 0) {
+        return -ENOSYS;
+    }
+
+    if (event->additional_info.type == AINFO_BEGIN
+            || event->additional_info.type == AINFO_END) {
+        return 0;
+    }
+
+    mHubConnection->setOperationParameter(event->additional_info);
+    return 0;
+}
+
+// static
+int SensorContext::InjectSensorDataWrapper(struct sensors_poll_device_1 *dev,
+        const struct sensors_event_t *event) {
+    return reinterpret_cast<SensorContext *>(dev)->inject_sensor_data(event);
 }
 
 bool SensorContext::getHubAlive() {
@@ -401,7 +429,12 @@ static int get_sensors_list(
 
 static int set_operation_mode(unsigned int mode) {
     ALOGI("set_operation_mode");
-    return (mode) ? -EINVAL : 0;
+
+    // This is no-op because there is no sensor in the hal that system can
+    // inject events. Only operation parameter injection is implemented, which
+    // works in both data injection and normal mode.
+    (void) mode;
+    return 0;
 }
 
 struct sensors_module_t HAL_MODULE_INFO_SYM = {

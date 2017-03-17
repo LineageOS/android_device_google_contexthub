@@ -73,6 +73,8 @@ private:
     int config_direct_report(
             int sensor_handle, int channel_handle, const struct sensors_direct_cfg_t * config);
 
+    int inject_sensor_data(const struct sensors_event_t *event);
+
     void initializeHalExtension();
 
     // static wrappers
@@ -100,6 +102,7 @@ private:
             const struct sensors_direct_mem_t* mem, int channel_handle);
     static int ConfigDirectReportWrapper(struct sensors_poll_device_1 *dev,
             int sensor_handle, int channel_handle, const struct sensors_direct_cfg_t * config);
+    static int InjectSensorDataWrapper(struct sensors_poll_device_1 *dev, const sensors_event_t *event);
 
     class SensorOperation {
     public:

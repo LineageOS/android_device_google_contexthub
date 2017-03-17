@@ -3069,17 +3069,29 @@ static bool gyrSelfTest(void *cookie)
 #ifdef MAG_SLAVE_PRESENT
 static bool magCfgData(void *data, void *cookie)
 {
-    float *values = data;
+    const struct AppToSensorHalDataPayload *p = data;
+    if (p->type == HALINTF_TYPE_MAG_CAL_BIAS && p->size == sizeof(struct MagCalBias)) {
+        const struct MagCalBias *d = p->magCalBias;
+        INFO_PRINT("magCfgData: calibration %ldnT, %ldnT, %ldnT\n",
+                (int32_t)(d->bias[0] * 1000),
+                (int32_t)(d->bias[1] * 1000),
+                (int32_t)(d->bias[2] * 1000));
 
-    INFO_PRINT("magCfgData: %ld, %ld, %ld\n",
-            (int32_t)(values[0] * 1000), (int32_t)(values[1] * 1000), (int32_t)(values[2] * 1000));
-
-    mTask.moc.x_bias = values[0];
-    mTask.moc.y_bias = values[1];
-    mTask.moc.z_bias = values[2];
-
-    mTask.magBiasPosted = false;
-
+        mTask.moc.x_bias = d->bias[0];
+        mTask.moc.y_bias = d->bias[1];
+        mTask.moc.z_bias = d->bias[2];
+        mTask.magBiasPosted = false;
+    } else if (p->type == HALINTF_TYPE_MAG_LOCAL_FIELD && p->size == sizeof(struct MagLocalField)) {
+        const struct MagLocalField *d = p->magLocalField;
+        INFO_PRINT("magCfgData: local field strength %dnT, dec %ddeg, inc %ddeg\n",
+                (int)(d->strength * 1000),
+                (int)(d->declination * 180 / M_PI + 0.5f),
+                (int)(d->inclination * 180 / M_PI + 0.5f));
+        //TODO: pass local field information to mag calibration routine
+        //      and rotation vector sensor.
+    } else {
+        ERROR_PRINT("magCfgData: unknown type 0x%04x, size %d", p->type, p->size);
+    }
     return true;
 }
 #endif
