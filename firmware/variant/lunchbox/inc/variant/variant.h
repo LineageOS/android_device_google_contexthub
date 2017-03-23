@@ -57,6 +57,8 @@ extern "C" {
     { (uint8_t *)(__shared_start + 0x20000), 0x20000, BL_FLASH_SHARED },\
 }
 
+#define BMP280_I2C_BUS_ID           0
+
 #define BMI160_TO_ANDROID_COORDINATE(x, y, z)   \
     do {                                        \
         int32_t xi = x, yi = y, zi = z;         \

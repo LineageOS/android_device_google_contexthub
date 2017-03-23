@@ -38,6 +38,8 @@ extern "C" {
 #define DEBUG_UART_GPIO_TX          GPIO_PA(2)
 #define DEBUG_UART_GPIO_RX          GPIO_PA(3)
 
+#define BMP280_I2C_BUS_ID           0
+
 #define BMI160_TO_ANDROID_COORDINATE(x, y, z)   \
     do {                                        \
         int32_t xi = x, yi = y, zi = z;         \
