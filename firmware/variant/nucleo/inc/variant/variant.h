@@ -60,6 +60,7 @@ extern "C" {
 
 #define PROX_INT_PIN    GPIO_PB(10)
 #define PROX_IRQ        EXTI15_10_IRQn
+#define PROX_I2C_BUS_ID 0
 
 //define tap sensor threshold
 #define TAP_THRESHOLD   0x01

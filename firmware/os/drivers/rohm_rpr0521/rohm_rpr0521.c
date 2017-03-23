@@ -43,9 +43,13 @@
 #error "PROX_IRQ is not defined; please define in variant.h"
 #endif
 
+#ifndef PROX_I2C_BUS_ID
+#define PROX_I2C_BUS_ID     0
+#endif
+
 #define RPR0521_APP_VERSION 3
 
-#define I2C_BUS_ID                              0
+#define I2C_BUS_ID                              PROX_I2C_BUS_ID
 #define I2C_SPEED                               400000
 #define I2C_ADDR                                0x38
 
