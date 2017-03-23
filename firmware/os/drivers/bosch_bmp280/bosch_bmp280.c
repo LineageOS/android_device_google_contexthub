@@ -28,12 +28,17 @@
 #include <slab.h>
 #include <timer.h>
 #include <util.h>
+#include <variant/variant.h>
 
 #define BMP280_APP_ID APP_ID_MAKE(NANOHUB_VENDOR_GOOGLE, 5)
 
 #define BMP280_APP_VERSION 3
 
-#define I2C_BUS_ID                      0
+#ifndef BMP280_I2C_BUS_ID
+#define BMP280_I2C_BUS_ID  0
+#endif
+
+#define I2C_BUS_ID                      BMP280_I2C_BUS_ID
 #define I2C_SPEED                       400000
 #define I2C_ADDR                        0x76
 
