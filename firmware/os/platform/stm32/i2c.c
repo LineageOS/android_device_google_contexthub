@@ -761,6 +761,7 @@ static void stmI2cIsrError(struct StmI2cDev *pdev)
     }
 
 DECLARE_IRQ_HANDLERS(1);
+DECLARE_IRQ_HANDLERS(2);
 DECLARE_IRQ_HANDLERS(3);
 
 static inline struct Gpio* stmI2cGpioInit(const struct StmI2cBoardCfg *board, const struct StmI2cGpioCfg *cfg)
