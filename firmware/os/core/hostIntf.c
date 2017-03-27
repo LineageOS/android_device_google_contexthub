@@ -29,6 +29,7 @@
 
 #include <platform.h>
 #include <cpu.h>
+#include <halIntf.h>
 #include <hostIntf.h>
 #include <hostIntf_priv.h>
 #include <nanohubCommand.h>
@@ -1151,6 +1152,7 @@ static void onEvtAppStart(const void *evtData)
 
         osEventUnsubscribe(mHostIntfTid, EVT_APP_START);
         osEventSubscribe(mHostIntfTid, EVT_NO_SENSOR_CONFIG_EVENT);
+        osEventSubscribe(mHostIntfTid, EVT_APP_TO_SENSOR_HAL_DATA);
         osEventSubscribe(mHostIntfTid, EVT_APP_TO_HOST);
 #ifdef DEBUG_LOG_EVT
         osEventSubscribe(mHostIntfTid, EVT_DEBUG_LOG);
@@ -1351,6 +1353,16 @@ static void onEvtNoSensorConfigEvent(const void *evtData)
     }
 }
 
+static void onEvtAppToSensorHalData(const void *evtData)
+{
+    struct HostIntfDataBuffer *data = (struct HostIntfDataBuffer *)evtData;
+    if (data->sensType == SENS_TYPE_INVALID
+            && data->dataType == HOSTINTF_DATA_TYPE_APP_TO_SENSOR_HAL) {
+        struct AppToSensorHalDataBuffer *buffer = (struct AppToSensorHalDataBuffer *)data;
+        hostIntfAddBlock(data, (buffer->payload.type & EVENT_TYPE_BIT_DISCARDABLE) != 0);
+    }
+}
+
 static void copyEmbeddedSamples(struct ActiveSensor *sensor, const void* evtData)
 {
     uint64_t sensorTime = sensorGetTime();
@@ -1490,6 +1502,9 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
         break;
     case EVT_NO_SENSOR_CONFIG_EVENT:
         onEvtNoSensorConfigEvent(evtData);
+        break;
+    case EVT_APP_TO_SENSOR_HAL_DATA:
+        onEvtAppToSensorHalData(evtData);
         break;
     default:
         onEvtSensorData(evtType, evtData);

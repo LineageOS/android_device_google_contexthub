@@ -30,12 +30,20 @@
 #include "activityeventhandler.h"
 #include "directchannel.h"
 #include "eventnums.h"
+#include "halIntf.h"
 #include "hubdefs.h"
 #include "ring.h"
 
 #include <unordered_map>
 
 #define WAKELOCK_NAME "sensorHal"
+
+#define ACCEL_BIAS_TAG     "accel"
+#define ACCEL_SW_BIAS_TAG  "accel_sw"
+#define GYRO_BIAS_TAG      "gyro"
+#define GYRO_OTC_DATA_TAG  "gyro_otc"
+#define GYRO_SW_BIAS_TAG   "gyro_sw"
+#define MAG_BIAS_TAG       "mag"
 
 namespace android {
 
@@ -61,6 +69,8 @@ struct HubConnection : public Thread {
             nsecs_t max_report_latency_ns);
     void queueFlush(int handle);
     void queueData(int handle, void *data, size_t length);
+
+    void setOperationParameter(const additional_info_event_t &info);
 
     bool isWakeEvent(int32_t sensor);
     void releaseWakeLockIfAppropriate();
@@ -214,6 +224,7 @@ private:
     uint8_t mMagAccuracyRestore;
 
     float mGyroBias[3], mAccelBias[3];
+    GyroOtcData mGyroOtcData;
 
     float mScaleAccel, mScaleMag;
 
@@ -233,6 +244,7 @@ private:
     void processSample(uint64_t timestamp, uint32_t type, uint32_t sensor, struct RawThreeAxisSample *sample, bool highAccuracy);
     void processSample(uint64_t timestamp, uint32_t type, uint32_t sensor, struct ThreeAxisSample *sample, bool highAccuracy);
     void postOsLog(uint8_t *buf, ssize_t len);
+    void processAppData(uint8_t *buf, ssize_t len);
     ssize_t processBuf(uint8_t *buf, size_t len);
 
     inline bool isValidHandle(int handle) {
