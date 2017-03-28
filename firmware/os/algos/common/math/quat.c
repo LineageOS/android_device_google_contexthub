@@ -15,7 +15,6 @@
  */
 
 #include "common/math/quat.h"
-#include <nanohub_math.h>
 
 static float clamp(float x) { return x < 0.0f ? 0.0f : x; }
 
