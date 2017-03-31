@@ -1307,7 +1307,7 @@ void HubConnection::sendCalibrationOffsets()
     } else {
         ALOGI("Use new configuration format");
         std::vector<int32_t> hardwareGyroBias = getInt32Setting(settings, GYRO_BIAS_TAG);
-        std::vector<float> softwareGyroBias = getFloatSetting(settings, GYRO_SW_BIAS_TAG);
+        std::vector<float> softwareGyroBias = getFloatSetting(saved_settings, GYRO_SW_BIAS_TAG);
         if (hardwareGyroBias.size() == 3 || softwareGyroBias.size() == 3) {
             struct {
                 AppToSensorHalDataPayload header;
