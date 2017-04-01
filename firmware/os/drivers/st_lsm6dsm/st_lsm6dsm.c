@@ -34,9 +34,9 @@
 #include <plat/syscfg.h>
 #include <plat/exti.h>
 #include <plat/rtc.h>
-#include <algos/accel_cal.h>
-#include <algos/gyro_cal.h>
-#include <algos/mag_cal.h>
+#include <calibration/accelerometer/accel_cal.h>
+#include <calibration/gyroscope/gyro_cal.h>
+#include <calibration/magnetometer/mag_cal.h>
 
 #include "st_lsm6dsm_lis3mdl_slave.h"
 #include "st_lsm6dsm_lsm303agr_slave.h"
@@ -608,12 +608,12 @@ typedef struct LSM6DSMTask {
     struct LSM6DSMSPISlaveInterface slaveConn;
 
 #ifdef LSM6DSM_ACCEL_CALIB_ENABLED
-    struct accelCal_t accelCal;
+    struct AccelCal accelCal;
     struct TripleAxisDataEvent *accelBiasDataEvt;
 #endif /* LSM6DSM_ACCEL_CALIB_ENABLED */
 
 #ifdef LSM6DSM_GYRO_CALIB_ENABLED
-    struct gyroCal_t gyroCal;
+    struct GyroCal gyroCal;
     struct TripleAxisDataEvent *gyroBiasDataEvt;
 #endif /* LSM6DSM_GYRO_CALIB_ENABLED */
 
@@ -2889,8 +2889,9 @@ static void lsm6dsm_handleSpiDoneEvt(const void *evtData)
 
 #ifdef LSM6DSM_GYRO_CALIB_ENABLED
                 if (gyroCalNewBiasAvailable(&T(gyroCal))) {
+                    float gyroTemp = 0;
                     gyroCalGetBias(&T(gyroCal), &T(gyroBiasDataEvt)->samples[0].x,
-                        &T(gyroBiasDataEvt)->samples[0].y, &T(gyroBiasDataEvt)->samples[0].z);
+                        &T(gyroBiasDataEvt)->samples[0].y, &T(gyroBiasDataEvt)->samples[0].z, &gyroTemp);
 
                     T(gyroBiasDataEvt)->referenceTime = T(timestampInt[LSM6DSM_INT1_INDEX]);
                     osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_GYRO_BIAS), T(gyroBiasDataEvt), NULL);
@@ -3178,7 +3179,9 @@ static bool lsm6dsm_startTask(uint32_t task_id)
             1.4f,              /* magnetometer variance threshold [uT]^2 */
             0.25,              /* magnetometer confidence delta [uT]^2 */
             0.95f,             /* stillness threshold [0, 1] */
-            1);                /* 1 : gyro calibrations will be applied */
+            40.0e-3f * M_PI / 180.0f, /* stillness mean variation limit [rad/sec] */
+            1.5f,              /* maximum temperature deviation during stillness [C] */
+            true);             /* gyro calibration enabled */
 #endif /* LSM6DSM_GYRO_CALIB_ENABLED */
 
 #ifdef LSM6DSM_MAGN_CALIB_ENABLED
@@ -3208,7 +3211,7 @@ unregister_sensors:
     accelCalDestroy(&T(accelCal));
 #endif /* LSM6DSM_ACCEL_CALIB_ENABLED */
 #ifdef LSM6DSM_MAGN_CALIB_ENABLED
-    destroy_mag_cal(&T(magnCal));
+    magCalDestroy(&T(magnCal));
 #endif /* LSM6DSM_MAGN_CALIB_ENABLED */
 #ifdef LSM6DSM_GYRO_CALIB_ENABLED
     gyroCalDestroy(&T(gyroCal));
@@ -3233,7 +3236,7 @@ static void lsm6dsm_endTask(void)
     accelCalDestroy(&T(accelCal));
 #endif /* LSM6DSM_ACCEL_CALIB_ENABLED */
 #ifdef LSM6DSM_MAGN_CALIB_ENABLED
-    destroy_mag_cal(&T(magnCal));
+    magCalDestroy(&T(magnCal));
 #endif /* LSM6DSM_MAGN_CALIB_ENABLED */
 #ifdef LSM6DSM_GYRO_CALIB_ENABLED
     gyroCalDestroy(&T(gyroCal));
