@@ -33,6 +33,7 @@
 /* LSM303AGR registers */
 #define LSM303AGR_WAI_ADDR                              (0x4f)
 #define LSM303AGR_CFG_REG_A_M_ADDR                      (0x60)
+#define LSM303AGR_CFG_REG_B_M_ADDR                      (0x61)
 #define LSM303AGR_CFG_REG_C_M_ADDR                      (0x62)
 #define LSM303AGR_OUTDATA_ADDR                          (0x68)
 
@@ -40,12 +41,18 @@
 #define LSM303AGR_POWER_ON_VALUE                        (0x00)
 #define LSM303AGR_POWER_OFF_VALUE                       (0x03)
 #define LSM303AGR_OUTDATA_LEN                           (0x06)
+#define LSM303AGR_OFFSET_CANCELLATION                   (0x02)
+#define LSM303AGR_ENABLE_SELFTEST                       (0x02)
+
+/* Selftest related */
+#define LSM303AGR_SELFTEST_HIGH_THR_LSB                 333
+#define LSM303AGR_SELFTEST_LOW_THR_LSB                  10
 
 
 /* LSM303AGR default base registers status */
 /* LSM303AGR_CFG_REG_A_M_BASE: configuration register 1 default settings */
-#define LSM303AGR_CFG_REG_A_M_BASE                     ((0 << 7) |   /* (0) */ \
-                                                        (0 << 6) |    /* (0) */ \
+#define LSM303AGR_CFG_REG_A_M_BASE                     ((1 << 7) |    /* COMP_TEMP_EN */ \
+                                                        (0 << 6) |    /* REBOOT */ \
                                                         (0 << 5) |    /* SOFT_RST */ \
                                                         (0 << 4) |    /* LP */ \
                                                         (0 << 3) |    /* ODR1 */ \
@@ -54,7 +61,7 @@
                                                         (0 << 0))     /* MD0 */
 
 /* LSM303AGR_CFC_REG_C_M_BASE: configuration register 3 default settings */
-#define LSM303AGR_CFG_REG_C_M_BASE                     ((0 << 7) |   /* (0) */ \
+#define LSM303AGR_CFG_REG_C_M_BASE                     ((0 << 7) |    /* (0) */ \
                                                         (0 << 6) |    /* INT_MAG_PIN */ \
                                                         (0 << 5) |    /* I2C_DIS */ \
                                                         (1 << 4) |    /* BDU */ \
