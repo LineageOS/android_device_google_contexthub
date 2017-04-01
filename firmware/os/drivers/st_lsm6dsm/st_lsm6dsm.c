@@ -63,6 +63,24 @@
 #undef LSM6DSM_OVERTEMP_CALIB_ENABLED
 #endif /* LSM6DSM_OVERTEMP_CALIB_ENABLED, LSM6DSM_GYRO_CALIB_ENABLED */
 
+#if !defined(LSM6DSM_SPI_SLAVE_BUS_ID) || !defined(LSM6DSM_SPI_SLAVE_FREQUENCY_HZ) || !defined(LSM6DSM_SPI_SLAVE_CS_GPIO)
+#error "SPI macros not fully defined. Please check README file"
+#endif /* LSM6DSM_SPI_SLAVE_BUS_ID, LSM6DSM_SPI_SLAVE_FREQUENCY_HZ, LSM6DSM_SPI_SLAVE_CS_GPIO */
+
+#if !defined(LSM6DSM_INT_IRQ) || !defined(LSM6DSM_INT1_GPIO)
+#error "Interrupts macros not fully defined. Please check README file"
+#endif /* LSM6DSM_INT_IRQ, LSM6DSM_INT1_GPIO */
+
+#if !defined(LSM6DSM_ACCEL_GYRO_ROT_MATRIX)
+#error "Accel/gyro rotation matrix macro not defined. Please check README file"
+#endif /* LSM6DSM_ACCEL_GYRO_ROT_MATRIX */
+
+#if defined(LSM6DSM_I2C_MASTER_MAGNETOMETER_ENABLED)
+#if !defined(LSM6DSM_MAGN_ROT_MATRIX)
+#error "Magn rotation matrix macro not defined. Please check README file"
+#endif /* LSM6DSM_MAGN_ROT_MATRIX */
+#endif /* LSM6DSM_I2C_MASTER_MAGNETOMETER_ENABLED */
+
 #define LSM6DSM_APP_ID                                  APP_ID_MAKE(NANOHUB_VENDOR_STMICRO, 0)
 
 #define LSM6DSM_WAI_VALUE                               (0x6a)
