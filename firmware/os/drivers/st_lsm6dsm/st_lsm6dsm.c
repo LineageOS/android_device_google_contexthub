@@ -20,6 +20,7 @@
 #include <string.h>
 #include <sensors.h>
 #include <slab.h>
+#include <heap.h>
 #include <spi.h>
 #include <gpio.h>
 #include <atomic.h>
@@ -100,7 +101,7 @@
 #define LSM6DSM_SYNC_DELTA_INTERVAL                     100000000ULL    /* Sensor timestamp is synced with MCU every #n deltatime [ns] */
 
 /* SPI buffers */
-#define LSM6DSM_SPI_PACKET_SIZE                         70
+#define LSM6DSM_SPI_PACKET_SIZE                         75
 #define LSM6DSM_SPI_FIFO_SIZE                           1024
 #define LSM6DSM_BUF_MARGIN                              100
 #define SPI_BUF_SIZE                                    (LSM6DSM_SPI_FIFO_SIZE + LSM6DSM_BUF_MARGIN)
@@ -155,6 +156,7 @@
 #define LSM6DSM_CTRL2_G_ADDR                            (0x11)
 #define LSM6DSM_CTRL3_C_ADDR                            (0x12)
 #define LSM6DSM_CTRL4_C_ADDR                            (0x13)
+#define LSM6DSM_CTRL5_C_ADDR                            (0x14)
 #define LSM6DSM_EBD_STEP_COUNT_DELTA_ADDR               (0x15)
 #define LSM6DSM_CTRL10_C_ADDR                           (0x19)
 #define LSM6DSM_MASTER_CONFIG_ADDR                      (0x1a)
@@ -196,6 +198,18 @@
 #define LSM6DSM_FIFO_DECIMATION_FACTOR_8                (0x05)
 #define LSM6DSM_FIFO_DECIMATION_FACTOR_16               (0x06)
 #define LSM6DSM_FIFO_DECIMATION_FACTOR_32               (0x07)
+
+/* LSM6DSM selftest related */
+#define LSM6DSM_NUM_AVERAGE_SELFTEST                    5
+#define LSM6DSM_NUM_AVERAGE_SELFTEST_SLOW               30
+#define LSM6DSM_ACCEL_SELFTEST_PS                       (0x01)
+#define LSM6DSM_GYRO_SELFTEST_PS                        (0x04)
+#define LSM6DSM_ACCEL_SELFTEST_NS                       (0x02)
+#define LSM6DSM_GYRO_SELFTEST_NS                        (0x0c)
+#define LSM6DSM_ACCEL_SELFTEST_HIGH_THR_LSB             6967            /* 1700mg @8g in LSB */
+#define LSM6DSM_ACCEL_SELFTEST_LOW_THR_LSB              368             /* 90mg @8g in LSB */
+#define LSM6DSM_GYRO_SELFTEST_HIGH_THR_LSB              10000           /* 700dps @2000dps in LSB */
+#define LSM6DSM_GYRO_SELFTEST_LOW_THR_LSB               2142            /* 150dps @2000dps in LSB */
 
 /* LSM6DSM embedded registers */
 #define LSM6DSM_EMBEDDED_SLV0_ADDR_ADDR                 (0x02)
@@ -382,7 +396,7 @@
                                                          (0 << 0))     /* SW_RESET */
 
 /* LSM6DSM_CTRL4_C_BASE: control register 4 default settings */
-#define LSM6DSM_CTRL4_C_BASE                             ((0 << 7) |    /* DEN_XL_EN */ \
+#define LSM6DSM_CTRL4_C_BASE                            ((0 << 7) |    /* DEN_XL_EN */ \
                                                          (0 << 6) |    /* SLEEP */ \
                                                          (1 << 5) |    /* INT2_on_INT1 */ \
                                                          (0 << 4) |    /* DEN_DRDY_MASK */ \
@@ -390,6 +404,9 @@
                                                          (1 << 2) |    /* I2C_disable */ \
                                                          (0 << 1) |    /* LPF1_SEL_G */ \
                                                          (0 << 0))     /* (0) */
+
+/* LSM6DSM_CTRL5_C_BASE: control register 5 default settings */
+#define LSM6DSM_CTRL5_C_BASE                            (0x00)
 
 /* LSM6DSM_CTRL10_C_BASE: control register 10 default settings */
 #define LSM6DSM_CTRL10_C_BASE                           ((0 << 7) |    /* (WRIST_TILT_EN) */ \
@@ -468,6 +485,15 @@ enum InitState {
     INIT_DONE,
 };
 
+enum SelfTestState {
+    SELFTEST_INITIALIZATION = 0,
+    SELFTEST_READ_EST_DATA,
+    SELFTEST_SECOND_STEP_INITIALIZATION,
+    SELFTEST_READ_NST_DATA,
+    SELFTEST_VERIFICATION,
+    SELFTEST_COMPLETED
+};
+
 enum SensorEvents {
     NO_EVT = -1,
     EVT_SPI_DONE = EVT_APP_START + 1,
@@ -488,6 +514,7 @@ enum SensorState {
     SENSOR_POWERING_DOWN,
     SENSOR_CONFIG_CHANGING,
     SENSOR_CONFIG_WATERMARK_CHANGING,
+    SENSOR_SELFTEST,
     SENSOR_INT1_STATUS_REG_HANDLING,
     SENSOR_INT1_OUTPUT_DATA_HANDLING,
     SENSOR_TIME_SYNC,
@@ -721,6 +748,15 @@ struct LSM6DSMTimeCalibration {
     bool timestampIsValid;
 };
 
+/* LSM6DSMSelfTestResultPkt: calibration packet result data
+ * @header: describe packet size and application ID of packet.
+ * @dataHeader: payload of message.
+ */
+struct LSM6DSMSelfTestResultPkt {
+    struct HostHubRawPacket header;
+    struct SensorAppEventHeader dataHeader;
+} __attribute__((packed));
+
 /* struct LSM6DSMTask: driver task data
  * @sensors: sensor status data list.
  * @slaveConn: slave interface / communication data.
@@ -792,6 +828,7 @@ typedef struct LSM6DSMTask {
     uint64_t lastFifoReadTimestamp;
 
     enum InitState initState;
+    enum SelfTestState selftestState;
 
     uint32_t tid;
     uint32_t totalNumSteps;
@@ -800,9 +837,12 @@ typedef struct LSM6DSMTask {
 #if defined(LSM6DSM_I2C_MASTER_MAGNETOMETER_ENABLED) && defined(LSM6DSM_I2C_MASTER_BAROMETER_ENABLED)
     uint32_t baroTimerId;
 #endif /* LSM6DSM_I2C_MASTER_MAGNETOMETER_ENABLED, LSM6DSM_I2C_MASTER_BAROMETER_ENABLED */
+    int32_t dataSelftestEnabled[3];
+    int32_t dataSelftestNotEnabled[3];
 
     volatile uint8_t state;
 
+    uint8_t numSamplesSelftest;
     uint8_t mRetryLeft;
     uint8_t pedometerDependencies;
     uint8_t masterConfigDependencies;
@@ -1055,6 +1095,10 @@ static const struct SensorInfo LSM6DSMSensorInfo[NUM_SENSORS] = {
     .sensorFlush = flush, \
     .sensorSendOneDirectEvt = send
 
+#define DEC_OPS_SELFTEST(power, firmware, rate, flush, selftest) \
+    DEC_OPS(power, firmware, rate, flush), \
+    .sensorSelfTest = selftest
+
 static bool lsm6dsm_setAccelPower(bool on, void *cookie);
 static bool lsm6dsm_setGyroPower(bool on, void *cookie);
 static bool lsm6dsm_setStepDetectorPower(bool on, void *cookie);
@@ -1076,6 +1120,11 @@ static bool lsm6dsm_stepDetectorFlush(void *cookie);
 static bool lsm6dsm_stepCounterFlush(void *cookie);
 static bool lsm6dsm_signMotionFlush(void *cookie);
 static bool lsm6dsm_stepCounterSendLastData(void *cookie, uint32_t tid);
+static bool lsm6dsm_runAccelSelfTest(void *cookie);
+static bool lsm6dsm_runGyroSelfTest(void *cookie);
+#ifdef LSM6DSM_I2C_MASTER_MAGNETOMETER_ENABLED
+static bool lsm6dsm_runMagnSelfTest(void *cookie);
+#endif /* LSM6DSM_I2C_MASTER_MAGNETOMETER_ENABLED */
 
 #ifdef LSM6DSM_I2C_MASTER_MAGNETOMETER_ENABLED
 static bool lsm6dsm_setMagnPower(bool on, void *cookie);
@@ -1096,10 +1145,10 @@ static bool lsm6dsm_tempFlush(void *cookie);
 #endif /* LSM6DSM_I2C_MASTER_BAROMETER_ENABLED */
 
 static const struct SensorOps LSM6DSMSensorOps[NUM_SENSORS] = {
-    { DEC_OPS(lsm6dsm_setGyroPower, lsm6dsm_gyroFirmwareUpload, lsm6dsm_setGyroRate, lsm6dsm_gyroFlush) },
-    { DEC_OPS(lsm6dsm_setAccelPower, lsm6dsm_accelFirmwareUpload, lsm6dsm_setAccelRate, lsm6dsm_accelFlush) },
+    { DEC_OPS_SELFTEST(lsm6dsm_setGyroPower, lsm6dsm_gyroFirmwareUpload, lsm6dsm_setGyroRate, lsm6dsm_gyroFlush, lsm6dsm_runGyroSelfTest) },
+    { DEC_OPS_SELFTEST(lsm6dsm_setAccelPower, lsm6dsm_accelFirmwareUpload, lsm6dsm_setAccelRate, lsm6dsm_accelFlush, lsm6dsm_runAccelSelfTest) },
 #ifdef LSM6DSM_I2C_MASTER_MAGNETOMETER_ENABLED
-    { DEC_OPS(lsm6dsm_setMagnPower, lsm6dsm_magnFirmwareUpload, lsm6dsm_setMagnRate, lsm6dsm_magnFlush) },
+    { DEC_OPS_SELFTEST(lsm6dsm_setMagnPower, lsm6dsm_magnFirmwareUpload, lsm6dsm_setMagnRate, lsm6dsm_magnFlush, lsm6dsm_runMagnSelfTest) },
 #endif /* LSM6DSM_I2C_MASTER_MAGNETOMETER_ENABLED */
 #ifdef LSM6DSM_I2C_MASTER_BAROMETER_ENABLED
     { DEC_OPS(lsm6dsm_setPressPower, lsm6dsm_pressFirmwareUpload, lsm6dsm_setPressRate, lsm6dsm_pressFlush) },
@@ -1379,6 +1428,380 @@ static void lsm6dsm_disableInterrupt(struct Gpio *pin, struct ChainedIsr *isr)
     extiUnchainIsr(LSM6DSM_INT_IRQ, isr);
     extiDisableIntGpio(pin);
 }
+
+/*
+ * lsm6dsm_sendSelfTestResult: send to nanohub result of self-test
+ * @sensorType: android sensor type.
+ * @result: status message to send (PASS/ERROR).
+ */
+static void lsm6dsm_sendSelfTestResult(uint8_t sensorType, uint8_t result)
+{
+    struct LSM6DSMSelfTestResultPkt *data;
+
+    data = heapAlloc(sizeof(struct LSM6DSMSelfTestResultPkt));
+    if (!data) {
+        ERROR_PRINT("sendSelfTestResult: cannot allocate self-test result packet\n");
+        return;
+    }
+
+    data->header.appId = LSM6DSM_APP_ID;
+    data->header.dataLen = (sizeof(struct LSM6DSMSelfTestResultPkt) - sizeof(struct HostHubRawPacket));
+
+    data->dataHeader.msgId = SENSOR_APP_MSG_ID_TEST_RESULT;
+    data->dataHeader.sensorType = sensorType;
+    data->dataHeader.status = result;
+
+    if (!osEnqueueEvtOrFree(EVT_APP_TO_HOST, data, heapFree)) {
+        ERROR_PRINT("sendSelfTestResult: failed to enqueue self-test result packet\n");
+    }
+}
+
+/*
+ * lsm6dsm_runGapSelfTestProgram: state machine that is executing self-test verifying data gap
+ * @idx: sensor driver index.
+ */
+static void lsm6dsm_runGapSelfTestProgram(enum SensorIndex idx)
+{
+    TDECL();
+    uint8_t *sensorData, numberOfAverage;
+
+    numberOfAverage = LSM6DSM_NUM_AVERAGE_SELFTEST;
+
+    switch (T(selftestState)) {
+    case SELFTEST_INITIALIZATION:
+        DEBUG_PRINT("runGapSelfTestProgram: initialization\n");
+
+        T(numSamplesSelftest) = 0;
+        memset(T(dataSelftestEnabled), 0, 3 * sizeof(int32_t));
+        memset(T(dataSelftestNotEnabled), 0, 3 * sizeof(int32_t));
+
+        /* Enable self-test & power on sensor */
+        switch (idx) {
+        case ACCEL:
+            SPI_WRITE(LSM6DSM_CTRL5_C_ADDR, LSM6DSM_CTRL5_C_BASE | LSM6DSM_ACCEL_SELFTEST_PS);
+            SPI_WRITE(LSM6DSM_CTRL1_XL_ADDR, LSM6DSM_CTRL1_XL_BASE | LSM6DSM_ODR_104HZ_REG_VALUE, 30000);
+            break;
+        case GYRO:
+            SPI_WRITE(LSM6DSM_CTRL5_C_ADDR, LSM6DSM_CTRL5_C_BASE | LSM6DSM_GYRO_SELFTEST_PS);
+            SPI_WRITE(LSM6DSM_CTRL2_G_ADDR, LSM6DSM_CTRL2_G_BASE | LSM6DSM_ODR_104HZ_REG_VALUE, 30000);
+            break;
+#if defined(LSM6DSM_I2C_MASTER_LSM303AGR) || defined(LSM6DSM_I2C_MASTER_LIS3MDL)
+        case MAGN:
+            /* Enable accelerometer and sensor-hub */
+            SPI_WRITE(LSM6DSM_CTRL1_XL_ADDR, LSM6DSM_CTRL1_XL_BASE | LSM6DSM_ODR_104HZ_REG_VALUE);
+            SPI_WRITE(LSM6DSM_MASTER_CONFIG_ADDR, LSM6DSM_MASTER_CONFIG_BASE | LSM6DSM_MASTER_CONFIG_MASTER_ON, 10000);
+            T(masterConfigRegister) |= LSM6DSM_MASTER_CONFIG_MASTER_ON;
+
+            uint8_t rateIndex = ARRAY_SIZE(LSM6DSMSHRates) - 2;
+
+#ifdef LSM6DSM_I2C_MASTER_LSM303AGR
+            SPI_WRITE_SLAVE_SENSOR_REGISTER(LSM303AGR_CFG_REG_B_M_ADDR, LSM303AGR_OFFSET_CANCELLATION, SENSOR_HZ(104.0f), MAGN);
+            SPI_WRITE_SLAVE_SENSOR_REGISTER(LSM303AGR_CFG_REG_C_M_ADDR,
+                    LSM303AGR_CFG_REG_C_M_BASE | LSM303AGR_ENABLE_SELFTEST, SENSOR_HZ(104.0f), MAGN);
+
+            SPI_WRITE_SLAVE_SENSOR_REGISTER(LSM6DSM_SENSOR_SLAVE_MAGN_ODR_ADDR,
+                    LSM6DSM_SENSOR_SLAVE_MAGN_ODR_BASE | LSM6DSM_SENSOR_SLAVE_MAGN_POWER_ON_VALUE |
+                    LSM6DSM_SENSOR_SLAVE_MAGN_RATES_REG_VALUE(rateIndex), SENSOR_HZ(104.0f), MAGN, 200000);
+#else /* LSM6DSM_I2C_MASTER_LSM303AGR */
+            SPI_WRITE_SLAVE_SENSOR_REGISTER(LSM6DSM_SENSOR_SLAVE_MAGN_POWER_ADDR,
+                    LSM6DSM_SENSOR_SLAVE_MAGN_POWER_BASE | LSM6DSM_SENSOR_SLAVE_MAGN_POWER_ON_VALUE, SENSOR_HZ(104.0f), MAGN);
+            SPI_WRITE_SLAVE_SENSOR_REGISTER(LSM6DSM_SENSOR_SLAVE_MAGN_ODR_ADDR,
+                    LSM6DSM_SENSOR_SLAVE_MAGN_ODR_BASE | LSM6DSM_SENSOR_SLAVE_MAGN_RATES_REG_VALUE(rateIndex) | LIS3MDL_ENABLE_SELFTEST,
+                    SENSOR_HZ(104.0f), MAGN);
+#endif /* LSM6DSM_I2C_MASTER_LSM303AGR */
+            break;
+#endif /* LSM6DSM_I2C_MASTER_LSM303AGR, LSM6DSM_I2C_MASTER_LIS3MDL */
+        default:
+            return;
+        }
+
+        T(selftestState) = SELFTEST_READ_EST_DATA;
+        lsm6dsm_spiBatchTxRx(&T_SLAVE_INTERFACE(mode), lsm6dsm_spiCallback, &T(sensors[idx]), __FUNCTION__);
+        break;
+
+    case SELFTEST_READ_EST_DATA:
+#ifdef LSM6DSM_I2C_MASTER_LSM303AGR
+        if (idx == MAGN)
+            numberOfAverage = LSM6DSM_NUM_AVERAGE_SELFTEST_SLOW;
+#endif /* LSM6DSM_I2C_MASTER_LSM303AGR */
+
+        if (T(numSamplesSelftest) > 0) {
+            sensorData = &T_SLAVE_INTERFACE(tmpDataBuffer[1]);
+            T(dataSelftestEnabled[0]) += (int16_t)*((uint16_t *)&sensorData[0]);
+            T(dataSelftestEnabled[1]) += (int16_t)*((uint16_t *)&sensorData[2]);
+            T(dataSelftestEnabled[2]) += (int16_t)*((uint16_t *)&sensorData[4]);
+        }
+        T(numSamplesSelftest)++;
+
+        if (T(numSamplesSelftest) <= numberOfAverage) {
+            DEBUG_PRINT("runGapSelfTestProgram: reading output data while self-test is enabled\n");
+
+            switch (idx) {
+            case ACCEL:
+                SPI_READ(LSM6DSM_OUTX_L_XL_ADDR, LSM6DSM_ONE_SAMPLE_BYTE, &T_SLAVE_INTERFACE(tmpDataBuffer), 10000);
+                break;
+            case GYRO:
+                SPI_READ(LSM6DSM_OUTX_L_G_ADDR, LSM6DSM_ONE_SAMPLE_BYTE, &T_SLAVE_INTERFACE(tmpDataBuffer), 10000);
+                break;
+#if defined(LSM6DSM_I2C_MASTER_LSM303AGR) || defined(LSM6DSM_I2C_MASTER_LIS3MDL)
+            case MAGN:
+                SPI_READ(LSM6DSM_OUT_SENSORHUB1_ADDR, LSM6DSM_ONE_SAMPLE_BYTE, &T_SLAVE_INTERFACE(tmpDataBuffer), 20000);
+                break;
+#endif /* LSM6DSM_I2C_MASTER_LSM303AGR, LSM6DSM_I2C_MASTER_LIS3MDL */
+            default:
+                return;
+            }
+            lsm6dsm_spiBatchTxRx(&T_SLAVE_INTERFACE(mode), lsm6dsm_spiCallback, &T(sensors[idx]), __FUNCTION__);
+            break;
+        }
+
+        T(dataSelftestEnabled[0]) /= numberOfAverage;
+        T(dataSelftestEnabled[1]) /= numberOfAverage;
+        T(dataSelftestEnabled[2]) /= numberOfAverage;
+        T(selftestState) = SELFTEST_SECOND_STEP_INITIALIZATION;
+
+    case SELFTEST_SECOND_STEP_INITIALIZATION:
+        DEBUG_PRINT("runGapSelfTestProgram: second step initialization\n");
+
+        T(numSamplesSelftest) = 0;
+
+        /* Disable self-test */
+        switch (idx) {
+        case ACCEL:
+        case GYRO:
+            SPI_WRITE(LSM6DSM_CTRL5_C_ADDR, LSM6DSM_CTRL5_C_BASE, 30000);
+            break;
+#if defined(LSM6DSM_I2C_MASTER_LSM303AGR) || defined(LSM6DSM_I2C_MASTER_LIS3MDL)
+        case MAGN: ;
+#ifdef LSM6DSM_I2C_MASTER_LSM303AGR
+            SPI_WRITE_SLAVE_SENSOR_REGISTER(LSM303AGR_CFG_REG_C_M_ADDR, LSM303AGR_CFG_REG_C_M_BASE, SENSOR_HZ(104.0f), MAGN, 200000);
+#else /* LSM6DSM_I2C_MASTER_LSM303AGR */
+            uint8_t rateIndex = ARRAY_SIZE(LSM6DSMSHRates) - 2;
+
+            SPI_WRITE_SLAVE_SENSOR_REGISTER(LSM6DSM_SENSOR_SLAVE_MAGN_ODR_ADDR,
+                    LSM6DSM_SENSOR_SLAVE_MAGN_ODR_BASE | LSM6DSM_SENSOR_SLAVE_MAGN_RATES_REG_VALUE(rateIndex),
+                    SENSOR_HZ(104.0f), MAGN);
+#endif /* LSM6DSM_I2C_MASTER_LSM303AGR */
+            break;
+#endif /* LSM6DSM_I2C_MASTER_LSM303AGR, LSM6DSM_I2C_MASTER_LIS3MDL */
+        default:
+            return;
+        }
+
+        T(selftestState) = SELFTEST_READ_NST_DATA;
+        lsm6dsm_spiBatchTxRx(&T_SLAVE_INTERFACE(mode), lsm6dsm_spiCallback, &T(sensors[idx]), __FUNCTION__);
+        break;
+
+    case SELFTEST_READ_NST_DATA:
+#ifdef LSM6DSM_I2C_MASTER_LSM303AGR
+        if (idx == MAGN)
+            numberOfAverage = LSM6DSM_NUM_AVERAGE_SELFTEST_SLOW;
+#endif /* LSM6DSM_I2C_MASTER_LSM303AGR */
+
+        if (T(numSamplesSelftest) > 0) {
+            sensorData = &T_SLAVE_INTERFACE(tmpDataBuffer[1]);
+            T(dataSelftestNotEnabled[0]) += (int16_t)*((uint16_t *)&sensorData[0]);
+            T(dataSelftestNotEnabled[1]) += (int16_t)*((uint16_t *)&sensorData[2]);
+            T(dataSelftestNotEnabled[2]) += (int16_t)*((uint16_t *)&sensorData[4]);
+        }
+        T(numSamplesSelftest)++;
+
+        if (T(numSamplesSelftest) <= numberOfAverage) {
+            DEBUG_PRINT("runGapSelfTestProgram: reading output data while self-test is disabled\n");
+
+            switch (idx) {
+            case ACCEL:
+                SPI_READ(LSM6DSM_OUTX_L_XL_ADDR, LSM6DSM_ONE_SAMPLE_BYTE, &T_SLAVE_INTERFACE(tmpDataBuffer), 10000);
+                break;
+            case GYRO:
+                SPI_READ(LSM6DSM_OUTX_L_G_ADDR, LSM6DSM_ONE_SAMPLE_BYTE, &T_SLAVE_INTERFACE(tmpDataBuffer), 10000);
+                break;
+#if defined(LSM6DSM_I2C_MASTER_LSM303AGR) || defined(LSM6DSM_I2C_MASTER_LIS3MDL)
+            case MAGN:
+                SPI_READ(LSM6DSM_OUT_SENSORHUB1_ADDR, LSM6DSM_ONE_SAMPLE_BYTE, &T_SLAVE_INTERFACE(tmpDataBuffer), 20000);
+                break;
+#endif /* LSM6DSM_I2C_MASTER_LSM303AGR, LSM6DSM_I2C_MASTER_LIS3MDL */
+            default:
+                return;
+            }
+            lsm6dsm_spiBatchTxRx(&T_SLAVE_INTERFACE(mode), lsm6dsm_spiCallback, &T(sensors[idx]), __FUNCTION__);
+            break;
+        }
+
+        T(dataSelftestNotEnabled[0]) /= numberOfAverage;
+        T(dataSelftestNotEnabled[1]) /= numberOfAverage;
+        T(dataSelftestNotEnabled[2]) /= numberOfAverage;
+        T(selftestState) = SELFTEST_VERIFICATION;
+
+    case SELFTEST_VERIFICATION: ;
+        uint8_t i, sType;
+        int32_t dataGap[3];
+        bool testPassed = true;
+        int32_t lower_threshold[3], higher_threshold[3];
+
+        dataGap[0] = abs(T(dataSelftestEnabled[0]) - T(dataSelftestNotEnabled[0]));
+        dataGap[1] = abs(T(dataSelftestEnabled[1]) - T(dataSelftestNotEnabled[1]));
+        dataGap[2] = abs(T(dataSelftestEnabled[2]) - T(dataSelftestNotEnabled[2]));
+
+        switch (idx) {
+        case ACCEL:
+            sType = SENS_TYPE_ACCEL;
+            lower_threshold[0] = lower_threshold[1] = lower_threshold[2] = LSM6DSM_ACCEL_SELFTEST_LOW_THR_LSB;
+            higher_threshold[0] = higher_threshold[1] = higher_threshold[2] = LSM6DSM_ACCEL_SELFTEST_HIGH_THR_LSB;
+
+            /* Power off sensor */
+            SPI_WRITE(LSM6DSM_CTRL1_XL_ADDR, LSM6DSM_CTRL1_XL_BASE);
+            break;
+        case GYRO:
+            sType = SENS_TYPE_GYRO;
+            lower_threshold[0] = lower_threshold[1] = lower_threshold[2] = LSM6DSM_GYRO_SELFTEST_LOW_THR_LSB;
+            higher_threshold[0] = higher_threshold[1] = higher_threshold[2] = LSM6DSM_GYRO_SELFTEST_HIGH_THR_LSB;
+
+            /* Power off sensor */
+            SPI_WRITE(LSM6DSM_CTRL2_G_ADDR, LSM6DSM_CTRL2_G_BASE);
+            break;
+#if defined(LSM6DSM_I2C_MASTER_LSM303AGR) || defined(LSM6DSM_I2C_MASTER_LIS3MDL)
+        case MAGN:
+            sType = SENS_TYPE_MAG;
+
+#ifdef LSM6DSM_I2C_MASTER_LSM303AGR
+            lower_threshold[0] = lower_threshold[1] = lower_threshold[2] = LSM303AGR_SELFTEST_LOW_THR_LSB;
+            higher_threshold[0] = higher_threshold[1] = higher_threshold[2] = LSM303AGR_SELFTEST_HIGH_THR_LSB;
+
+            SPI_WRITE_SLAVE_SENSOR_REGISTER(LSM303AGR_CFG_REG_B_M_ADDR, 0x00, SENSOR_HZ(104.0f), MAGN);
+#else /* LSM6DSM_I2C_MASTER_LSM303AGR */
+            lower_threshold[0] = lower_threshold[1] = LIS3MDL_SELFTEST_LOW_THR_XY_LSB;
+            higher_threshold[0] = higher_threshold[1] = LIS3MDL_SELFTEST_HIGH_THR_XY_LSB;
+            lower_threshold[2] = LIS3MDL_SELFTEST_LOW_THR_Z_LSB;
+            higher_threshold[2] = LIS3MDL_SELFTEST_HIGH_THR_Z_LSB;
+#endif /* LSM6DSM_I2C_MASTER_LSM303AGR */
+
+            /* Power off sensor */
+            SPI_WRITE_SLAVE_SENSOR_REGISTER(LSM6DSM_SENSOR_SLAVE_MAGN_POWER_ADDR,
+                    LSM6DSM_SENSOR_SLAVE_MAGN_POWER_BASE | LSM6DSM_SENSOR_SLAVE_MAGN_POWER_OFF_VALUE, SENSOR_HZ(104.0f), MAGN);
+
+            /* Disable accelerometer and sensor-hub */
+            SPI_WRITE(LSM6DSM_MASTER_CONFIG_ADDR, LSM6DSM_MASTER_CONFIG_BASE);
+            SPI_WRITE(LSM6DSM_CTRL1_XL_ADDR, LSM6DSM_CTRL1_XL_BASE);
+            T(masterConfigRegister) &= ~LSM6DSM_MASTER_CONFIG_MASTER_ON;
+            break;
+#endif /* LSM6DSM_I2C_MASTER_LSM303AGR, LSM6DSM_I2C_MASTER_LIS3MDL */
+        default:
+            return;
+        }
+
+        for (i = 0; i < 3; i++) {
+            if ((dataGap[i] < lower_threshold[i]) || (dataGap[i] > higher_threshold[i])) {
+                testPassed = false;
+                ERROR_PRINT("runGapSelfTestProgram: axis-%d out of spec! test-enabled: %ldLSB ** test-disabled: %ldLSB, ** delta: %ldLSB\n",
+                            i, T(dataSelftestEnabled[i]), T(dataSelftestNotEnabled[i]), dataGap[i]);
+            }
+        }
+        INFO_PRINT("runGapSelfTestProgram: completed. Test result: %s\n", testPassed ? "pass" : "fail");
+
+        if (testPassed)
+            lsm6dsm_sendSelfTestResult(sType, SENSOR_APP_EVT_STATUS_SUCCESS);
+        else
+            lsm6dsm_sendSelfTestResult(sType, SENSOR_APP_EVT_STATUS_ERROR);
+
+        T(selftestState) = SELFTEST_COMPLETED;
+        lsm6dsm_spiBatchTxRx(&T_SLAVE_INTERFACE(mode), lsm6dsm_spiCallback, &T(sensors[idx]), __FUNCTION__);
+        break;
+
+    default:
+        break;
+    }
+}
+
+#ifdef LSM6DSM_I2C_MASTER_AK09916
+/*
+ * lsm6dsm_runAbsoluteSelfTestProgram: state machine that is executing self-test verifying absolute value
+ */
+static void lsm6dsm_runAbsoluteSelfTestProgram()
+{
+    TDECL();
+    uint8_t *sensorData;
+
+    switch (T(selftestState)) {
+    case SELFTEST_INITIALIZATION: ;
+        DEBUG_PRINT("runAbsoluteSelfTestProgram: initialization\n");
+
+        T(numSamplesSelftest) = 0;
+        memset(T(dataSelftestEnabled), 0, 3 * sizeof(int32_t));
+
+        /* Enable accelerometer and sensor-hub */
+        SPI_WRITE(LSM6DSM_CTRL1_XL_ADDR, LSM6DSM_CTRL1_XL_BASE | LSM6DSM_ODR_104HZ_REG_VALUE);
+        SPI_WRITE(LSM6DSM_MASTER_CONFIG_ADDR, LSM6DSM_MASTER_CONFIG_BASE | LSM6DSM_MASTER_CONFIG_MASTER_ON, 20000);
+        T(masterConfigRegister) |= LSM6DSM_MASTER_CONFIG_MASTER_ON;
+
+        SPI_WRITE_SLAVE_SENSOR_REGISTER(AK09916_CNTL2_ADDR, AK09916_ENABLE_SELFTEST_MODE, SENSOR_HZ(104.0f), MAGN, 20000);
+
+        T(selftestState) = SELFTEST_READ_EST_DATA;
+        lsm6dsm_spiBatchTxRx(&T_SLAVE_INTERFACE(mode), lsm6dsm_spiCallback, &T(sensors[MAGN]), __FUNCTION__);
+        break;
+
+    case SELFTEST_READ_EST_DATA:
+        if (T(numSamplesSelftest) > 0) {
+            sensorData = &T_SLAVE_INTERFACE(tmpDataBuffer[1]);
+            T(dataSelftestEnabled[0]) += (int16_t)*((uint16_t *)&sensorData[0]);
+            T(dataSelftestEnabled[1]) += (int16_t)*((uint16_t *)&sensorData[2]);
+            T(dataSelftestEnabled[2]) += (int16_t)*((uint16_t *)&sensorData[4]);
+        }
+        T(numSamplesSelftest)++;
+
+        if (T(numSamplesSelftest) <= LSM6DSM_NUM_AVERAGE_SELFTEST) {
+            DEBUG_PRINT("runAbsoluteSelfTestProgram: reading output data while self-test is enabled\n");
+
+            SPI_READ(LSM6DSM_OUT_SENSORHUB1_ADDR, LSM6DSM_ONE_SAMPLE_BYTE, &T_SLAVE_INTERFACE(tmpDataBuffer), 20000);
+            lsm6dsm_spiBatchTxRx(&T_SLAVE_INTERFACE(mode), lsm6dsm_spiCallback, &T(sensors[MAGN]), __FUNCTION__);
+            break;
+        }
+
+        T(dataSelftestEnabled[0]) /= LSM6DSM_NUM_AVERAGE_SELFTEST;
+        T(dataSelftestEnabled[1]) /= LSM6DSM_NUM_AVERAGE_SELFTEST;
+        T(dataSelftestEnabled[2]) /= LSM6DSM_NUM_AVERAGE_SELFTEST;
+        T(selftestState) = SELFTEST_VERIFICATION;
+
+    case SELFTEST_VERIFICATION: ;
+        bool testPassed = true;
+
+        if ((T(dataSelftestEnabled[0]) < AK09916_SELFTEST_LOW_THR_XY_LSB) ||
+                (T(dataSelftestEnabled[0]) > AK09916_SELFTEST_HIGH_THR_XYZ_LSB)) {
+            testPassed = false;
+            ERROR_PRINT("runAbsoluteSelfTestProgram: axis-0 out of spec! Read: %ldLSB\n", T(dataSelftestEnabled[0]));
+        }
+        if ((T(dataSelftestEnabled[1]) < AK09916_SELFTEST_LOW_THR_XY_LSB) ||
+                (T(dataSelftestEnabled[1]) > AK09916_SELFTEST_HIGH_THR_XYZ_LSB)) {
+            testPassed = false;
+            ERROR_PRINT("runAbsoluteSelfTestProgram: axis-1 out of spec! Read: %ldLSB\n", T(dataSelftestEnabled[1]));
+        }
+        if ((T(dataSelftestEnabled[2]) < AK09916_SELFTEST_LOW_THR_Z_LSB) ||
+                (T(dataSelftestEnabled[2]) > AK09916_SELFTEST_HIGH_THR_XYZ_LSB)) {
+            testPassed = false;
+            ERROR_PRINT("runAbsoluteSelfTestProgram: axis-2 out of spec! Read: %ldLSB\n", T(dataSelftestEnabled[2]));
+        }
+
+        INFO_PRINT("runAbsoluteSelfTestProgram: completed. Test result: %s\n", testPassed ? "pass" : "fail");
+
+        if (testPassed)
+            lsm6dsm_sendSelfTestResult(SENS_TYPE_MAG, SENSOR_APP_EVT_STATUS_SUCCESS);
+        else
+            lsm6dsm_sendSelfTestResult(SENS_TYPE_MAG, SENSOR_APP_EVT_STATUS_ERROR);
+
+        /* Disable accelerometer and sensor-hub */
+        SPI_WRITE(LSM6DSM_MASTER_CONFIG_ADDR, LSM6DSM_MASTER_CONFIG_BASE);
+        SPI_WRITE(LSM6DSM_CTRL1_XL_ADDR, LSM6DSM_CTRL1_XL_BASE);
+        T(masterConfigRegister) &= ~LSM6DSM_MASTER_CONFIG_MASTER_ON;
+
+        T(selftestState) = SELFTEST_COMPLETED;
+        lsm6dsm_spiBatchTxRx(&T_SLAVE_INTERFACE(mode), lsm6dsm_spiCallback, &T(sensors[MAGN]), __FUNCTION__);
+        break;
+
+    default:
+        break;
+    }
+}
+#endif /* LSM6DSM_I2C_MASTER_AK09916 */
 
 /*
  * lsm6dsm_writeEmbeddedRegister: write embedded register
@@ -2517,18 +2940,18 @@ static bool lsm6dsm_setMagnRate(uint32_t rate, uint64_t latency, void *cookie)
         T(sensors[MAGN]).samplesDecimator = ((T(fifoCntl).triggerRate / T(fifoCntl).decimators[FIFO_DS3]) / T(sensors[MAGN]).samplesFifoDecimator) / T(sensors[MAGN]).rate[MAGN];
         T(sensors[MAGN]).samplesDecimatorCounter = T(sensors[MAGN]).samplesDecimator - 1;
 
-#ifdef LSM6DSM_I2C_MASTER_LSM303AGR
-        SPI_WRITE_SLAVE_SENSOR_REGISTER(LSM6DSM_SENSOR_SLAVE_MAGN_ODR_ADDR,
-                LSM6DSM_SENSOR_SLAVE_MAGN_ODR_BASE | LSM6DSM_SENSOR_SLAVE_MAGN_POWER_ON_VALUE | LSM6DSM_SENSOR_SLAVE_MAGN_RATES_REG_VALUE(i),
-                T(sensors[ACCEL]).hwRate, MAGN);
-#else /* LSM6DSM_I2C_MASTER_LSM303AGR */
+#ifdef LSM6DSM_I2C_MASTER_LIS3MDL
         SPI_WRITE_SLAVE_SENSOR_REGISTER(LSM6DSM_SENSOR_SLAVE_MAGN_POWER_ADDR,
                 LSM6DSM_SENSOR_SLAVE_MAGN_POWER_BASE | LSM6DSM_SENSOR_SLAVE_MAGN_POWER_ON_VALUE,
                 T(sensors[ACCEL]).hwRate, MAGN);
         SPI_WRITE_SLAVE_SENSOR_REGISTER(LSM6DSM_SENSOR_SLAVE_MAGN_ODR_ADDR,
                 LSM6DSM_SENSOR_SLAVE_MAGN_ODR_BASE | LSM6DSM_SENSOR_SLAVE_MAGN_RATES_REG_VALUE(i),
                 T(sensors[ACCEL]).hwRate, MAGN);
-#endif /* LSM6DSM_I2C_MASTER_LSM303AGR */
+#else /* LSM6DSM_I2C_MASTER_LIS3MDL */
+        SPI_WRITE_SLAVE_SENSOR_REGISTER(LSM6DSM_SENSOR_SLAVE_MAGN_ODR_ADDR,
+                LSM6DSM_SENSOR_SLAVE_MAGN_ODR_BASE | LSM6DSM_SENSOR_SLAVE_MAGN_POWER_ON_VALUE | LSM6DSM_SENSOR_SLAVE_MAGN_RATES_REG_VALUE(i),
+                T(sensors[ACCEL]).hwRate, MAGN);
+#endif /* LSM6DSM_I2C_MASTER_LIS3MDL */
 
         lsm6dsm_spiBatchTxRx(&T_SLAVE_INTERFACE(mode), lsm6dsm_spiCallback, &T(sensors[MAGN]), __FUNCTION__);
     } else {
@@ -2968,12 +3391,90 @@ static bool lsm6dsm_stepCounterSendLastData(void *cookie, uint32_t tid)
 }
 
 /*
+ * lsm6dsm_runAccelSelfTest: execute accelerometer self-test
+ * @cookie: private data.
+ */
+static bool lsm6dsm_runAccelSelfTest(void *cookie)
+{
+    TDECL();
+
+    if (trySwitchState(SENSOR_SELFTEST)) {
+        if (!T(sensors[ACCEL]).enabled && (T(sensors[ACCEL]).hwRate == 0) && (T(sensors[GYRO]).hwRate == 0)) {
+            INFO_PRINT("runAccelSelfTest: executing accelerometer selftest\n");
+            T(selftestState) = SELFTEST_INITIALIZATION;
+            lsm6dsm_runGapSelfTestProgram(ACCEL);
+            return true;
+        } else
+            SET_STATE(SENSOR_IDLE);
+    }
+
+    ERROR_PRINT("runAccelSelfTest: cannot run selftest because sensor is busy!\n");
+    lsm6dsm_sendSelfTestResult(SENS_TYPE_ACCEL, SENSOR_APP_EVT_STATUS_BUSY);
+
+    return false;
+}
+
+/*
+ * lsm6dsm_runGyroSelfTest: execute gyroscope self-test
+ * @cookie: private data.
+ */
+static bool lsm6dsm_runGyroSelfTest(void *cookie)
+{
+    TDECL();
+
+    if (trySwitchState(SENSOR_SELFTEST)) {
+        if (!T(sensors[GYRO]).enabled && (T(sensors[GYRO]).hwRate == 0) && (T(sensors[ACCEL]).hwRate == 0)) {
+            INFO_PRINT("runGyroSelfTest: executing gyroscope selftest\n");
+            T(selftestState) = SELFTEST_INITIALIZATION;
+            lsm6dsm_runGapSelfTestProgram(GYRO);
+            return true;
+        } else
+            SET_STATE(SENSOR_IDLE);
+    }
+
+    ERROR_PRINT("runGyroSelfTest: cannot run selftest because sensor is busy!\n");
+    lsm6dsm_sendSelfTestResult(SENS_TYPE_GYRO, SENSOR_APP_EVT_STATUS_BUSY);
+
+    return false;
+}
+
+#ifdef LSM6DSM_I2C_MASTER_MAGNETOMETER_ENABLED
+/*
+ * lsm6dsm_runMagnSelfTest: execute magnetometer self-test
+ * @cookie: private data.
+ */
+static bool lsm6dsm_runMagnSelfTest(void *cookie)
+{
+    TDECL();
+
+    if (trySwitchState(SENSOR_SELFTEST)) {
+        if (!T(sensors[MAGN]).enabled && (T(sensors[MAGN]).hwRate == 0) && (T(sensors[GYRO]).hwRate == 0) && (T(sensors[ACCEL]).hwRate == 0)) {
+            INFO_PRINT("runMagnSelfTest: executing magnetometer selftest\n");
+            T(selftestState) = SELFTEST_INITIALIZATION;
+#ifdef LSM6DSM_I2C_MASTER_AK09916
+            lsm6dsm_runAbsoluteSelfTestProgram();
+#else
+            lsm6dsm_runGapSelfTestProgram(MAGN);
+#endif
+            return true;
+        } else
+            SET_STATE(SENSOR_IDLE);
+    }
+
+    ERROR_PRINT("runMagnSelfTest: cannot run selftest because sensor is busy!\n");
+    lsm6dsm_sendSelfTestResult(SENS_TYPE_MAG, SENSOR_APP_EVT_STATUS_BUSY);
+
+    return false;
+}
+#endif /* LSM6DSM_I2C_MASTER_MAGNETOMETER_ENABLED */
+
+/*
  * lsm6dsm_sensorInit: initial sensors configuration
  */
 static void lsm6dsm_sensorInit(void)
 {
     TDECL();
-    uint8_t buffer[4];
+    uint8_t buffer[5];
 
     switch (T(initState)) {
     case RESET_LSM6DSM:
@@ -2998,7 +3499,8 @@ static void lsm6dsm_sensorInit(void)
         buffer[1] = LSM6DSM_CTRL2_G_BASE;                            /* LSM6DSM_CTRL2_G */
         buffer[2] = LSM6DSM_CTRL3_C_BASE;                            /* LSM6DSM_CTRL3_C */
         buffer[3] = LSM6DSM_CTRL4_C_BASE;                            /* LSM6DSM_CTRL4_C */
-        SPI_MULTIWRITE(LSM6DSM_CTRL1_XL_ADDR, buffer, 4);
+        buffer[4] = LSM6DSM_CTRL5_C_BASE;                            /* LSM6DSM_CTRL4_C */
+        SPI_MULTIWRITE(LSM6DSM_CTRL1_XL_ADDR, buffer, 5);
 
         buffer[0] = LSM6DSM_CTRL10_C_BASE | LSM6DSM_RESET_PEDOMETER; /* LSM6DSM_CTRL10_C */
         buffer[1] = LSM6DSM_MASTER_CONFIG_BASE;                      /* LSM6DSM_MASTER_CONFIG */
@@ -3747,6 +4249,25 @@ static void lsm6dsm_handleSpiDoneEvt(const void *evtData)
 
     case SENSOR_CONFIG_WATERMARK_CHANGING:
         returnIdle = true;
+        break;
+
+    case SENSOR_SELFTEST:
+        mSensor = (struct LSM6DSMSensor *)evtData;
+
+        if (T(selftestState == SELFTEST_COMPLETED)) {
+            returnIdle = true;
+        } else {
+#ifdef LSM6DSM_I2C_MASTER_AK09916
+            if (mSensor->idx == MAGN) {
+                lsm6dsm_runAbsoluteSelfTestProgram();
+            } else {
+                lsm6dsm_runGapSelfTestProgram(mSensor->idx);
+            }
+#else /* LSM6DSM_I2C_MASTER_AK09916 */
+            lsm6dsm_runGapSelfTestProgram(mSensor->idx);
+#endif /* LSM6DSM_I2C_MASTER_AK09916 */
+        }
+
         break;
 
     case SENSOR_INT1_STATUS_REG_HANDLING:
