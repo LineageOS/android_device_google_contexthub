@@ -47,6 +47,13 @@
 #define LIS3MDL_POWER_ON_VALUE                          (0x00)
 #define LIS3MDL_POWER_OFF_VALUE                         (0x03)
 #define LIS3MDL_OUTDATA_LEN                             (0x06)
+#define LIS3MDL_ENABLE_SELFTEST                         (0x01)
+
+/* Selftest related */
+#define LIS3MDL_SELFTEST_HIGH_THR_XY_LSB                6843
+#define LIS3MDL_SELFTEST_HIGH_THR_Z_LSB                 2281
+#define LIS3MDL_SELFTEST_LOW_THR_XY_LSB                 2281
+#define LIS3MDL_SELFTEST_LOW_THR_Z_LSB                  228
 
 
 /* LIS3MDL default base registers status */
