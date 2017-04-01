@@ -41,6 +41,12 @@
 #define AK09916_POWER_ON_VALUE                          (0x02)
 #define AK09916_POWER_OFF_VALUE                         (0x00)
 #define AK09916_OUTDATA_LEN                             (0x06)
+#define AK09916_ENABLE_SELFTEST_MODE                    (0x10)
+
+/* Selftest related */
+#define AK09916_SELFTEST_HIGH_THR_XYZ_LSB               200
+#define AK09916_SELFTEST_LOW_THR_XY_LSB                 -200
+#define AK09916_SELFTEST_LOW_THR_Z_LSB                  -1000
 
 
 /* AK09916 default base registers status */
