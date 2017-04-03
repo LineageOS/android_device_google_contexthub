@@ -338,17 +338,47 @@ void osTaskInvokeEventFreeCallback(struct Task *task, void (*freeCallback)(uint1
                  (uintptr_t)event, (uintptr_t)data);
 }
 
-void osEventHeapFree(uint16_t event, void *data)
+static void osPrivateEvtFreeF(void *event)
 {
-    heapFree(data);
+    union SeosInternalSlabData *act = event;
+    uint16_t fromTid = act->privateEvt.fromTid;
+    struct Task *srcTask = osTaskFindByTid(fromTid);
+    TaggedPtr evtFreeInfo = act->privateEvt.evtFreeInfo;
+    uint32_t evtType = act->privateEvt.evtType;
+    void *evtData = act->privateEvt.evtData;
+
+    slabAllocatorFree(mMiscInternalThingsSlab, event);
+
+    if (!srcTask) {
+        osLog(LOG_ERROR, "ERROR: Failed to find task to free event: evtType=%08" PRIX32 "\n", evtType);
+        return;
+    }
+
+    if (taggedPtrIsPtr(evtFreeInfo) && taggedPtrToPtr(evtFreeInfo)) {
+        if (osTaskIsChre(srcTask) && (evtType >> 16) == EVT_PRIVATE_CLASS_CHRE) {
+            osChreFreeEvent(fromTid,
+                            (void (*)(uint16_t, void *))taggedPtrToPtr(evtFreeInfo),
+                            evtType & EVT_MASK, evtData);
+        } else {
+            // this is for internal non-CHRE tasks, and CHRE tasks
+            // System may schedule non-CHRE events on behalf of CHRE app;
+            // this is the place we release them
+            struct Task *preempted = osSetCurrentTask(srcTask);
+            ((EventFreeF)taggedPtrToPtr(evtFreeInfo))(evtData);
+            osSetCurrentTask(preempted);
+        }
+    } else if (taggedPtrIsUint(evtFreeInfo)) {
+        // this is for external non-CHRE tasks
+        struct AppEventFreeData fd = {.evtType = evtType, .evtData = evtData};
+        osTaskHandle(srcTask, EVT_APP_FREE_EVT_DATA, OS_SYSTEM_TID, &fd);
+    }
+
+    osTaskAddIoCount(srcTask, -1);
 }
 
 static void handleEventFreeing(uint32_t evtType, void *evtData, TaggedPtr evtFreeData) // watch out, this is synchronous
 {
     struct Task *srcTask = osTaskFindByTid(EVENT_GET_ORIGIN(evtType));
-
-    if (!taggedPtrToUint(evtFreeData) || !evtData)
-        return;
 
     if (!srcTask) {
         osLog(LOG_ERROR, "ERROR: Failed to find task to free event: evtType=%08" PRIX32 "\n", evtType);
@@ -358,18 +388,19 @@ static void handleEventFreeing(uint32_t evtType, void *evtData, TaggedPtr evtFre
     // release non-CHRE event; we can't determine if this is CHRE or non-CHRE event, but
     // this method is only called to release non-CHRE events, so we make use of that fact
 
-    if (taggedPtrIsPtr(evtFreeData)) {
+    if (taggedPtrIsPtr(evtFreeData) && taggedPtrToPtr(evtFreeData)) {
         // this is for internal non-CHRE tasks, and CHRE tasks
         // System may schedule non-CHRE events on behalf of CHRE app;
         // this is the place we release them
         struct Task *preempted = osSetCurrentTask(srcTask);
         ((EventFreeF)taggedPtrToPtr(evtFreeData))(evtData);
         osSetCurrentTask(preempted);
-    } else {
+    } else if (taggedPtrIsUint(evtFreeData)) {
         // this is for external non-CHRE tasks
         struct AppEventFreeData fd = {.evtType = EVENT_GET_EVENT(evtType), .evtData = evtData};
         osTaskHandle(srcTask, EVT_APP_FREE_EVT_DATA, OS_SYSTEM_TID, &fd);
     }
+
     osTaskAddIoCount(srcTask, -1);
 }
 
@@ -706,7 +737,7 @@ static bool osStopTask(struct Task *task)
     if (osTaskGetIoCount(task))
     {
         osTaskHandle(task, EVT_APP_STOP, OS_SYSTEM_TID, NULL);
-        osEnqueueEvtOrFree(EVT_APP_END, task, NULL);
+        osEnqueueEvt(EVT_APP_END, task, NULL);
     } else {
         osTaskEnd(task); // calls app END() and Release()
         osUnloadApp(task);
@@ -997,13 +1028,6 @@ static void osInternalEvtHandle(uint32_t evtType, void *evtData)
             osTaskHandle(task, evtType, da->privateEvt.fromTid, da->privateEvt.evtData);
             mCurEvtEventFreeingInfo = tmp;
         }
-        if ((da->privateEvt.evtType >> 16) == EVT_PRIVATE_CLASS_CHRE) {
-            osChreFreeEvent(da->privateEvt.fromTid,
-                            (void (*)(uint16_t, void *))taggedPtrToPtr(da->privateEvt.evtFreeInfo),
-                            evtType, evtData);
-        } else {
-            handleEventFreeing(evtType, evtData, da->privateEvt.evtFreeInfo);
-        }
         break;
     }
     osSetCurrentTask(preempted);
@@ -1028,7 +1052,7 @@ bool osRetainCurrentEvent(TaggedPtr *evtFreeingInfoP)
 
 void osFreeRetainedEvent(uint32_t evtType, void *evtData, TaggedPtr *evtFreeingInfoP)
 {
-    //TODO: figure the way to calcualte src tid here to pass to handleEventFreeing
+    //TODO: figure the way to calculate src tid here to pass to handleEventFreeing
     handleEventFreeing(evtType, evtData, *evtFreeingInfoP);
 }
 
@@ -1176,8 +1200,7 @@ static bool osEnqueueEvtCommon(uint32_t evt, void *evtData, TaggedPtr evtFreeInf
     struct Task *task = osGetCurrentTask();
     uint32_t evtType = EVENT_WITH_ORIGIN(evt, osGetCurrentTid());
 
-    if (taggedPtrToUint(evtFreeInfo) && evtData)
-        osTaskAddIoCount(task, 1);
+    osTaskAddIoCount(task, 1);
 
     if (osTaskTestFlags(task, FL_TASK_STOPPED)) {
         handleEventFreeing(evtType, evtData, evtFreeInfo);
@@ -1212,14 +1235,13 @@ bool osEnqueueEvtOrFree(uint32_t evtType, void *evtData, EventFreeF evtFreeF)
     return success;
 }
 
-bool osEnqueueEvtAsApp(uint32_t evtType, void *evtData, uint32_t fromAppTid)
+bool osEnqueueEvtAsApp(uint32_t evtType, void *evtData, bool freeData)
 {
     // compatibility with existing external apps
     if (evtType & EVENT_TYPE_BIT_DISCARDABLE_COMPAT)
         evtType |= EVENT_TYPE_BIT_DISCARDABLE;
 
-    (void)fromAppTid;
-    return osEnqueueEvtCommon(evtType, evtData, taggedPtrMakeFromUint(osGetCurrentTid()), false);
+    return osEnqueueEvtCommon(evtType, evtData, freeData ? taggedPtrMakeFromUint(osGetCurrentTid()) : taggedPtrMakeFromPtr(NULL), false);
 }
 
 bool osDefer(OsDeferCbkF callback, void *cookie, bool urgent)
@@ -1248,8 +1270,7 @@ static bool osEnqueuePrivateEvtEx(uint32_t evtType, void *evtData, TaggedPtr evt
         return false;
     }
     struct Task *task = osGetCurrentTask();
-    if (taggedPtrToUint(evtFreeInfo) && evtData)
-        osTaskAddIoCount(task, 1);
+    osTaskAddIoCount(task, 1);
 
     act->privateEvt.evtType = evtType;
     act->privateEvt.evtData = evtData;
@@ -1258,7 +1279,7 @@ static bool osEnqueuePrivateEvtEx(uint32_t evtType, void *evtData, TaggedPtr evt
     act->privateEvt.toTid = toTid;
 
     osSetCurrentTask(mSystemTask);
-    result = osEnqueueEvtOrFree(EVT_PRIVATE_EVT, act, osDeferredActionFreeF);
+    result = osEnqueueEvtOrFree(EVT_PRIVATE_EVT, act, osPrivateEvtFreeF);
     osSetCurrentTask(task);
     return result;
 }
@@ -1281,9 +1302,8 @@ bool osEnqueuePrivateEvt(uint32_t evtType, void *evtData, EventFreeF evtFreeF, u
     return osEnqueuePrivateEvtEx(evtType & EVT_MASK, evtData, taggedPtrMakeFromPtr(evtFreeF), toTid);
 }
 
-bool osEnqueuePrivateEvtAsApp(uint32_t evtType, void *evtData, uint32_t fromAppTid, uint32_t toTid)
+bool osEnqueuePrivateEvtAsApp(uint32_t evtType, void *evtData, uint32_t toTid)
 {
-    (void)fromAppTid;
     return osEnqueuePrivateEvtEx(evtType & EVT_MASK, evtData, taggedPtrMakeFromUint(osGetCurrentTid()), toTid);
 }
 

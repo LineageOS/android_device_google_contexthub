@@ -22,7 +22,23 @@
 
 #include <plat/cmsis.h>
 #include <plat/spi.h>
+#include <plat/exti.h>
+#include <plat/syscfg.h>
 
+static struct Gpio *mShWakeupGpio;
+static struct ChainedIsr mShWakeupIsr;
+
+static bool platWakeupIsr(struct ChainedIsr *isr)
+{
+    if (!extiIsPendingGpio(mShWakeupGpio))
+        return false;
+
+    extiClearPendingGpio(mShWakeupGpio);
+
+    hostIntfRxPacket(!gpioGet(mShWakeupGpio));
+
+    return true;
+}
 
 const struct HostIntfComm *platHostIntfInit()
 {
@@ -56,6 +72,13 @@ const struct HostIntfComm *platHostIntfInit()
     if (&subPriority > 0)
         subPriority --;
     NVIC_SetPriority(tx, NVIC_EncodePriority(priorityGroup, preemptPriority, subPriority));
+
+    mShWakeupGpio = gpioRequest(SH_INT_WAKEUP);
+    gpioConfigInput(mShWakeupGpio, GPIO_SPEED_LOW, GPIO_PULL_NONE);
+    syscfgSetExtiPort(mShWakeupGpio);
+    extiEnableIntGpio(mShWakeupGpio, EXTI_TRIGGER_BOTH);
+    mShWakeupIsr.func = platWakeupIsr;
+    extiChainIsr(SH_EXTI_WAKEUP_IRQ, &mShWakeupIsr);
 #else
 #error "No host interface bus specified"
 #endif

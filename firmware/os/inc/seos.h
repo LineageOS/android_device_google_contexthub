@@ -157,18 +157,16 @@ bool osEventSubscribe(uint32_t tid, uint32_t evtType); /* async */
 bool osEventUnsubscribe(uint32_t tid, uint32_t evtType);  /* async */
 bool osEventsSubscribe(uint32_t numEvts, ...); /* async */
 bool osEventsUnsubscribe(uint32_t numEvts, ...); /* async */
-// event free callback used to free event data which was previously allocated by heapAlloc()
-void osEventHeapFree(uint16_t event, void *data);
 
 bool osEnqueuePrivateEvt(uint32_t evtType, void *evtData, EventFreeF evtFreeF, uint32_t toTid);
-bool osEnqueuePrivateEvtAsApp(uint32_t evtType, void *evtData, uint32_t fromApp, uint32_t toTid);
+bool osEnqueuePrivateEvtAsApp(uint32_t evtType, void *evtData, uint32_t toTid);
 bool osEnqueuePrivateEvtNew(uint16_t evtType, void *evtData,
                                    void (*evtFreeCallback)(uint16_t eventType, void *eventData),
                                    uint32_t toTid);
 
 bool osEnqueueEvt(uint32_t evtType, void *evtData, EventFreeF evtFreeF);
 bool osEnqueueEvtOrFree(uint32_t evtType, void *evtData, EventFreeF evtFreeF);
-bool osEnqueueEvtAsApp(uint32_t evtType, void *evtData, uint32_t fromApp);
+bool osEnqueueEvtAsApp(uint32_t evtType, void *evtData, bool freeData);
 void osRemovePendingEvents(bool (*match)(uint32_t evtType, const void *evtData, void *context), void *context);
 
 bool osDefer(OsDeferCbkF callback, void *cookie, bool urgent);
