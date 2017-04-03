@@ -32,33 +32,33 @@
 #define LPS22HB_APP_ID              APP_ID_MAKE(NANOHUB_VENDOR_STMICRO, 1)
 
 /* Sensor defs */
-#define LPS22HB_INT_CFG_REG_ADDR    0x0B
-#define LPS22HB_LIR_BIT             0x04
+#define LPS22HB_INT_CFG_REG_ADDR        0x0B
+#define LPS22HB_LIR_BIT                 0x04
 
-#define LPS22HB_WAI_REG_ADDR    0x0F
-#define LPS22HB_WAI_REG_VAL     0xB1
+#define LPS22HB_WAI_REG_ADDR            0x0F
+#define LPS22HB_WAI_REG_VAL             0xB1
 
-#define LPS22HB_SOFT_RESET_REG_ADDR 0x11
-#define LPS22HB_SOFT_RESET_BIT      0x04
-#define LPS22HB_I2C_DIS             0x08
-#define LPS22HB_IF_ADD_INC          0x10
+#define LPS22HB_SOFT_RESET_REG_ADDR     0x11
+#define LPS22HB_SOFT_RESET_BIT          0x04
+#define LPS22HB_I2C_DIS                 0x08
+#define LPS22HB_IF_ADD_INC              0x10
 
-#define LPS22HB_ODR_REG_ADDR    0x10
-#define LPS22HB_ODR_ONE_SHOT    0x00
-#define LPS22HB_ODR_1_HZ        0x10
-#define LPS22HB_ODR_10_HZ       0x20
-#define LPS22HB_ODR_25_HZ       0x30
-#define LPS22HB_ODR_50_HZ       0x40
-#define LPS22HB_ODR_75_HZ       0x50
+#define LPS22HB_ODR_REG_ADDR            0x10
+#define LPS22HB_ODR_ONE_SHOT            0x00
+#define LPS22HB_ODR_1_HZ                0x10
+#define LPS22HB_ODR_10_HZ               0x20
+#define LPS22HB_ODR_25_HZ               0x30
+#define LPS22HB_ODR_50_HZ               0x40
+#define LPS22HB_ODR_75_HZ               0x50
 
 #define LPS22HB_PRESS_OUTXL_REG_ADDR    0x28
 #define LPS22HB_TEMP_OUTL_REG_ADDR      0x2B
 
-#define LPS22HB_INT1_REG_ADDR       0x23
-#define LPS22HB_INT2_REG_ADDR       0x24
+#define LPS22HB_INT1_REG_ADDR           0x23
+#define LPS22HB_INT2_REG_ADDR           0x24
 
-#define LPS22HB_INT1_PIN        GPIO_PA(4)
-#define LPS22HB_INT2_PIN        GPIO_PB(0)
+#define LPS22HB_INT1_PIN                GPIO_PA(4)
+#define LPS22HB_INT2_PIN                GPIO_PB(0)
 
 #define LPS22HB_HECTO_PASCAL(baro_val)  (baro_val/4096)
 #define LPS22HB_CENTIGRADES(temp_val)   (temp_val/100)
