@@ -52,9 +52,9 @@ static void osExpApiEvtqEnqueue(uintptr_t *retValP, va_list args)
 {
     uint32_t evtType = va_arg(args, uint32_t);
     void *evtData = va_arg(args, void*);
-    (void)va_arg(args, uint32_t); // tid
+    uint32_t tid = va_arg(args, uint32_t);
 
-    *retValP = osEnqueueEvtAsApp(evtType, evtData, 0);
+    *retValP = osEnqueueEvtAsApp(evtType, evtData, tid ? true : false);
 }
 
 static void osExpApiEvtqEnqueuePrivate(uintptr_t *retValP, va_list args)
@@ -64,7 +64,7 @@ static void osExpApiEvtqEnqueuePrivate(uintptr_t *retValP, va_list args)
     (void)va_arg(args, uint32_t); // tid
     uint32_t toTid = va_arg(args, uint32_t);
 
-    *retValP = osEnqueuePrivateEvtAsApp(evtType, evtData, 0, toTid);
+    *retValP = osEnqueuePrivateEvtAsApp(evtType, evtData, toTid);
 }
 
 static void osExpApiEvtqRetainEvt(uintptr_t *retValP, va_list args)

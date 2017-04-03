@@ -22,7 +22,6 @@
 #include <plat/rtc.h>
 #include <plat/plat.h>
 #include <plat/exti.h>
-#include <plat/syscfg.h>
 #include <plat/wdt.h>
 #include <plat/dma.h>
 #include <stdbool.h>
@@ -117,9 +116,6 @@ static uint32_t mMaxJitterPpm = 0, mMaxDriftPpm = 0, mMaxErrTotalPpm = 0;
 static uint32_t mSleepDevsToKeepAlive = 0;
 static uint64_t mWakeupTime = 0;
 static uint32_t mDevsMaxWakeTime[PLAT_MAX_SLEEP_DEVS] = {0,};
-static struct Gpio *mShWakeupGpio;
-static struct ChainedIsr mShWakeupIsr;
-
 
 void platUninitialize(void)
 {
@@ -220,18 +216,6 @@ bool platLogPutcharF(void *userData, char ch)
     return true;
 }
 
-static bool platWakeupIsr(struct ChainedIsr *isr)
-{
-    if (!extiIsPendingGpio(mShWakeupGpio))
-        return false;
-
-    extiClearPendingGpio(mShWakeupGpio);
-
-    hostIntfRxPacket(!gpioGet(mShWakeupGpio));
-
-    return true;
-}
-
 void platInitialize(void)
 {
     const uint32_t debugStateInSleepMode = 0x00000007; /* debug in all modes */
@@ -303,13 +287,6 @@ void platInitialize(void)
     SysTick->LOAD = 0x00FFFFFF;
     SysTick->VAL = 0;
     SysTick->CTRL = SysTick_CTRL_CLKSOURCE_Msk | SysTick_CTRL_TICKINT_Msk | SysTick_CTRL_ENABLE_Msk;
-
-    mShWakeupGpio = gpioRequest(SH_INT_WAKEUP);
-    gpioConfigInput(mShWakeupGpio, GPIO_SPEED_LOW, GPIO_PULL_NONE);
-    syscfgSetExtiPort(mShWakeupGpio);
-    extiEnableIntGpio(mShWakeupGpio, EXTI_TRIGGER_BOTH);
-    mShWakeupIsr.func = platWakeupIsr;
-    extiChainIsr(SH_EXTI_WAKEUP_IRQ, &mShWakeupIsr);
 
 #ifdef DEBUG_LOG_EVT
     /* allocate buffer for early boot log message*/
