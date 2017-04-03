@@ -164,8 +164,8 @@ struct lps22hbTask {
     struct I2cTransfer transfers[LPS22HB_MAX_PENDING_I2C_REQUESTS];
 
     /* Communication functions */
-    void (*comm_tx)(uint8_t addr, uint8_t data, uint32_t delay, uint8_t state);
-    void (*comm_rx)(uint8_t addr, uint16_t len, uint32_t delay, uint8_t state);
+    bool (*comm_tx)(uint8_t addr, uint8_t data, uint32_t delay, uint8_t state);
+    bool (*comm_rx)(uint8_t addr, uint16_t len, uint32_t delay, uint8_t state);
 
     /* sensors */
     struct lps22hbSensor sensors[NUM_OF_SENSOR];
@@ -191,6 +191,11 @@ static struct I2cTransfer *allocXfer(uint8_t state)
     return NULL;
 }
 
+static inline void releaseXfer(struct I2cTransfer *xfer)
+{
+    xfer->inUse = false;
+}
+
 static void i2cCallback(void *cookie, size_t tx, size_t rx, int err)
 {
     struct I2cTransfer *xfer = cookie;
@@ -204,29 +209,39 @@ static void i2cCallback(void *cookie, size_t tx, size_t rx, int err)
         ERROR_PRINT("i2c error (tx: %d, rx: %d, err: %d)\n", tx, rx, err);
 }
 
-static void i2c_read(uint8_t addr, uint16_t len, uint32_t delay, uint8_t state)
+static bool i2c_read(uint8_t addr, uint16_t len, uint32_t delay, uint8_t state)
 {
     struct I2cTransfer *xfer = allocXfer(state);
-    //int ret = -1;
+    int ret = -1;
 
     if (xfer != NULL) {
         xfer->txrxBuf[0] = 0x80 | addr;
-        i2cMasterTxRx(LPS22HB_I2C_BUS_ID, LPS22HB_I2C_ADDR, xfer->txrxBuf, 1, xfer->txrxBuf, len, i2cCallback, xfer);
+        if ((ret = i2cMasterTxRx(LPS22HB_I2C_BUS_ID, LPS22HB_I2C_ADDR, xfer->txrxBuf, 1, xfer->txrxBuf, len, i2cCallback, xfer)) < 0) {
+            releaseXfer(xfer);
+            DEBUG_PRINT("i2c_read: i2cMasterTxRx operation failed (ret: %d)\n", ret);
+            return false;
+        }
     }
+
+    return (ret == -1) ? false : true;
 }
 
-static void i2c_write(uint8_t addr, uint8_t data, uint32_t delay, uint8_t state)
+static bool i2c_write(uint8_t addr, uint8_t data, uint32_t delay, uint8_t state)
 {
     struct I2cTransfer *xfer = allocXfer(state);
-    //int ret = -1;
+    int ret = -1;
 
     if (xfer != NULL) {
         xfer->txrxBuf[0] = addr;
         xfer->txrxBuf[1] = data;
-        i2cMasterTx(LPS22HB_I2C_BUS_ID, LPS22HB_I2C_ADDR, xfer->txrxBuf, 2, i2cCallback, xfer);
+        if ((ret = i2cMasterTx(LPS22HB_I2C_BUS_ID, LPS22HB_I2C_ADDR, xfer->txrxBuf, 2, i2cCallback, xfer)) < 0) {
+            releaseXfer(xfer);
+            DEBUG_PRINT("i2c_write: i2cMasterTx operation failed (ret: %d)\n", ret);
+            return false;
+        }
     }
 
-    //return (ret == 0);
+    return (ret == -1) ? false : true;
 }
 
 /* Sensor Info */
@@ -285,6 +300,7 @@ static bool baroPower(bool on, void *cookie)
     bool oldMode = mTask.baroOn || mTask.tempOn;
     bool newMode = on || mTask.tempOn;
     uint32_t state = on ? SENSOR_BARO_POWER_UP : SENSOR_BARO_POWER_DOWN;
+    bool ret = true;
 
     DEBUG_PRINT("baroPower %s\n", on ? "enable" : "disable");
     if (!on && mTask.baroTimerHandle) {
@@ -295,12 +311,17 @@ static bool baroPower(bool on, void *cookie)
 
     if (oldMode != newMode) {
         if (on)
-            mTask.comm_tx(LPS22HB_ODR_REG_ADDR, LPS22HB_ODR_10_HZ, 0, state);
+            ret = mTask.comm_tx(LPS22HB_ODR_REG_ADDR, LPS22HB_ODR_10_HZ, 0, state);
         else
-            mTask.comm_tx(LPS22HB_ODR_REG_ADDR, LPS22HB_ODR_ONE_SHOT, 0, state);
+            ret = mTask.comm_tx(LPS22HB_ODR_REG_ADDR, LPS22HB_ODR_ONE_SHOT, 0, state);
     } else
         sensorSignalInternalEvt(mTask.sensors[BARO].handle,
                     SENSOR_INTERNAL_EVT_POWER_STATE_CHG, on, 0);
+
+    if (!ret) {
+        DEBUG_PRINT("baroPower comm_tx failed\n");
+        return(false);
+    }
 
     mTask.baroReading = false;
     mTask.baroOn = on;
@@ -335,6 +356,7 @@ static bool tempPower(bool on, void *cookie)
     bool oldMode = mTask.baroOn || mTask.tempOn;
     bool newMode = on || mTask.baroOn;
     uint32_t state = on ? SENSOR_TEMP_POWER_UP : SENSOR_TEMP_POWER_DOWN;
+    bool ret = true;
 
     DEBUG_PRINT("tempPower %s\n", on ? "enable" : "disable");
     if (!on && mTask.tempTimerHandle) {
@@ -345,12 +367,17 @@ static bool tempPower(bool on, void *cookie)
 
     if (oldMode != newMode) {
         if (on)
-            mTask.comm_tx(LPS22HB_ODR_REG_ADDR, LPS22HB_ODR_10_HZ, 0, state);
+            ret = mTask.comm_tx(LPS22HB_ODR_REG_ADDR, LPS22HB_ODR_10_HZ, 0, state);
         else
-            mTask.comm_tx(LPS22HB_ODR_REG_ADDR, LPS22HB_ODR_ONE_SHOT, 0, state);
+            ret = mTask.comm_tx(LPS22HB_ODR_REG_ADDR, LPS22HB_ODR_ONE_SHOT, 0, state);
     } else
         sensorSignalInternalEvt(mTask.sensors[TEMP].handle,
                     SENSOR_INTERNAL_EVT_POWER_STATE_CHG, on, 0);
+
+    if (!ret) {
+        DEBUG_PRINT("tempPower comm_tx failed\n");
+        return(false);
+    }
 
     mTask.tempReading = false;
     mTask.tempOn = on;
@@ -396,7 +423,7 @@ static const struct SensorOps lps22hbSensorOps[NUM_OF_SENSOR] =
 
 static uint8_t *baro_samples;
 static uint8_t *temp_samples;
-static void handleCommDoneEvt(const void* evtData)
+static int handleCommDoneEvt(const void* evtData)
 {
     uint8_t i;
     int baro_val;
@@ -407,7 +434,10 @@ static void handleCommDoneEvt(const void* evtData)
 
     switch (xfer->state) {
     case SENSOR_BOOT:
-        mTask.comm_rx(LPS22HB_WAI_REG_ADDR, 1, 1, SENSOR_VERIFY_ID);
+        if (!mTask.comm_rx(LPS22HB_WAI_REG_ADDR, 1, 1, SENSOR_VERIFY_ID)) {
+            DEBUG_PRINT("Not able to read WAI\n");
+            return -1;
+        }
         break;
 
     case SENSOR_VERIFY_ID:
@@ -486,7 +516,8 @@ static void handleCommDoneEvt(const void* evtData)
         break;
     }
 
-    xfer->inUse = false;
+    releaseXfer(xfer);
+    return (0);
 }
 
 static void handleEvent(uint32_t evtType, const void* evtData)
