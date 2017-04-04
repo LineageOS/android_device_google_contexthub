@@ -25,11 +25,15 @@
 #else /* LSM6DSM_I2C_MASTER_BAROMETER_ENABLED */
 #error "Another barometer is already selected! One baro per time can be used."
 #endif /* LSM6DSM_I2C_MASTER_BAROMETER_ENABLED */
-#endif /* LSM6DSM_I2C_MASTER_LPS22HB */
 
 #if !defined(LSM6DSM_LPS22HB_I2C_ADDRESS)
 #error "LPS22HB i2c address macro not defined. Please check README file"
 #endif /* LSM6DSM_LPS22HB_I2C_ADDRESS */
+
+#else /* LSM6DSM_I2C_MASTER_LPS22HB */
+#undef LSM6DSM_LPS22HB_I2C_ADDRESS
+#define LSM6DSM_LPS22HB_I2C_ADDRESS                     1
+#endif /* LSM6DSM_I2C_MASTER_LPS22HB */
 
 #define LPS22HB_PRESS_KSCALE                            0.000244140625f    /* PRESS scale @1260hPa in hPa/LSB */
 #define LPS22HB_TEMP_KSCALE                             0.01f              /* TEMP scale in *C/LSB */
