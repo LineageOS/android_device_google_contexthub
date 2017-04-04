@@ -25,11 +25,15 @@
 #else /* LSM6DSM_I2C_MASTER_MAGNETOMETER_ENABLED */
 #error "Another magnetometer is already selected! One magn per time can be used."
 #endif /* LSM6DSM_I2C_MASTER_MAGNETOMETER_ENABLED */
-#endif /* LSM6DSM_I2C_MASTER_LIS3MDL */
 
 #if !defined(LSM6DSM_LIS3MDL_I2C_ADDRESS)
 #error "LIS3MDL i2c address macro not defined. Please check README file"
 #endif /* LSM6DSM_LIS3MDL_I2C_ADDRESS */
+
+#else /* LSM6DSM_I2C_MASTER_LIS3MDL */
+#undef LSM6DSM_LIS3MDL_I2C_ADDRESS
+#define LSM6DSM_LIS3MDL_I2C_ADDRESS                     1
+#endif /* LSM6DSM_I2C_MASTER_LIS3MDL */
 
 #define LIS3MDL_KSCALE                                  0.043840420868f    /* MAGN scale @12G in uT/LSB */
 #define LIS3MDL_I2C_ADDRESS                             (LSM6DSM_LIS3MDL_I2C_ADDRESS)
