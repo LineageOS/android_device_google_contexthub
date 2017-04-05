@@ -174,10 +174,12 @@ HubConnection::HubConnection()
     mSensorState[COMMS_SENSOR_GYRO].sensorType = SENS_TYPE_GYRO;
     mSensorState[COMMS_SENSOR_GYRO].alt = COMMS_SENSOR_GYRO_UNCALIBRATED;
     mSensorState[COMMS_SENSOR_GYRO_UNCALIBRATED].sensorType = SENS_TYPE_GYRO;
+    mSensorState[COMMS_SENSOR_GYRO_UNCALIBRATED].primary = COMMS_SENSOR_GYRO;
     mSensorState[COMMS_SENSOR_GYRO_UNCALIBRATED].alt = COMMS_SENSOR_GYRO;
     mSensorState[COMMS_SENSOR_MAG].sensorType = SENS_TYPE_MAG;
     mSensorState[COMMS_SENSOR_MAG].alt = COMMS_SENSOR_MAG_UNCALIBRATED;
     mSensorState[COMMS_SENSOR_MAG_UNCALIBRATED].sensorType = SENS_TYPE_MAG;
+    mSensorState[COMMS_SENSOR_MAG_UNCALIBRATED].primary = COMMS_SENSOR_MAG;
     mSensorState[COMMS_SENSOR_MAG_UNCALIBRATED].alt = COMMS_SENSOR_MAG;
     mSensorState[COMMS_SENSOR_LIGHT].sensorType = SENS_TYPE_ALS;
     mSensorState[COMMS_SENSOR_PROXIMITY].sensorType = SENS_TYPE_PROX;
@@ -915,10 +917,12 @@ void HubConnection::restoreSensorState()
 
             cmd.cmd = CONFIG_CMD_FLUSH;
 
-            for (int j = 0; j < mSensorState[i].flushCnt; j++) {
-                int ret = TEMP_FAILURE_RETRY(::write(mFd, &cmd, sizeof(cmd)));
-                if (ret != sizeof(cmd)) {
-                    ALOGW("failed to send flush command to sensor %d\n", cmd.sensorType);
+            for (auto iter = mFlushesPending[i].cbegin(); iter != mFlushesPending[i].cend(); ++iter) {
+                for (int j = 0; j < iter->count; j++) {
+                    int ret = TEMP_FAILURE_RETRY(::write(mFd, &cmd, sizeof(cmd)));
+                    if (ret != sizeof(cmd)) {
+                        ALOGW("failed to send flush command to sensor %d\n", cmd.sensorType);
+                    }
                 }
             }
         }
@@ -993,6 +997,7 @@ ssize_t HubConnection::processBuf(uint8_t *buf, size_t len)
     sensors_event_t ev;
     uint64_t timestamp;
     ssize_t ret = 0;
+    uint32_t primary;
 
     if (len >= sizeof(data->evtType)) {
         ret = sizeof(data->evtType);
@@ -1276,22 +1281,27 @@ ssize_t HubConnection::processBuf(uint8_t *buf, size_t len)
         if (!numSamples)
             ret += sizeof(data->firstSample);
 
+        // If no primary sensor type is specified,
+        // then 'sensor' is the primary sensor type.
+        primary = mSensorState[sensor].primary;
+        primary = (primary ? primary : sensor);
+
         for (i=0; i<data->firstSample.numFlushes; i++) {
             if (isActivitySensor(sensor) && mActivityEventHandler != NULL) {
                 mActivityEventHandler->OnFlush();
             } else {
+                struct Flush& flush = mFlushesPending[primary].front();
                 memset(&ev, 0x00, sizeof(sensors_event_t));
                 ev.version = META_DATA_VERSION;
                 ev.timestamp = 0;
                 ev.type = SENSOR_TYPE_META_DATA;
                 ev.sensor = 0;
                 ev.meta_data.what = META_DATA_FLUSH_COMPLETE;
-                if (mSensorState[sensor].alt && mSensorState[mSensorState[sensor].alt].flushCnt > 0) {
-                    mSensorState[mSensorState[sensor].alt].flushCnt --;
-                    ev.meta_data.sensor = mSensorState[sensor].alt;
-                } else {
-                    mSensorState[sensor].flushCnt --;
-                    ev.meta_data.sensor = sensor;
+                ev.meta_data.sensor = flush.handle;
+                --flush.count;
+
+                if (flush.count == 0) {
+                    mFlushesPending[primary].pop_front();
                 }
 
                 write(&ev, 1);
@@ -1614,12 +1624,24 @@ void HubConnection::queueBatch(
 void HubConnection::queueFlush(int handle)
 {
     struct ConfigCmd cmd;
+    uint32_t primary;
     int ret;
 
     Mutex::Autolock autoLock(mLock);
 
     if (isValidHandle(handle)) {
-        mSensorState[handle].flushCnt++;
+        // If no primary sensor type is specified,
+        // then 'handle' is the primary sensor type.
+        primary = mSensorState[handle].primary;
+        primary = (primary ? primary : handle);
+
+        std::list<Flush>& flushList = mFlushesPending[primary];
+
+        if (!flushList.empty() && flushList.back().handle == handle) {
+            ++flushList.back().count;
+        } else {
+            flushList.push_back((struct Flush){handle, 1});
+        }
 
         initConfigCmd(&cmd, handle);
         cmd.cmd = CONFIG_CMD_FLUSH;
