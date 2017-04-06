@@ -18,8 +18,17 @@
 
 #include <assert.h>
 #include <float.h>
+
+#ifdef _OS_BUILD_
 #include <nanohub_math.h>
 #include <seos.h>
+#else
+#include <math.h>
+#ifndef UNROLLED
+#define UNROLLED
+#endif
+#endif  // _OS_BUILD_
+
 #include <stddef.h>
 #include <string.h>
 
@@ -620,7 +629,7 @@ bool matLinearSolveCholesky(float *x, const float *L, const float *b, size_t n) 
   int32_t i, j;  // Loops below require signed integers.
   float sum = 0.0f;
   // 1. Solve Ly = b through forward substitution. Use x[] to store y.
-  for (i = 0; i < n; ++i) {
+  for (i = 0; i < (int32_t)n; ++i) {
     sum = 0.0f;
     for (j = 0; j < i; ++j) {
       sum += L[i * n + j] * x[j];
@@ -636,7 +645,7 @@ bool matLinearSolveCholesky(float *x, const float *L, const float *b, size_t n) 
   // y and x.
   for (i = n - 1; i >= 0; --i) {
     sum = 0.0f;
-    for (j = i + 1; j < n; ++j) {
+    for (j = i + 1; j < (int32_t)n; ++j) {
       sum += L[j * n + i] * x[j];
     }
     x[i] = (x[i] - sum) / L[i * n + i];

@@ -32,7 +32,12 @@
 #ifndef LOCATION_LBS_CONTEXTHUB_NANOAPPS_COMMON_MATH_VEC_H_
 #define LOCATION_LBS_CONTEXTHUB_NANOAPPS_COMMON_MATH_VEC_H_
 
+#ifdef NANOHUB_NON_CHRE_API
 #include <nanohub_math.h>
+#else
+#include <math.h>
+#endif  // NANOHUB_NON_CHRE_API
+
 #include <stddef.h>
 #include "util/nano_assert.h"
 
@@ -48,13 +53,13 @@ struct Vec4 {
   float x, y, z, w;
 };
 
-#ifndef NANO_ABS
-#define NANO_ABS(x) ((x) > 0 ? (x) : -(x))
-#endif
+#define NANO_PI (3.14159265359f)
 
-#ifndef NANO_MAX
+#define NANO_ABS(x) ((x) > 0 ? (x) : -(x))
+
 #define NANO_MAX(a, b) ((a) > (b)) ? (a) : (b)
-#endif
+
+#define NANO_MIN(a, b) ((a) < (b)) ? (a) : (b)
 
 // 3-DIMENSIONAL VECTOR MATH ///////////////////////////////////////////
 static inline void initVec3(struct Vec3 *v, float x, float y, float z) {

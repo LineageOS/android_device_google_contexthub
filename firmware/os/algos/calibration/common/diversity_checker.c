@@ -58,6 +58,11 @@ void diversityCheckerInit(
 
   // Setting the rest to zero.
   diversityCheckerReset(diverse_data);
+
+   // Debug Messages
+#ifdef DIVERSE_DEBUG_ENABLE
+  memset(&diverse_data->diversity_dbg, 0, sizeof(diverse_data->diversity_dbg));
+#endif
 }
 
 // Reset
@@ -144,8 +149,8 @@ bool diversityCheckerNormQuality(struct DiversityChecker* diverse_data,
   float norm_results;
   float acc_norm = 0.0f;
   float acc_norm_square = 0.0f;
-  float max;
-  float min;
+  float max = 0.0f;
+  float min = 0.0f;
   size_t i;
   for (i = 0; i < diverse_data->num_points; ++i) {
     // v = v1 - v_bias;
@@ -180,9 +185,20 @@ bool diversityCheckerNormQuality(struct DiversityChecker* diverse_data,
       return false;
     }
   }
-
   float inv = 1.0f / diverse_data->num_points;
   float var = (acc_norm_square - (acc_norm * acc_norm) * inv) * inv;
+
+  // Debug Message.
+#ifdef DIVERSE_DEBUG_ENABLE
+  diverse_data->diversity_dbg.diversity_count++;
+  diverse_data->diversity_dbg.var_log = var;
+  diverse_data->diversity_dbg.mean_log = acc_norm * inv;
+  diverse_data->diversity_dbg.max_log = max;
+  diverse_data->diversity_dbg.min_log = min;
+  memcpy(&diverse_data->diversity_dbg.diverse_data_log,
+         &diverse_data->diverse_data,
+         sizeof(diverse_data->diversity_dbg.diverse_data_log));
+#endif
   return (var < diverse_data->var_threshold);
 }
 
