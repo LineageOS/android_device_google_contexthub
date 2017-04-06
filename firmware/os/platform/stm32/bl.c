@@ -523,6 +523,7 @@ const struct BlVecTable __attribute__((section(".blvec"))) __BL_VEC =
     .blStackTop             = (uint32_t)&__stack_top,
     .blEntry                = &__blEntry,
     .blNmiHandler           = &blSpuriousIntHandler,
+    .blHardFaultHandler     = &blSpuriousIntHandler,
     .blMmuFaultHandler      = &blSpuriousIntHandler,
     .blBusFaultHandler      = &blSpuriousIntHandler,
     .blUsageFaultHandler    = &blSpuriousIntHandler,
