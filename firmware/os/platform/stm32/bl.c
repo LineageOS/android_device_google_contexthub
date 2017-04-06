@@ -9,6 +9,7 @@
 #include <plat/cmsis.h>
 
 #include <bl.h>
+#include <gpio.h>
 
 struct StmUdid
 {
@@ -93,12 +94,10 @@ typedef void (*FlashEraseF)(volatile uint32_t *, uint32_t, volatile uint32_t *);
 typedef void (*FlashWriteF)(volatile uint8_t *, uint8_t, volatile uint32_t *);
 
 static struct StmSpi *SPI;
-static struct StmGpio *GPIOA;
 static struct StmRcc *RCC;
+static struct Gpio *wakeupGpio;
 static uint32_t mOldApb2State;
 static uint32_t mOldAhb1State;
-
-#define INT_IN_PIN          (SH_INT_WAKEUP - GPIO_PA(0))
 
 #define FLASH_ACR_LAT(x)    ((x) & FLASH_ACR_LAT_MASK)
 #define FLASH_ACR_LAT_MASK  0x0F
@@ -412,17 +411,11 @@ uint32_t blGetSnum(uint32_t *snum, uint32_t length)
 void blSetup()
 {
     SPI = (struct StmSpi*)SPI1_BASE;
-    GPIOA = (struct StmGpio*)GPIOA_BASE;
     RCC = (struct StmRcc*)RCC_BASE;
+    struct Gpio *gpio;
+    int i;
 
-    if (SH_INT_WAKEUP < GPIO_PA(0) || SH_INT_WAKEUP > GPIO_PA(15)) {
-
-        //link time assert :)
-        extern void ThisIsAnError_BlIntPinNotInGpioA(void);
-        ThisIsAnError_BlIntPinNotInGpioA();
-    }
-
-    //SPI & GPIOA on
+    //SPI1 & GPIOA on
     mOldApb2State = RCC->APB2ENR;
     mOldAhb1State = RCC->AHB1ENR;
     RCC->APB2ENR |= PERIPH_APB2_SPI1;
@@ -434,16 +427,20 @@ void blSetup()
     RCC->APB2RSTR &=~ PERIPH_APB2_SPI1;
     RCC->AHB1RSTR &=~ PERIPH_AHB1_GPIOA;
 
-    //configure GPIOA for SPI A4..A7 for SPI use (function 5), int pin as not func, high speed, no pullups, not open drain, proper directions
-    GPIOA->AFR[0] = (GPIOA->AFR[0] & 0x0000ffff & ~(0x0f << (INT_IN_PIN * 4))) | 0x55550000;
-    GPIOA->OSPEEDR |= 0x0000ff00 | (3 << (INT_IN_PIN * 2));
-    GPIOA->PUPDR &=~ (0x0000ff00 | (3 << (INT_IN_PIN * 2)));
-    GPIOA->OTYPER &=~ (0x00f0 | (1 << INT_IN_PIN));
-    GPIOA->MODER = (GPIOA->MODER & 0xffff00ff & ~(0x03 << (INT_IN_PIN * 2))) | 0x0000aa00;
+    //configure GPIOA for SPI A4..A7 for AF_SPI1 use (function 5), int pin as not func, high speed, no pullups, not open drain, proper directions
+    for (i=4; i<=7; i++) {
+        gpio = gpioRequest(GPIO_PA(i));
+        gpioConfigAlt(gpio, GPIO_SPEED_HIGH, GPIO_PULL_NONE, GPIO_OUT_PUSH_PULL, GPIO_AF_SPI1);
+        gpioRelease(gpio);
+    }
+
+    wakeupGpio = gpioRequest(SH_INT_WAKEUP);
+    gpioConfigInput(wakeupGpio, GPIO_SPEED_HIGH, GPIO_PULL_NONE);
 }
 
 void blCleanup()
 {
+    gpioRelease(wakeupGpio);
     //reset units & return APB2 & AHB1 to initial state
     RCC->APB2RSTR |= PERIPH_APB2_SPI1;
     RCC->AHB1RSTR |= PERIPH_AHB1_GPIOA;
@@ -455,7 +452,7 @@ void blCleanup()
 
 bool blHostActive()
 {
-    return !(GPIOA->IDR & (1 << INT_IN_PIN));
+    return !gpioGet(wakeupGpio);
 }
 
 void blConfigIo()
