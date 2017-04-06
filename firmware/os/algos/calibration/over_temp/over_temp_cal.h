@@ -66,16 +66,49 @@ extern "C" {
 #endif
 
 // Defines the maximum size of the 'model_data' array.
-#define OVERTEMPCAL_MODEL_SIZE (20)
+#define OVERTEMPCAL_MODEL_SIZE (40)
+
+// The maximum number of successive outliers that may be rejected.
+#define OVERTEMPCAL_MAX_OUTLIER_COUNT (3)
 
 // Over-temperature sensor offset estimate structure.
 struct OverTempCalDataPt {
   // Sensor offset estimate, temperature, and timestamp.
   float offset[3];
-  float offset_temp;         // [Celsius]
-  uint64_t timestamp_nanos;  // [nanoseconds]
-  // TODO(davejacobs) - Design option: add variance to provide weighting info.
+  float offset_temp_celsius;  // [Celsius]
+  uint64_t timestamp_nanos;   // [nanoseconds]
 };
+
+#ifdef OVERTEMPCAL_DBG_ENABLED
+// Debug printout state enumeration.
+enum OverTempCalDebugState {
+  OTC_IDLE = 0,
+  OTC_WAIT_STATE,
+  OTC_PRINT_OFFSET,
+  OTC_PRINT_MODEL_PARAMETERS,
+  OTC_PRINT_MODEL_ERROR,
+  OTC_PRINT_MODEL_DATA
+};
+
+// OverTempCal debug information/data tracking structure.
+struct DebugOverTempCal {
+  uint64_t modelupdate_timestamp_nanos;
+
+  // The most recent offset estimate received.
+  struct OverTempCalDataPt latest_offset;
+
+  // The offset estimate nearest the current sensor temperature.
+  struct OverTempCalDataPt nearest_offset;
+
+  // The maximum model error over all model_data points.
+  float max_error[3];
+
+  float temp_sensitivity[3];
+  float sensor_intercept[3];
+  float temperature_celsius;
+  size_t num_model_pts;
+};
+#endif  // OVERTEMPCAL_DBG_ENABLED
 
 // The following data structure contains all of the necessary components for
 // modeling a sensor's temperature dependency and providing over-temperature
@@ -99,10 +132,8 @@ struct OverTempCal {
   // The temperature at which the offset compensation is performed.
   float temperature_celsius;
 
-  // Pointer to the most recent sensor offset estimate. This is also updated
-  // periodically to point to the offset estimate closest to the current sensor
-  // temperature.
-  struct OverTempCalDataPt *latest_offset;
+  // Pointer to the offset estimate closest to the current sensor temperature.
+  struct OverTempCalDataPt *nearest_offset;
 
   ///// Online Model Identification Parameters ////////////////////////////////
   //
@@ -130,6 +161,11 @@ struct OverTempCal {
   float temp_sensitivity_limit;        // [sensor units/Celsius]
   float sensor_intercept_limit;        // [sensor units]
 
+  // The number of successive outliers rejected in a row. This is used to
+  // prevent the possibility of a bad state where an initial bad fit causes
+  // good data to be continually rejected.
+  size_t num_outliers;
+
   // The rules for accepting new offset estimates into the 'model_data'
   // collection:
   //    1) The temperature domain is divided into bins each spanning
@@ -139,15 +175,15 @@ struct OverTempCal {
   //          temp_lo_check = bin_num * delta_temp_per_bin
   //          temp_hi_check = (bin_num + 1) * delta_temp_per_bin
   //          Check condition:
-  //            temp_lo_check <= model_data[i].offset_temp < temp_hi_check
+  //          temp_lo_check <= model_data[i].offset_temp_celsius < temp_hi_check
   //    3) If nothing was replaced, and the 'model_data' buffer is not full then
   //       add the sensor offset estimate to the array.
   //    4) Otherwise (nothing was replaced and buffer is full), replace the
-  //    'latest_offset' with the incoming one.
+  //       oldest data with the incoming one.
   // This approach ensures a uniform spread of collected data, keeps the most
   // recent estimates in cases where they arrive frequently near a given
   // temperature, and prevents model oversampling (i.e., dominance of estimates
-  // concentrated at given set of temperatures).
+  // concentrated at a given set of temperatures).
   float delta_temp_per_bin;        // [Celsius/bin]
 
   // Timer used to limit the rate at which a search for the nearest offset
@@ -169,11 +205,13 @@ struct OverTempCal {
   // overTempCalNewModelUpdateAvailable() is called. This variable indicates
   // that the following should be stored/updated in persistent system memory:
   //    1) 'temp_sensitivity' and 'sensor_intercept'.
-  //    2) The sensor offset data pointed to by 'latest_offset'
+  //    2) The sensor offset data pointed to by 'nearest_offset'
   //       (saving timestamp information is not required).
   bool new_overtemp_model_available;
 
 #ifdef OVERTEMPCAL_DBG_ENABLED
+  struct DebugOverTempCal debug_overtempcal;  // Debug data structure.
+  enum OverTempCalDebugState debug_state;     // Debug printout state machine.
   size_t debug_num_model_updates;  // Total number of model updates.
   size_t debug_num_estimates;      // Total number of offset estimates.
   bool debug_print_trigger;        // Flag used to trigger data printout.
@@ -216,7 +254,7 @@ void overTempCalInit(struct OverTempCal *over_temp_cal,
  * INPUTS:
  *   over_temp_cal:    Over-temp main data structure.
  *   offset:           Update values for the latest offset estimate (array).
- *   offset_temp:      Measured temperature for the offset estimate.
+ *   offset_temp_celsius: Measured temperature for the offset estimate.
  *   timestamp_nanos:  Timestamp for the offset estimate [nanoseconds].
  *   temp_sensitivity: Modeled temperature sensitivity (array).
  *   sensor_intercept: Linear model intercept for the over-temp model (array).
@@ -226,7 +264,7 @@ void overTempCalInit(struct OverTempCal *over_temp_cal,
  * NOTE: Arrays are all 3-dimensional with indices: 0=x, 1=y, 2=z.
  */
 void overTempCalSetModel(struct OverTempCal *over_temp_cal, const float *offset,
-                         float offset_temp, uint64_t timestamp_nanos,
+                         float offset_temp_celsius, uint64_t timestamp_nanos,
                          const float *temp_sensitivity,
                          const float *sensor_intercept, bool jump_start_model);
 
@@ -237,7 +275,7 @@ void overTempCalSetModel(struct OverTempCal *over_temp_cal, const float *offset,
  *   over_temp_cal:    Over-temp data structure.
  * OUTPUTS:
  *   offset:           Offset values for the latest offset estimate (array).
- *   offset_temp:      Measured temperature for the offset estimate.
+ *   offset_temp_celsius: Measured temperature for the offset estimate.
  *   timestamp_nanos:  Timestamp for the offset estimate [nanoseconds].
  *   temp_sensitivity: Modeled temperature sensitivity (array).
  *   sensor_intercept: Linear model intercept for the over-temp model (array).
@@ -245,7 +283,7 @@ void overTempCalSetModel(struct OverTempCal *over_temp_cal, const float *offset,
  * NOTE: Arrays are all 3-dimensional with indices: 0=x, 1=y, 2=z.
  */
 void overTempCalGetModel(struct OverTempCal *over_temp_cal, float *offset,
-                         float *offset_temp, uint64_t *timestamp_nanos,
+                         float *offset_temp_celsius, uint64_t *timestamp_nanos,
                          float *temp_sensitivity, float *sensor_intercept);
 
 /*
@@ -296,8 +334,8 @@ void overTempCalSetTemperature(struct OverTempCal *over_temp_cal,
  * the estimate determined by the input model parameters.
  *   max_error (over all i)
  *     |model_data[i]->offset_xyz -
- *       getCompensatedOffset(model_data[i]->offset_temp, temp_sensitivity,
- *                      sensor_intercept)|
+ *       getCompensatedOffset(model_data[i]->offset_temp_celsius,
+ *         temp_sensitivity, sensor_intercept)|
  *
  * INPUTS:
  *   over_temp_cal:    Over-temp data structure.

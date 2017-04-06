@@ -30,8 +30,8 @@
 #define MIN_BATCH_SIZE 25            // samples
 #else
 #define MAX_EIGEN_RATIO 15.0f
-#define MAX_EIGEN_MAG 60.0f          // uT
-#define MIN_EIGEN_MAG 30.0f          // uT
+#define MAX_EIGEN_MAG 70.0f          // uT
+#define MIN_EIGEN_MAG 20.0f          // uT
 #define MAX_FIT_MAG 70.0f
 #define MIN_FIT_MAG 20.0f
 #define MIN_BATCH_WINDOW 3000000UL   // 3 sec
@@ -149,13 +149,7 @@ static int moc_batch_complete(struct MagCal *moc, uint64_t sample_time_us) {
       (moc->kasa.nsamples > MIN_BATCH_SIZE)) {
     complete = 1;
 
-  } else if (sample_time_us - moc->start_time > MAX_BATCH_WINDOW
-#ifdef DIVERSITY_CHECK_ENABLED
-             ||
-             moc->diversity_checker.num_max_dist_violations
-             >= MAX_DISTANCE_VIOLATIONS
-#endif
-             ) {
+  } else if (sample_time_us - moc->start_time > MAX_BATCH_WINDOW) {
     // not enough samples collected in MAX_BATCH_WINDOW or too many
     // maximum distance violations detected.
     magCalReset(moc);
@@ -172,11 +166,13 @@ void initMagCal(struct MagCal *moc, float x_bias, float y_bias, float z_bias,
                 float c00, float c01, float c02, float c10, float c11,
                 float c12, float c20, float c21, float c22
 #ifdef DIVERSITY_CHECK_ENABLED
-                ,float threshold, float max_distance
                 ,size_t min_num_diverse_vectors
                 ,size_t max_num_max_distance
                 ,float var_threshold
                 ,float max_min_threshold
+                ,float local_field
+                ,float threshold_tuning_param
+                ,float max_distance_tuning_param
 #endif
                 ) {
   magCalReset(moc);
@@ -200,12 +196,13 @@ void initMagCal(struct MagCal *moc, float x_bias, float y_bias, float z_bias,
 #ifdef DIVERSITY_CHECK_ENABLED
   // Diversity Checker Init
   diversityCheckerInit(&moc->diversity_checker,
-                       threshold,
-                       max_distance,
                        min_num_diverse_vectors,
                        max_num_max_distance,
                        var_threshold,
-                       max_min_threshold);
+                       max_min_threshold,
+                       local_field,
+                       threshold_tuning_param,
+                       max_distance_tuning_param);
 #endif
 }
 
@@ -269,14 +266,17 @@ bool magCalUpdate(struct MagCal *moc, uint64_t sample_time_us, float x, float y,
     if (moc_eigen_test(&moc->kasa)) {
       struct Vec3 bias;
       float radius;
-
       // 4. Kasa sphere fitting
       if (magKasaFit(&moc->kasa, &bias, &radius)) {
 #ifdef DIVERSITY_CHECK_ENABLED
+        diversityCheckerLocalFieldUpdate(&moc->diversity_checker,
+                                         radius);
         if (diversityCheckerNormQuality(&moc->diversity_checker,
                                         bias.x,
                                         bias.y,
-                                        bias.z)) {
+                                        bias.z) &&
+            moc->diversity_checker.num_max_dist_violations
+            <= MAX_DISTANCE_VIOLATIONS) {
 #endif
           moc->x_bias = bias.x;
           moc->y_bias = bias.y;

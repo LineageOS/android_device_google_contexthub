@@ -57,11 +57,9 @@ void initKasa(struct KasaFit *kasa);
 void initMagCal(struct MagCal *moc, float x_bias, float y_bias, float z_bias,
                 float c00, float c01, float c02, float c10, float c11,
                 float c12, float c20, float c21, float c22,
-                float threshold, float max_distance,
-                size_t min_num_diverse_vectors,
-                size_t max_num_max_distance,
-                float var_threshold,
-                float max_min_threshold);
+                size_t min_num_diverse_vectors, size_t max_num_max_distance,
+                float var_threshold, float max_min_threshold, float local_field,
+                float threshold_tuning_param, float max_distance_tuning_param);
 #else
 void initMagCal(struct MagCal *moc, float x_bias, float y_bias, float z_bias,
                 float c00, float c01, float c02, float c10, float c11,
