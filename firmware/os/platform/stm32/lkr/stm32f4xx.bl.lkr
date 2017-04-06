@@ -74,4 +74,4 @@ SECTIONS
 	} > ram
 }
 
-ENTRY(_BL)
+ENTRY(__blEntry)
