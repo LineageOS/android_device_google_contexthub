@@ -75,14 +75,12 @@ extern "C" {
 #define SENS_TYPE_GAZE            53
 #define SENS_TYPE_UNGAZE          54
 #define SENS_TYPE_ACCEL_UNCAL     55
-
 #define SENS_TYPE_ACCEL_TEMP      56
 #define SENS_TYPE_GYRO_TEMP       57
 #define SENS_TYPE_MAG_TEMP        58
-
 #define SENS_TYPE_MAG_RAW         59
-
 #define SENS_TYPE_LEDS            60
+#define SENS_TYPE_HUMIDITY        61
 
 #define SENS_TYPE_FIRST_USER      64 // event type necessarily begins with UserSensorEventHdr
 #define SENS_TYPE_LAST_USER       128
