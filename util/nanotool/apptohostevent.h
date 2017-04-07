@@ -65,6 +65,7 @@ constexpr uint64_t kAppIdBoschBmp280       = MakeAppId(kAppIdVendorGoogle, 5);
 constexpr uint64_t kAppIdAmsTmd2772        = MakeAppId(kAppIdVendorGoogle, 9);
 constexpr uint64_t kAppIdRohmRpr0521       = MakeAppId(kAppIdVendorGoogle, 10);
 constexpr uint64_t kAppIdAmsTmd4903        = MakeAppId(kAppIdVendorGoogle, 12);
+constexpr uint64_t kAppIdSTMicroLsm6dsm    = MakeAppId(kAppIdVendorSTMicro, 0);
 
 constexpr uint64_t kAppIdBridge = MakeAppId(kAppIdVendorGoogle, 50);
 
