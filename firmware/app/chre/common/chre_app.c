@@ -172,6 +172,9 @@ static void chreappProcessSensorData(uint16_t evt, const void *eventData)
     const struct SensorInfo *si;
     uint32_t sensorHandle;
 
+    if (eventData == SENSOR_DATA_EVENT_FLUSH)
+        return;
+
     si = eOsSensorFind(SENSOR_TYPE(evt), 0, &sensorHandle);
     if (si) {
         switch (si->numAxis) {
