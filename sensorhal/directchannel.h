@@ -20,6 +20,7 @@
 #include "ring.h"
 #include <cutils/native_handle.h>
 #include <hardware/gralloc.h>
+#include <hardware/gralloc1.h>
 #include <hardware/sensors.h>
 #include <utils/Singleton.h>
 #include <memory>
@@ -61,10 +62,20 @@ private:
     friend class Singleton<GrallocHalWrapper>;
     GrallocHalWrapper();
     ~GrallocHalWrapper();
+    static int mapGralloc1Error(int grallocError);
 
-    alloc_device_t *mAllocDevice;
-    gralloc_module_t *mGrallocModule;
     int mError;
+    int mVersion;
+    gralloc_module_t *mGrallocModule;
+    // gralloc
+    alloc_device_t *mAllocDevice;
+
+    // gralloc1
+    gralloc1_device_t *mGralloc1Device;
+    GRALLOC1_PFN_RETAIN mPfnRetain;
+    GRALLOC1_PFN_RELEASE mPfnRelease;
+    GRALLOC1_PFN_LOCK mPfnLock;
+    GRALLOC1_PFN_UNLOCK mPfnUnlock;
 };
 
 class GrallocDirectChannel : public DirectChannelBase {
