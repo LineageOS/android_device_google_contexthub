@@ -61,13 +61,13 @@ extern "C" {
 
 #define BMI160_TO_ANDROID_COORDINATE(x, y, z)   \
     do {                                        \
-        int32_t xi = x, yi = y, zi = z;         \
+        float xi = x, yi = y, zi = z;           \
         x = -yi; y = xi; z = zi;                \
     } while (0)
 
 #define BMM150_TO_ANDROID_COORDINATE(x, y, z)   \
     do {                                        \
-        int32_t xi = x, yi = y, zi = z;         \
+        float xi = x, yi = y, zi = z;           \
         x = xi; y = -yi; z = -zi;               \
     } while (0)
 
