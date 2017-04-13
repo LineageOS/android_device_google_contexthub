@@ -476,7 +476,8 @@ bool blSyncWait(uint32_t syncCode)
     return nRetries > 0;
 }
 
-static void __blEntry(void)
+void __attribute__((noreturn)) __blEntry(void);
+void __attribute__((noreturn)) __blEntry(void)
 {
     extern char __code_start[], __bss_end[], __bss_start[], __data_end[], __data_start[], __data_data[];
     uint32_t appBase = ((uint32_t)&__code_start) & ~1;
