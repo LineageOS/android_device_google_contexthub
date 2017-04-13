@@ -1326,6 +1326,9 @@ static void onEvtNoSensorConfigEvent(const void *evtData)
             case CONFIG_CMD_DISABLE:
                 onConfigCmdDisableOne(sensor, cmd);
                 break;
+            case CONFIG_CMD_CFG_DATA:
+                onConfigCmdCfgDataAll(sensor, cmd);
+                break;
             }
         } else {
             switch (cmd->cmd) {
