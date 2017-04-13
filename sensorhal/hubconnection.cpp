@@ -85,9 +85,11 @@ static const uint32_t delta_time_shift_table[2] = {9, 0};
 // flip this system property on to use newly defined data structure for sending sensor configuration
 const char USE_NEW_CFG_PROPERTY[] = "sensor.hubconnection.new_cfg";
 
+#ifdef USE_SENSORSERVICE_TO_GET_FIFO
 // TODO(b/35219747): retain sched_fifo before eval is done to avoid
 // performance regression.
 const char SCHED_FIFO_PRIOIRTY[] = "sensor.hubconnection.sched_fifo";
+#endif
 
 namespace android {
 
@@ -270,14 +272,19 @@ HubConnection::~HubConnection()
 void HubConnection::onFirstRef()
 {
     run("HubConnection", PRIORITY_URGENT_DISPLAY);
+#ifdef USE_SENSORSERVICE_TO_GET_FIFO
     if (property_get_bool(SCHED_FIFO_PRIOIRTY, true)) {
         ALOGI("Try activate sched-fifo priority for HubConnection thread");
         mEnableSchedFifoThread = std::thread(enableSchedFifoMode, this);
     }
+#else
+    enableSchedFifoMode(this);
+#endif
 }
 
 // Set main thread to SCHED_FIFO to lower sensor event latency when system is under load
 void HubConnection::enableSchedFifoMode(sp<HubConnection> hub) {
+#ifdef USE_SENSORSERVICE_TO_GET_FIFO
     using ::android::frameworks::schedulerservice::V1_0::ISchedulingPolicyService;
     using ::android::hardware::Return;
 
@@ -300,6 +307,14 @@ void HubConnection::enableSchedFifoMode(sp<HubConnection> hub) {
             ALOGI("Enabled sched fifo thread mode (prio %d)", static_cast<int32_t>(max));
         }
     }
+#else
+#define HUBCONNECTION_SCHED_FIFO_PRIORITY 10
+    struct sched_param param = {0};
+    param.sched_priority = HUBCONNECTION_SCHED_FIFO_PRIORITY;
+    if (sched_setscheduler(hub->getTid(), SCHED_FIFO | SCHED_RESET_ON_FORK, &param) != 0) {
+        ALOGE("Couldn't set SCHED_FIFO for HubConnection thread");
+    }
+#endif
 }
 
 status_t HubConnection::initCheck() const
