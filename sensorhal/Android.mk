@@ -156,12 +156,15 @@ LOCAL_STATIC_LIBRARIES := \
     libhubutilcommon
 
 LOCAL_SHARED_LIBRARIES := \
+    android.frameworks.schedulerservice@1.0 \
     libcutils \
     libhardware \
+    libhardware_legacy \
+    libhidlbase \
+    libhidltransport \
     liblog \
     libstagefright_foundation \
-    libhardware_legacy \
-    libutils
+    libutils \
 
 include $(BUILD_SHARED_LIBRARY)
 

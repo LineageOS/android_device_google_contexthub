@@ -14,11 +14,13 @@
  * limitations under the License.
  */
 
+#define LOG_TAG "nanohub"
+
 #include "hubconnection.h"
 
-#define LOG_TAG "nanohub"
-#include <utils/Log.h>
-#include <utils/SystemClock.h>
+// TODO: remove the includes that introduce LIKELY and UNLIKELY (firmware/os/inc/toolchain.h)
+#undef LIKELY
+#undef UNLIKELY
 
 #include "file.h"
 #include "JSONObject.h"
@@ -33,10 +35,13 @@
 #include <linux/input.h>
 #include <linux/uinput.h>
 
+#include <android/frameworks/schedulerservice/1.0/ISchedulingPolicyService.h>
 #include <cutils/ashmem.h>
 #include <cutils/properties.h>
 #include <hardware_legacy/power.h>
 #include <media/stagefright/foundation/ADebug.h>
+#include <utils/Log.h>
+#include <utils/SystemClock.h>
 
 #include <algorithm>
 #include <cmath>
@@ -66,8 +71,6 @@
 
 #define OS_LOG_EVENT            0x474F4C41  // ascii: ALOG
 
-#define HUBCONNECTION_SCHED_FIFO_PRIORITY 10
-
 #ifdef LID_STATE_REPORTING_ENABLED
 const char LID_STATE_PROPERTY[] = "sensors.contexthub.lid_state";
 const char LID_STATE_UNKNOWN[]  = "unknown";
@@ -81,6 +84,10 @@ static const uint32_t delta_time_shift_table[2] = {9, 0};
 // TODO(b/36576923): remove these when all firmware and nanoapps are updated.
 // flip this system property on to use newly defined data structure for sending sensor configuration
 const char USE_NEW_CFG_PROPERTY[] = "sensor.hubconnection.new_cfg";
+
+// TODO(b/35219747): retain sched_fifo before eval is done to avoid
+// performance regression.
+const char SCHED_FIFO_PRIOIRTY[] = "sensor.hubconnection.sched_fifo";
 
 namespace android {
 
@@ -263,15 +270,35 @@ HubConnection::~HubConnection()
 void HubConnection::onFirstRef()
 {
     run("HubConnection", PRIORITY_URGENT_DISPLAY);
-    enableSchedFifoMode();
+    if (property_get_bool(SCHED_FIFO_PRIOIRTY, true)) {
+        ALOGI("Try activate sched-fifo priority for HubConnection thread");
+        mEnableSchedFifoThread = std::thread(enableSchedFifoMode, this);
+    }
 }
 
 // Set main thread to SCHED_FIFO to lower sensor event latency when system is under load
-void HubConnection::enableSchedFifoMode() {
-    struct sched_param param = {0};
-    param.sched_priority = HUBCONNECTION_SCHED_FIFO_PRIORITY;
-    if (sched_setscheduler(getTid(), SCHED_FIFO | SCHED_RESET_ON_FORK, &param) != 0) {
-        ALOGE("Couldn't set SCHED_FIFO for HubConnection thread");
+void HubConnection::enableSchedFifoMode(sp<HubConnection> hub) {
+    using ::android::frameworks::schedulerservice::V1_0::ISchedulingPolicyService;
+    using ::android::hardware::Return;
+
+    // SchedulingPolicyService will not start until system server start.
+    // Thus, cannot block on this.
+    sp<ISchedulingPolicyService> scheduler = ISchedulingPolicyService::getService();
+
+    if (scheduler == nullptr) {
+        ALOGE("Couldn't get scheduler scheduler to set SCHED_FIFO.");
+    } else {
+        Return<int32_t> max = scheduler->getMaxAllowedPriority();
+        if (!max.isOk()) {
+            ALOGE("Failed to retrieve maximum allowed priority for HubConnection.");
+            return;
+        }
+        Return<bool> ret = scheduler->requestPriority(::getpid(), hub->getTid(), max);
+        if (!ret.isOk() || !ret) {
+            ALOGE("Failed to set SCHED_FIFO for HubConnection.");
+        } else {
+            ALOGI("Enabled sched fifo thread mode (prio %d)", static_cast<int32_t>(max));
+        }
     }
 }
 
