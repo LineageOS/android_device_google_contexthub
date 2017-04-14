@@ -241,6 +241,7 @@ HubConnection::HubConnection()
     mSensorState[COMMS_SENSOR_GAZE].rate = SENSOR_RATE_ONESHOT;
     mSensorState[COMMS_SENSOR_UNGAZE].sensorType = SENS_TYPE_UNGAZE;
     mSensorState[COMMS_SENSOR_UNGAZE].rate = SENSOR_RATE_ONESHOT;
+    mSensorState[COMMS_SENSOR_HUMIDITY].sensorType = SENS_TYPE_HUMIDITY;
 
 #ifdef LID_STATE_REPORTING_ENABLED
     initializeUinputNode();
@@ -578,6 +579,9 @@ void HubConnection::processSample(uint64_t timestamp, uint32_t type, uint32_t se
         break;
     case COMMS_SENSOR_PRESSURE:
         initEv(&nev[cnt++], timestamp, type, sensor)->pressure = sample->fdata;
+        break;
+    case COMMS_SENSOR_HUMIDITY:
+        initEv(&nev[cnt++], timestamp, type, sensor)->relative_humidity = sample->fdata;
         break;
     case COMMS_SENSOR_TEMPERATURE:
         initEv(&nev[cnt++], timestamp, type, sensor)->temperature = sample->fdata;
@@ -1045,6 +1049,11 @@ ssize_t HubConnection::processBuf(uint8_t *buf, size_t len)
             sensor = COMMS_SENSOR_PRESSURE;
             one = true;
             break;
+        case SENS_TYPE_TO_EVENT(SENS_TYPE_HUMIDITY):
+            type = SENSOR_TYPE_RELATIVE_HUMIDITY;
+            sensor = COMMS_SENSOR_HUMIDITY;
+            one = true;
+            break;
         case SENS_TYPE_TO_EVENT(SENS_TYPE_TEMP):
             // nanohub only has one temperature sensor type, which is mapped to
             // internal temp because we currently don't have ambient temp
@@ -1308,7 +1317,7 @@ void HubConnection::sendCalibrationOffsets()
     } accel, gyro;
 
     int32_t proximity, proximity_array[4];
-    float barometer, mag[3], light;
+    float barometer, humidity, mag[3], light;
     bool accel_hw_cal_exists, accel_sw_cal_exists;
     bool gyro_hw_cal_exists, gyro_sw_cal_exists;
 
@@ -1416,6 +1425,9 @@ void HubConnection::sendCalibrationOffsets()
 
     if (settings->getFloat("barometer", &barometer))
         queueDataInternal(COMMS_SENSOR_PRESSURE, &barometer, sizeof(barometer));
+
+    if (settings->getFloat("humidity", &humidity))
+        queueDataInternal(COMMS_SENSOR_HUMIDITY, &humidity, sizeof(humidity));
 
     if (settings->getInt32("proximity", &proximity))
         queueDataInternal(COMMS_SENSOR_PROXIMITY, &proximity, sizeof(proximity));

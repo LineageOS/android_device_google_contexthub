@@ -83,6 +83,7 @@ enum comms_sensor_t {
     COMMS_SENSOR_GAZE                        = 45,
     COMMS_SENSOR_UNGAZE                      = 46,
     COMMS_SENSOR_ACCEL_UNCALIBRATED          = 47,
+    COMMS_SENSOR_HUMIDITY                    = 48,
 
     NUM_COMMS_SENSORS_PLUS_1,
 
