@@ -13,11 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
+#define LOG_TAG "directchannel"
 #include "directchannel.h"
 
 #include <cutils/ashmem.h>
-#include <hardware/gralloc.h>
 #include <hardware/sensors.h>
 #include <utils/Log.h>
 
@@ -77,18 +76,72 @@ AshmemDirectChannel::~AshmemDirectChannel() {
 
 ANDROID_SINGLETON_STATIC_INSTANCE(GrallocHalWrapper);
 
-GrallocHalWrapper::GrallocHalWrapper() {
-    status_t err = ::hw_get_module(GRALLOC_HARDWARE_MODULE_ID,
-                                 (hw_module_t const**)&mGrallocModule);
-    ALOGE_IF(err, "couldn't load %s module (%s)",
-             GRALLOC_HARDWARE_MODULE_ID, strerror(-err));
+GrallocHalWrapper::GrallocHalWrapper()
+        : mError(NO_INIT), mVersion(-1),
+          mGrallocModule(nullptr), mAllocDevice(nullptr), mGralloc1Device(nullptr),
+          mPfnRetain(nullptr), mPfnRelease(nullptr), mPfnLock(nullptr), mPfnUnlock(nullptr) {
+    const hw_module_t *module;
+    status_t err = ::hw_get_module(GRALLOC_HARDWARE_MODULE_ID, &module);
+    ALOGE_IF(err, "couldn't load %s module (%s)", GRALLOC_HARDWARE_MODULE_ID, strerror(-err));
 
-    if (mGrallocModule != nullptr) {
-        err = ::gralloc_open(&mGrallocModule->common, &mAllocDevice);
-        ALOGE_IF(err, "cannot open alloc device (%s)", strerror(-err));
-        if (mAllocDevice != nullptr) {
-            err = NO_ERROR;
-        }
+    if (module == nullptr) {
+        mError = (err < 0) ? err : NO_INIT;
+    }
+
+    switch ((module->module_api_version >> 8) & 0xFF) {
+        case 0:
+            err = ::gralloc_open(module, &mAllocDevice);
+            if (err != NO_ERROR) {
+                ALOGE("cannot open alloc device (%s)", strerror(-err));
+                break;
+            }
+
+            if (mAllocDevice == nullptr) {
+                ALOGE("gralloc_open returns no error, but result is nullptr");
+                err = INVALID_OPERATION;
+                break;
+            }
+
+            // successfully initialized gralloc
+            mGrallocModule = (gralloc_module_t *)module;
+            mVersion = 0;
+            break;
+        case 1:
+            err = ::gralloc1_open(module, &mGralloc1Device);
+            if (err != NO_ERROR) {
+                ALOGE("cannot open gralloc1 device (%s)", strerror(-err));
+                break;
+            }
+
+            if (mGralloc1Device == nullptr || mGralloc1Device->getFunction == nullptr) {
+                ALOGE("gralloc1_open returns no error, but result is nullptr");
+                err = INVALID_OPERATION;
+                break;
+            }
+
+            mPfnRetain = (GRALLOC1_PFN_RETAIN)(mGralloc1Device->getFunction(mGralloc1Device,
+                                                      GRALLOC1_FUNCTION_RETAIN));
+            mPfnRelease = (GRALLOC1_PFN_RELEASE)(mGralloc1Device->getFunction(mGralloc1Device,
+                                                       GRALLOC1_FUNCTION_RELEASE));
+            mPfnLock = (GRALLOC1_PFN_LOCK)(mGralloc1Device->getFunction(mGralloc1Device,
+                                                    GRALLOC1_FUNCTION_LOCK));
+            mPfnUnlock = (GRALLOC1_PFN_UNLOCK)(mGralloc1Device->getFunction(mGralloc1Device,
+                                                      GRALLOC1_FUNCTION_UNLOCK));
+            if (mPfnRetain == nullptr || mPfnRelease == nullptr
+                    || mPfnLock == nullptr || mPfnUnlock == nullptr) {
+                ALOGE("Function pointer for retain, release, lock and unlock are %p, %p, %p, %p",
+                      mPfnRetain, mPfnRelease, mPfnLock, mPfnUnlock);
+                err = BAD_VALUE;
+                break;
+            }
+
+            // successfully initialized gralloc1
+            mGrallocModule = (gralloc_module_t *)module;
+            mVersion = 1;
+            break;
+        default:
+            ALOGE("Unknown version, not supported");
+            break;
     }
     mError = err;
 }
@@ -100,32 +153,79 @@ GrallocHalWrapper::~GrallocHalWrapper() {
 }
 
 int GrallocHalWrapper::registerBuffer(const native_handle_t *handle) {
-    if (mGrallocModule == nullptr) {
-        return NO_INIT;
+    switch (mVersion) {
+        case 0:
+            return mGrallocModule->registerBuffer(mGrallocModule, handle);
+        case 1:
+            return mapGralloc1Error(mPfnRetain(mGralloc1Device, handle));
+        default:
+            return NO_INIT;
     }
-    return mGrallocModule->registerBuffer(mGrallocModule, handle);
 }
 
 int GrallocHalWrapper::unregisterBuffer(const native_handle_t *handle) {
-    if (mGrallocModule == nullptr) {
-        return NO_INIT;
+    switch (mVersion) {
+        case 0:
+            return mGrallocModule->unregisterBuffer(mGrallocModule, handle);
+        case 1:
+            return mapGralloc1Error(mPfnRelease(mGralloc1Device, handle));
+        default:
+            return NO_INIT;
     }
-    return mGrallocModule->unregisterBuffer(mGrallocModule, handle);
 }
 
 int GrallocHalWrapper::lock(const native_handle_t *handle,
                            int usage, int l, int t, int w, int h, void **vaddr) {
-    if (mGrallocModule == nullptr) {
-        return NO_INIT;
+    switch (mVersion) {
+        case 0:
+            return mGrallocModule->lock(mGrallocModule, handle, usage, l, t, w, h, vaddr);
+        case 1: {
+            const gralloc1_rect_t rect = {
+                .left = l,
+                .top = t,
+                .width = w,
+                .height = h
+            };
+            return mapGralloc1Error(mPfnLock(mGralloc1Device, handle,
+                                             GRALLOC1_PRODUCER_USAGE_CPU_WRITE_OFTEN,
+                                             GRALLOC1_CONSUMER_USAGE_NONE,
+                                             &rect, vaddr, -1));
+        }
+        default:
+            return NO_INIT;
     }
-    return mGrallocModule->lock(mGrallocModule, handle, usage, l, t, w, h, vaddr);
 }
 
 int GrallocHalWrapper::unlock(const native_handle_t *handle) {
-    if (mGrallocModule == nullptr) {
-        return NO_INIT;
+    switch (mVersion) {
+        case 0:
+            return mGrallocModule->unlock(mGrallocModule, handle);
+        case 1: {
+            int32_t dummy;
+            return mapGralloc1Error(mPfnUnlock(mGralloc1Device, handle, &dummy));
+        }
+        default:
+            return NO_INIT;
     }
-    return mGrallocModule->unlock(mGrallocModule, handle);
+}
+
+int GrallocHalWrapper::mapGralloc1Error(int grallocError) {
+    switch (grallocError) {
+        case GRALLOC1_ERROR_NONE:
+            return NO_ERROR;
+        case GRALLOC1_ERROR_BAD_DESCRIPTOR:
+        case GRALLOC1_ERROR_BAD_HANDLE:
+        case GRALLOC1_ERROR_BAD_VALUE:
+            return BAD_VALUE;
+        case GRALLOC1_ERROR_NOT_SHARED:
+        case GRALLOC1_ERROR_NO_RESOURCES:
+            return NO_MEMORY;
+        case GRALLOC1_ERROR_UNDEFINED:
+        case GRALLOC1_ERROR_UNSUPPORTED:
+            return INVALID_OPERATION;
+        default:
+            return UNKNOWN_ERROR;
+    }
 }
 
 GrallocDirectChannel::GrallocDirectChannel(const struct sensors_direct_mem_t *mem)
