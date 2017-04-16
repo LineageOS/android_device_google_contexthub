@@ -3087,8 +3087,11 @@ static bool magCfgData(void *data, void *cookie)
                 (int)(d->strength * 1000),
                 (int)(d->declination * 180 / M_PI + 0.5f),
                 (int)(d->inclination * 180 / M_PI + 0.5f));
-        //TODO: pass local field information to mag calibration routine
-        //      and rotation vector sensor.
+
+        // Passing local field information to mag calibration routine
+        diversityCheckerLocalFieldUpdate(&mTask.moc.diversity_checker, d->strength);
+
+        // TODO: pass local field information to rotation vector sensor.
     } else {
         ERROR_PRINT("magCfgData: unknown type 0x%04x, size %d", p->type, p->size);
     }
