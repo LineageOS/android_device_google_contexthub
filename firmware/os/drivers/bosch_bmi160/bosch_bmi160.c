@@ -1,3 +1,4 @@
+
 /*
  * Copyright (C) 2016 The Android Open Source Project
  *
@@ -45,12 +46,29 @@
 #include <calibration/accelerometer/accel_cal.h>
 #endif
 
+#if defined(OVERTEMPCAL_ENABLED) && !defined(GYRO_CAL_ENABLED)
+#undef OVERTEMPCAL_ENABLED
+#endif
+
+#if defined(GYRO_CAL_DBG_ENABLED) && !defined(GYRO_CAL_ENABLED)
+#undef GYRO_CAL_DBG_ENABLED
+#endif
+
+#if defined(OVERTEMPCAL_DBG_ENABLED) && !defined(OVERTEMPCAL_ENABLED)
+#undef OVERTEMPCAL_DBG_ENABLED
+#endif
+
 #ifdef GYRO_CAL_ENABLED
 #include <calibration/gyroscope/gyro_cal.h>
+#endif  // GYRO_CAL_ENABLED
+
+#ifdef GYRO_CAL_DBG_ENABLED
+#include <calibration/util/cal_log.h>
+#endif  // GYRO_CAL_DBG_ENABLED
+
 #ifdef OVERTEMPCAL_ENABLED
 #include <calibration/over_temp/over_temp_cal.h>
 #endif  // OVERTEMPCAL_ENABLED
-#endif  // GYRO_CAL_ENABLED
 
 #include <limits.h>
 #include <stdlib.h>
@@ -84,7 +102,7 @@
 #define DBG_WM_CALC               0
 #define TIMESTAMP_DBG             0
 
-#define BMI160_APP_VERSION 13
+#define BMI160_APP_VERSION 14
 
 // fixme: to list required definitions for a slave mag
 #ifdef USE_BMM150
@@ -413,13 +431,13 @@ struct BMI160Task {
 #ifdef GYRO_CAL_ENABLED
     // Gyro Cal -- Declaration.
     struct GyroCal gyro_cal;
+#endif  //  GYRO_CAL_ENABLED
 
 #ifdef OVERTEMPCAL_ENABLED
     // Over-temp gyro calibration object.
     struct OverTempCal over_temp_gyro_cal;
     struct OtcGyroUpdateBuffer otcGyroUpdateBuffer;
 #endif  //  OVERTEMPCAL_ENABLED
-#endif  // GYRO_CAL_ENABLED
 
     // time keeping.
     uint64_t last_sensortime;
@@ -663,14 +681,14 @@ static void initiateFifoRead_(TASK, bool isInterruptContext);
 #define initiateFifoRead(a) initiateFifoRead_(_task, (a))
 static uint8_t* shallowParseFrame(uint8_t * buf, int size);
 
-#if defined(GYRO_CAL_ENABLED) && defined(OVERTEMPCAL_ENABLED)
+#ifdef OVERTEMPCAL_ENABLED
 // otc gyro cal save restore functions
 static void handleOtcGyroConfig_(TASK, const struct AppToSensorHalDataPayload *data);
 #define handleOtcGyroConfig(a) handleOtcGyroConfig_(_task, (a))
 static bool sendOtcGyroUpdate_();
 #define sendOtcGyroUpdate() sendOtcGyroUpdate_(_task)
 static void unlockOtcGyroUpdateBuffer();
-#endif //defined(GYRO_CAL_ENABLED) && defined(OVERTEMPCAL_ENABLED)
+#endif  // OVERTEMPCAL_ENABLED
 
 // Binary dump to osLog
 static void dumpBinary(void* buf, unsigned int address, size_t size);
@@ -1975,9 +1993,9 @@ static void parseRawData(struct BMI160Sensor *mSensor, uint8_t *buf, float kScal
         gyroCalUpdateMag(&mTask.gyro_cal,
                          rtc_time,  // nsec
                          x, y, z);
-#endif
+#endif  // GYRO_CAL_ENABLED
     } else
-#endif
+#endif  // MAG_SLAVE_PRESENT
     {
         raw_x = (buf[0] | buf[1] << 8);
         raw_y = (buf[2] | buf[3] << 8);
@@ -2020,7 +2038,7 @@ static void parseRawData(struct BMI160Sensor *mSensor, uint8_t *buf, float kScal
           overTempCalRemoveOffset(&mTask.over_temp_gyro_cal, rtc_time,
                                   x, y, z,    /* input values */
                                   &x, &y, &z  /* calibrated output */);
-#else
+#else  // OVERTEMPCAL_ENABLED
           // Gyro Cal -- Apply calibration correction.
           gyroCalRemoveBias(&mTask.gyro_cal,
                             x, y, z,    /* input values */
@@ -2093,51 +2111,87 @@ static void parseRawData(struct BMI160Sensor *mSensor, uint8_t *buf, float kScal
     }
 #endif
 #ifdef GYRO_CAL_ENABLED
-    // Gyro Cal -- Notify HAL about new gyro bias calibration
-    bool new_gyro_cal_update =  gyroCalNewBiasAvailable(&mTask.gyro_cal);
-    if (mSensor->idx == GYR && new_gyro_cal_update) {
+    if (mSensor->idx == GYR) {
+      // GyroCal -- Checks for a new offset estimate update.
+      float gyro_offset[3] = {0.0f, 0.0f, 0.0f};
+      float gyro_offset_temperature_celsius = 0.0f;
+      bool new_gyrocal_offset_update = gyroCalNewBiasAvailable(&mTask.gyro_cal);
+      if (new_gyrocal_offset_update) {
+        // GyroCal -- Gets the GyroCal offset estimate.
+        gyroCalGetBias(&mTask.gyro_cal, &gyro_offset[0], &gyro_offset[1],
+                       &gyro_offset[2], &gyro_offset_temperature_celsius);
+
+#ifdef OVERTEMPCAL_ENABLED
+        // OTC-Gyro Cal -- Sends a new GyroCal estimate to the OTC-Gyro.
+        overTempCalUpdateSensorEstimate(&mTask.over_temp_gyro_cal, rtc_time,
+                                        gyro_offset,
+                                        gyro_offset_temperature_celsius);
+#endif  // OVERTEMPCAL_ENABLED
+      }
+
+#ifdef OVERTEMPCAL_ENABLED
+      // OTC-Gyro Cal -- A timer is used to limit the frequency of the offset
+      // update checks.
+      static uint64_t imu_new_otc_offset_timer = 0;  // nanoseconds
+      bool new_otc_offset_update = false;
+      if ((rtc_time - imu_new_otc_offset_timer) >= 500000000) {
+        imu_new_otc_offset_timer = rtc_time;
+
+        // OTC-Gyro Cal --  Gets the latest OTC-Gyro temperature compensated
+        // offset estimate.
+        new_otc_offset_update =
+            overTempCalGetOffset(&mTask.over_temp_gyro_cal, rtc_time,
+                                 &gyro_offset_temperature_celsius, gyro_offset);
+      }
+
+      if (new_otc_offset_update) {
+#else  // OVERTEMPCAL_ENABLED
+      if (new_gyrocal_offset_update) {
+#endif  // OVERTEMPCAL_ENABLED
         if (mSensor->data_evt->samples[0].firstSample.numSamples > 0) {
-            // flush existing samples so the bias appears after them
-            flushData(mSensor,
-                    EVENT_TYPE_BIT_DISCARDABLE | sensorGetMyEventType(mSensorInfo[GYR].sensorType));
-            if (!allocateDataEvt(mSensor, rtc_time)) {
-                return;
-            }
+          // flush existing samples so the bias appears after them.
+          flushData(mSensor,
+                    EVENT_TYPE_BIT_DISCARDABLE |
+                        sensorGetMyEventType(mSensorInfo[GYR].sensorType));
+          if (!allocateDataEvt(mSensor, rtc_time)) {
+            return;
+          }
         }
         mSensor->data_evt->samples[0].firstSample.biasCurrent = true;
         mSensor->data_evt->samples[0].firstSample.biasPresent = 1;
         mSensor->data_evt->samples[0].firstSample.biasSample =
-                mSensor->data_evt->samples[0].firstSample.numSamples;
-        sample = &mSensor->data_evt->samples[mSensor->data_evt->samples[0].firstSample.numSamples++];
-        float sample_temp_celsius = 0.0f;
-        gyroCalGetBias(&mTask.gyro_cal, &sample->x, &sample->y, &sample->z, &sample_temp_celsius);
+            mSensor->data_evt->samples[0].firstSample.numSamples;
+        sample = &mSensor->data_evt->samples[mSensor->data_evt->samples[0]
+                                                 .firstSample.numSamples++];
+        // Updates the gyro offset in HAL.
+        sample->x = gyro_offset[0];
+        sample->y = gyro_offset[1];
+        sample->z = gyro_offset[2];
+
+#if defined(GYRO_CAL_DBG_ENABLED) || defined(OVERTEMPCAL_DBG_ENABLED)
+        CAL_DEBUG_LOG("[GYRO_OFFSET:STORED]",
+                      "Offset|Temp|Time: %s%d.%06d, %s%d.%06d, %s%d.%06d | "
+                      "%s%d.%06d | %llu",
+                      CAL_ENCODE_FLOAT(sample->x, 6),
+                      CAL_ENCODE_FLOAT(sample->y, 6),
+                      CAL_ENCODE_FLOAT(sample->z, 6),
+                      CAL_ENCODE_FLOAT(gyro_offset_temperature_celsius, 6),
+                      (unsigned long long int)rtc_time);
+#endif  // GYRO_CAL_DBG_ENABLED || OVERTEMPCAL_DBG_ENABLED
+
         flushData(mSensor, sensorGetMyEventType(mSensorInfo[GYR].biasType));
-
         if (!allocateDataEvt(mSensor, rtc_time)) {
-            return;
+          return;
         }
-    }
-
+      }
 #ifdef OVERTEMPCAL_ENABLED
-    // Over-Temp Gyro Cal -- Send new gyro cal result to the over-temp cal.
-    float offset[3] = {0.0f, 0.0f, 0.0f};
-    if (new_gyro_cal_update) {
-      // Gets the gyro cal offset value.
-      float sample_temp_celsius = 0.0f;
-      gyroCalGetBias(&mTask.gyro_cal, &offset[0], &offset[1], &offset[2], &sample_temp_celsius);
-
-      // Sends it to the over-temp cal along with the current temperature and
-      // time stamp.
-      overTempCalUpdateSensorEstimate(&mTask.over_temp_gyro_cal, rtc_time,
-                                      offset, sample_temp_celsius);
-    }
-
-    // TODO: Notify HAL about the new gyro OTC calibration.
-    //
-    if (false /*needToUpdateOtcGyroInHal*/) {
-         sendOtcGyroUpdate();
-    }
+      if (overTempCalNewModelUpdateAvailable(&mTask.over_temp_gyro_cal)
+          || new_otc_offset_update) {
+        // Notify HAL to store new gyro OTC-Gyro data.
+        sendOtcGyroUpdate();
+      }
 #endif  // OVERTEMPCAL_ENABLED
+    }
 #endif  // GYRO_CAL_ENABLED
 
     sample = &mSensor->data_evt->samples[mSensor->data_evt->samples[0].firstSample.numSamples++];
@@ -2994,10 +3048,10 @@ static bool gyrCfgData(void *data, void *cookie)
         if (!saveCalibration()) {
             T(pending_calibration_save) = true;
         }
-#if defined(GYRO_CAL_ENABLED) && defined(OVERTEMPCAL_ENABLED)
+#if OVERTEMPCAL_ENABLED
     } else if (p->type == HALINTF_TYPE_GYRO_OTC_DATA && p->size == sizeof(struct GyroOtcData)) {
         handleOtcGyroConfig(data);
-#endif // defined(GYRO_CAL_ENABLED) && defined(OVERTEMPCAL_ENABLED)
+#endif // OVERTEMPCAL_ENABLED
     } else {
         ERROR_PRINT("Unknown gyro config data type 0x%04x, size %d\n", p->type, p->size);
     }
@@ -3646,11 +3700,11 @@ static bool startTask(uint32_t task_id)
                 0, 0, 0,  // initial bias offset calibration
                 0,        // time stamp of initial bias calibration
                 1.5e9,    // analysis window length = 1.5 seconds
-                5e-5f,    // gyroscope variance threshold [rad/sec]^2
+                7.5e-5f,  // gyroscope variance threshold [rad/sec]^2
                 1e-5f,    // gyroscope confidence delta [rad/sec]^2
                 8e-3f,    // accelerometer variance threshold [m/sec^2]^2
                 1.6e-3f,  // accelerometer confidence delta [m/sec^2]^2
-                1.4f,     // magnetometer variance threshold [uT]^2
+                5.0f,     // magnetometer variance threshold [uT]^2
                 0.25,     // magnetometer confidence delta [uT]^2
                 0.95f,    // stillness threshold [0,1]
                 40.0e-3f * M_PI / 180.0f,  // stillness mean variation limit [rad/sec]
@@ -4056,7 +4110,7 @@ static void dumpBinary(void* buf, unsigned int address, size_t size) {
     }
 }
 
-#if defined(GYRO_CAL_ENABLED) && defined(OVERTEMPCAL_ENABLED)
+#ifdef OVERTEMPCAL_ENABLED
 static void handleOtcGyroConfig_(TASK, const struct AppToSensorHalDataPayload *data) {
     const struct GyroOtcData *d = data->gyroOtcData;
 
@@ -4105,6 +4159,6 @@ static bool sendOtcGyroUpdate_(TASK) {
 static void unlockOtcGyroUpdateBuffer(void *event) {
     atomicXchgByte(&(((struct OtcGyroUpdateBuffer*)(event))->lock), false);
 }
-#endif //defined(GYRO_CAL_ENABLED) && defined(OVERTEMPCAL_ENABLED)
+#endif // OVERTEMPCAL_ENABLED
 
 INTERNAL_APP_INIT(BMI160_APP_ID, BMI160_APP_VERSION, startTask, endTask, handleEvent);
