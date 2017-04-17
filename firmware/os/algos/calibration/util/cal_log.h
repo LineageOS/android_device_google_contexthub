@@ -25,16 +25,20 @@
 #ifdef GCC_DEBUG_LOG
 # include <stdio.h>
 # define CAL_DEBUG_LOG(tag, fmt, ...) \
-  printf("%s " fmt "\n", tag, ##__VA_ARGS__);
-#else  // GCC_DEBUG_LOG
+   printf("%s " fmt "\n", tag, ##__VA_ARGS__);
+#elif _OS_BUILD_
 # include <seos.h>
 # ifndef LOG_FUNC
 #  define LOG_FUNC(level, fmt, ...) osLog(level, fmt, ##__VA_ARGS__)
 # endif  // LOG_FUNC
 # define LOGD_TAG(tag, fmt, ...) \
-  LOG_FUNC(LOG_DEBUG, "%s " fmt "\n", tag, ##__VA_ARGS__)
+   LOG_FUNC(LOG_DEBUG, "%s " fmt "\n", tag, ##__VA_ARGS__)
 # define CAL_DEBUG_LOG(tag, fmt, ...) \
-  osLog(LOG_DEBUG, "%s " fmt, tag, ##__VA_ARGS__);
+   osLog(LOG_DEBUG, "%s " fmt, tag, ##__VA_ARGS__);
+#else  // _OS_BUILD_
+# include <chre.h>
+# define CAL_DEBUG_LOG(tag, fmt, ...) \
+   chreLog(CHRE_LOG_INFO, "%s " fmt, tag, ##__VA_ARGS__)
 #endif  // GCC_DEBUG_LOG
 
 #ifdef __cplusplus

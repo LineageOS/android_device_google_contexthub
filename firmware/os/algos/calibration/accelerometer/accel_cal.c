@@ -17,7 +17,6 @@
 #include "calibration/accelerometer/accel_cal.h"
 #include <errno.h>
 #include <math.h>
-#include <seos.h>
 #include <stdio.h>
 #include <string.h>
 #include "calibration/magnetometer/mag_cal.h"
@@ -45,6 +44,10 @@
 #define TEMP_HIST_HIGH \
   62  // Putting all Temp counts in last bucket for temp > 62 degree C.
 #define HIST_COUNT 9
+#endif
+#ifdef IMU_TEMP_DBG_ENABLED
+#define IMU_TEMP_DELTA_TIME_NANOS \
+  5000000000 // Printing every 5 seconds IMU temp.
 #endif
 
 /////////// Start Debug //////////////////////
@@ -90,7 +93,7 @@ static void accelTempHisto(struct AccelStatsMem *adf, float temp) {
   int index = 0;
 
   // Take temp at every stillness detection.
-  adf->start_time = 0;
+  adf->start_time_nanos = 0;
   if (temp <= TEMP_HIST_LOW) {
     adf->t_hist[0] += 1;
     return;
@@ -177,24 +180,28 @@ void accelCalInit(struct AccelCal *acc, uint32_t t0, uint32_t n_s, float th,
 
   acc->x_bias = acc->y_bias = acc->z_bias = 0;
   acc->x_bias_new = acc->y_bias_new = acc->z_bias_new = 0;
+
+#ifdef IMU_TEMP_DBG_ENABLED
+  acc->temp_time_nanos = 0;
+#endif
 }
 
 // Stillness time check.
 static int stillnessBatchComplete(struct AccelStillDet *asd,
-                                  uint64_t sample_time_nsec) {
+                                  uint64_t sample_time_nanos) {
   int complete = 0;
 
   // Checking if enough data is accumulated to calc Mean and Var.
-  if ((sample_time_nsec - asd->start_time > asd->min_batch_window) &&
+  if ((sample_time_nanos - asd->start_time > asd->min_batch_window) &&
       (asd->nsamples > asd->min_batch_size)) {
-    if (sample_time_nsec - asd->start_time < asd->max_batch_window) {
+    if (sample_time_nanos - asd->start_time < asd->max_batch_window) {
       complete = 1;
     } else {
       // Checking for too long batch window, if yes reset and start over.
       asdReset(asd);
       return complete;
     }
-  } else if (sample_time_nsec - asd->start_time > asd->min_batch_window &&
+  } else if (sample_time_nanos - asd->start_time > asd->min_batch_window &&
              (asd->nsamples < asd->min_batch_size)) {
     // Not enough samples collected in max_batch_window during sample window.
     asdReset(asd);
@@ -207,7 +214,7 @@ void accelCalDestroy(struct AccelCal *acc) { (void)acc; }
 
 // Stillness Detection.
 static int accelStillnessDetection(struct AccelStillDet *asd,
-                                   uint64_t sample_time_nsec, float x, float y,
+                                   uint64_t sample_time_nanos, float x, float y,
                                    float z) {
   float inv = 0.0f;
   int complete = 0.0f;
@@ -223,9 +230,9 @@ static int accelStillnessDetection(struct AccelStillDet *asd,
 
   // Setting a new start time and wait until T0 is reached.
   if (++asd->nsamples == 1) {
-    asd->start_time = sample_time_nsec;
+    asd->start_time = sample_time_nanos;
   }
-  if (stillnessBatchComplete(asd, sample_time_nsec)) {
+  if (stillnessBatchComplete(asd, sample_time_nanos)) {
     // Getting 1/#samples and checking asd->nsamples != 0.
     if (0 < asd->nsamples) {
       inv = 1.0f / asd->nsamples;
@@ -462,19 +469,33 @@ void accelCalBiasRemove(struct AccelCal *acc, float *x, float *y, float *z) {
 }
 
 // Accel Cal Runner.
-void accelCalRun(struct AccelCal *acc, uint64_t sample_time_nsec, float x,
+void accelCalRun(struct AccelCal *acc, uint64_t sample_time_nanos, float x,
                  float y, float z, float temp) {
   // Scaling to 1g, better for the algorithm.
   x *= KSCALE;
   y *= KSCALE;
   z *= KSCALE;
 
+  // DBG: IMU temp messages every 5s.
+#ifdef IMU_TEMP_DBG_ENABLED
+  if ((sample_time_nanos - acc->temp_time_nanos) > IMU_TEMP_DELTA_TIME_NANOS) {
+    CAL_DEBUG_LOG("IMU Temp Data: ",
+                  ", %s%d.%02d,  %llu, %s%d.%05d, %s%d.%05d, %s%d.%05d \n",
+                  CAL_ENCODE_FLOAT(temp, 2),
+                  (unsigned long long int)sample_time_nanos,
+                  CAL_ENCODE_FLOAT(acc->x_bias_new,5),
+                  CAL_ENCODE_FLOAT(acc->y_bias_new,5),
+                  CAL_ENCODE_FLOAT(acc->z_bias_new,5));
+    acc->temp_time_nanos = sample_time_nanos;
+    }
+#endif
+
   int temp_gate = 0;
 
   // Temp GATE.
   if (temp < MAX_TEMP && temp > MIN_TEMP) {
     // Checking if accel is still.
-    if (accelStillnessDetection(&acc->asd, sample_time_nsec, x, y, z)) {
+    if (accelStillnessDetection(&acc->asd, sample_time_nanos, x, y, z)) {
 #ifdef ACCEL_CAL_DBG_ENABLED
       // Creating temp hist data.
       accelTempHisto(&acc->adf, temp);
@@ -527,7 +548,7 @@ void accelCalRun(struct AccelCal *acc, uint64_t sample_time_nsec, float x,
           acc->adf.e_z[acc->adf.n_o] = acc->ac1[temp_gate].agd.e_z;
           acc->adf.var_t[acc->adf.n_o] = acc->ac1[temp_gate].agd.var_t;
           acc->adf.mean_t[acc->adf.n_o] = acc->ac1[temp_gate].agd.mean_t;
-          acc->adf.cal_time[acc->adf.n_o] = sample_time_nsec;
+          acc->adf.cal_time[acc->adf.n_o] = sample_time_nanos;
           acc->adf.rad[acc->adf.n_o] = radius;
           acc->adf.n_o += 1;
 #endif

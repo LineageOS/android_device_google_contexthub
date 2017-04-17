@@ -15,9 +15,11 @@
  */
 
 #include "calibration/magnetometer/mag_cal.h"
+
 #include <errno.h>
-#include <nanohub_math.h>
 #include <string.h>
+
+#include "calibration/util/cal_log.h"
 
 #ifdef MAG_CAL_ORIGINAL_TUNING
 #define MAX_EIGEN_RATIO 25.0f
@@ -41,6 +43,13 @@
 
 #ifdef DIVERSITY_CHECK_ENABLED
 #define MAX_DISTANCE_VIOLATIONS 2
+#ifdef SPHERE_FIT_ENABLED
+# define MAX_ITERATIONS 30
+# define INITIAL_U_SCALE 1.0e-4f
+# define GRADIENT_THRESHOLD 1.0e-16f
+# define RELATIVE_STEP_THRESHOLD 1.0e-7f
+# define NUM_SPHERE_FIT_DATA 25
+#endif
 #endif
 
 // eigen value magnitude and ratio test
@@ -193,6 +202,11 @@ void initMagCal(struct MagCal *moc, float x_bias, float y_bias, float z_bias,
   moc->c21 = c21;
   moc->c22 = c22;
 
+#ifdef MAG_CAL_DEBUG_ENABLE
+  moc->mag_dbg.mag_trigger_count = 0;
+  moc->mag_dbg.kasa_count = 0;
+#endif
+
 #ifdef DIVERSITY_CHECK_ENABLED
   // Diversity Checker Init
   diversityCheckerInit(&moc->diversity_checker,
@@ -203,14 +217,33 @@ void initMagCal(struct MagCal *moc, float x_bias, float y_bias, float z_bias,
                        local_field,
                        threshold_tuning_param,
                        max_distance_tuning_param);
+
+#ifdef SPHERE_FIT_ENABLED
+  // Setting lm params.
+  moc->sphere_fit.params.max_iterations = MAX_ITERATIONS;
+  moc->sphere_fit.params.initial_u_scale = INITIAL_U_SCALE;
+  moc->sphere_fit.params.gradient_threshold = GRADIENT_THRESHOLD;
+  moc->sphere_fit.params.relative_step_threshold = RELATIVE_STEP_THRESHOLD;
+  sphereFitInit(&moc->sphere_fit.sphere_cal,
+                &moc->sphere_fit.params,
+                MIN_NUM_SPHERE_FIT_POINTS);
+  sphereFitSetSolverData(&moc->sphere_fit.sphere_cal, &moc->sphere_fit.lm_data);
+  calDataReset(&moc->sphere_fit.sphere_param);
+#endif
 #endif
 }
 
 void magCalDestroy(struct MagCal *moc) { (void)moc; }
 
-bool magCalUpdate(struct MagCal *moc, uint64_t sample_time_us, float x, float y,
-                  float z) {
+#ifdef SPHERE_FIT_ENABLED
+enum MagUpdate magCalUpdate(struct MagCal *moc, uint64_t sample_time_us,
+                            float x, float y, float z) {
+  enum MagUpdate new_bias = NO_UPDATE;
+#else
+bool magCalUpdate(struct MagCal *moc, uint64_t sample_time_us,
+                              float x, float y, float z) {
   bool new_bias = false;
+#endif
 
 #ifdef DIVERSITY_CHECK_ENABLED
   // Diversity Checker Update.
@@ -268,15 +301,68 @@ bool magCalUpdate(struct MagCal *moc, uint64_t sample_time_us, float x, float y,
       float radius;
       // 4. Kasa sphere fitting
       if (magKasaFit(&moc->kasa, &bias, &radius)) {
+
+#ifdef MAG_CAL_DEBUG_ENABLE
+        moc->mag_dbg.kasa_count++;
+        CAL_DEBUG_LOG("[MAG_CAL:KASA UPDATE] :,",
+                      "%s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d, %lu, %lu",
+                      CAL_ENCODE_FLOAT(bias.x, 3),
+                      CAL_ENCODE_FLOAT(bias.y, 3),
+                      CAL_ENCODE_FLOAT(bias.z, 3),
+                      CAL_ENCODE_FLOAT(radius, 3),
+                      (unsigned long int)moc->mag_dbg.kasa_count,
+                      (unsigned long int)moc->mag_dbg.mag_trigger_count);
+#endif
+
 #ifdef DIVERSITY_CHECK_ENABLED
+        // Update the local field.
         diversityCheckerLocalFieldUpdate(&moc->diversity_checker,
                                          radius);
+
+        // checking if data is diverse.
         if (diversityCheckerNormQuality(&moc->diversity_checker,
                                         bias.x,
                                         bias.y,
                                         bias.z) &&
             moc->diversity_checker.num_max_dist_violations
             <= MAX_DISTANCE_VIOLATIONS) {
+
+          // DEBUG PRINT OUT.
+#ifdef MAG_CAL_DEBUG_ENABLE
+          moc->mag_dbg.mag_trigger_count++;
+#ifdef DIVERSE_DEBUG_ENABLE
+          moc->diversity_checker.diversity_dbg.new_trigger = 1;
+          CAL_DEBUG_LOG("[MAG_CAL:BIAS UPDATE] :, ",
+                        "%s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%06d,"
+                        "%s%d.%03d, %s%d.%03d, %s%d.%03d, %zu, %s%d.%03d, "
+                        "%s%d.%03d, %lu, %lu, %llu, %s%d.%03d, %s%d.%03d, "
+                        "%s%d.%03d, %llu",
+                        CAL_ENCODE_FLOAT(bias.x, 3),
+                        CAL_ENCODE_FLOAT(bias.y, 3),
+                        CAL_ENCODE_FLOAT(bias.z, 3),
+                        CAL_ENCODE_FLOAT(radius, 3),
+                        CAL_ENCODE_FLOAT(
+                            moc->diversity_checker.diversity_dbg.var_log, 6),
+                        CAL_ENCODE_FLOAT(
+                            moc->diversity_checker.diversity_dbg.mean_log, 3),
+                        CAL_ENCODE_FLOAT(
+                            moc->diversity_checker.diversity_dbg.max_log, 3),
+                        CAL_ENCODE_FLOAT(
+                            moc->diversity_checker.diversity_dbg.min_log, 3),
+                        moc->diversity_checker.num_points,
+                        CAL_ENCODE_FLOAT(
+                            moc->diversity_checker.threshold, 3),
+                        CAL_ENCODE_FLOAT(
+                            moc->diversity_checker.max_distance, 3),
+                        (unsigned long int)moc->mag_dbg.mag_trigger_count,
+                        (unsigned long int)moc->mag_dbg.kasa_count,
+                        (unsigned long long int)sample_time_us,
+                        CAL_ENCODE_FLOAT(moc->x_bias, 3),
+                        CAL_ENCODE_FLOAT(moc->y_bias, 3),
+                        CAL_ENCODE_FLOAT(moc->z_bias, 3),
+                        (unsigned long long int)moc->update_time);
+#endif
+#endif
 #endif
           moc->x_bias = bias.x;
           moc->y_bias = bias.y;
@@ -285,8 +371,24 @@ bool magCalUpdate(struct MagCal *moc, uint64_t sample_time_us, float x, float y,
           moc->radius = radius;
           moc->update_time = sample_time_us;
 
+#ifdef SPHERE_FIT_ENABLED
+          // Updating that a new bias is avalibale.
+          new_bias = UPDATE_BIAS;
+#else
           new_bias = true;
+#endif
+
 #ifdef DIVERSITY_CHECK_ENABLED
+#ifdef SPHERE_FIT_ENABLED
+          // Checking if more than 25 vectors are in the data set.
+          if (  moc->diversity_checker.num_points >= NUM_SPHERE_FIT_DATA ) {
+            // Run sphere fit.
+            new_bias = magSphereFit(moc, sample_time_us);
+
+            // Resetting sphere fit.
+            sphereFitReset(&moc->sphere_fit.sphere_cal);
+          }
+#endif
         }
 #endif
       }
@@ -338,3 +440,137 @@ void magCalRemoveSoftiron(struct MagCal *moc, float xi, float yi, float zi,
   *yo = moc->c10 * xi + moc->c11 * yi + moc->c12 * zi;
   *zo = moc->c20 * xi + moc->c21 * yi + moc->c22 * zi;
 }
+
+
+#ifdef SPHERE_FIT_ENABLED
+enum MagUpdate magSphereFit(struct MagCal *moc,
+                  uint64_t sample_time_us) {
+  // Setting up sphere fit data.
+  struct SphereFitData data = {
+    &moc->diversity_checker.diverse_data[0],
+    NULL, moc->diversity_checker.num_points,
+    moc->radius};
+  float initial_bias[3] = {moc->x_bias, moc->y_bias, moc->z_bias};
+
+  // Setting initial bias values based on the KASA fit.
+  sphereFitSetInitialBias(&moc->sphere_fit.sphere_cal, initial_bias);
+
+  // Running the sphere fit and checking if successful.
+  if(sphereFitRunCal(&moc->sphere_fit.sphere_cal, &data, sample_time_us)) {
+    // Updating Sphere parameters. Can use "calDataCorrectData" function to
+    // correct data.
+    sphereFitGetLatestCal(&moc->sphere_fit.sphere_cal,
+                          &moc->sphere_fit.sphere_param);
+
+    // Updating that a full sphere fit is available, this overwrites
+    // the UPDATE_BIAS.
+    return UPDATE_SPHERE_FIT;
+  }
+  return UPDATE_BIAS;
+}
+#endif
+
+#if defined MAG_CAL_DEBUG_ENABLE && defined DIVERSE_DEBUG_ENABLE
+// This function prints every second sample parts of the dbg diverse_data_log,
+// which ensures that all the messages get printed into the log file.
+void magLogPrint(struct DiversityChecker* diverse_data, float temp) {
+  // Sample counter.
+  static size_t sample_counter = 0;
+  const float* data_log_ptr = &diverse_data->diversity_dbg.diverse_data_log[0];
+  if (diverse_data->diversity_dbg.new_trigger == 1) {
+    sample_counter++;
+    if (sample_counter == 2) {
+      CAL_DEBUG_LOG("[MAG_CAL:MEMORY X] :,",
+                    "%lu, %s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d"
+                    ", %s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d, "
+                    "%s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d, "
+                    "%s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d, "
+                    "%s%d.%03d",
+                    (unsigned long int)diverse_data->
+                    diversity_dbg.diversity_count,
+                    CAL_ENCODE_FLOAT(data_log_ptr[0*3], 3),
+                    CAL_ENCODE_FLOAT(data_log_ptr[1*3], 3),
+                    CAL_ENCODE_FLOAT(data_log_ptr[2*3], 3),
+                    CAL_ENCODE_FLOAT(data_log_ptr[3*3], 3),
+                    CAL_ENCODE_FLOAT(data_log_ptr[4*3], 3),
+                    CAL_ENCODE_FLOAT(data_log_ptr[5*3], 3),
+                    CAL_ENCODE_FLOAT(data_log_ptr[6*3], 3),
+                    CAL_ENCODE_FLOAT(data_log_ptr[7*3], 3),
+                    CAL_ENCODE_FLOAT(data_log_ptr[8*3], 3),
+                    CAL_ENCODE_FLOAT(data_log_ptr[9*3], 3),
+                    CAL_ENCODE_FLOAT(data_log_ptr[10*3], 3),
+                    CAL_ENCODE_FLOAT(data_log_ptr[11*3], 3),
+                    CAL_ENCODE_FLOAT(data_log_ptr[12*3], 3),
+                    CAL_ENCODE_FLOAT(data_log_ptr[13*3], 3),
+                    CAL_ENCODE_FLOAT(data_log_ptr[14*3], 3),
+                    CAL_ENCODE_FLOAT(data_log_ptr[15*3], 3),
+                    CAL_ENCODE_FLOAT(data_log_ptr[16*3], 3),
+                    CAL_ENCODE_FLOAT(data_log_ptr[17*3], 3),
+                    CAL_ENCODE_FLOAT(data_log_ptr[18*3], 3),
+                    CAL_ENCODE_FLOAT(data_log_ptr[19*3], 3),
+                    CAL_ENCODE_FLOAT(temp, 3));
+    }
+
+    if (sample_counter == 4) {
+      CAL_DEBUG_LOG("[MAG_CAL:MEMORY Y] :,",
+                    "%lu, %s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d"
+                    ", %s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d, "
+                    "%s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d, "
+                    "%s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d, ",
+                    (unsigned long int)diverse_data->
+                    diversity_dbg.diversity_count,
+                    CAL_ENCODE_FLOAT(data_log_ptr[0*3+1], 3),
+                    CAL_ENCODE_FLOAT(data_log_ptr[1*3+1], 3),
+                    CAL_ENCODE_FLOAT(data_log_ptr[2*3+1], 3),
+                    CAL_ENCODE_FLOAT(data_log_ptr[3*3+1], 3),
+                    CAL_ENCODE_FLOAT(data_log_ptr[4*3+1], 3),
+                    CAL_ENCODE_FLOAT(data_log_ptr[5*3+1], 3),
+                    CAL_ENCODE_FLOAT(data_log_ptr[6*3+1], 3),
+                    CAL_ENCODE_FLOAT(data_log_ptr[7*3+1], 3),
+                    CAL_ENCODE_FLOAT(data_log_ptr[8*3+1], 3),
+                    CAL_ENCODE_FLOAT(data_log_ptr[9*3+1], 3),
+                    CAL_ENCODE_FLOAT(data_log_ptr[10*3+1], 3),
+                    CAL_ENCODE_FLOAT(data_log_ptr[11*3+1], 3),
+                    CAL_ENCODE_FLOAT(data_log_ptr[12*3+1], 3),
+                    CAL_ENCODE_FLOAT(data_log_ptr[13*3+1], 3),
+                    CAL_ENCODE_FLOAT(data_log_ptr[14*3+1], 3),
+                    CAL_ENCODE_FLOAT(data_log_ptr[15*3+1], 3),
+                    CAL_ENCODE_FLOAT(data_log_ptr[16*3+1], 3),
+                    CAL_ENCODE_FLOAT(data_log_ptr[17*3+1], 3),
+                    CAL_ENCODE_FLOAT(data_log_ptr[18*3+1], 3),
+                    CAL_ENCODE_FLOAT(data_log_ptr[19*3+1], 3));
+    }
+    if (sample_counter == 6) {
+      CAL_DEBUG_LOG("[MAG_CAL:MEMORY Z] :,",
+                    "%lu, %s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d"
+                    ", %s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d, "
+                    "%s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d, "
+                    "%s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d, ",
+                    (unsigned long int)diverse_data->
+                    diversity_dbg.diversity_count,
+                    CAL_ENCODE_FLOAT(data_log_ptr[0*3+2], 3),
+                    CAL_ENCODE_FLOAT(data_log_ptr[1*3+2], 3),
+                    CAL_ENCODE_FLOAT(data_log_ptr[2*3+2], 3),
+                    CAL_ENCODE_FLOAT(data_log_ptr[3*3+2], 3),
+                    CAL_ENCODE_FLOAT(data_log_ptr[4*3+2], 3),
+                    CAL_ENCODE_FLOAT(data_log_ptr[5*3+2], 3),
+                    CAL_ENCODE_FLOAT(data_log_ptr[6*3+2], 3),
+                    CAL_ENCODE_FLOAT(data_log_ptr[7*3+2], 3),
+                    CAL_ENCODE_FLOAT(data_log_ptr[8*3+2], 3),
+                    CAL_ENCODE_FLOAT(data_log_ptr[9*3+2], 3),
+                    CAL_ENCODE_FLOAT(data_log_ptr[10*3+2], 3),
+                    CAL_ENCODE_FLOAT(data_log_ptr[11*3+2], 3),
+                    CAL_ENCODE_FLOAT(data_log_ptr[12*3+2], 3),
+                    CAL_ENCODE_FLOAT(data_log_ptr[13*3+2], 3),
+                    CAL_ENCODE_FLOAT(data_log_ptr[14*3+2], 3),
+                    CAL_ENCODE_FLOAT(data_log_ptr[15*3+2], 3),
+                    CAL_ENCODE_FLOAT(data_log_ptr[16*3+2], 3),
+                    CAL_ENCODE_FLOAT(data_log_ptr[17*3+2], 3),
+                    CAL_ENCODE_FLOAT(data_log_ptr[18*3+2], 3),
+                    CAL_ENCODE_FLOAT(data_log_ptr[19*3+2], 3));
+      sample_counter = 0;
+      diverse_data->diversity_dbg.new_trigger = 0;
+    }
+  }
+}
+#endif

@@ -16,11 +16,20 @@
 #ifndef LOCATION_LBS_CONTEXTHUB_NANOAPPS_CALIBRATION_MAGNETOMETER_MAG_CAL_H_
 #define LOCATION_LBS_CONTEXTHUB_NANOAPPS_CALIBRATION_MAGNETOMETER_MAG_CAL_H_
 
+#ifdef SPHERE_FIT_ENABLED
+#ifndef DIVERSITY_CHECK_ENABLED
+#define DIVERSITY_CHECK_ENABLED
+#endif
+#endif
+
 #include <stdbool.h>
 #include <stdint.h>
 #include <sys/types.h>
 #ifdef DIVERSITY_CHECK_ENABLED
 #include "calibration/common/diversity_checker.h"
+#endif
+#ifdef SPHERE_FIT_ENABLED
+#include "calibration/common/sphere_fit_calibration.h"
 #endif
 #include "common/math/mat.h"
 #include "common/math/vec.h"
@@ -36,9 +45,35 @@ struct KasaFit {
   size_t nsamples;
 };
 
+#ifdef SPHERE_FIT_ENABLED
+
+enum MagUpdate {
+  NO_UPDATE = 0,
+  UPDATE_BIAS,
+  UPDATE_SPHERE_FIT,
+};
+
+struct SphereFit {
+  struct LmParams params;
+  struct LmData lm_data;
+  struct SphereFitCal sphere_cal;
+  struct ThreeAxisCalData sphere_param;
+};
+#endif
+
+#ifdef MAG_CAL_DEBUG_ENABLE
+struct MagDbg {
+  uint32_t mag_trigger_count;
+  uint32_t kasa_count;
+};
+#endif
+
 struct MagCal {
 #ifdef DIVERSITY_CHECK_ENABLED
   struct DiversityChecker diversity_checker;
+#ifdef SPHERE_FIT_ENABLED
+  struct SphereFit sphere_fit;
+#endif
 #endif
   struct KasaFit kasa;
 
@@ -49,6 +84,10 @@ struct MagCal {
   float radius;
 
   float c00, c01, c02, c10, c11, c12, c20, c21, c22;
+
+#ifdef MAG_CAL_DEBUG_ENABLE
+  struct MagDbg mag_dbg;
+#endif
 };
 
 void initKasa(struct KasaFit *kasa);
@@ -67,10 +106,13 @@ void initMagCal(struct MagCal *moc, float x_bias, float y_bias, float z_bias,
 #endif
 
 void magCalDestroy(struct MagCal *moc);
-
+#ifdef SPHERE_FIT_ENABLED
+enum MagUpdate magCalUpdate(struct MagCal *moc, uint64_t sample_time_us,
+                            float x, float y, float z);
+#else
 bool magCalUpdate(struct MagCal *moc, uint64_t sample_time_us, float x, float y,
-                  float z);
-
+                            float z);
+#endif
 void magCalGetBias(struct MagCal *moc, float *x, float *y, float *z);
 
 void magCalAddBias(struct MagCal *moc, float x, float y, float z);
@@ -90,6 +132,15 @@ void magKasaReset(struct KasaFit *kasa);
 void magCalReset(struct MagCal *moc);
 
 int magKasaFit(struct KasaFit *kasa, struct Vec3 *bias, float *radius);
+
+#if defined MAG_CAL_DEBUG_ENABLE && defined DIVERSITY_CHECK_ENABLED
+void magLogPrint(struct DiversityChecker *moc, float temp);
+#endif
+
+#ifdef SPHERE_FIT_ENABLED
+enum MagUpdate magSphereFit(struct MagCal *moc,
+                  uint64_t sample_time_us);
+#endif
 
 #ifdef __cplusplus
 }
