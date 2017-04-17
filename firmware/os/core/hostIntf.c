@@ -1083,7 +1083,7 @@ static void copyTripleSamplesRaw(struct ActiveSensor *sensor, const struct Tripl
     }
 }
 
-static void hostIntfAddBlock(struct HostIntfDataBuffer *data, bool discardable)
+static void hostIntfAddBlock(struct HostIntfDataBuffer *data, bool discardable, bool interrupt)
 {
     if (!simpleQueueEnqueue(mOutputQ, data, sizeof(uint32_t) + data->length, discardable))
         return;
@@ -1092,7 +1092,7 @@ static void hostIntfAddBlock(struct HostIntfDataBuffer *data, bool discardable)
         mWakeupBlocks++;
     else if (data->interrupt == NANOHUB_INT_NONWAKEUP)
         mNonWakeupBlocks++;
-    nanohubPrefetchTx(data->interrupt, mWakeupBlocks, mNonWakeupBlocks);
+    nanohubPrefetchTx(interrupt ? data->interrupt : HOSTINTF_MAX_INTERRUPTS, mWakeupBlocks, mNonWakeupBlocks);
 }
 
 static void hostIntfNotifyReboot(uint32_t reason)
@@ -1165,7 +1165,7 @@ static void onEvtAppStart(const void *evtData)
         data->dataType = HOSTINTF_DATA_TYPE_RESET_REASON;
         data->interrupt = NANOHUB_INT_WAKEUP;
         memcpy(data->buffer, &reason, sizeof(reason));
-        hostIntfAddBlock(data, false);
+        hostIntfAddBlock(data, false, true);
         hostIntfNotifyReboot(reason);
     }
 }
@@ -1182,7 +1182,7 @@ static void onEvtAppToHost(const void *evtData)
         data->dataType = HOSTINTF_DATA_TYPE_APP_TO_HOST;
         data->interrupt = NANOHUB_INT_WAKEUP;
         memcpy(data->buffer, evtData, data->length);
-        hostIntfAddBlock(data, false);
+        hostIntfAddBlock(data, false, true);
     }
 }
 
@@ -1200,7 +1200,7 @@ static void onEvtDebugLog(const void *evtData)
     struct HostIntfDataBuffer *data = (struct HostIntfDataBuffer *)evtData;
 
     if (data->sensType == SENS_TYPE_INVALID && data->dataType == HOSTINTF_DATA_TYPE_LOG)
-        hostIntfAddBlock(data, true);
+        hostIntfAddBlock(data, true, true);
 }
 #endif
 
@@ -1362,7 +1362,7 @@ static void onEvtAppToSensorHalData(const void *evtData)
     if (data->sensType == SENS_TYPE_INVALID
             && data->dataType == HOSTINTF_DATA_TYPE_APP_TO_SENSOR_HAL) {
         struct AppToSensorHalDataBuffer *buffer = (struct AppToSensorHalDataBuffer *)data;
-        hostIntfAddBlock(data, (buffer->payload.type & EVENT_TYPE_BIT_DISCARDABLE) != 0);
+        hostIntfAddBlock(data, (buffer->payload.type & EVENT_TYPE_BIT_DISCARDABLE) != 0, false);
     }
 }
 
