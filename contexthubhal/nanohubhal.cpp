@@ -39,7 +39,7 @@
 #include "system_comms.h"
 #include "nanohubhal.h"
 
-#define NANOHUB_LOCK_DIR        "/data/system/nanohub_lock"
+#define NANOHUB_LOCK_DIR        "/data/vendor/sensor/nanohub_lock"
 #define NANOHUB_LOCK_FILE       NANOHUB_LOCK_DIR "/lock"
 #define NANOHUB_LOCK_DIR_PERMS  (S_IRUSR | S_IWUSR | S_IXUSR)
 

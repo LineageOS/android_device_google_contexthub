@@ -24,7 +24,7 @@
 namespace android {
 
 #define CONTEXTHUB_SETTINGS_PATH        "/persist/sensorcal.json"
-#define CONTEXTHUB_SAVED_SETTINGS_PATH  "/data/misc/sensorcal_saved.json"
+#define CONTEXTHUB_SAVED_SETTINGS_PATH  "/data/vendor/sensor/sensorcal_saved.json"
 #define MAG_BIAS_FILE_PATH              "/sys/class/power_supply/battery/compass_compensation"
 
 static const uint32_t kMinClockRateHz = 960000;
