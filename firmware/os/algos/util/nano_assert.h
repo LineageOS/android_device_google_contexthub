@@ -34,11 +34,13 @@
 
 #endif
 
+#ifndef ASSERT
 #ifdef NANO_ASSERT_ENABLED
 #define ASSERT(x) ASSERT_IMPL(x)
 #else
 #define ASSERT(x) ((void)(x))
-#endif
+#endif  // NANO_ASSERT_ENABLED
+#endif  // ASSERT
 
 // Use NULL when compiling for C and nullptr for C++.
 #ifdef __cplusplus

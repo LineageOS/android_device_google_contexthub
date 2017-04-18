@@ -95,7 +95,7 @@ struct AccelGoodData {
 struct AccelStatsMem {
   // Temp (in degree C).
   uint32_t t_hist[TEMP_HISTOGRAM];
-  uint64_t start_time;
+  uint64_t start_time_nanos;
 
   // Offset update counter.
   uint32_t noff;
@@ -136,22 +136,27 @@ struct AccelCal {
 #endif
 
   // Offsets are only updated while the accelerometer is not running. Hence need
-  // to store a new offset,
-  // which gets updated during a power down event.
+  // to store a new offset, which gets updated during a power down event.
   float x_bias_new, y_bias_new, z_bias_new;
 
   // Offset values that get subtracted from live data
   float x_bias, y_bias, z_bias;
+
+#ifdef IMU_TEMP_DBG_ENABLED
+  // Temporary time variable used to to print an IMU temperature value with a
+  // lower custom sample rate.
+  uint64_t temp_time_nanos;
+#endif
 };
 
 /* This function runs the accel calibration algorithm.
- * sample_time_nsec -> is the  sensor timestamp in ns and
+ * sample_time_nanos -> is the  sensor timestamp in ns and
  *                     is used to check the stillness time.
  * x,y,z            -> is the sensor data (m/s^2) for the three axes.
  *                     Data is converted to g’s inside the function.
  * temp             -> is the temperature of the IMU (degree C).
  */
-void accelCalRun(struct AccelCal *acc, uint64_t sample_time_nsec, float x,
+void accelCalRun(struct AccelCal *acc, uint64_t sample_time_nanos, float x,
                  float y, float z, float temp);
 
 /* This function initializes the accCalRun data struct.

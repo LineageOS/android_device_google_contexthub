@@ -68,8 +68,23 @@ extern "C" {
 // Defines the maximum size of the 'model_data' array.
 #define OVERTEMPCAL_MODEL_SIZE (40)
 
+// A common sensor operating temperature at which to start producing the model
+// jump-start data.
+#define JUMPSTART_START_TEMP_CELSIUS (30.0f)
+
 // The maximum number of successive outliers that may be rejected.
 #define OVERTEMPCAL_MAX_OUTLIER_COUNT (3)
+
+// The 'temp_sensitivity' parameters are set to this value to indicate that the
+// model is in its initial state.
+#define OTC_INITIAL_SENSITIVITY (1e6f)
+
+// Minimum "significant" change of offset value.
+#define SIGNIFICANT_OFFSET_CHANGE_RPS (5.23e-5f)  // 3mDPS
+
+// Valid sensor temperature operating range.
+#define OVERTEMPCAL_TEMP_MIN_CELSIUS (-40.0f)
+#define OVERTEMPCAL_TEMP_MAX_CELSIUS (85.0f)
 
 // Over-temperature sensor offset estimate structure.
 struct OverTempCalDataPt {
@@ -93,9 +108,6 @@ enum OverTempCalDebugState {
 // OverTempCal debug information/data tracking structure.
 struct DebugOverTempCal {
   uint64_t modelupdate_timestamp_nanos;
-
-  // The most recent offset estimate received.
-  struct OverTempCalDataPt latest_offset;
 
   // The offset estimate nearest the current sensor temperature.
   struct OverTempCalDataPt nearest_offset;
@@ -132,6 +144,9 @@ struct OverTempCal {
   // The temperature at which the offset compensation is performed.
   float temperature_celsius;
 
+  // The stored value of the temperature compensated sensor offset.
+  float compensated_offset_previous[3];
+
   // Pointer to the offset estimate closest to the current sensor temperature.
   struct OverTempCalDataPt *nearest_offset;
 
@@ -150,7 +165,7 @@ struct OverTempCal {
   //            min_update_interval_nanos
   //    3) A new set of model parameters are accepted if:
   //         i.  The model fit error is less than, 'max_error_limit'. See
-  //             getModelError() for error metric description.
+  //             overTempGetModelError() for error metric description.
   //         ii. The model fit parameters must be within certain absolute
   //             bounds:
   //               a. ABS(temp_sensitivity) < temp_sensitivity_limit
@@ -287,6 +302,56 @@ void overTempCalGetModel(struct OverTempCal *over_temp_cal, float *offset,
                          float *temp_sensitivity, float *sensor_intercept);
 
 /*
+ * Sets the over-temp compensation model data set, and computes new model
+ * parameters provided that 'min_num_model_pts' is satisfied.
+ *
+ * INPUTS:
+ *   over_temp_cal:    Over-temp main data structure.
+ *   model_data:       Array of the new model data set.
+ *   data_length:      Number of model data entries in 'model_data'.
+ *
+ * NOTE: Max array length for 'model_data' is OVERTEMPCAL_MODEL_SIZE.
+ */
+void overTempCalSetModelData(struct OverTempCal *over_temp_cal,
+                             size_t data_length,
+                             const struct OverTempCalDataPt *model_data);
+
+/*
+ * Gets the over-temp compensation model data set.
+ *
+ * INPUTS:
+ *   over_temp_cal:    Over-temp main data structure.
+ * OUTPUTS:
+ *   model_data:       Array containing the model data set.
+ *   data_length:      Number of model data entries in 'model_data'.
+ *
+ * NOTE: Max array length for 'model_data' is OVERTEMPCAL_MODEL_SIZE.
+ */
+void overTempCalGetModelData(struct OverTempCal *over_temp_cal,
+                             size_t *data_length,
+                             struct OverTempCalDataPt *model_data);
+
+/*
+ * Returns 'true' if the estimated offset has changed by
+ * 'SIGNIFICANT_OFFSET_CHANGE_RPS' and provides the current over-temperature
+ * compensated offset vector. This function is useful for detecting changes in
+ * the offset vector.
+ *
+ * INPUTS:
+ *   over_temp_cal:    Over-temp data structure.
+ *   timestamp_nanos:  The current system timestamp.
+ * OUTPUTS:
+ *   compensated_offset: Temperature compensated offset estimate array.
+ *   compensated_offset_temperature_celsius: Compensated offset temperature.
+ *
+ * NOTE: Arrays are all 3-dimensional with indices: 0=x, 1=y, 2=z.
+ */
+bool overTempCalGetOffset(struct OverTempCal *over_temp_cal,
+                          uint64_t timestamp_nanos,
+                          float *compensated_offset_temperature_celsius,
+                          float *compensated_offset);
+
+/*
  * Removes the over-temp compensated offset from the input sensor data.
  *
  * INPUTS:
@@ -347,9 +412,9 @@ void overTempCalSetTemperature(struct OverTempCal *over_temp_cal,
  * NOTE 1: Arrays are all 3-dimensional with indices: 0=x, 1=y, 2=z.
  * NOTE 2: This function is provided for testing purposes.
  */
-void getModelError(const struct OverTempCal *over_temp_cal,
-                   const float *temp_sensitivity, const float *sensor_intercept,
-                   float *max_error);
+void overTempGetModelError(const struct OverTempCal *over_temp_cal,
+                           const float *temp_sensitivity,
+                           const float *sensor_intercept, float *max_error);
 
 #ifdef OVERTEMPCAL_DBG_ENABLED
 // This debug printout function assumes the input sensor data is a gyroscope
