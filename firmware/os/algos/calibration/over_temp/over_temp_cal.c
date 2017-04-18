@@ -1056,6 +1056,8 @@ void updateDebugData(struct OverTempCal* over_temp_cal) {
   memset(&over_temp_cal->debug_overtempcal, 0, sizeof(struct DebugOverTempCal));
 
   // Copies over the relevant data.
+  memcpy(over_temp_cal->debug_overtempcal.temp_sensitivity,
+         over_temp_cal->temp_sensitivity, 3 * sizeof(float));
   memcpy(over_temp_cal->debug_overtempcal.sensor_intercept,
          over_temp_cal->sensor_intercept, 3 * sizeof(float));
   memcpy(&over_temp_cal->debug_overtempcal.nearest_offset,
