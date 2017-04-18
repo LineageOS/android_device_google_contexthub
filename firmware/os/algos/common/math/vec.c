@@ -15,7 +15,6 @@
  */
 
 #include "common/math/vec.h"
-#include <nanohub_math.h>
 
 void findOrthogonalVector(float inX, float inY, float inZ, float *outX,
                           float *outY, float *outZ) {

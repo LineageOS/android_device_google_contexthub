@@ -26,23 +26,18 @@
 
 /////// DEFINITIONS AND MACROS ////////////////////////////////////////////////
 
-// The 'temp_sensitivity' parameters are set to this value to indicate that the
-// model is in its initial state.
-#define MODEL_INITIAL_STATE (1e6f)
-
 // Rate-limits the search for the nearest offset estimate to every 2 seconds.
 #define OVERTEMPCAL_NEAREST_NANOS (2000000000)
 
 // Rate-limits the check of old data to every 2 hours.
 #define OVERTEMPCAL_STALE_CHECK_TIME_NANOS (7200000000000)
 
-// A common sensor operating temperature at which to start producing the model
-// jump-start data.
-#define JUMPSTART_START_TEMP_CELSIUS (30.0f)
+// Value used to check whether OTC model parameters are near zero.
+#define OTC_MODELDATA_NEAR_ZERO_TOL (1e-7f)  // [rad/sec]
 
 #ifdef OVERTEMPCAL_DBG_ENABLED
 // A debug version label to help with tracking results.
-#define OVERTEMPCAL_DEBUG_VERSION_STRING "[Jan 20, 2017]"
+#define OVERTEMPCAL_DEBUG_VERSION_STRING "[Apr 05, 2017]"
 
 // The time value used to throttle debug messaging.
 #define OVERTEMPCAL_WAIT_TIME_NANOS (300000000)
@@ -51,7 +46,7 @@
 #define OVERTEMPCAL_REPORT_TAG "[OVER_TEMP_CAL:REPORT]"
 
 // Converts units of radians to milli-degrees.
-#define RAD_TO_MILLI_DEGREES (float)(1e3f * 180.0f / M_PI)
+#define RAD_TO_MILLI_DEGREES (float)(1e3f * 180.0f / NANO_PI)
 
 // Sensor axis label definition with index correspondence: 0=X, 1=Y, 2=Z.
 static const char  kDebugAxisLabel[3] = "XYZ";
@@ -59,7 +54,7 @@ static const char  kDebugAxisLabel[3] = "XYZ";
 
 /////// FORWARD DECLARATIONS //////////////////////////////////////////////////
 
-// Updates the most recent model estimate data.
+// Updates the model estimate data nearest to the sensor's temperature.
 static void setNearestEstimate(struct OverTempCal *over_temp_cal,
                               const float *offset, float offset_temp_celsius,
                               uint64_t timestamp_nanos);
@@ -80,6 +75,23 @@ static void computeModelUpdate(struct OverTempCal *over_temp_cal,
  * temperature. Sets the 'nearest_offset' pointer to the result.
  */
 static void findNearestEstimate(struct OverTempCal *over_temp_cal);
+
+/*
+ * Provides the current over-temperature compensated offset vector.
+ *
+ * INPUTS:
+ *   over_temp_cal:    Over-temp data structure.
+ *   timestamp_nanos:  The current system timestamp.
+ * OUTPUTS:
+ *   compensated_offset: Temperature compensated offset estimate array.
+ *   compensated_offset_temperature_celsius: Compensated offset temperature.
+ *
+ * NOTE: Arrays are all 3-dimensional with indices: 0=x, 1=y, 2=z.
+ */
+static void getCalOffset(struct OverTempCal *over_temp_cal,
+                         uint64_t timestamp_nanos,
+                         float *compensated_offset_temperature_celsius,
+                         float *compensated_offset);
 
 /*
  * Removes the "old" offset estimates from 'model_data' (i.e., eliminates the
@@ -121,19 +133,6 @@ static void updateModel(const struct OverTempCal *over_temp_cal,
                         float *temp_sensitivity, float *sensor_intercept);
 
 /*
- * Removes the over-temp compensated offset from the input sensor data.
- *
- * INPUTS:
- *   over_temp_cal:    Over-temp data structure.
- *   axis_in:          Single axis sensor data to be compensated.
- *   index:            Index for model parameter compensation (0=x, 1=y, 2=z).
- * OUTPUTS:
- *   axis_out:         Single axis sensor data that has been compensated.
- */
-static void removeSensorOffset(const struct OverTempCal *over_temp_cal,
-                               float axis_in, size_t index, float *axis_out);
-
-/*
  * Checks new offset estimates to determine if they could be an outlier that
  * should be rejected. Operates on a per-axis basis determined by 'axis_index'.
  *
@@ -147,6 +146,63 @@ static void removeSensorOffset(const struct OverTempCal *over_temp_cal,
  */
 static bool outlierCheck(struct OverTempCal *over_temp_cal, const float *offset,
                          size_t axis_index, float temperature_celsius);
+
+// Sets the OTC model parameters to an "initialized" state.
+static void resetOtcLinearModel(struct OverTempCal *over_temp_cal) {
+  ASSERT_NOT_NULL(over_temp_cal);
+
+  // Sets the temperature sensitivity model parameters to
+  // OTC_INITIAL_SENSITIVITY to indicate that the model is in an "initial"
+  // state.
+  over_temp_cal->temp_sensitivity[0] = OTC_INITIAL_SENSITIVITY;
+  over_temp_cal->temp_sensitivity[1] = OTC_INITIAL_SENSITIVITY;
+  over_temp_cal->temp_sensitivity[2] = OTC_INITIAL_SENSITIVITY;
+  memset(over_temp_cal->sensor_intercept, 0, 3 * sizeof(float));
+}
+
+// Checks that the input temperature value is within the valid range. If outside
+// of range, then 'temperature_celsius' is coerced to within the limits.
+static bool checkAndEnforceTemperatureRange(float *temperature_celsius) {
+  if (*temperature_celsius > OVERTEMPCAL_TEMP_MAX_CELSIUS) {
+    *temperature_celsius = OVERTEMPCAL_TEMP_MAX_CELSIUS;
+    return false;
+  }
+  if (*temperature_celsius < OVERTEMPCAL_TEMP_MIN_CELSIUS) {
+    *temperature_celsius = OVERTEMPCAL_TEMP_MIN_CELSIUS;
+    return false;
+  }
+  return true;
+}
+
+// Returns "true" if the candidate linear model parameters are within the valid
+// range, and not all zeros.
+static bool isValidOtcLinearModel(const struct OverTempCal *over_temp_cal,
+                   float temp_sensitivity, float sensor_intercept) {
+  ASSERT_NOT_NULL(over_temp_cal);
+
+  return NANO_ABS(temp_sensitivity) < over_temp_cal->temp_sensitivity_limit &&
+         NANO_ABS(sensor_intercept) < over_temp_cal->sensor_intercept_limit &&
+         NANO_ABS(temp_sensitivity) > OTC_MODELDATA_NEAR_ZERO_TOL &&
+         NANO_ABS(sensor_intercept) > OTC_MODELDATA_NEAR_ZERO_TOL;
+}
+
+// Returns "true" if 'offset' and 'offset_temp_celsius' is valid.
+static bool isValidOtcOffset(const float *offset, float offset_temp_celsius) {
+  ASSERT_NOT_NULL(offset);
+
+  // Simple check to ensure that:
+  //   1. All of the input data is non "zero".
+  //   2. The offset temperature is within the valid range.
+  if (NANO_ABS(offset[0]) < OTC_MODELDATA_NEAR_ZERO_TOL &&
+      NANO_ABS(offset[1]) < OTC_MODELDATA_NEAR_ZERO_TOL &&
+      NANO_ABS(offset[2]) < OTC_MODELDATA_NEAR_ZERO_TOL &&
+      NANO_ABS(offset_temp_celsius) < OTC_MODELDATA_NEAR_ZERO_TOL) {
+    return false;
+  }
+
+  // Only returns the "check" result. Don't care about coercion.
+  return checkAndEnforceTemperatureRange(&offset_temp_celsius);
+}
 
 #ifdef OVERTEMPCAL_DBG_ENABLED
 // This helper function stores all of the debug tracking information necessary
@@ -171,11 +227,8 @@ void overTempCalInit(struct OverTempCal *over_temp_cal,
   // as the first element in 'model_data'.
   over_temp_cal->nearest_offset = &over_temp_cal->model_data[0];
 
-  // Sets the temperature sensitivity model parameters to MODEL_INITIAL_STATE to
-  // indicate that the model is in an "initial" state.
-  over_temp_cal->temp_sensitivity[0] = MODEL_INITIAL_STATE;
-  over_temp_cal->temp_sensitivity[1] = MODEL_INITIAL_STATE;
-  over_temp_cal->temp_sensitivity[2] = MODEL_INITIAL_STATE;
+  // Initializes the OTC linear model parameters.
+  resetOtcLinearModel(over_temp_cal);
 
   // Initializes the model identification parameters.
   over_temp_cal->new_overtemp_model_available = false;
@@ -187,6 +240,9 @@ void overTempCalInit(struct OverTempCal *over_temp_cal,
   over_temp_cal->temp_sensitivity_limit = temp_sensitivity_limit;
   over_temp_cal->sensor_intercept_limit = sensor_intercept_limit;
   over_temp_cal->over_temp_enable = over_temp_enable;
+
+  // Initialize the sensor's temperature with a good initial operating point.
+  over_temp_cal->temperature_celsius = JUMPSTART_START_TEMP_CELSIUS;
 
 #ifdef OVERTEMPCAL_DBG_ENABLED
   CAL_DEBUG_LOG("[OVER_TEMP_CAL:MEMORY]", "sizeof(struct OverTempCal): %lu",
@@ -211,11 +267,16 @@ void overTempCalSetModel(struct OverTempCal *over_temp_cal, const float *offset,
   ASSERT_NOT_NULL(temp_sensitivity);
   ASSERT_NOT_NULL(sensor_intercept);
 
+  // Initializes the OTC linear model parameters.
+  resetOtcLinearModel(over_temp_cal);
+
   // Sets the model parameters if they are within the acceptable limits.
+  // Includes a check to reject input model parameters that may have been passed
+  // in as all zeros.
   size_t i;
   for (i = 0; i < 3; i++) {
-    if (NANO_ABS(temp_sensitivity[i]) < over_temp_cal->temp_sensitivity_limit &&
-        NANO_ABS(sensor_intercept[i]) < over_temp_cal->sensor_intercept_limit) {
+    if (isValidOtcLinearModel(over_temp_cal, temp_sensitivity[i],
+                              sensor_intercept[i])) {
       over_temp_cal->temp_sensitivity[i] = temp_sensitivity[i];
       over_temp_cal->sensor_intercept[i] = sensor_intercept[i];
     }
@@ -229,18 +290,48 @@ void overTempCalSetModel(struct OverTempCal *over_temp_cal, const float *offset,
       (jump_start_model) ? jumpStartModelData(over_temp_cal) : false;
 
   if (!model_jump_started) {
-    // Sets the initial over-temp calibration estimate and model data.
-    setNearestEstimate(over_temp_cal, offset, offset_temp_celsius,
-                      timestamp_nanos);
-
-    // Now there is one offset estimate in the model.
-    over_temp_cal->num_model_pts = 1;
+    // Checks that the new offset data is valid.
+    if (isValidOtcOffset(offset, offset_temp_celsius)) {
+      // Sets the initial over-temp calibration estimate and model data.
+      over_temp_cal->nearest_offset = &over_temp_cal->model_data[0];
+      setNearestEstimate(over_temp_cal, offset, offset_temp_celsius,
+                         timestamp_nanos);
+      over_temp_cal->num_model_pts = 1;
+    } else {
+      // No valid offset data to load.
+      over_temp_cal->num_model_pts = 0;
+#ifdef OVERTEMPCAL_DBG_ENABLED
+      CAL_DEBUG_LOG("[OVER_TEMP_CAL:RECALL]",
+                    "No valid sensor offset vector to load.");
+#endif  // OVERTEMPCAL_DBG_ENABLED
+    }
+  } else {
+    // Finds the offset nearest the sensor's current temperature.
+    findNearestEstimate(over_temp_cal);
   }
 
 #ifdef OVERTEMPCAL_DBG_ENABLED
   // Prints the updated model data.
-  CAL_DEBUG_LOG("[OVER_TEMP_CAL:RECALL]",
-                "Over-temperature model parameters recalled.");
+  CAL_DEBUG_LOG(
+      "[OVER_TEMP_CAL:RECALL]",
+      "Temperature|Offset|Sensitivity|Intercept [rps]: %s%d.%06d, | %s%d.%06d, "
+      "%s%d.%06d, %s%d.%06d | %s%d.%06d, %s%d.%06d, %s%d.%06d | "
+      "%s%d.%06d, "
+      "%s%d.%06d, %s%d.%06d",
+      CAL_ENCODE_FLOAT(offset_temp_celsius, 6),
+      CAL_ENCODE_FLOAT(offset[0], 6),
+      CAL_ENCODE_FLOAT(offset[1], 6),
+      CAL_ENCODE_FLOAT(offset[2], 6),
+      CAL_ENCODE_FLOAT(temp_sensitivity[0], 6),
+      CAL_ENCODE_FLOAT(temp_sensitivity[1], 6),
+      CAL_ENCODE_FLOAT(temp_sensitivity[2], 6),
+      CAL_ENCODE_FLOAT(sensor_intercept[0], 6),
+      CAL_ENCODE_FLOAT(sensor_intercept[1], 6),
+      CAL_ENCODE_FLOAT(sensor_intercept[2], 6));
+
+  // Resets the debug print machine to ensure that updateDebugData() can
+  // produce a debug report and interupt any ongoing report.
+  over_temp_cal->debug_state = OTC_IDLE;
 
   // Triggers a debug print out to view the new model parameters.
   updateDebugData(over_temp_cal);
@@ -258,54 +349,142 @@ void overTempCalGetModel(struct OverTempCal *over_temp_cal, float *offset,
   ASSERT_NOT_NULL(temp_sensitivity);
   ASSERT_NOT_NULL(sensor_intercept);
 
-  // Gets the over-temp calibration estimate and model data.
-  memcpy(offset, over_temp_cal->nearest_offset->offset, 3 * sizeof(float));
+  // Gets the latest over-temp calibration model data.
   memcpy(temp_sensitivity, over_temp_cal->temp_sensitivity, 3 * sizeof(float));
   memcpy(sensor_intercept, over_temp_cal->sensor_intercept, 3 * sizeof(float));
-  *offset_temp_celsius = over_temp_cal->nearest_offset->offset_temp_celsius;
-  *timestamp_nanos = over_temp_cal->nearest_offset->timestamp_nanos;
+  *timestamp_nanos = over_temp_cal->modelupdate_timestamp_nanos;
+
+  // Gets the latest temperature compensated offset estimate.
+  getCalOffset(over_temp_cal, *timestamp_nanos, offset_temp_celsius, offset);
 
 #ifdef OVERTEMPCAL_DBG_ENABLED
-  CAL_DEBUG_LOG("[OVER_TEMP_CAL:STORED]",
-                "Over-temperature model parameters stored.");
+  // Prints the updated model data.
+  CAL_DEBUG_LOG(
+      "[OVER_TEMP_CAL:STORED]",
+      "Temperature|Offset|Sensitivity|Intercept [rps]: %s%d.%06d, | %s%d.%06d, "
+      "%s%d.%06d, %s%d.%06d | %s%d.%06d, %s%d.%06d, %s%d.%06d | "
+      "%s%d.%06d, "
+      "%s%d.%06d, %s%d.%06d",
+      CAL_ENCODE_FLOAT(*offset_temp_celsius, 6),
+      CAL_ENCODE_FLOAT(offset[0], 6),
+      CAL_ENCODE_FLOAT(offset[1], 6),
+      CAL_ENCODE_FLOAT(offset[2], 6),
+      CAL_ENCODE_FLOAT(temp_sensitivity[0], 6),
+      CAL_ENCODE_FLOAT(temp_sensitivity[1], 6),
+      CAL_ENCODE_FLOAT(temp_sensitivity[2], 6),
+      CAL_ENCODE_FLOAT(sensor_intercept[0], 6),
+      CAL_ENCODE_FLOAT(sensor_intercept[1], 6),
+      CAL_ENCODE_FLOAT(sensor_intercept[2], 6));
 #endif  // OVERTEMPCAL_DBG_ENABLED
+}
+
+void overTempCalSetModelData(struct OverTempCal *over_temp_cal,
+                             size_t data_length,
+                             const struct OverTempCalDataPt *model_data) {
+  ASSERT_NOT_NULL(over_temp_cal);
+  ASSERT_NOT_NULL(model_data);
+
+  // Load only "good" data from the input 'model_data'.
+  over_temp_cal->num_model_pts = NANO_MIN(data_length, OVERTEMPCAL_MODEL_SIZE);
+  size_t i;
+  size_t valid_data_count = 0;
+  for (i = 0; i < over_temp_cal->num_model_pts; i++) {
+    if (isValidOtcOffset(model_data[i].offset,
+                         model_data[i].offset_temp_celsius)) {
+      memcpy(&over_temp_cal->model_data[i], &model_data[i],
+             sizeof(struct OverTempCalDataPt));
+      valid_data_count++;
+    }
+  }
+  over_temp_cal->num_model_pts = valid_data_count;
+
+  // Initializes the OTC linear model parameters.
+  resetOtcLinearModel(over_temp_cal);
+
+  // Finds the offset nearest the sensor's current temperature.
+  findNearestEstimate(over_temp_cal);
+
+#ifdef OVERTEMPCAL_DBG_ENABLED
+  // Prints the updated model data.
+  CAL_DEBUG_LOG("[OVER_TEMP_CAL:RECALL]",
+                "Over-temperature full model data set recalled.");
+  // Resets the debug print machine to ensure that computeModelUpdate() can
+  // produce a debug report and interupt any ongoing report.
+  over_temp_cal->debug_state = OTC_IDLE;
+#endif  // OVERTEMPCAL_DBG_ENABLED
+
+  // Ensures that minimum number of points required for a model fit has been
+  // satisfied and recomputes the OTC model parameters.
+  if (over_temp_cal->num_model_pts > over_temp_cal->min_num_model_pts) {
+    // Computes and replaces the model parameters. If successful, this will
+    // trigger a "new calibration" update.
+    computeModelUpdate(over_temp_cal,
+                       over_temp_cal->modelupdate_timestamp_nanos);
+  }
+}
+
+void overTempCalGetModelData(struct OverTempCal *over_temp_cal,
+                             size_t *data_length,
+                             struct OverTempCalDataPt *model_data) {
+  ASSERT_NOT_NULL(over_temp_cal);
+  *data_length = over_temp_cal->num_model_pts;
+  memcpy(model_data, over_temp_cal->model_data,
+         over_temp_cal->num_model_pts * sizeof(struct OverTempCalDataPt));
+}
+
+bool overTempCalGetOffset(struct OverTempCal *over_temp_cal,
+                          uint64_t timestamp_nanos,
+                          float *compensated_offset_temperature_celsius,
+                          float *compensated_offset) {
+  // Gets the temperature compensated sensor offset estimate.
+  getCalOffset(over_temp_cal, timestamp_nanos,
+               compensated_offset_temperature_celsius, compensated_offset);
+
+  // If the compensated_offset value has changed significantly then return
+  // 'true' status.
+  bool offset_has_changed = false;
+  int i;
+  for (i = 0; i < 3; i++) {
+    if (NANO_ABS(over_temp_cal->compensated_offset_previous[i] -
+                 compensated_offset[i]) >= SIGNIFICANT_OFFSET_CHANGE_RPS) {
+      offset_has_changed = true;
+
+      // Update the 'compensated_offset_previous' vector.
+      memcpy(over_temp_cal->compensated_offset_previous, compensated_offset,
+             3 * sizeof(float));
+      break;
+    }
+  }
+
+  return offset_has_changed;
 }
 
 void overTempCalRemoveOffset(struct OverTempCal *over_temp_cal,
                              uint64_t timestamp_nanos, float xi, float yi,
                              float zi, float *xo, float *yo, float *zo) {
   ASSERT_NOT_NULL(over_temp_cal);
-  ASSERT_NOT_NULL(over_temp_cal->nearest_offset);
   ASSERT_NOT_NULL(xo);
   ASSERT_NOT_NULL(yo);
   ASSERT_NOT_NULL(zo);
 
-  // Removes very old data from the collected model estimates (eliminates
-  // drift-compromised data). Only does this when there is more than one
-  // estimate in the model (i.e., don't want to remove all data, even if it is
-  // very old [something is likely better than nothing]).
-  if ((timestamp_nanos - over_temp_cal->stale_data_timer) >=
-          OVERTEMPCAL_STALE_CHECK_TIME_NANOS &&
-      over_temp_cal->num_model_pts > 1) {
-    over_temp_cal->stale_data_timer = timestamp_nanos;  // Resets timer.
-
-    if (removeStaleModelData(over_temp_cal, timestamp_nanos)) {
-      // If anything was removed, then this attempts to recompute the model.
-      if (over_temp_cal->num_model_pts >= over_temp_cal->min_num_model_pts) {
-        computeModelUpdate(over_temp_cal, timestamp_nanos);
-      }
-    }
-  }
-
   // Determines whether over-temp compensation will be applied.
-  if (!over_temp_cal->over_temp_enable) {
-    return;
-  }
+  if (over_temp_cal->over_temp_enable) {
+    // Gets the temperature compensated sensor offset estimate.
+    float compensated_offset[3] = {0.0f, 0.0f, 0.0f};
+    float compensated_offset_temperature_celsius = 0.0f;
+    getCalOffset(over_temp_cal, timestamp_nanos,
+                 &compensated_offset_temperature_celsius, compensated_offset);
 
-  // Removes the over-temperature compensated offset from the input sensor data.
-  removeSensorOffset(over_temp_cal, xi, 0, xo);
-  removeSensorOffset(over_temp_cal, yi, 1, yo);
-  removeSensorOffset(over_temp_cal, zi, 2, zo);
+    // Removes the over-temperature compensated offset from the input sensor
+    // data.
+    *xo = xi - compensated_offset[0];
+    *yo = yi - compensated_offset[1];
+    *zo = zi - compensated_offset[2];
+  } else {
+    *xo = xi;
+    *yo = yi;
+    *zo = zi;
+  }
 }
 
 bool overTempCalNewModelUpdateAvailable(struct OverTempCal *over_temp_cal) {
@@ -327,6 +506,11 @@ void overTempCalUpdateSensorEstimate(struct OverTempCal *over_temp_cal,
   ASSERT_NOT_NULL(over_temp_cal->nearest_offset);
   ASSERT_NOT_NULL(offset);
   ASSERT(over_temp_cal->delta_temp_per_bin > 0);
+
+  // Checks that the new offset data is valid, returns if bad.
+  if (!isValidOtcOffset(offset, temperature_celsius)) {
+    return;
+  }
 
   // Prevent a divide by zero below.
   if (over_temp_cal->delta_temp_per_bin <= 0) {
@@ -354,7 +538,7 @@ void overTempCalUpdateSensorEstimate(struct OverTempCal *over_temp_cal,
                     (unsigned long long int)timestamp_nanos);
 #endif  // OVERTEMPCAL_DBG_ENABLED
 
-      return;  // Skips the process of adding this offset to the model.
+      return;  // Outlier detected: skips adding this offset to the model.
     } else {
       // Resets the count of rejected outliers.
       over_temp_cal->num_outliers = 0;
@@ -420,11 +604,6 @@ void overTempCalUpdateSensorEstimate(struct OverTempCal *over_temp_cal,
                      timestamp_nanos);
 
 #ifdef OVERTEMPCAL_DBG_ENABLED
-  // Updates the latest sensor offset estimate so this can be tracked for debug
-  // printout later.
-  memcpy(&over_temp_cal->debug_overtempcal.latest_offset,
-         over_temp_cal->nearest_offset, sizeof(struct OverTempCalDataPt));
-
   // Updates the total number of received sensor offset estimates.
   over_temp_cal->debug_num_estimates++;
 #endif  // OVERTEMPCAL_DBG_ENABLED
@@ -474,10 +653,14 @@ void overTempCalSetTemperature(struct OverTempCal *over_temp_cal,
 #endif  // OVERTEMPCAL_DBG_LOG_TEMP
 #endif  // OVERTEMPCAL_DBG_ENABLED
 
+  // Checks that the offset temperature is within a valid range, saturates if
+  // outside.
+  checkAndEnforceTemperatureRange(&temperature_celsius);
+
   // Updates the sensor temperature.
   over_temp_cal->temperature_celsius = temperature_celsius;
 
-  // This searches for the sensor offset estimate closest to the current
+  // Searches for the sensor offset estimate closest to the current
   // temperature. A timer is used to limit the rate at which this search is
   // performed.
   if (over_temp_cal->num_model_pts > 0 &&
@@ -488,7 +671,7 @@ void overTempCalSetTemperature(struct OverTempCal *over_temp_cal,
   }
 }
 
-void getModelError(const struct OverTempCal *over_temp_cal,
+void overTempGetModelError(const struct OverTempCal *over_temp_cal,
                    const float *temp_sensitivity, const float *sensor_intercept,
                    float *max_error) {
   ASSERT_NOT_NULL(over_temp_cal);
@@ -517,6 +700,64 @@ void getModelError(const struct OverTempCal *over_temp_cal,
 
 /////// LOCAL HELPER FUNCTION DEFINITIONS /////////////////////////////////////
 
+void getCalOffset(struct OverTempCal *over_temp_cal, uint64_t timestamp_nanos,
+                  float *compensated_offset_temperature_celsius,
+                  float *compensated_offset) {
+  ASSERT_NOT_NULL(over_temp_cal);
+  ASSERT_NOT_NULL(over_temp_cal->nearest_offset);
+  ASSERT_NOT_NULL(compensated_offset);
+  ASSERT_NOT_NULL(compensated_offset_temperature_celsius);
+
+  // Sets the sensor temperature associated with the compensated offset.
+  *compensated_offset_temperature_celsius = over_temp_cal->temperature_celsius;
+
+  // Removes very old data from the collected model estimates (eliminates
+  // drift-compromised data). Only does this when there is more than one
+  // estimate in the model (i.e., don't want to remove all data, even if it is
+  // very old [something is likely better than nothing]).
+  if ((timestamp_nanos - over_temp_cal->stale_data_timer) >=
+          OVERTEMPCAL_STALE_CHECK_TIME_NANOS &&
+      over_temp_cal->num_model_pts > 1) {
+    over_temp_cal->stale_data_timer = timestamp_nanos;  // Resets timer.
+
+    if (removeStaleModelData(over_temp_cal, timestamp_nanos)) {
+      // If anything was removed, then this attempts to recompute the model.
+      if (over_temp_cal->num_model_pts >= over_temp_cal->min_num_model_pts) {
+        computeModelUpdate(over_temp_cal, timestamp_nanos);
+      }
+    }
+  }
+
+  size_t index;
+  for (index = 0; index < 3; index++) {
+    if (over_temp_cal->temp_sensitivity[index] >= OTC_INITIAL_SENSITIVITY ||
+        NANO_ABS(over_temp_cal->temperature_celsius -
+                 over_temp_cal->nearest_offset->offset_temp_celsius) <
+            over_temp_cal->delta_temp_per_bin) {
+      // Use the nearest estimate to perform the compensation if either of the
+      // following is true:
+      //    1) This axis model is in its initial state.
+      //    2) The sensor's temperature is within a small neighborhood of the
+      //       'nearest_offset'.
+      // compensated_offset = nearest_offset
+      //
+      // If either of the above conditions applies and 'nearest_offset' is not
+      // defined, then the offset returned is zero.
+      compensated_offset[index] =
+          (over_temp_cal->num_model_pts > 0)
+              ? over_temp_cal->nearest_offset->offset[index]
+              : 0.0f;
+    } else {
+      // Offset computed from the linear model:
+      //  compensated_offset = (temp_sensitivity * temperature +
+      //  sensor_intercept)
+      compensated_offset[index] = (over_temp_cal->temp_sensitivity[index] *
+                                       over_temp_cal->temperature_celsius +
+                                   over_temp_cal->sensor_intercept[index]);
+    }
+  }
+}
+
 void setNearestEstimate(struct OverTempCal *over_temp_cal, const float *offset,
                        float offset_temp_celsius, uint64_t timestamp_nanos) {
   ASSERT_NOT_NULL(over_temp_cal);
@@ -540,11 +781,12 @@ void computeModelUpdate(struct OverTempCal *over_temp_cal,
 
   // Computes the maximum error over all of the model data.
   float max_error[3];
-  getModelError(over_temp_cal, temp_sensitivity, sensor_intercept, max_error);
+  overTempGetModelError(over_temp_cal, temp_sensitivity, sensor_intercept,
+                        max_error);
 
   //    3) A new set of model parameters are accepted if:
   //         i.  The model fit error is less than, 'max_error_limit'. See
-  //             getModelError() for error metric description.
+  //             overTempGetModelError() for error metric description.
   //         ii. The model fit parameters must be within certain absolute
   //             bounds:
   //               a. NANO_ABS(temp_sensitivity) < temp_sensitivity_limit
@@ -553,8 +795,8 @@ void computeModelUpdate(struct OverTempCal *over_temp_cal,
   bool updated_one = false;
   for (i = 0; i < 3; i++) {
     if (max_error[i] < over_temp_cal->max_error_limit &&
-        NANO_ABS(temp_sensitivity[i]) < over_temp_cal->temp_sensitivity_limit &&
-        NANO_ABS(sensor_intercept[i]) < over_temp_cal->sensor_intercept_limit) {
+        isValidOtcLinearModel(over_temp_cal, temp_sensitivity[i],
+                              sensor_intercept[i])) {
       over_temp_cal->temp_sensitivity[i] = temp_sensitivity[i];
       over_temp_cal->sensor_intercept[i] = sensor_intercept[i];
       updated_one = true;
@@ -682,16 +924,18 @@ bool jumpStartModelData(struct OverTempCal *over_temp_cal) {
   // In normal operation the offset estimates enter into the 'model_data' array
   // complete (i.e., x, y, z values are all provided). Therefore, the jumpstart
   // data produced here requires that the model parameters have all been fully
-  // defined (i.e., no models in an initial state) and are all within the valid
-  // range (this is assumed to have been checked prior to this function). There
-  // must also be no preexisting model data; that is, this function will not
-  // replace any actual offset estimates already buffered.
-  if (over_temp_cal->num_model_pts > 0 ||
-      over_temp_cal->temp_sensitivity[0] >= MODEL_INITIAL_STATE ||
-      over_temp_cal->temp_sensitivity[1] >= MODEL_INITIAL_STATE ||
-      over_temp_cal->temp_sensitivity[2] >= MODEL_INITIAL_STATE) {
-    return false;
+  // defined and are all within the valid range.
+  size_t i;
+  for (i = 0; i < 3; i++) {
+    if (!isValidOtcLinearModel(over_temp_cal,
+                               over_temp_cal->temp_sensitivity[i],
+                               over_temp_cal->sensor_intercept[i])) {
+      return false;
+    }
   }
+
+  // Any pre-existing model data points will be overwritten.
+  over_temp_cal->num_model_pts = 0;
 
   // This defines the minimum contiguous set of points to allow a model update
   // when the next offset estimate is received. They are placed at a common
@@ -701,7 +945,6 @@ bool jumpStartModelData(struct OverTempCal *over_temp_cal) {
   float offset_temp_celsius =
       (start_bin_num + 0.5f) * over_temp_cal->delta_temp_per_bin;
 
-  size_t i;
   size_t j;
   for (i = 0; i < over_temp_cal->min_num_model_pts; i++) {
     float offset[3];
@@ -718,13 +961,13 @@ bool jumpStartModelData(struct OverTempCal *over_temp_cal) {
   }
 
 #ifdef OVERTEMPCAL_DBG_ENABLED
-  if (over_temp_cal->min_num_model_pts > 0) {
+  if (over_temp_cal->num_model_pts > 0) {
     CAL_DEBUG_LOG("[OVER_TEMP_CAL:INIT]", "Model Jump-Start:  #Points = %lu.",
-                  (unsigned long int)over_temp_cal->min_num_model_pts);
+                  (unsigned long int)over_temp_cal->num_model_pts);
   }
 #endif  // OVERTEMPCAL_DBG_ENABLED
 
-  return (over_temp_cal->min_num_model_pts > 0);
+  return (over_temp_cal->num_model_pts > 0);
 }
 
 void updateModel(const struct OverTempCal *over_temp_cal,
@@ -771,34 +1014,6 @@ void updateModel(const struct OverTempCal *over_temp_cal,
   sensor_intercept[2] = (sz - st * temp_sensitivity[2]) * inv_n;
 }
 
-void removeSensorOffset(const struct OverTempCal *over_temp_cal, float axis_in,
-                        size_t index, float *axis_out) {
-  ASSERT_NOT_NULL(over_temp_cal);
-  ASSERT_NOT_NULL(over_temp_cal->nearest_offset);
-  ASSERT_NOT_NULL(axis_out);
-
-  // Removes the over-temperature compensated offset from the input sensor data.
-  if (over_temp_cal->temp_sensitivity[index] >= MODEL_INITIAL_STATE ||
-      NANO_ABS(over_temp_cal->temperature_celsius -
-               over_temp_cal->nearest_offset->offset_temp_celsius) <
-          over_temp_cal->delta_temp_per_bin) {
-    // Use the nearest estimate to perform the compensation if either of the
-    // following is true:
-    //    1) This axis model is in its initial state.
-    //    2) The current temperature is within a small neighborhood of the
-    //       'nearest_offset'.
-    // axis_out = axis_in - nearest_offset
-    *axis_out = axis_in - over_temp_cal->nearest_offset->offset[index];
-  } else {
-    // axis_out = axis_in - compensated_offset
-    // Where,
-    //  compensated_offset = (temp_sensitivity * temperature + sensor_intercept)
-    *axis_out = axis_in - (over_temp_cal->temp_sensitivity[index] *
-                               over_temp_cal->temperature_celsius +
-                           over_temp_cal->sensor_intercept[index]);
-  }
-}
-
 bool outlierCheck(struct OverTempCal *over_temp_cal, const float *offset,
                   size_t axis_index, float temperature_celsius) {
   ASSERT_NOT_NULL(over_temp_cal);
@@ -806,7 +1021,7 @@ bool outlierCheck(struct OverTempCal *over_temp_cal, const float *offset,
 
   // If a model has been defined, then check to see if this offset could be a
   // potential outlier:
-  if (over_temp_cal->temp_sensitivity[axis_index] < MODEL_INITIAL_STATE) {
+  if (over_temp_cal->temp_sensitivity[axis_index] < OTC_INITIAL_SENSITIVITY) {
     const float max_error_test = NANO_ABS(
         offset[axis_index] -
         (over_temp_cal->temp_sensitivity[axis_index] * temperature_celsius +
@@ -841,6 +1056,8 @@ void updateDebugData(struct OverTempCal* over_temp_cal) {
   memset(&over_temp_cal->debug_overtempcal, 0, sizeof(struct DebugOverTempCal));
 
   // Copies over the relevant data.
+  memcpy(over_temp_cal->debug_overtempcal.temp_sensitivity,
+         over_temp_cal->temp_sensitivity, 3 * sizeof(float));
   memcpy(over_temp_cal->debug_overtempcal.sensor_intercept,
          over_temp_cal->sensor_intercept, 3 * sizeof(float));
   memcpy(&over_temp_cal->debug_overtempcal.nearest_offset,
@@ -852,16 +1069,8 @@ void updateDebugData(struct OverTempCal* over_temp_cal) {
   over_temp_cal->debug_overtempcal.temperature_celsius =
       over_temp_cal->temperature_celsius;
 
-  size_t j;
-  for (j = 0; j < 3; j++) {
-    over_temp_cal->debug_overtempcal.temp_sensitivity[j] =
-        (over_temp_cal->temp_sensitivity[j] >= MODEL_INITIAL_STATE)
-            ? 0.0f
-            : over_temp_cal->temp_sensitivity[j];
-  }
-
   // Computes the maximum error over all of the model data.
-  getModelError(over_temp_cal,
+  overTempGetModelError(over_temp_cal,
                 over_temp_cal->debug_overtempcal.temp_sensitivity,
                 over_temp_cal->debug_overtempcal.sensor_intercept,
                 over_temp_cal->debug_overtempcal.max_error);
