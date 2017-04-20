@@ -1134,7 +1134,7 @@ void gyroCalDebugPrint(struct GyroCal* gyro_cal, uint64_t timestamp_nanos) {
 
     case GYRO_WAIT_STATE:
       // This helps throttle the print statements.
-      if ((timestamp_nanos - wait_timer_nanos) >= GYROCAL_WAIT_TIME_NANOS) {
+      if (timestamp_nanos >= GYROCAL_WAIT_TIME_NANOS + wait_timer_nanos) {
         gyro_cal->debug_state = next_state;
       }
       break;
@@ -1218,9 +1218,8 @@ void gyroCalTuneDebugPrint(const struct GyroCal* gyro_cal,
   //   ii. Thereafter: output interval is 60 seconds.
   bool condition_i =
       ((timestamp_nanos <= 300000000000) &&
-       ((timestamp_nanos - wait_timer_nanos) > 5000000000));  // nsec
-  bool condition_ii = ((timestamp_nanos > 60000000000) &&
-                       ((timestamp_nanos - wait_timer_nanos) > 60000000000));
+       (timestamp_nanos > 5000000000 + wait_timer_nanos));  // nsec
+  bool condition_ii = (timestamp_nanos > 60000000000 + wait_timer_nanos);
 
   // This is a state machine that controls the reporting out of tuning data.
   switch (debug_state) {
@@ -1239,7 +1238,7 @@ void gyroCalTuneDebugPrint(const struct GyroCal* gyro_cal,
 
     case GYRO_WAIT_STATE:
       // This helps throttle the print statements.
-      if ((timestamp_nanos - wait_timer_nanos) >= GYROCAL_WAIT_TIME_NANOS) {
+      if (timestamp_nanos >= GYROCAL_WAIT_TIME_NANOS + wait_timer_nanos) {
         debug_state = next_state;
       }
       break;
