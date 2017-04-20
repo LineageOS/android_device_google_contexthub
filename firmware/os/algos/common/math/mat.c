@@ -604,7 +604,7 @@ void matMultiplyVec(float *out, const float *A, const float *v,
   size_t i;
   for (i = 0; i < nrows; ++i) {
     const float *row = &A[i * ncols];
-    out[i] = vecDot(row, v, ncols);
+    out[i] = vecDot(row, v, (int)ncols);
   }
 }
 
@@ -626,29 +626,31 @@ bool matLinearSolveCholesky(float *x, const float *L, const float *b, size_t n) 
   ASSERT_NOT_NULL(x);
   ASSERT_NOT_NULL(L);
   ASSERT_NOT_NULL(b);
+  ASSERT(n <= INT32_MAX);
   int32_t i, j;  // Loops below require signed integers.
+  int32_t s_n = (int32_t)n; // Signed n.
   float sum = 0.0f;
   // 1. Solve Ly = b through forward substitution. Use x[] to store y.
-  for (i = 0; i < (int32_t)n; ++i) {
+  for (i = 0; i < s_n; ++i) {
     sum = 0.0f;
     for (j = 0; j < i; ++j) {
-      sum += L[i * n + j] * x[j];
+      sum += L[i * s_n + j] * x[j];
     }
     // Check for non-zero diagonals (don't divide by zero).
-    if (L[i * n + i] < EPSILON) {
+    if (L[i * s_n + i] < EPSILON) {
       return false;
     }
-    x[i] = (b[i] - sum) / L[i * n + i];
+    x[i] = (b[i] - sum) / L[i * s_n + i];
   }
 
   // 2. Solve L'x = y through backwards substitution. Use x[] to store both
   // y and x.
-  for (i = n - 1; i >= 0; --i) {
+  for (i = s_n - 1; i >= 0; --i) {
     sum = 0.0f;
-    for (j = i + 1; j < (int32_t)n; ++j) {
-      sum += L[j * n + i] * x[j];
+    for (j = i + 1; j < s_n; ++j) {
+      sum += L[j * s_n + i] * x[j];
     }
-    x[i] = (x[i] - sum) / L[i * n + i];
+    x[i] = (x[i] - sum) / L[i * s_n + i];
   }
 
   return true;
