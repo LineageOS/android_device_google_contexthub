@@ -38,7 +38,7 @@
 #define AK09916_STATUS_DATA_ADDR                        (0x18)
 
 #define AK09916_SW_RESET                                (0x01)
-#define AK09916_POWER_ON_VALUE                          (0x02)
+#define AK09916_POWER_ON_VALUE                          (0x00)
 #define AK09916_POWER_OFF_VALUE                         (0x00)
 #define AK09916_OUTDATA_LEN                             (0x06)
 #define AK09916_ENABLE_SELFTEST_MODE                    (0x10)
