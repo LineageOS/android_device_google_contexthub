@@ -55,12 +55,6 @@
 #define LPS22HB_PRESS_OUTXL_REG_ADDR    0x28
 #define LPS22HB_TEMP_OUTL_REG_ADDR      0x2B
 
-#define LPS22HB_INT1_REG_ADDR           0x23
-#define LPS22HB_INT2_REG_ADDR           0x24
-
-#define LPS22HB_INT1_PIN                GPIO_PA(4)
-#define LPS22HB_INT2_PIN                GPIO_PB(0)
-
 #define LPS22HB_HECTO_PASCAL(baro_val)  (baro_val/4096)
 #define LPS22HB_CENTIGRADES(temp_val)   (temp_val/100)
 
@@ -89,7 +83,6 @@
 enum lps22hbSensorEvents
 {
     EVT_COMM_DONE = EVT_APP_START + 1,
-    EVT_INT1_RAISED,
     EVT_SENSOR_BARO_TIMER,
     EVT_SENSOR_TEMP_TIMER,
     EVT_TEST,
@@ -98,7 +91,6 @@ enum lps22hbSensorEvents
 enum lps22hbSensorState {
     SENSOR_BOOT,
     SENSOR_VERIFY_ID,
-    SENSOR_INIT,
     SENSOR_BARO_POWER_UP,
     SENSOR_BARO_POWER_DOWN,
     SENSOR_TEMP_POWER_UP,
@@ -431,7 +423,7 @@ static bool tempSetRate(uint32_t rate, uint64_t latency, void *cookie)
 
 static bool tempFlush(void *cookie)
 {
-    return osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_BARO), SENSOR_DATA_EVENT_FLUSH, NULL);
+    return osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_TEMP), SENSOR_DATA_EVENT_FLUSH, NULL);
 }
 
 #define DEC_OPS(power, firmware, rate, flush, cal, cfg) \
@@ -448,8 +440,6 @@ static const struct SensorOps lps22hbSensorOps[NUM_OF_SENSOR] =
     { DEC_OPS(tempPower, tempFwUpload, tempSetRate, tempFlush, NULL, NULL) },
 };
 
-static uint8_t *baro_samples;
-static uint8_t *temp_samples;
 static int handleCommDoneEvt(const void* evtData)
 {
     uint8_t i;
@@ -459,6 +449,7 @@ static int handleCommDoneEvt(const void* evtData)
     struct SingleAxisDataEvent *baroSample;
     union EmbeddedDataPoint sample;
     struct I2cTransfer *xfer = (struct I2cTransfer *)evtData;
+    uint8_t *ptr_samples;
 
     switch (xfer->state) {
     case SENSOR_BOOT:
@@ -482,11 +473,6 @@ static int handleCommDoneEvt(const void* evtData)
 
         /* TEST the environment in standalone mode */
         //osEnqueuePrivateEvt(EVT_TEST, NULL, NULL, mTask.tid);
-        break;
-
-    case SENSOR_INIT:
-        for (i = 0; i < NUM_OF_SENSOR; i++)
-            sensorRegisterInitComplete(mTask.sensors[i].handle);
         break;
 
     case SENSOR_BARO_POWER_UP:
@@ -514,11 +500,10 @@ static int handleCommDoneEvt(const void* evtData)
             float pressure_hPa;
 
             mTask.baroWantRead = false;
-            baro_samples = xfer->txrxBuf;
+            ptr_samples = xfer->txrxBuf;
 
-            baro_val = ((baro_samples[2] << 16) & 0xff0000) |
-                    ((baro_samples[1] << 8) & 0xff00) |
-                    (baro_samples[0]);
+            baro_val = ((ptr_samples[2] << 16) & 0xff0000) |
+                       ((ptr_samples[1] << 8) & 0xff00) | (ptr_samples[0]);
 
             mTask.baroReading = false;
             pressure_hPa = LPS22HB_HECTO_PASCAL((float)baro_val);
@@ -530,10 +515,9 @@ static int handleCommDoneEvt(const void* evtData)
 
         if (mTask.tempOn && mTask.tempWantRead) {
             mTask.tempWantRead = false;
-            temp_samples = &xfer->txrxBuf[3];
+            ptr_samples = &xfer->txrxBuf[3];
 
-            temp_val  = ((temp_samples[1] << 8) & 0xff00) |
-                    (temp_samples[0]);
+            temp_val  = ((ptr_samples[1] << 8) & 0xff00) | (ptr_samples[0]);
 
             mTask.tempReading = false;
             sample.fdata = LPS22HB_CENTIGRADES((float)temp_val);
@@ -594,10 +578,6 @@ static void handleEvent(uint32_t evtType, const void* evtData)
             mTask.comm_rx(LPS22HB_PRESS_OUTXL_REG_ADDR, 5, 1, SENSOR_READ_SAMPLES);
         }
 
-        break;
-
-    case EVT_INT1_RAISED:
-        INFO_PRINT("EVT_INT1_RAISED\n");
         break;
 
     case EVT_TEST:
