@@ -56,7 +56,7 @@
 #define SENS_TYPE_TO_EVENT(_sensorType) (EVT_NO_FIRST_SENSOR_EVENT + (_sensorType))
 
 #define NANOHUB_FILE_PATH       "/dev/nanohub"
-#define NANOHUB_LOCK_DIR        "/data/system/nanohub_lock"
+#define NANOHUB_LOCK_DIR        "/data/vendor/sensor/nanohub_lock"
 #define NANOHUB_LOCK_FILE       NANOHUB_LOCK_DIR "/lock"
 #define MAG_BIAS_FILE_PATH      "/sys/class/power_supply/battery/compass_compensation"
 #define DOUBLE_TOUCH_FILE_PATH  "/sys/android_touch/synaptics_rmi4_dsx/wake_event"
@@ -80,10 +80,6 @@ const char LID_STATE_CLOSED[]   = "closed";
 
 static const uint32_t delta_time_encoded = 1;
 static const uint32_t delta_time_shift_table[2] = {9, 0};
-
-// TODO(b/36576923): remove these when all firmware and nanoapps are updated.
-// flip this system property on to use newly defined data structure for sending sensor configuration
-const char USE_NEW_CFG_PROPERTY[] = "sensor.hubconnection.new_cfg";
 
 #ifdef USE_SENSORSERVICE_TO_GET_FIFO
 // TODO(b/35219747): retain sched_fifo before eval is done to avoid
@@ -1314,12 +1310,11 @@ void HubConnection::sendCalibrationOffsets()
     struct {
         int32_t hw[3];
         float sw[3];
-    } accel, gyro;
+    } accel;
 
     int32_t proximity, proximity_array[4];
-    float barometer, humidity, mag[3], light;
+    float barometer, humidity, light;
     bool accel_hw_cal_exists, accel_sw_cal_exists;
-    bool gyro_hw_cal_exists, gyro_sw_cal_exists;
 
     loadSensorSettings(&settings, &saved_settings);
 
@@ -1334,93 +1329,70 @@ void HubConnection::sendCalibrationOffsets()
         queueDataInternal(COMMS_SENSOR_ACCEL, &accel, sizeof(accel));
     }
 
-    if (property_get_bool(USE_NEW_CFG_PROPERTY, false) == false) {
-        ALOGI("Use old configuration format");
-
-        gyro_hw_cal_exists = getCalibrationInt32(settings, GYRO_BIAS_TAG, gyro.hw, 3);
-        gyro_sw_cal_exists = getCalibrationFloat(saved_settings, GYRO_SW_BIAS_TAG, gyro.sw);
-        if (gyro_hw_cal_exists || gyro_sw_cal_exists) {
-            // Store SW bias so we can remove bias for uncal data
-            mGyroBias[0] = gyro.sw[0];
-            mGyroBias[1] = gyro.sw[1];
-            mGyroBias[2] = gyro.sw[2];
-            queueDataInternal(COMMS_SENSOR_GYRO, &gyro, sizeof(gyro));
+    ALOGI("Use new configuration format");
+    std::vector<int32_t> hardwareGyroBias = getInt32Setting(settings, GYRO_BIAS_TAG);
+    std::vector<float> softwareGyroBias = getFloatSetting(saved_settings, GYRO_SW_BIAS_TAG);
+    if (hardwareGyroBias.size() == 3 || softwareGyroBias.size() == 3) {
+        struct {
+            AppToSensorHalDataPayload header;
+            GyroCalBias data;
+        } packet = {
+            .header = {
+                .size = sizeof(GyroCalBias),
+                .type = HALINTF_TYPE_GYRO_CAL_BIAS }
+        };
+        if (hardwareGyroBias.size() == 3) {
+            std::copy(hardwareGyroBias.begin(), hardwareGyroBias.end(),
+                      packet.data.hardwareBias);
         }
-
-        if (getCalibrationFloat(saved_settings, MAG_BIAS_TAG, mag)) {
+        if (softwareGyroBias.size() == 3) {
             // Store SW bias so we can remove bias for uncal data
-            mMagBias[0] = mag[0];
-            mMagBias[1] = mag[1];
-            mMagBias[2] = mag[2];
+            std::copy(softwareGyroBias.begin(), softwareGyroBias.end(),
+                      mGyroBias);
 
-            queueDataInternal(COMMS_SENSOR_MAG, mag, sizeof(mag));
+            std::copy(softwareGyroBias.begin(), softwareGyroBias.end(),
+                      packet.data.softwareBias);
         }
+        // send packet to hub
+        queueDataInternal(COMMS_SENSOR_GYRO, &packet, sizeof(packet));
+    }
+
+    // over temp cal
+    std::vector<float> gyroOtcData = getFloatSetting(saved_settings, GYRO_OTC_DATA_TAG);
+    if (gyroOtcData.size() == sizeof(GyroOtcData) / sizeof(float)) {
+        std::copy(gyroOtcData.begin(), gyroOtcData.end(),
+                  reinterpret_cast<float*>(&mGyroOtcData));
+        struct {
+            AppToSensorHalDataPayload header;
+            GyroOtcData data;
+        } packet = {
+            .header = {
+                .size = sizeof(GyroOtcData),
+                .type = HALINTF_TYPE_GYRO_OTC_DATA },
+            .data = mGyroOtcData
+        };
+
+        // send it to hub
+        queueDataInternal(COMMS_SENSOR_GYRO, &packet, sizeof(packet));
     } else {
-        ALOGI("Use new configuration format");
-        std::vector<int32_t> hardwareGyroBias = getInt32Setting(settings, GYRO_BIAS_TAG);
-        std::vector<float> softwareGyroBias = getFloatSetting(saved_settings, GYRO_SW_BIAS_TAG);
-        if (hardwareGyroBias.size() == 3 || softwareGyroBias.size() == 3) {
-            struct {
-                AppToSensorHalDataPayload header;
-                GyroCalBias data;
-            } packet = {
-                .header = {
-                    .size = sizeof(GyroCalBias),
-                    .type = HALINTF_TYPE_GYRO_CAL_BIAS }
-            };
-            if (hardwareGyroBias.size() == 3) {
-                std::copy(hardwareGyroBias.begin(), hardwareGyroBias.end(),
-                          packet.data.hardwareBias);
-            }
-            if (softwareGyroBias.size() == 3) {
-                // Store SW bias so we can remove bias for uncal data
-                std::copy(softwareGyroBias.begin(), softwareGyroBias.end(),
-                          mGyroBias);
+        ALOGE("Illegal otc_gyro data size = %zu", gyroOtcData.size());
+    }
 
-                std::copy(softwareGyroBias.begin(), softwareGyroBias.end(),
-                          packet.data.softwareBias);
-            }
-            // send packet to hub
-            queueDataInternal(COMMS_SENSOR_GYRO, &packet, sizeof(packet));
-        }
+    std::vector<float> magBiasData = getFloatSetting(saved_settings, MAG_BIAS_TAG);
+    if (magBiasData.size() == 3) {
+        // Store SW bias so we can remove bias for uncal data
+        std::copy(magBiasData.begin(), magBiasData.end(), mMagBias);
 
-        // over temp cal
-        std::vector<float> gyroOtcData = getFloatSetting(saved_settings, GYRO_OTC_DATA_TAG);
-        if (gyroOtcData.size() == sizeof(GyroOtcData) / sizeof(float)) {
-            std::copy(gyroOtcData.begin(), gyroOtcData.end(),
-                      reinterpret_cast<float*>(&mGyroOtcData));
-            struct {
-                AppToSensorHalDataPayload header;
-                GyroOtcData data;
-            } packet = {
-                .header = {
-                    .size = sizeof(GyroOtcData),
-                    .type = HALINTF_TYPE_GYRO_OTC_DATA },
-                .data = mGyroOtcData
-            };
-
-            // send it to hub
-            queueDataInternal(COMMS_SENSOR_GYRO, &packet, sizeof(packet));
-        } else {
-            ALOGE("Illegal otc_gyro data size = %zu", gyroOtcData.size());
-        }
-
-        std::vector<float> magBiasData = getFloatSetting(saved_settings, MAG_BIAS_TAG);
-        if (magBiasData.size() == 3) {
-            // Store SW bias so we can remove bias for uncal data
-            std::copy(magBiasData.begin(), magBiasData.end(), mMagBias);
-
-            struct {
-                AppToSensorHalDataPayload header;
-                MagCalBias mag;
-            } packet = {
-                .header = {
-                    .size = sizeof(MagCalBias),
-                    .type = HALINTF_TYPE_MAG_CAL_BIAS }
-            };
-            std::copy(magBiasData.begin(), magBiasData.end(), packet.mag.bias);
-            queueDataInternal(COMMS_SENSOR_MAG, &packet, sizeof(packet));
-        }
+        struct {
+            AppToSensorHalDataPayload header;
+            MagCalBias mag;
+        } packet = {
+            .header = {
+                .size = sizeof(MagCalBias),
+                .type = HALINTF_TYPE_MAG_CAL_BIAS }
+        };
+        std::copy(magBiasData.begin(), magBiasData.end(), packet.mag.bias);
+        queueDataInternal(COMMS_SENSOR_MAG, &packet, sizeof(packet));
     }
 
     if (settings->getFloat("barometer", &barometer))
@@ -1437,7 +1409,6 @@ void HubConnection::sendCalibrationOffsets()
 
     if (settings->getFloat("light", &light))
         queueDataInternal(COMMS_SENSOR_LIGHT, &light, sizeof(light));
-
 }
 
 bool HubConnection::threadLoop() {
@@ -1693,10 +1664,6 @@ void HubConnection::queueData(int handle, void *data, size_t length)
 }
 
 void HubConnection::setOperationParameter(const additional_info_event_t &info) {
-    if (property_get_bool(USE_NEW_CFG_PROPERTY, false) == false) {
-        return;
-    }
-
     switch (info.type) {
         case AINFO_LOCAL_GEOMAGNETIC_FIELD: {
             ALOGV("local geomag field update: strength %fuT, dec %fdeg, inc %fdeg",
