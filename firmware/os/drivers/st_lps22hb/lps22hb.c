@@ -23,6 +23,7 @@
 #include <plat/syscfg.h>
 #include <sensors.h>
 #include <seos.h>
+#include <slab.h>
 #include <i2c.h>
 #include <timer.h>
 #include <stdlib.h>
@@ -132,6 +133,7 @@ struct lps22hbSensor {
 
 #define LPS22HB_MAX_PENDING_I2C_REQUESTS   4
 #define LPS22HB_MAX_I2C_TRANSFER_SIZE      6
+#define LPS22HB_MAX_BARO_EVENTS            4
 
 struct I2cTransfer
 {
@@ -146,6 +148,8 @@ struct I2cTransfer
 /* Task structure */
 struct lps22hbTask {
     uint32_t tid;
+
+    struct SlabAllocator *baroSlab;
 
     /* timer */
     uint32_t baroTimerHandle;
@@ -172,6 +176,29 @@ struct lps22hbTask {
 };
 
 static struct lps22hbTask mTask;
+
+static bool baroAllocateEvt(struct SingleAxisDataEvent **evPtr, float sample, uint64_t time)
+{
+    struct SingleAxisDataEvent *ev;
+
+    ev = *evPtr = slabAllocatorAlloc(mTask.baroSlab);
+    if (!ev) {
+        ERROR_PRINT("Failed to allocate baro evt memory");
+        return false;
+    }
+
+    memset(&ev->samples[0].firstSample, 0x00, sizeof(struct SensorFirstSample));
+    ev->referenceTime = time;
+    ev->samples[0].firstSample.numSamples = 1;
+    ev->samples[0].fdata = sample;
+
+    return true;
+}
+
+static void baroFreeEvt(void *ptr)
+{
+    slabAllocatorFree(mTask.baroSlab, ptr);
+}
 
 // Allocate a buffer and mark it as in use with the given state, or return NULL
 // if no buffers available. Must *not* be called from interrupt context.
@@ -288,7 +315,7 @@ static const uint64_t lps22hbRatesRateVals[] =
 
 static const struct SensorInfo lps22hbSensorInfo[NUM_OF_SENSOR] =
 {
-    { DEC_INFO("Pressure", SENS_TYPE_BARO, NUM_AXIS_EMBEDDED, NANOHUB_INT_NONWAKEUP,
+    { DEC_INFO("Pressure", SENS_TYPE_BARO, NUM_AXIS_ONE, NANOHUB_INT_NONWAKEUP,
         300, lps22hbRates, 0, 0, 0) },
     { DEC_INFO("Temperature", SENS_TYPE_TEMP, NUM_AXIS_EMBEDDED, NANOHUB_INT_NONWAKEUP,
         20, lps22hbRates, 0, 0, 0) },
@@ -429,6 +456,7 @@ static int handleCommDoneEvt(const void* evtData)
     int baro_val;
     short temp_val;
     //uint32_t state = (uint32_t)evtData;
+    struct SingleAxisDataEvent *baroSample;
     union EmbeddedDataPoint sample;
     struct I2cTransfer *xfer = (struct I2cTransfer *)evtData;
 
@@ -483,6 +511,8 @@ static int handleCommDoneEvt(const void* evtData)
 
     case SENSOR_READ_SAMPLES:
         if (mTask.baroOn && mTask.baroWantRead) {
+            float pressure_hPa;
+
             mTask.baroWantRead = false;
             baro_samples = xfer->txrxBuf;
 
@@ -491,9 +521,11 @@ static int handleCommDoneEvt(const void* evtData)
                     (baro_samples[0]);
 
             mTask.baroReading = false;
-            sample.fdata = LPS22HB_HECTO_PASCAL((float)baro_val);
+            pressure_hPa = LPS22HB_HECTO_PASCAL((float)baro_val);
             //osLog(LOG_INFO, "baro: %p\n", sample.vptr);
-            osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_BARO), sample.vptr, NULL);
+            if (baroAllocateEvt(&baroSample, pressure_hPa, sensorGetTime())) {
+                osEnqueueEvtOrFree(sensorGetMyEventType(SENS_TYPE_BARO), baroSample, baroFreeEvt);
+            }
         }
 
         if (mTask.tempOn && mTask.tempWantRead) {
@@ -586,6 +618,7 @@ static void handleEvent(uint32_t evtType, const void* evtData)
 static bool startTask(uint32_t task_id)
 {
     uint8_t i;
+    size_t slabSize;
 
     mTask.tid = task_id;
 
@@ -593,6 +626,14 @@ static bool startTask(uint32_t task_id)
 
     mTask.baroOn = mTask.tempOn = false;
     mTask.baroReading = mTask.tempReading = false;
+
+    slabSize = sizeof(struct SingleAxisDataEvent) + sizeof(struct SingleAxisDataPoint);
+
+    mTask.baroSlab = slabAllocatorNew(slabSize, 4, LPS22HB_MAX_BARO_EVENTS);
+    if (!mTask.baroSlab) {
+        ERROR_PRINT("Failed to allocate baroSlab memory\n");
+        return false;
+    }
 
     /* Init the communication part */
     i2cMasterRequest(LPS22HB_I2C_BUS_ID, LPS22HB_I2C_SPEED);
@@ -613,6 +654,7 @@ static bool startTask(uint32_t task_id)
 static void endTask(void)
 {
     INFO_PRINT("task ended\n");
+    slabAllocatorDestroy(mTask.baroSlab);
 }
 
 INTERNAL_APP_INIT(LPS22HB_APP_ID, 0, startTask, endTask, handleEvent);
