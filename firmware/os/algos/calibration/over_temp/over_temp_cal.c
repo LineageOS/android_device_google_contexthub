@@ -310,6 +310,13 @@ void overTempCalSetModel(struct OverTempCal *over_temp_cal, const float *offset,
     findNearestEstimate(over_temp_cal);
   }
 
+  // Updates the 'compensated_offset_previous' vector to prevent from
+  // immediately triggering a new calibration update.
+  float compensated_offset_temperature_celsius = 0.0f;
+  getCalOffset(over_temp_cal, timestamp_nanos,
+               &compensated_offset_temperature_celsius,
+               over_temp_cal->compensated_offset_previous);
+
 #ifdef OVERTEMPCAL_DBG_ENABLED
   // Prints the updated model data.
   CAL_DEBUG_LOG(
@@ -403,6 +410,13 @@ void overTempCalSetModelData(struct OverTempCal *over_temp_cal,
 
   // Finds the offset nearest the sensor's current temperature.
   findNearestEstimate(over_temp_cal);
+
+  // Updates the 'compensated_offset_previous' vector to prevent from
+  // immediately triggering a new calibration update.
+  float compensated_offset_temperature_celsius = 0.0f;
+  getCalOffset(over_temp_cal, /*timestamp_nanos=*/0,
+               &compensated_offset_temperature_celsius,
+               over_temp_cal->compensated_offset_previous);
 
 #ifdef OVERTEMPCAL_DBG_ENABLED
   // Prints the updated model data.
@@ -619,8 +633,8 @@ void overTempCalUpdateSensorEstimate(struct OverTempCal *over_temp_cal,
   //          (current_timestamp_nanos - modelupdate_timestamp_nanos) <
   //            min_update_interval_nanos
   if (over_temp_cal->num_model_pts < over_temp_cal->min_num_model_pts ||
-      (timestamp_nanos - over_temp_cal->modelupdate_timestamp_nanos) <
-          over_temp_cal->min_update_interval_nanos) {
+      timestamp_nanos < over_temp_cal->min_update_interval_nanos +
+                            over_temp_cal->modelupdate_timestamp_nanos) {
 #ifdef OVERTEMPCAL_DBG_ENABLED
     // Triggers a log printout to show the updated sensor offset estimate.
     updateDebugData(over_temp_cal);
@@ -641,7 +655,7 @@ void overTempCalSetTemperature(struct OverTempCal *over_temp_cal,
   static uint64_t wait_timer = 0;
   // Prints the sensor temperature trajectory for debugging purposes.
   // This throttles the print statements.
-  if ((timestamp_nanos - wait_timer) >= 1000000000) {
+  if (timestamp_nanos >= 1000000000 + wait_timer) {
     wait_timer = timestamp_nanos;  // Starts the wait timer.
 
     // Prints out temperature and the current timestamp.
@@ -664,8 +678,8 @@ void overTempCalSetTemperature(struct OverTempCal *over_temp_cal,
   // temperature. A timer is used to limit the rate at which this search is
   // performed.
   if (over_temp_cal->num_model_pts > 0 &&
-      (timestamp_nanos - over_temp_cal->nearest_search_timer) >=
-          OVERTEMPCAL_NEAREST_NANOS) {
+      timestamp_nanos >=
+          OVERTEMPCAL_NEAREST_NANOS + over_temp_cal->nearest_search_timer) {
     findNearestEstimate(over_temp_cal);
     over_temp_cal->nearest_search_timer = timestamp_nanos;  // Reset timer.
   }
@@ -715,8 +729,8 @@ void getCalOffset(struct OverTempCal *over_temp_cal, uint64_t timestamp_nanos,
   // drift-compromised data). Only does this when there is more than one
   // estimate in the model (i.e., don't want to remove all data, even if it is
   // very old [something is likely better than nothing]).
-  if ((timestamp_nanos - over_temp_cal->stale_data_timer) >=
-          OVERTEMPCAL_STALE_CHECK_TIME_NANOS &&
+  if ((timestamp_nanos >=
+       OVERTEMPCAL_STALE_CHECK_TIME_NANOS + over_temp_cal->stale_data_timer) &&
       over_temp_cal->num_model_pts > 1) {
     over_temp_cal->stale_data_timer = timestamp_nanos;  // Resets timer.
 
@@ -858,8 +872,8 @@ bool removeStaleModelData(struct OverTempCal *over_temp_cal,
   bool removed_one = false;
   for (i = 0; i < over_temp_cal->num_model_pts; i++) {
     if (timestamp_nanos > over_temp_cal->model_data[i].timestamp_nanos &&
-        (timestamp_nanos - over_temp_cal->model_data[i].timestamp_nanos) >
-            over_temp_cal->age_limit_nanos) {
+        timestamp_nanos > over_temp_cal->age_limit_nanos +
+                              over_temp_cal->model_data[i].timestamp_nanos) {
       removed_one |= removeModelDataByIndex(over_temp_cal, i);
     }
   }
@@ -1101,7 +1115,7 @@ void overTempCalDebugPrint(struct OverTempCal *over_temp_cal,
 
     case OTC_WAIT_STATE:
       // This helps throttle the print statements.
-      if ((timestamp_nanos - wait_timer) >= OVERTEMPCAL_WAIT_TIME_NANOS) {
+      if (timestamp_nanos >= OVERTEMPCAL_WAIT_TIME_NANOS + wait_timer) {
         over_temp_cal->debug_state = next_state;
       }
       break;
