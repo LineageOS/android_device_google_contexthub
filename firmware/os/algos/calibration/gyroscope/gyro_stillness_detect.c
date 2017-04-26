@@ -193,11 +193,11 @@ float gyroStillDetCompute(struct GyroStillDet* gyro_still_det) {
       tmp_denom = 1.f / (upper_var_thresh - lower_var_thresh);
       gyro_still_det->stillness_confidence =
           gyroStillDetLimit(
-              0.5 - (gyro_still_det->win_var_x - var_thresh) * tmp_denom) *
+              0.5f - (gyro_still_det->win_var_x - var_thresh) * tmp_denom) *
           gyroStillDetLimit(
-              0.5 - (gyro_still_det->win_var_y - var_thresh) * tmp_denom) *
+              0.5f - (gyro_still_det->win_var_y - var_thresh) * tmp_denom) *
           gyroStillDetLimit(
-              0.5 - (gyro_still_det->win_var_z - var_thresh) * tmp_denom);
+              0.5f - (gyro_still_det->win_var_z - var_thresh) * tmp_denom);
     }
   }
 
