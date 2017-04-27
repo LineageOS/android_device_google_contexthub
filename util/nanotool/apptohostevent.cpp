@@ -59,7 +59,7 @@ bool AppToHostEvent::CheckAppId(SensorType sensor_type) const {
         break;
 
       case SensorType::Magnetometer:
-        if (GetAppId() != kAppIdSTMicroLsm6dsm) {
+        if (GetAppId() != kAppIdSTMicroLsm6dsm && GetAppId() != kAppIdSTMicroMag40) {
             return false;
         }
         break;
