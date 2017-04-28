@@ -25,13 +25,12 @@
 #include <nanohubPacket.h>
 #include <sensors.h>
 #include <seos.h>
+#include <timer.h>
 #include <util.h>
 #include <variant/variant.h>
 
 #define LP3943_LEDS_APP_ID              APP_ID_MAKE(NANOHUB_VENDOR_GOOGLE, 21)
 #define LP3943_LEDS_APP_VERSION         1
-
-#define DBG_ENABLE                      0
 
 #ifdef LP3943_I2C_BUS_ID
 #define I2C_BUS_ID                      LP3943_I2C_BUS_ID
@@ -60,9 +59,16 @@
 #define LP3943_MAX_LED_NUM              16
 #define LP3943_MAX_LED_SECTION          4
 
+#ifndef LP3943_DBG_ENABLE
+#define LP3943_DBG_ENABLE               1
+#endif
+#define LP3943_DBG_VALUE                0x55
+
 enum LP3943SensorEvents
 {
     EVT_SENSOR_I2C = EVT_APP_START + 1,
+    EVT_SENSOR_LEDS_TIMER,
+    EVT_TEST,
 };
 
 enum LP3943TaskState
@@ -89,12 +95,49 @@ static struct LP3943Task
     uint32_t id;
     uint32_t sHandle;
     uint32_t num;
-    uint8_t led[LP3943_MAX_LED_SECTION];
+    bool     ledsOn;
+    bool     blink;
+    uint32_t ledsTimerHandle;
+    uint8_t  led[LP3943_MAX_LED_SECTION];
 
     struct I2cTransfer transfers[LP3943_MAX_PENDING_I2C_REQUESTS];
 } mTask;
 
-static void i2cCallback(void *cookie, size_t tx, size_t rx, int err);
+/* sensor callbacks from nanohub */
+static void i2cCallback(void *cookie, size_t tx, size_t rx, int err)
+{
+    struct I2cTransfer *xfer = cookie;
+
+    xfer->tx = tx;
+    xfer->rx = rx;
+    xfer->err = err;
+
+    osEnqueuePrivateEvt(EVT_SENSOR_I2C, cookie, NULL, mTask.id);
+    if (err != 0)
+        osLog(LOG_INFO, "[LP3943] i2c error (tx: %d, rx: %d, err: %d)\n", tx, rx, err);
+}
+
+static void sensorLP3943TimerCallback(uint32_t timerId, void *data)
+{
+    osEnqueuePrivateEvt(EVT_SENSOR_LEDS_TIMER, data, NULL, mTask.id);
+}
+
+static uint32_t ledsRates[] = {
+    SENSOR_HZ(0.1),
+    SENSOR_HZ(0.5),
+    SENSOR_HZ(1.0f),
+    SENSOR_HZ(2.0f),
+    0
+};
+
+// should match "supported rates in length"
+static const uint64_t ledsRatesRateVals[] =
+{
+    10 * 1000000000ULL,
+    2 * 1000000000ULL,
+    1 * 1000000000ULL,
+    1000000000ULL / 2,
+};
 
 // Allocate a buffer and mark it as in use with the given state, or return NULL
 // if no buffers available. Must *not* be called from interrupt context.
@@ -138,19 +181,31 @@ static bool writeRegister(uint8_t reg, uint8_t value, uint8_t state)
     return (ret == 0);
 }
 
-/* sensor callbacks from nanohub */
-
-static void i2cCallback(void *cookie, size_t tx, size_t rx, int err)
+/* Sensor Operations */
+static bool sensorLP3943Power(bool on, void *cookie)
 {
-    struct I2cTransfer *xfer = cookie;
+    if (mTask.ledsTimerHandle) {
+        timTimerCancel(mTask.ledsTimerHandle);
+        mTask.ledsTimerHandle = 0;
+    }
+    mTask.ledsOn = on;
+    return sensorSignalInternalEvt(mTask.sHandle, SENSOR_INTERNAL_EVT_POWER_STATE_CHG, on, 0);
+}
 
-    xfer->tx = tx;
-    xfer->rx = rx;
-    xfer->err = err;
+static bool sensorLP3943FwUpload(void *cookie)
+{
+    return sensorSignalInternalEvt(mTask.sHandle, SENSOR_INTERNAL_EVT_FW_STATE_CHG, 1, 0);
+}
 
-    osEnqueuePrivateEvt(EVT_SENSOR_I2C, cookie, NULL, mTask.id);
-    if (err != 0)
-        osLog(LOG_INFO, "[LP3943] i2c error (tx: %d, rx: %d, err: %d)\n", tx, rx, err);
+static bool sensorLP3943SetRate(uint32_t rate, uint64_t latency, void *cookie)
+{
+    if (mTask.ledsTimerHandle)
+        timTimerCancel(mTask.ledsTimerHandle);
+
+    mTask.ledsTimerHandle = timTimerSet(sensorTimerLookupCommon(ledsRates,
+                ledsRatesRateVals, rate), 0, 50, sensorLP3943TimerCallback, NULL, false);
+
+    return sensorSignalInternalEvt(mTask.sHandle, SENSOR_INTERNAL_EVT_RATE_CHG, rate, latency);
 }
 
 static bool sensorCfgDataLedsLP3943(void *cfg, void *cookie)
@@ -181,12 +236,28 @@ static bool sensorCfgDataLedsLP3943(void *cfg, void *cookie)
     return true;
 }
 
+static void sensorLedsOnOff(bool flag)
+{
+    uint8_t laddr = LP3943_REG_LS0;
+    uint8_t lval;
+    uint8_t index;
+
+    for (index=0; index < LP3943_MAX_LED_SECTION; index++) {
+        lval = flag ? mTask.led[index] : 0;
+        writeRegister(laddr + index, lval, STATE_LED);
+    }
+}
+
 static const struct SensorInfo sensorInfoLedsLP3943 = {
     .sensorName = "Leds-LP3943",
     .sensorType = SENS_TYPE_LEDS,
+    .supportedRates = ledsRates,
 };
 
 static const struct SensorOps sensorOpsLedsLP3943 = {
+    .sensorPower   = sensorLP3943Power,
+    .sensorFirmwareUpload = sensorLP3943FwUpload,
+    .sensorSetRate  = sensorLP3943SetRate,
     .sensorCfgData = sensorCfgDataLedsLP3943,
 };
 
@@ -211,6 +282,11 @@ static void handleI2cEvent(struct I2cTransfer *xfer)
             } else {
                 osLog(LOG_INFO, "[LP3943] detected\n");
                 sensorRegisterInitComplete(mTask.sHandle);
+                if (LP3943_DBG_ENABLE) {
+                    mTask.ledsOn = true;
+                    mTask.led[0] = LP3943_DBG_VALUE;
+                    osEnqueuePrivateEvt(EVT_TEST, NULL, NULL, mTask.id);
+                }
             }
             break;
 
@@ -227,17 +303,31 @@ static void handleI2cEvent(struct I2cTransfer *xfer)
 static void handleEvent(uint32_t evtType, const void* evtData)
 {
     switch (evtType) {
-        case EVT_APP_START:
-            osEventUnsubscribe(mTask.id, EVT_APP_START);
-            i2cMasterRequest(I2C_BUS_ID, I2C_SPEED);
+    case EVT_APP_START:
+        osEventUnsubscribe(mTask.id, EVT_APP_START);
+        i2cMasterRequest(I2C_BUS_ID, I2C_SPEED);
 
-            /* Reset Leds */
-            writeRegister(LP3943_REG_LS0, 0, STATE_RESET);
-            break;
+        /* Reset Leds */
+        writeRegister(LP3943_REG_LS0, 0, STATE_RESET);
+        break;
 
-        case EVT_SENSOR_I2C:
-            handleI2cEvent((struct I2cTransfer *)evtData);
+    case EVT_SENSOR_I2C:
+        handleI2cEvent((struct I2cTransfer *)evtData);
+        break;
+
+    case EVT_SENSOR_LEDS_TIMER:
+        if (!mTask.ledsOn)
             break;
+        mTask.blink = !mTask.blink;
+        sensorLedsOnOff(mTask.blink);
+        break;
+
+    case EVT_TEST:
+        sensorLP3943SetRate(SENSOR_HZ(1), 0, NULL);
+        break;
+
+    default:
+        break;
     }
 }
 
@@ -246,6 +336,7 @@ static bool startTask(uint32_t taskId)
     mTask.id = taskId;
     mTask.num = LP3943_MAX_LED_NUM;
     memset(mTask.led, 0x00, LP3943_MAX_LED_SECTION);
+    mTask.ledsOn = mTask.blink = false;
 
     /* Register sensors */
     mTask.sHandle = sensorRegister(&sensorInfoLedsLP3943, &sensorOpsLedsLP3943, NULL, false);
