@@ -96,7 +96,6 @@ enum lps22hbSensorState {
     SENSOR_TEMP_POWER_UP,
     SENSOR_TEMP_POWER_DOWN,
     SENSOR_READ_SAMPLES,
-    SENSOR_DO_NOTHING,
 };
 
 #ifndef LPS22HB_I2C_BUS_ID
@@ -274,16 +273,13 @@ static void sensorTempTimerCallback(uint32_t timerId, void *data)
     osEnqueuePrivateEvt(EVT_SENSOR_TEMP_TIMER, data, NULL, mTask.tid);
 }
 
-#define DEC_INFO(name, type, axis, inter, samples, rates, raw, scale, bias) \
+#define DEC_INFO(name, type, axis, inter, samples, rates) \
     .sensorName = name, \
     .sensorType = type, \
     .numAxis = axis, \
     .interrupt = inter, \
     .minSamples = samples, \
-    .supportedRates = rates, \
-    .rawType = raw, \
-    .rawScale = scale, \
-    .biasType = bias
+    .supportedRates = rates
 
 static uint32_t lps22hbRates[] = {
     SENSOR_HZ(1.0f),
@@ -308,9 +304,9 @@ static const uint64_t lps22hbRatesRateVals[] =
 static const struct SensorInfo lps22hbSensorInfo[NUM_OF_SENSOR] =
 {
     { DEC_INFO("Pressure", SENS_TYPE_BARO, NUM_AXIS_ONE, NANOHUB_INT_NONWAKEUP,
-        300, lps22hbRates, 0, 0, 0) },
+        300, lps22hbRates) },
     { DEC_INFO("Temperature", SENS_TYPE_TEMP, NUM_AXIS_EMBEDDED, NANOHUB_INT_NONWAKEUP,
-        20, lps22hbRates, 0, 0, 0) },
+        20, lps22hbRates) },
 };
 
 /* Sensor Operations */
@@ -527,7 +523,6 @@ static int handleCommDoneEvt(const void* evtData)
 
         break;
 
-    case SENSOR_DO_NOTHING:
     default:
         break;
     }
