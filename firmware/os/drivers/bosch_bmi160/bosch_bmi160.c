@@ -233,7 +233,20 @@
 
 #define MAX_NUM_COMMS_EVENT_SAMPLES 15
 
-#define kScale_acc    0.00239501953f  // ACC_range * 9.81f / 32768.0f;
+// Default accel range is 8g
+#ifndef BMI160_ACC_RANGE_G
+#define BMI160_ACC_RANGE_G 8
+#endif
+
+#if BMI160_ACC_RANGE_G == 16
+#define ACC_RANGE_SETTING 0x0c
+#elif BMI160_ACC_RANGE_G == 8
+#define ACC_RANGE_SETTING 0x08
+#else
+#error "Invalid BMI160_ACC_RANGE_G setting: valid values are 8, 16"
+#endif
+
+#define kScale_acc    (9.81f * BMI160_ACC_RANGE_G / 32768.0f)
 #define kScale_gyr    0.00053263221f  // GYR_range * M_PI / (180.0f * 32768.0f);
 #define kScale_temp   0.001953125f    // temperature in deg C
 #define kTempInvalid  -1000.0f
@@ -1517,9 +1530,15 @@ static uint8_t computeOdr(uint32_t rate)
 }
 
 static void configMotion(uint8_t odr) {
+#if BMI160_ACC_RANGE_G == 16
+    // motion threshold is element * 31.25mg (for 16g range)
+    static const uint8_t motion_thresholds[ACC_MAX_RATE+1] =
+        {3, 3, 3, 3, 3, 3, 3, 3, 2, 2, 1, 1, 1};
+#elif BMI160_ACC_RANGE_G == 8
     // motion threshold is element * 15.63mg (for 8g range)
     static const uint8_t motion_thresholds[ACC_MAX_RATE+1] =
         {5, 5, 5, 5, 5, 5, 5, 5, 4, 3, 2, 2, 2};
+#endif
 
     // set any_motion duration to 1 point
     // set no_motion duration to (3+1)*1.28sec=5.12sec
@@ -2664,8 +2683,8 @@ static void accCalibrationHandling(void)
         break;
     case CALIBRATION_FOC:
 
-        // set accel range to +-8g
-        SPI_WRITE(BMI160_REG_ACC_RANGE, 0x08);
+        // set accel range
+        SPI_WRITE(BMI160_REG_ACC_RANGE, ACC_RANGE_SETTING);
 
         // enable accel fast offset compensation,
         // x: 0g, y: 0g, z: 1g
@@ -2828,8 +2847,8 @@ static void accTestHandling(void)
         // set accel conf
         SPI_WRITE(BMI160_REG_ACC_CONF, 0x2c);
 
-        // set accel range to +-8g
-        SPI_WRITE(BMI160_REG_ACC_RANGE, 0x08);
+        // set accel range
+        SPI_WRITE(BMI160_REG_ACC_RANGE, ACC_RANGE_SETTING);
 
         // read stale accel data
         SPI_READ(BMI160_REG_DATA_14, 6, &mTask.dataBuffer);
@@ -3320,8 +3339,8 @@ static void sensorInit(void)
         mTask.sensors[GYR].offset_enable = false;
         SPI_WRITE(BMI160_REG_OFFSET_6, offset6Mode(), 450);
 
-        // initial range for accel (+-8g) and gyro (+-1000 degree).
-        SPI_WRITE(BMI160_REG_ACC_RANGE, 0x08, 450);
+        // initial range for accel and gyro (+-1000 degree).
+        SPI_WRITE(BMI160_REG_ACC_RANGE, ACC_RANGE_SETTING, 450);
         SPI_WRITE(BMI160_REG_GYR_RANGE, 0x01, 450);
 
         // Reset step counter
