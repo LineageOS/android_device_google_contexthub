@@ -107,7 +107,6 @@ enum hts221SensorState {
     SENSOR_HUMIDITY_POWER_UP,
     SENSOR_HUMIDITY_POWER_DOWN,
     SENSOR_READ_SAMPLES,
-    SENSOR_DO_NOTHING,
 };
 
 #ifndef HTS221_I2C_BUS_ID
@@ -270,15 +269,13 @@ static void sensorHumidityTimerCallback(uint32_t timerId, void *data)
     osEnqueuePrivateEvt(EVT_SENSOR_HUMIDITY_TIMER, data, NULL, mTask.tid);
 }
 
-#define DEC_INFO(name, type, axis, inter, samples, rates, raw, scale) \
+#define DEC_INFO(name, type, axis, inter, samples, rates) \
     .sensorName = name, \
     .sensorType = type, \
     .numAxis = axis, \
     .interrupt = inter, \
     .minSamples = samples, \
-    .supportedRates = rates, \
-    .rawType = raw, \
-    .rawScale = scale
+    .supportedRates = rates
 
 static uint32_t hts221Rates[] = {
     SENSOR_HZ(1.0f),
@@ -299,7 +296,7 @@ static const uint64_t hts221RatesRateVals[] =
 static const struct SensorInfo hts221SensorInfo[NUM_OF_SENSOR] =
 {
     { DEC_INFO("Humidity", SENS_TYPE_HUMIDITY, NUM_AXIS_EMBEDDED, NANOHUB_INT_NONWAKEUP,
-        300, hts221Rates, 0, 0) },
+        300, hts221Rates) },
 };
 
 /* Sensor Operations */
@@ -446,7 +443,6 @@ static int handleCommDoneEvt(const void* evtData)
 
         break;
 
-    case SENSOR_DO_NOTHING:
     default:
         break;
     }
