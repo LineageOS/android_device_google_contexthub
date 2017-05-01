@@ -190,6 +190,8 @@ bool platLogPutcharF(void *userData, char ch)
     gpioBitbangedUartOut(ch);
 #endif
 #if defined(DEBUG_UART_UNITNO)
+    if (ch == '\n')
+        usartPutchar(&mDbgUart, '\r');
     usartPutchar(&mDbgUart, ch);
 #endif
 #if defined(DEBUG_LOG_EVT)
