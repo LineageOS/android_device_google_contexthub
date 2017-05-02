@@ -65,6 +65,9 @@
 
 #define ST_MAG40_OUTXL_REG_ADDR    0x68
 
+/* Enable auto-increment of the I2C subaddress (to allow I2C multiple ops) */
+#define ST_MAG40_I2C_AUTO_INCR     0x80
+
 enum st_mag40_SensorEvents
 {
     EVT_COMM_DONE = EVT_APP_START + 1,
@@ -372,7 +375,7 @@ static void i2c_read(uint8_t addr, uint16_t len, uint32_t delay, bool last)
     if (xfer != NULL) {
         xfer->delay = delay;
         xfer->last = last;
-        xfer->txrxBuf[0] = 0x80 | addr;
+        xfer->txrxBuf[0] = ST_MAG40_I2C_AUTO_INCR | addr;
         i2cMasterTxRx(ST_MAG40_I2C_BUS_ID, ST_MAG40_I2C_ADDR, xfer->txrxBuf, 1, xfer->txrxBuf, len, i2cCallback, xfer);
     }
 }
