@@ -45,6 +45,7 @@
 #define ST_MAG40_WAI_REG_VAL       0x40
 
 #define ST_MAG40_CFG_A_REG_ADDR    0x60
+#define ST_MAG40_TEMP_COMP_EN      0x80
 #define ST_MAG40_SOFT_RESET_BIT    0x20
 #define ST_MAG40_ODR_10_HZ         0x00
 #define ST_MAG40_ODR_20_HZ         0x04
@@ -598,8 +599,7 @@ static void magTestHandling(struct I2cTransfer *xfer)
                 sendTestResult(SENSOR_APP_EVT_STATUS_ERROR, SENS_TYPE_MAG);
 
         mTask.mag_test_state = MAG_SELFTEST_DONE;
-        mTask.comm_tx(ST_MAG40_CFG_A_REG_ADDR, ST_MAG40_POWER_IDLE, 0, false);
-        mTask.comm_tx(ST_MAG40_CFG_B_REG_ADDR, ST_MAG40_OFF_CANC, 0, false);
+        mTask.comm_tx(ST_MAG40_CFG_A_REG_ADDR, ST_MAG40_TEMP_COMP_EN | ST_MAG40_POWER_IDLE, 0, false);
         mTask.comm_tx(ST_MAG40_CFG_C_REG_ADDR, ST_MAG40_BDU_ON | ST_MAG40_INT_MAG, 0, true);
         break;
 
@@ -766,7 +766,7 @@ static void sensorMagConfig(void)
     case CONFIG_POWER_UP:
         mTask.subState = CONFIG_POWER_UP_2;
         mTask.comm_tx(ST_MAG40_CFG_A_REG_ADDR,
-                      ST_MAG40_POWER_ON | mTask.currentODR, 0, true);
+                      ST_MAG40_TEMP_COMP_EN | ST_MAG40_POWER_ON | mTask.currentODR, 0, true);
         break;
 
     case CONFIG_POWER_UP_2:
@@ -779,7 +779,7 @@ static void sensorMagConfig(void)
     case CONFIG_POWER_DOWN:
         mTask.subState = CONFIG_POWER_DOWN_2;
         mTask.comm_tx(ST_MAG40_CFG_A_REG_ADDR,
-                      ST_MAG40_POWER_IDLE | mTask.currentODR, 0, true);
+                      ST_MAG40_TEMP_COMP_EN | ST_MAG40_POWER_IDLE | mTask.currentODR, 0, true);
         break;
 
     case CONFIG_POWER_DOWN_2:
@@ -793,7 +793,7 @@ static void sensorMagConfig(void)
         mTask.subState = CONFIG_SET_RATE_2;
         tmp = mTask.magOn ? ST_MAG40_POWER_ON : ST_MAG40_POWER_IDLE;
         tmp |= mTask.currentODR;
-        mTask.comm_tx(ST_MAG40_CFG_A_REG_ADDR, tmp, 0, true);
+        mTask.comm_tx(ST_MAG40_CFG_A_REG_ADDR, ST_MAG40_TEMP_COMP_EN | tmp, 0, true);
         break;
 
     case CONFIG_SET_RATE_2:
@@ -822,7 +822,6 @@ static void sensorInit(void)
 
     case INIT_ENABLE_DRDY:
         mTask.subState = INIT_DONE;
-        mTask.comm_tx(ST_MAG40_CFG_B_REG_ADDR, ST_MAG40_OFF_CANC, 0, false);
         mTask.comm_tx(ST_MAG40_CFG_C_REG_ADDR,
                     ST_MAG40_BDU_ON | ST_MAG40_INT_MAG, 0, true);
         break;
