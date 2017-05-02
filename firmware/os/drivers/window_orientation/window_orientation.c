@@ -56,7 +56,7 @@
 // all time units in usec, angles in degrees
 #define RADIANS_TO_DEGREES                              (180.0f / M_PI)
 
-#define NS2US(x) (x >> 10)   // convert nsec to approx usec
+#define NS2US(x) ((x) >> 10)   // convert nsec to approx usec
 
 #define PROPOSAL_MIN_SETTLE_TIME                        NS2US(40000000ull)       // 40 ms
 #define PROPOSAL_MAX_SETTLE_TIME                        NS2US(400000000ull)      // 400 ms
