@@ -60,7 +60,7 @@
 #define LP3943_MAX_LED_SECTION          4
 
 #ifndef LP3943_DBG_ENABLE
-#define LP3943_DBG_ENABLE               1
+#define LP3943_DBG_ENABLE               0
 #endif
 #define LP3943_DBG_VALUE                0x55
 
