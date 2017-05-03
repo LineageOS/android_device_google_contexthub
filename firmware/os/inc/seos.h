@@ -79,7 +79,7 @@ struct AppFuncs { /* do not rearrange */
 #define ENCR_KEY_GOOGLE_PREPOPULATED     1 // our key ID is 1
 
 #define APP_HDR_MAGIC              NANOAPP_FW_MAGIC
-#define APP_HDR_VER_CUR            0
+#define APP_HDR_VER_CUR            1
 
 #define FL_APP_HDR_INTERNAL        0x0001 // to be able to fork behavior at run time for internal apps
 #define FL_APP_HDR_APPLICATION     0x0002 // image has AppHdr; otherwise is has AppInfo header
