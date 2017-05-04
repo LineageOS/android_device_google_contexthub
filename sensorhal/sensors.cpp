@@ -230,7 +230,7 @@ int SensorContext::inject_sensor_data(const sensors_event_t *event) {
         return -EINVAL;
     }
 
-    if (event->sensor != 0) {
+    if (event->sensor != SENSORS_HANDLE_BASE - 1) {
         return -ENOSYS;
     }
 
