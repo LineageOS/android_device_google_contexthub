@@ -257,6 +257,18 @@ static void chreappHandle(uint32_t eventTypeAndTid, const void *eventData)
         u.msg.messageSize = hdr->size;
         break;
     }
+    case EVT_APP_SENSOR_SELF_TEST:
+    case EVT_APP_SENSOR_MARSHALL:
+    case EVT_APP_SENSOR_SEND_ONE_DIR_EVT:
+    case EVT_APP_SENSOR_CFG_DATA:
+    case EVT_APP_SENSOR_CALIBRATE:
+    case EVT_APP_SENSOR_TRIGGER:
+    case EVT_APP_SENSOR_FLUSH:
+    case EVT_APP_SENSOR_SET_RATE:
+    case EVT_APP_SENSOR_FW_UPLD:
+    case EVT_APP_SENSOR_POWER:
+        // sensor events; pass through
+        break;
     default:
         // ignore any other system events; OS may send them to any app
         if (evt < EVT_NO_FIRST_USER_EVENT)
