@@ -18,10 +18,12 @@
 #include <algos/time_sync.h>
 #include <atomic.h>
 #include <cpu/cpuMath.h>
+#include <errno.h>
 #include <gpio.h>
 #include <heap.h>
 #include <halIntf.h>
 #include <hostIntf.h>
+#include <i2c.h>
 #include <isr.h>
 #include <nanohub_math.h>
 #include <nanohubPacket.h>
@@ -112,6 +114,17 @@
 #endif
 
 #define BMI160_APP_ID APP_ID_MAKE(NANOHUB_VENDOR_GOOGLE, 2)
+
+#ifdef BMI160_I2C_BUS_ID
+#define BMI160_USE_I2C
+
+#ifndef BMI160_I2C_SPEED
+#define BMI160_I2C_SPEED          400000
+#endif
+#ifndef BMI160_I2C_ADDR
+#define BMI160_I2C_ADDR           0x68
+#endif
+#endif
 
 #define BMI160_SPI_WRITE          0x00
 #define BMI160_SPI_READ           0x80
@@ -545,6 +558,11 @@ struct BMI160Task {
     struct SlabAllocator *mDataSlab;
     uint16_t mWbufCnt;
     uint8_t mRegCnt;
+#ifdef BMI160_USE_I2C
+    uint8_t cReg;
+    SpiCbkF sCallback;
+#endif
+
     uint8_t mRetryLeft;
     bool spiInUse;
 };
@@ -822,6 +840,10 @@ static void spiQueueRead(uint8_t addr, size_t size, uint8_t **buf, uint32_t dela
     T(mRegCnt)++;
 }
 
+#ifdef BMI160_USE_I2C
+static void i2cBatchTxRx(void *evtData, int err);
+#endif
+
 static void spiBatchTxRx(struct SpiMode *mode,
         SpiCbkF callback, void *cookie, const char * src)
 {
@@ -836,16 +858,22 @@ static void spiBatchTxRx(struct SpiMode *mode,
     }
 
     T(spiInUse) = true;
+    T(mWbufCnt) = 0;
 
+#ifdef BMI160_USE_I2C
+    T(cReg) = 0;
+    T(sCallback) = callback;
+    i2cBatchTxRx(cookie, 0);
+#else
     // Reset variables before issuing SPI transaction.
     // SPI may finish before spiMasterRxTx finish
     uint8_t regCount = T(mRegCnt);
     T(mRegCnt) = 0;
-    T(mWbufCnt) = 0;
 
     if (spiMasterRxTx(T(spiDev), T(cs), T(packets), regCount, mode, callback, cookie) < 0) {
         ERROR_PRINT("spiMasterRxTx failed!\n");
     }
+#endif
 }
 
 
@@ -3603,6 +3631,69 @@ static void handleSpiDoneEvt(const void* evtData)
     }
 }
 
+#ifdef BMI160_USE_I2C
+static void i2cCallback(void *cookie, size_t tx, size_t rx, int err);
+
+/* delayed callback */
+static void i2cDelayCallback(uint32_t timerId, void *data)
+{
+    i2cCallback(data, 0, 0, 0);
+}
+
+static void i2cCallback(void *cookie, size_t tx, size_t rx, int err)
+{
+    TDECL();
+    uint8_t reg = T(cReg) - 1;
+    uint32_t delay;
+
+    if (err != 0) {
+        ERROR_PRINT("i2c error (tx: %d, rx: %d, err: %d)\n", tx, rx, err);
+    } else { /* delay callback if it is the case */
+        delay = T(packets[reg]).delay;
+        T(packets[reg]).delay = 0;
+        if (delay > 0) {
+            if (timTimerSet(delay, 0, 50, i2cDelayCallback, cookie, true))
+                return;
+            ERROR_PRINT("Cannot do delayed i2cCallback\n");
+            err = -ENOMEM;
+        }
+    }
+    i2cBatchTxRx(cookie, err);
+}
+
+static void i2cBatchTxRx(void *evtData, int err)
+{
+    TDECL();
+    uint8_t *txBuf;
+    uint8_t *rxBuf;
+    uint16_t size;
+    uint8_t reg;
+
+    reg = T(cReg)++;
+    if (err || (reg >= T(mRegCnt))) // No more packets
+        goto i2c_batch_end;
+
+    // Setup i2c op for next packet
+    txBuf = (uint8_t *)T(packets[reg]).txBuf;
+    size = T(packets[reg]).size;
+    if (txBuf[0] & BMI160_SPI_READ) { // Read op
+        rxBuf = (uint8_t *)T(packets[reg]).rxBuf + 1;
+        size--;
+        err = i2cMasterTxRx(BMI160_I2C_BUS_ID, BMI160_I2C_ADDR, txBuf, 1, rxBuf, size, i2cCallback, evtData);
+    } else { // Write op
+        err = i2cMasterTx(BMI160_I2C_BUS_ID, BMI160_I2C_ADDR, txBuf, size, i2cCallback, evtData);
+    }
+    if (!err)
+        return;
+    ERROR_PRINT("%s: [0x%x] (err: %d)\n", __func__, txBuf[0], err);
+
+i2c_batch_end:
+    T(mRegCnt) = 0;
+    if (T(sCallback))
+        T(sCallback)((void *)evtData, err);
+}
+#endif
+
 static void handleEvent(uint32_t evtType, const void* evtData)
 {
     TDECL();
@@ -3703,7 +3794,11 @@ static bool startTask(uint32_t task_id)
 
     T(watermark) = 0;
 
+#ifdef BMI160_USE_I2C
+    i2cMasterRequest(BMI160_I2C_BUS_ID, BMI160_I2C_SPEED);
+#else
     spiMasterRequest(BMI160_SPI_BUS_ID, &T(spiDev));
+#endif
 
     for (i = FIRST_CONT_SENSOR; i < NUM_OF_SENSOR; i++) {
         initSensorStruct(&T(sensors[i]), i);
@@ -3797,6 +3892,9 @@ static bool startTask(uint32_t task_id)
     }
     T(mWbufCnt) = 0;
     T(mRegCnt) = 0;
+#ifdef BMI160_USE_I2C
+    T(cReg) = 0;
+#endif
     T(spiInUse) = false;
 
     T(interrupt_enable_0) = 0x00;
@@ -3824,8 +3922,9 @@ static void endTask(void)
     accelCalDestroy(&mTask.acc);
 #endif
     slabAllocatorDestroy(T(mDataSlab));
-
+#ifndef BMI160_USE_I2C
     spiMasterRelease(mTask.spiDev);
+#endif
 
     // disable and release interrupt.
     disableInterrupt(mTask.Int1, mTask.Irq1, &mTask.Isr1);
