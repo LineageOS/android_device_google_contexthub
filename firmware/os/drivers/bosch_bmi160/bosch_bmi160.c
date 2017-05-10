@@ -101,9 +101,18 @@
 #define BMI160_SPI_SPEED_HZ       8000000
 #define BMI160_SPI_MODE           3
 
-#define BMI160_INT_IRQ            EXTI9_5_IRQn
+#ifndef BMI160_INT1_IRQ
+#define BMI160_INT1_IRQ           EXTI9_5_IRQn
+#endif
+#ifndef BMI160_INT1_PIN
 #define BMI160_INT1_PIN           GPIO_PB(6)
+#endif
+#ifndef BMI160_INT2_IRQ
+#define BMI160_INT2_IRQ           EXTI9_5_IRQn
+#endif
+#ifndef BMI160_INT2_PIN
 #define BMI160_INT2_PIN           GPIO_PB(7)
+#endif
 
 #define BMI160_ID                 0xd1
 
@@ -429,6 +438,8 @@ struct BMI160Task {
     struct SpiDevice *spiDev;
     struct Gpio *Int1;
     struct Gpio *Int2;
+    IRQn_Type Irq1;
+    IRQn_Type Irq2;
     struct ChainedIsr Isr1;
     struct ChainedIsr Isr2;
 #ifdef ACCEL_CAL_ENABLED
@@ -913,18 +924,18 @@ static bool stepCntFirmwareUpload(void *cookie)
     return true;
 }
 
-static bool enableInterrupt(struct Gpio *pin, struct ChainedIsr *isr)
+static bool enableInterrupt(struct Gpio *pin, IRQn_Type irq, struct ChainedIsr *isr)
 {
     gpioConfigInput(pin, GPIO_SPEED_LOW, GPIO_PULL_NONE);
     syscfgSetExtiPort(pin);
     extiEnableIntGpio(pin, EXTI_TRIGGER_RISING);
-    extiChainIsr(BMI160_INT_IRQ, isr);
+    extiChainIsr(irq, isr);
     return true;
 }
 
-static bool disableInterrupt(struct Gpio *pin, struct ChainedIsr *isr)
+static bool disableInterrupt(struct Gpio *pin, IRQn_Type irq, struct ChainedIsr *isr)
 {
-    extiUnchainIsr(BMI160_INT_IRQ, isr);
+    extiUnchainIsr(irq, isr);
     extiDisableIntGpio(pin);
     return true;
 }
@@ -3333,6 +3344,7 @@ static void handleSpiDoneEvt(const void* evtData)
                 ERROR_PRINT("Couldn't get a timer to verify ID\n");
             break;
         } else {
+            INFO_PRINT("detected\n");
             SET_STATE(SENSOR_INITIALIZING);
             mTask.init_state = RESET_BMI160;
             sensorInit();
@@ -3547,8 +3559,10 @@ static bool startTask(uint32_t task_id)
     T(tid) = task_id;
 
     T(Int1) = gpioRequest(BMI160_INT1_PIN);
+    T(Irq1) = BMI160_INT1_IRQ;
     T(Isr1).func = bmi160Isr1;
     T(Int2) = gpioRequest(BMI160_INT2_PIN);
+    T(Irq2) = BMI160_INT2_IRQ;
     T(Isr2).func = bmi160Isr2;
     T(pending_int[0]) = false;
     T(pending_int[1]) = false;
@@ -3671,8 +3685,8 @@ static bool startTask(uint32_t task_id)
     T(frame_sensortime) = ULONG_LONG_MAX;
 
     // it's ok to leave interrupt open all the time.
-    enableInterrupt(T(Int1), &T(Isr1));
-    enableInterrupt(T(Int2), &T(Isr2));
+    enableInterrupt(T(Int1), T(Irq1), &T(Isr1));
+    enableInterrupt(T(Int2), T(Irq2), &T(Isr2));
 
     return true;
 }
@@ -3687,11 +3701,12 @@ static void endTask(void)
     accelCalDestroy(&mTask.acc);
 #endif
     slabAllocatorDestroy(T(mDataSlab));
+
     spiMasterRelease(mTask.spiDev);
 
     // disable and release interrupt.
-    disableInterrupt(mTask.Int1, &mTask.Isr1);
-    disableInterrupt(mTask.Int2, &mTask.Isr2);
+    disableInterrupt(mTask.Int1, mTask.Irq1, &mTask.Isr1);
+    disableInterrupt(mTask.Int2, mTask.Irq2, &mTask.Isr2);
     gpioRelease(mTask.Int1);
     gpioRelease(mTask.Int2);
 }
