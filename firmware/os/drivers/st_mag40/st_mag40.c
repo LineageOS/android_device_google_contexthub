@@ -921,10 +921,13 @@ static void handleEvent(uint32_t evtType, const void* evtData)
     switch (evtType) {
     case EVT_APP_START:
         INFO_PRINT("EVT_APP_START\n");
-        SET_STATE(SENSOR_BOOT);
         osEventUnsubscribe(mTask.tid, EVT_APP_START);
 
-        /* fall through */
+        SET_STATE(SENSOR_BOOT);
+        mTask.comm_tx(ST_MAG40_CFG_A_REG_ADDR,
+                        ST_MAG40_SOFT_RESET_BIT, 0, true);
+
+        break;
 
     case EVT_COMM_DONE:
         handleCommDoneEvt(evtData);
