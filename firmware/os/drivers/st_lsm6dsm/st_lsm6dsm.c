@@ -4089,13 +4089,13 @@ static void lsm6dsm_parseFifoData(uint8_t *data, uint16_t numPattern)
 #ifdef LSM6DSM_I2C_MASTER_MAGNETOMETER_ENABLED
                                 case MAGN:
 #endif /* LSM6DSM_I2C_MASTER_MAGNETOMETER_ENABLED */
-                                    lsm6dsm_processSensorThreeAxisData(sensor, &data[fifoCounter], &samplesCounter[sidx], &timestamp);
+                                    lsm6dsm_processSensorThreeAxisData(sensor, &data[fifoCounter], &samplesCounter[n], &timestamp);
                                     break;
 
 #if defined(LSM6DSM_I2C_MASTER_BAROMETER_ENABLED) && !defined(LSM6DSM_I2C_MASTER_MAGNETOMETER_ENABLED)
                                 case PRESS:
                                     if (T(sensors[PRESS]).enabled)
-                                        lsm6dsm_processSensorOneAxisData(sensor, &data[fifoCounter], &samplesCounter[sidx], &timestamp);
+                                        lsm6dsm_processSensorOneAxisData(sensor, &data[fifoCounter], &samplesCounter[n], &timestamp);
 
                                     if (T(sensors[TEMP]).enabled) {
                                         union EmbeddedDataPoint tempData;
@@ -4115,8 +4115,8 @@ static void lsm6dsm_parseFifoData(uint8_t *data, uint16_t numPattern)
 
                                 sensor->samplesFifoDecimatorCounter = 0;
 
-                                if (samplesCounter[sidx] >= (LSM6DSM_MAX_NUM_COMMS_EVENT_SAMPLE - 1))
-                                    lsm6dsm_pushData(sidx, &samplesCounter[sidx]);
+                                if (samplesCounter[n] >= (LSM6DSM_MAX_NUM_COMMS_EVENT_SAMPLE - 1))
+                                    lsm6dsm_pushData(sidx, &samplesCounter[n]);
                             }
                         } else
                             sensor->samplesToDiscard--;
@@ -4142,10 +4142,8 @@ static void lsm6dsm_parseFifoData(uint8_t *data, uint16_t numPattern)
     }
 
     for (n = 0; n < FIFO_NUM; n++) {
-        sidx = T(fifoCntl).decimatorsIdx[n];
-
-        if (samplesCounter[sidx])
-            lsm6dsm_pushData(sidx, &samplesCounter[sidx]);
+        if (samplesCounter[n])
+            lsm6dsm_pushData(T(fifoCntl).decimatorsIdx[n], &samplesCounter[n]);
     }
 }
 
