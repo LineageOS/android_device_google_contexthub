@@ -198,7 +198,6 @@ struct I2cTransfer
     size_t rx;
     int err;
     uint8_t txrxBuf[ST_MAG40_MAX_I2C_TRANSFER_SIZE];
-    uint8_t state;
     bool last;
     bool inUse;
     uint32_t delay;
@@ -309,7 +308,6 @@ static struct I2cTransfer *allocXfer(void)
     for (i = 0; i < ARRAY_SIZE(mTask.transfers); i++) {
         if (!mTask.transfers[i].inUse) {
             mTask.transfers[i].inUse = true;
-            mTask.transfers[i].state = GET_STATE();
             return &mTask.transfers[i];
         }
     }
@@ -843,7 +841,7 @@ static void handleCommDoneEvt(const void* evtData)
     bool returnIdle = false;
     struct I2cTransfer *xfer = (struct I2cTransfer *)evtData;
 
-    switch (xfer->state) {
+    switch (GET_STATE()) {
     case SENSOR_BOOT:
         SET_STATE(SENSOR_VERIFY_ID);
 
