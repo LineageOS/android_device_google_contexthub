@@ -460,7 +460,7 @@ static const struct SensorInfo st_mag40_SensorInfo =
 /* Sensor Operations */
 static bool magPower(bool on, void *cookie)
 {
-    DEBUG_PRINT("magPower %s\n", on ? "on" : "off");
+    INFO_PRINT("magPower %s\n", on ? "on" : "off");
     if (trySwitchState(SENSOR_MAG_CONFIGURATION)) {
         mTask.subState = on ? CONFIG_POWER_UP : CONFIG_POWER_DOWN;
         sensorMagConfig();
@@ -480,7 +480,8 @@ static bool magSetRate(uint32_t rate, uint64_t latency, void *cookie)
 {
     uint8_t num = 0;
 
-    DEBUG_PRINT("magSetRate %lu\n", rate);
+    INFO_PRINT("magSetRate %lu Hz - %llu ns\n", rate, latency);
+
     num = st_mag40_computeOdr(rate);
     mTask.currentODR = st_mag40_regVal[num];
     mTask.rate = rate;
@@ -498,7 +499,7 @@ static bool magSetRate(uint32_t rate, uint64_t latency, void *cookie)
 
 static bool magFlush(void *cookie)
 {
-    DEBUG_PRINT("magFlush\n");
+    INFO_PRINT("magFlush\n");
     return osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_MAG), SENSOR_DATA_EVENT_FLUSH, NULL);
 }
 
@@ -613,7 +614,7 @@ static void magTestHandling(struct I2cTransfer *xfer)
 
 static bool magSelfTest(void *cookie)
 {
-    DEBUG_PRINT("magSelfTest\n");
+    INFO_PRINT("magSelfTest\n");
 
     if (!mTask.magOn && trySwitchState(SENSOR_SELF_TEST)) {
         mTask.mag_test_state = MAG_SELFTEST_INIT;
