@@ -317,7 +317,7 @@ static bool baroPower(bool on, void *cookie)
     uint32_t state = on ? SENSOR_BARO_POWER_UP : SENSOR_BARO_POWER_DOWN;
     bool ret = true;
 
-    DEBUG_PRINT("baroPower %s\n", on ? "enable" : "disable");
+    INFO_PRINT("baroPower %s\n", on ? "enable" : "disable");
     if (!on && mTask.baroTimerHandle) {
         timTimerCancel(mTask.baroTimerHandle);
         mTask.baroTimerHandle = 0;
@@ -350,7 +350,8 @@ static bool baroFwUpload(void *cookie)
 
 static bool baroSetRate(uint32_t rate, uint64_t latency, void *cookie)
 {
-    DEBUG_PRINT("baroSetRate %ld (%lld)\n", rate, latency);
+    INFO_PRINT("baroSetRate %lu Hz - %llu ns\n", rate, latency);
+
     if (mTask.baroTimerHandle)
         timTimerCancel(mTask.baroTimerHandle);
 
@@ -373,7 +374,7 @@ static bool tempPower(bool on, void *cookie)
     uint32_t state = on ? SENSOR_TEMP_POWER_UP : SENSOR_TEMP_POWER_DOWN;
     bool ret = true;
 
-    DEBUG_PRINT("tempPower %s\n", on ? "enable" : "disable");
+    INFO_PRINT("tempPower %s\n", on ? "enable" : "disable");
     if (!on && mTask.tempTimerHandle) {
         timTimerCancel(mTask.tempTimerHandle);
         mTask.tempTimerHandle = 0;
@@ -409,7 +410,7 @@ static bool tempSetRate(uint32_t rate, uint64_t latency, void *cookie)
     if (mTask.tempTimerHandle)
         timTimerCancel(mTask.tempTimerHandle);
 
-    DEBUG_PRINT("tempSetRate %ld (%lld)\n", rate, latency);
+    INFO_PRINT("tempSetRate %lu Hz - %llu ns\n", rate, latency);
     mTask.tempTimerHandle = timTimerSet(sensorTimerLookupCommon(lps22hbRates,
                 lps22hbRatesRateVals, rate), 0, 50, sensorTempTimerCallback, NULL, false);
 
@@ -458,7 +459,7 @@ static int handleCommDoneEvt(const void* evtData)
     case SENSOR_VERIFY_ID:
         /* Check the sensor ID */
         if (xfer->err != 0 || xfer->txrxBuf[0] != LPS22HB_WAI_REG_VAL) {
-            INFO_PRINT("WAI returned is: %02x\n", xfer->txrxBuf[0]);
+            DEBUG_PRINT("WAI returned is: %02x\n", xfer->txrxBuf[0]);
             break;
         }
 
