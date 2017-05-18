@@ -307,7 +307,8 @@ static bool humidityPower(bool on, void *cookie)
     uint32_t state = on ? SENSOR_HUMIDITY_POWER_UP : SENSOR_HUMIDITY_POWER_DOWN;
     bool ret = true;
 
-    DEBUG_PRINT("humidityPower %s\n", on ? "enable" : "disable");
+    INFO_PRINT("humidityPower %s\n", on ? "enable" : "disable");
+
     if (!on && mTask.humidityTimerHandle) {
         timTimerCancel(mTask.humidityTimerHandle);
         mTask.humidityTimerHandle = 0;
@@ -340,7 +341,8 @@ static bool humidityFwUpload(void *cookie)
 
 static bool humiditySetRate(uint32_t rate, uint64_t latency, void *cookie)
 {
-    DEBUG_PRINT("humiditySetRate %ld (%lld)\n", rate, latency);
+    INFO_PRINT("humiditySetRate %lu Hz - %llu ns\n", rate, latency);
+
     if (mTask.humidityTimerHandle)
         timTimerCancel(mTask.humidityTimerHandle);
 
@@ -403,7 +405,7 @@ static int handleCommDoneEvt(const void* evtData)
     case SENSOR_VERIFY_ID:
         /* Check the sensor ID */
         if (xfer->err != 0 || xfer->txrxBuf[0] != HTS221_WAI_REG_VAL) {
-            INFO_PRINT("WAI returned is: %02x\n", xfer->txrxBuf[0]);
+            DEBUG_PRINT("WAI returned is: %02x\n", xfer->txrxBuf[0]);
             break;
         }
 
