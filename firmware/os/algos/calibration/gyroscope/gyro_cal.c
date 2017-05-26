@@ -40,7 +40,7 @@
 #define NANOS_TO_SEC (1.0e-9f)
 
 // A debug version label to help with tracking results.
-#define GYROCAL_DEBUG_VERSION_STRING "[Jan 20, 2017]"
+#define GYROCAL_DEBUG_VERSION_STRING "[May 15, 2017]"
 
 // Debug log tag string used to identify debug report output data.
 #define GYROCAL_REPORT_TAG "[GYRO_CAL:REPORT]"
@@ -356,7 +356,7 @@ void gyroCalUpdateAccel(struct GyroCal* gyro_cal, uint64_t sample_time_nanos,
   deviceStillnessCheck(gyro_cal, sample_time_nanos);
 }
 
-// TODO(davejacobs): Consider breaking this function up to improve readability.
+// TODO: Consider breaking this function up to improve readability.
 // Checks the state of all stillness detectors to determine
 // whether the device is "still".
 void deviceStillnessCheck(struct GyroCal* gyro_cal,
@@ -430,7 +430,7 @@ void deviceStillnessCheck(struct GyroCal* gyro_cal,
     // Check to see if current stillness period exceeds the desired limit.
     stillness_duration_exceeded =
         ((gyro_cal->gyro_stillness_detect.last_sample_time -
-          gyro_cal->start_still_time_nanos) >
+          gyro_cal->start_still_time_nanos) >=
          gyro_cal->max_still_duration_nanos);
 
     // Track the new stillness mean and temperature data.
@@ -633,7 +633,7 @@ void checkWatchdog(struct GyroCal* gyro_cal, uint64_t sample_time_nanos) {
   }
 }
 
-// TODO(davejacobs) -- Combine the following two functions into one or consider
+// TODO -- Combine the following two functions into one or consider
 // implementing a separate helper module for tracking the temperature and mean
 // statistics.
 bool gyroTemperatureStatsTracker(struct GyroCal* gyro_cal,
@@ -763,9 +763,21 @@ bool gyroStillMeanTracker(struct GyroCal* gyro_cal,
       }
 #ifdef GYRO_CAL_DBG_ENABLED
       if (mean_not_stable) {
-        CAL_DEBUG_LOG("[GYRO_CAL:MEAN_STABILITY_GATE]",
-                      "Exceeded the max variation in the gyro's stillness "
-                      "window mean values.");
+        CAL_DEBUG_LOG(
+            "[GYRO_CAL:MEAN_STABILITY_GATE]",
+            "Variation Limit|Delta [mDPS]: %s%d.%03d | %s%d.%03d, %s%d.%03d, "
+            "%s%d.%03d",
+            CAL_ENCODE_FLOAT(
+                gyro_cal->stillness_mean_delta_limit * RAD_TO_MILLI_DEGREES, 3),
+            CAL_ENCODE_FLOAT((gyro_winmean_max[0] - gyro_winmean_min[0]) *
+                                 RAD_TO_MILLI_DEGREES,
+                             3),
+            CAL_ENCODE_FLOAT((gyro_winmean_max[1] - gyro_winmean_min[1]) *
+                                 RAD_TO_MILLI_DEGREES,
+                             3),
+            CAL_ENCODE_FLOAT((gyro_winmean_max[2] - gyro_winmean_min[2]) *
+                                 RAD_TO_MILLI_DEGREES,
+                             3));
       }
 #endif  // GYRO_CAL_DBG_ENABLED
       break;

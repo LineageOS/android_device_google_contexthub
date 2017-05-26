@@ -27,7 +27,6 @@
 #define MIN_EIGEN_MAG 10.0f          // uT
 #define MAX_FIT_MAG 80.0f
 #define MIN_FIT_MAG 10.0f
-#define MIN_BATCH_WINDOW 1000000UL   // 1 sec
 #define MAX_BATCH_WINDOW 15000000UL  // 15 sec
 #define MIN_BATCH_SIZE 25            // samples
 #else
@@ -36,7 +35,6 @@
 #define MIN_EIGEN_MAG 20.0f          // uT
 #define MAX_FIT_MAG 70.0f
 #define MIN_FIT_MAG 20.0f
-#define MIN_BATCH_WINDOW 3000000UL   // 3 sec
 #define MAX_BATCH_WINDOW 15000000UL  // 15 sec
 #define MIN_BATCH_SIZE 25            // samples
 #endif
@@ -48,7 +46,7 @@
 # define INITIAL_U_SCALE 1.0e-4f
 # define GRADIENT_THRESHOLD 1.0e-16f
 # define RELATIVE_STEP_THRESHOLD 1.0e-7f
-# define NUM_SPHERE_FIT_DATA 25
+# define FROM_MICRO_SEC_TO_SEC 1.0e-6f
 #endif
 #endif
 
@@ -149,12 +147,13 @@ void magCalReset(struct MagCal *moc) {
   diversityCheckerReset(&moc->diversity_checker);
 #endif
   moc->start_time = 0;
+  moc->kasa_batching = false;
 }
 
 static int moc_batch_complete(struct MagCal *moc, uint64_t sample_time_us) {
   int complete = 0;
 
-  if ((sample_time_us - moc->start_time > MIN_BATCH_WINDOW) &&
+  if ((sample_time_us - moc->start_time > moc->min_batch_window_in_micros) &&
       (moc->kasa.nsamples > MIN_BATCH_SIZE)) {
     complete = 1;
 
@@ -173,7 +172,8 @@ void initKasa(struct KasaFit *kasa) {
 
 void initMagCal(struct MagCal *moc, float x_bias, float y_bias, float z_bias,
                 float c00, float c01, float c02, float c10, float c11,
-                float c12, float c20, float c21, float c22
+                float c12, float c20, float c21, float c22,
+                uint32_t min_batch_window_in_micros
 #ifdef DIVERSITY_CHECK_ENABLED
                 ,size_t min_num_diverse_vectors
                 ,size_t max_num_max_distance
@@ -186,6 +186,7 @@ void initMagCal(struct MagCal *moc, float x_bias, float y_bias, float z_bias,
                 ) {
   magCalReset(moc);
   moc->update_time = 0;
+  moc->min_batch_window_in_micros = min_batch_window_in_micros;
   moc->radius = 0.0f;
 
   moc->x_bias = x_bias;
@@ -208,7 +209,7 @@ void initMagCal(struct MagCal *moc, float x_bias, float y_bias, float z_bias,
 #endif
 
 #ifdef DIVERSITY_CHECK_ENABLED
-  // Diversity Checker Init
+  // Diversity Checker
   diversityCheckerInit(&moc->diversity_checker,
                        min_num_diverse_vectors,
                        max_num_max_distance,
@@ -217,33 +218,14 @@ void initMagCal(struct MagCal *moc, float x_bias, float y_bias, float z_bias,
                        local_field,
                        threshold_tuning_param,
                        max_distance_tuning_param);
-
-#ifdef SPHERE_FIT_ENABLED
-  // Setting lm params.
-  moc->sphere_fit.params.max_iterations = MAX_ITERATIONS;
-  moc->sphere_fit.params.initial_u_scale = INITIAL_U_SCALE;
-  moc->sphere_fit.params.gradient_threshold = GRADIENT_THRESHOLD;
-  moc->sphere_fit.params.relative_step_threshold = RELATIVE_STEP_THRESHOLD;
-  sphereFitInit(&moc->sphere_fit.sphere_cal,
-                &moc->sphere_fit.params,
-                MIN_NUM_SPHERE_FIT_POINTS);
-  sphereFitSetSolverData(&moc->sphere_fit.sphere_cal, &moc->sphere_fit.lm_data);
-  calDataReset(&moc->sphere_fit.sphere_param);
-#endif
 #endif
 }
 
 void magCalDestroy(struct MagCal *moc) { (void)moc; }
 
-#ifdef SPHERE_FIT_ENABLED
 enum MagUpdate magCalUpdate(struct MagCal *moc, uint64_t sample_time_us,
                             float x, float y, float z) {
   enum MagUpdate new_bias = NO_UPDATE;
-#else
-bool magCalUpdate(struct MagCal *moc, uint64_t sample_time_us,
-                              float x, float y, float z) {
-  bool new_bias = false;
-#endif
 
 #ifdef DIVERSITY_CHECK_ENABLED
   // Diversity Checker Update.
@@ -272,6 +254,7 @@ bool magCalUpdate(struct MagCal *moc, uint64_t sample_time_us,
 
   if (++moc->kasa.nsamples == 1) {
     moc->start_time = sample_time_us;
+    moc->kasa_batching = true;
   }
 
   // 2. batch has enough samples?
@@ -371,24 +354,9 @@ bool magCalUpdate(struct MagCal *moc, uint64_t sample_time_us,
           moc->radius = radius;
           moc->update_time = sample_time_us;
 
-#ifdef SPHERE_FIT_ENABLED
-          // Updating that a new bias is avalibale.
           new_bias = UPDATE_BIAS;
-#else
-          new_bias = true;
-#endif
 
 #ifdef DIVERSITY_CHECK_ENABLED
-#ifdef SPHERE_FIT_ENABLED
-          // Checking if more than 25 vectors are in the data set.
-          if (  moc->diversity_checker.num_points >= NUM_SPHERE_FIT_DATA ) {
-            // Run sphere fit.
-            new_bias = magSphereFit(moc, sample_time_us);
-
-            // Resetting sphere fit.
-            sphereFitReset(&moc->sphere_fit.sphere_cal);
-          }
-#endif
         }
 #endif
       }
@@ -441,42 +409,14 @@ void magCalRemoveSoftiron(struct MagCal *moc, float xi, float yi, float zi,
   *zo = moc->c20 * xi + moc->c21 * yi + moc->c22 * zi;
 }
 
-
-#ifdef SPHERE_FIT_ENABLED
-enum MagUpdate magSphereFit(struct MagCal *moc,
-                  uint64_t sample_time_us) {
-  // Setting up sphere fit data.
-  struct SphereFitData data = {
-    &moc->diversity_checker.diverse_data[0],
-    NULL, moc->diversity_checker.num_points,
-    moc->radius};
-  float initial_bias[3] = {moc->x_bias, moc->y_bias, moc->z_bias};
-
-  // Setting initial bias values based on the KASA fit.
-  sphereFitSetInitialBias(&moc->sphere_fit.sphere_cal, initial_bias);
-
-  // Running the sphere fit and checking if successful.
-  if(sphereFitRunCal(&moc->sphere_fit.sphere_cal, &data, sample_time_us)) {
-    // Updating Sphere parameters. Can use "calDataCorrectData" function to
-    // correct data.
-    sphereFitGetLatestCal(&moc->sphere_fit.sphere_cal,
-                          &moc->sphere_fit.sphere_param);
-
-    // Updating that a full sphere fit is available, this overwrites
-    // the UPDATE_BIAS.
-    return UPDATE_SPHERE_FIT;
-  }
-  return UPDATE_BIAS;
-}
-#endif
-
 #if defined MAG_CAL_DEBUG_ENABLE && defined DIVERSE_DEBUG_ENABLE
 // This function prints every second sample parts of the dbg diverse_data_log,
 // which ensures that all the messages get printed into the log file.
 void magLogPrint(struct DiversityChecker* diverse_data, float temp) {
   // Sample counter.
   static size_t sample_counter = 0;
-  const float* data_log_ptr = &diverse_data->diversity_dbg.diverse_data_log[0];
+  const float* data_log_ptr =
+      &diverse_data->diversity_dbg.diverse_kasa_batchingdata_log[0];
   if (diverse_data->diversity_dbg.new_trigger == 1) {
     sample_counter++;
     if (sample_counter == 2) {

@@ -22,9 +22,6 @@
 #include <string.h>
 #include "common/math/vec.h"
 
-#define MAX_FIT_MAG 70.0f
-#define MIN_FIT_MAG 20.0f
-
 // Struct initialization.
 void diversityCheckerInit(
     struct DiversityChecker* diverse_data,
@@ -207,7 +204,7 @@ bool diversityCheckerNormQuality(struct DiversityChecker* diverse_data,
 
 void diversityCheckerLocalFieldUpdate(struct DiversityChecker* diverse_data,
                                       float local_field) {
-  if ((local_field < MAX_FIT_MAG) && (local_field > MIN_FIT_MAG)) {
+  if ( local_field > 0 ) {
     // Updating threshold based on the local field information.
     diverse_data->threshold = diverse_data->threshold_tuning_param_sq *
         (local_field * local_field);

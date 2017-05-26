@@ -42,6 +42,9 @@ extern "C" {
 
 // Data struct for the accel stillness detection.
 struct AccelStillDet {
+  // Start timer for a new still detection (in ns).
+  uint64_t start_time;
+
   // Save accumulate variables to calc. mean and var.
   float acc_x, acc_y, acc_z;
   float acc_xx, acc_yy, acc_zz;
@@ -52,9 +55,6 @@ struct AccelStillDet {
 
   // # of samples used in the stillness detector.
   uint32_t nsamples;
-
-  // Start timer for a new still detection (in ns).
-  uint64_t start_time;
 
   // Controling the Stillness algo with T0 and Th
   // time the sensor must be still to trigger still detection.
