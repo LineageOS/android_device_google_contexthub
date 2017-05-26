@@ -1360,12 +1360,12 @@ bool osAppInfoByIndex(uint32_t appIdx, uint64_t *appId, uint32_t *appVer, uint32
     return false;
 }
 
-void osLogv(char clevel, const char *str, va_list vl)
+void osLogv(char clevel, uint32_t flags, const char *str, va_list vl)
 {
     void *userData = platLogAllocUserData();
 
     platLogPutcharF(userData, clevel);
-    cvprintf(platLogPutcharF, userData, str, vl);
+    cvprintf(platLogPutcharF, flags, userData, str, vl);
 
     platLogFlush(userData);
 }
@@ -1375,7 +1375,7 @@ void osLog(enum LogLevel level, const char *str, ...)
     va_list vl;
 
     va_start(vl, str);
-    osLogv((char)level, str, vl);
+    osLogv((char)level, 0, str, vl);
     va_end(vl);
 }
 
