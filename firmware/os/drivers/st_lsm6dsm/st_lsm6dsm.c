@@ -99,6 +99,7 @@
 #define LSM6DSM_MASK_24BIT_TIMESTAMP                    0x00ffffff      /* mask to select 24bit data from 32bit storage data type */
 #define LSM6DSM_TIMEDIFF_OVERFLOW_LSB                   8388608LL       /* If deltatime is bigger than 2^23 it means timer is overflowed */
 #define LSM6DSM_SYNC_DELTA_INTERVAL                     100000000ULL    /* Sensor timestamp is synced with MCU every #n deltatime [ns] */
+#define LSM6DSM_TRIAXIAL_NUM_AXIS                       3
 
 /* SPI buffers */
 #define LSM6DSM_SPI_PACKET_SIZE                         75
@@ -797,8 +798,8 @@ struct LSM6DSMCalibrationResultPkt {
  * @sw: software level calibration data (algos).
  */
 struct LSM6DSMAccelGyroCfgData {
-    int32_t hw[3];
-    float sw[3];
+    int32_t hw[LSM6DSM_TRIAXIAL_NUM_AXIS];
+    float sw[LSM6DSM_TRIAXIAL_NUM_AXIS];
 };
 
 /*
@@ -893,11 +894,11 @@ typedef struct LSM6DSMTask {
 #if defined(LSM6DSM_I2C_MASTER_MAGNETOMETER_ENABLED) && defined(LSM6DSM_I2C_MASTER_BAROMETER_ENABLED)
     uint32_t baroTimerId;
 #endif /* LSM6DSM_I2C_MASTER_MAGNETOMETER_ENABLED, LSM6DSM_I2C_MASTER_BAROMETER_ENABLED */
-    int32_t dataSelftestEnabled[3];
-    int32_t dataSelftestNotEnabled[3];
-    int32_t dataCalibration[3];
-    int32_t accelCalibrationData[3];
-    int32_t gyroCalibrationData[3];
+    int32_t dataSelftestEnabled[LSM6DSM_TRIAXIAL_NUM_AXIS];
+    int32_t dataSelftestNotEnabled[LSM6DSM_TRIAXIAL_NUM_AXIS];
+    int32_t dataCalibration[LSM6DSM_TRIAXIAL_NUM_AXIS];
+    int32_t accelCalibrationData[LSM6DSM_TRIAXIAL_NUM_AXIS];
+    int32_t gyroCalibrationData[LSM6DSM_TRIAXIAL_NUM_AXIS];
 
     volatile uint8_t state;
 
@@ -1582,8 +1583,8 @@ static void lsm6dsm_runGapSelfTestProgram(enum SensorIndex idx)
         DEBUG_PRINT("runGapSelfTestProgram: initialization\n");
 
         T(numSamplesSelftest) = 0;
-        memset(T(dataSelftestEnabled), 0, 3 * sizeof(int32_t));
-        memset(T(dataSelftestNotEnabled), 0, 3 * sizeof(int32_t));
+        memset(T(dataSelftestEnabled), 0, LSM6DSM_TRIAXIAL_NUM_AXIS * sizeof(int32_t));
+        memset(T(dataSelftestNotEnabled), 0, LSM6DSM_TRIAXIAL_NUM_AXIS * sizeof(int32_t));
 
         /* Enable self-test & power on sensor */
         switch (idx) {
@@ -1849,7 +1850,7 @@ static void lsm6dsm_runCalibrationProgram(enum SensorIndex idx)
 {
     TDECL();
     uint8_t *sensorData, numberOfAverage;
-    uint8_t buffer[3] = { 0 };
+    uint8_t buffer[LSM6DSM_TRIAXIAL_NUM_AXIS] = { 0 };
 
     numberOfAverage = LSM6DSM_NUM_AVERAGE_CALIBRATION;
 
@@ -1858,12 +1859,12 @@ static void lsm6dsm_runCalibrationProgram(enum SensorIndex idx)
         DEBUG_PRINT("runCalibrationProgram: initialization\n");
 
         T(numSamplesCalibration) = 0;
-        memset(T(dataCalibration), 0, 3 * sizeof(int32_t));
+        memset(T(dataCalibration), 0, LSM6DSM_TRIAXIAL_NUM_AXIS * sizeof(int32_t));
 
         /* Power on sensor */
         switch (idx) {
         case ACCEL:
-            SPI_MULTIWRITE(LSM6DSM_X_OFS_USR_ADDR, buffer, 3, 500);
+            SPI_MULTIWRITE(LSM6DSM_X_OFS_USR_ADDR, buffer, LSM6DSM_TRIAXIAL_NUM_AXIS, 500);
             SPI_WRITE(LSM6DSM_CTRL1_XL_ADDR, LSM6DSM_CTRL1_XL_BASE | LSM6DSM_ODR_104HZ_REG_VALUE, 30000);
             break;
         case GYRO:
@@ -1923,10 +1924,10 @@ static void lsm6dsm_runCalibrationProgram(enum SensorIndex idx)
             T(dataCalibration[1]) = -T(dataCalibration[1]);
             T(dataCalibration[2]) = T(dataCalibration[2]) - LSM6DSM_1G_IN_LSB_CALIBRATION;
 
-            for (int8_t i = 0; i < 3; i++)
+            for (int8_t i = 0; i < LSM6DSM_TRIAXIAL_NUM_AXIS; i++)
                 buffer[i] = lsm6dsm_convertAccelOffsetValue(T(dataCalibration[i]));
 
-            SPI_MULTIWRITE(LSM6DSM_X_OFS_USR_ADDR, buffer, 3);
+            SPI_MULTIWRITE(LSM6DSM_X_OFS_USR_ADDR, buffer, LSM6DSM_TRIAXIAL_NUM_AXIS);
             break;
         case GYRO:
             sType = SENS_TYPE_GYRO;
@@ -1934,7 +1935,7 @@ static void lsm6dsm_runCalibrationProgram(enum SensorIndex idx)
             /* Power off sensor */
             SPI_WRITE(LSM6DSM_CTRL2_G_ADDR, LSM6DSM_CTRL2_G_BASE);
 
-            memcpy(T(gyroCalibrationData), T(dataCalibration), 3 * sizeof(int32_t));
+            memcpy(T(gyroCalibrationData), T(dataCalibration), LSM6DSM_TRIAXIAL_NUM_AXIS * sizeof(int32_t));
             break;
         default:
             return;
@@ -1967,7 +1968,7 @@ static void lsm6dsm_runAbsoluteSelfTestProgram(void)
         DEBUG_PRINT("runAbsoluteSelfTestProgram: initialization\n");
 
         T(numSamplesSelftest) = 0;
-        memset(T(dataSelftestEnabled), 0, 3 * sizeof(int32_t));
+        memset(T(dataSelftestEnabled), 0, LSM6DSM_TRIAXIAL_NUM_AXIS * sizeof(int32_t));
 
         /* Enable accelerometer and sensor-hub */
         SPI_WRITE(LSM6DSM_CTRL1_XL_ADDR, LSM6DSM_CTRL1_XL_BASE | LSM6DSM_ODR_104HZ_REG_VALUE);
@@ -3781,13 +3782,13 @@ static bool lsm6dsm_runGyroCalibration(void *cookie)
 static bool lsm6dsm_storeAccelCalibrationData(void)
 {
     TDECL();
-    uint8_t buffer[3];
+    uint8_t buffer[LSM6DSM_TRIAXIAL_NUM_AXIS];
 
     if (trySwitchState(SENSOR_STORE_CALIBRATION_DATA)) {
-        for (uint8_t i = 0; i < 3; i++)
+        for (uint8_t i = 0; i < LSM6DSM_TRIAXIAL_NUM_AXIS; i++)
             buffer[i] = lsm6dsm_convertAccelOffsetValue(T(accelCalibrationData[i]));
 
-        SPI_MULTIWRITE(LSM6DSM_X_OFS_USR_ADDR, buffer, 3);
+        SPI_MULTIWRITE(LSM6DSM_X_OFS_USR_ADDR, buffer, LSM6DSM_TRIAXIAL_NUM_AXIS);
 
         lsm6dsm_spiBatchTxRx(&T_SLAVE_INTERFACE(mode), lsm6dsm_spiCallback, NULL, __FUNCTION__);
     } else
@@ -3812,7 +3813,7 @@ static bool lsm6dsm_accelCfgData(void *data, void *cookie)
 
     DEBUG_PRINT("Accel hw bias data [LSB]: %ld %ld %ld\n", cfgData->hw[0], cfgData->hw[1], cfgData->hw[2]);
 
-    memcpy(T(accelCalibrationData), cfgData->hw, 3 * sizeof(int32_t));
+    memcpy(T(accelCalibrationData), cfgData->hw, LSM6DSM_TRIAXIAL_NUM_AXIS * sizeof(int32_t));
 
     if (!lsm6dsm_storeAccelCalibrationData())
         T(pendingStoreAccelCalibData) = true;
@@ -3836,7 +3837,7 @@ static bool lsm6dsm_gyroCfgData(void *data, void *cookie)
 
     DEBUG_PRINT("Gyro hw bias data [LSB]: %ld %ld %ld\n", cfgData->hw[0], cfgData->hw[1], cfgData->hw[2]);
 
-    memcpy(T(gyroCalibrationData), cfgData->hw, 3 * sizeof(int32_t));
+    memcpy(T(gyroCalibrationData), cfgData->hw, LSM6DSM_TRIAXIAL_NUM_AXIS * sizeof(int32_t));
 
     return true;
 }
@@ -5025,7 +5026,7 @@ static bool lsm6dsm_startTask(uint32_t taskId)
     T(baroTimerId) = 0;
     T(pendingBaroTimerTask) = false;
 #endif /* LSM6DSM_I2C_MASTER_MAGNETOMETER_ENABLED, LSM6DSM_I2C_MASTER_BAROMETER_ENABLED */
-    memset(T(gyroCalibrationData), 0, 3 * sizeof(int32_t));
+    memset(T(gyroCalibrationData), 0, LSM6DSM_TRIAXIAL_NUM_AXIS * sizeof(int32_t));
 
     slabSize = sizeof(struct TripleAxisDataEvent) + (LSM6DSM_MAX_NUM_COMMS_EVENT_SAMPLE * sizeof(struct TripleAxisDataPoint));
 
