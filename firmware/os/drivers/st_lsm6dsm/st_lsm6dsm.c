@@ -172,6 +172,7 @@
 #define LSM6DSM_STEP_COUNTER_L_ADDR                     (0x4b)
 #define LSM6DSM_FUNC_SRC_ADDR                           (0x53)
 #define LSM6DSM_WAKE_UP_DUR_ADDR                        (0x5c)
+#define LSM6DSM_X_OFS_USR_ADDR                          (0x73)
 
 #define LSM6DSM_SW_RESET                                (0x01)
 #define LSM6DSM_RESET_PEDOMETER                         (0x02)
@@ -210,6 +211,12 @@
 #define LSM6DSM_ACCEL_SELFTEST_LOW_THR_LSB              368             /* 90mg @8g in LSB */
 #define LSM6DSM_GYRO_SELFTEST_HIGH_THR_LSB              10000           /* 700dps @2000dps in LSB */
 #define LSM6DSM_GYRO_SELFTEST_LOW_THR_LSB               2142            /* 150dps @2000dps in LSB */
+
+/* LSM6DSM calibration related */
+#define LSM6DSM_NUM_AVERAGE_CALIBRATION                 10
+#define LSM6DSM_1G_IN_LSB_CALIBRATION                   4098            /* 1000mg @8g in LSB */
+#define LSM6DSM_ACCEL_MAX_CALIBRATION_THR_LSB           127             /* 8-bit available */
+#define LSM6DSM_ACCEL_LSB_TO_OFFSET_DIGIT_SCALE         0.2501f         /* @8g */
 
 /* LSM6DSM embedded registers */
 #define LSM6DSM_EMBEDDED_SLV0_ADDR_ADDR                 (0x02)
@@ -494,6 +501,13 @@ enum SelfTestState {
     SELFTEST_COMPLETED
 };
 
+enum CalibrationState {
+    CALIBRATION_INITIALIZATION = 0,
+    CALIBRATION_READ_DATA,
+    CALIBRATION_VERIFICATION,
+    CALIBRATION_COMPLETED
+};
+
 enum SensorEvents {
     NO_EVT = -1,
     EVT_SPI_DONE = EVT_APP_START + 1,
@@ -502,6 +516,7 @@ enum SensorEvents {
     EVT_SENSOR_POWERING_UP,
     EVT_SENSOR_POWERING_DOWN,
     EVT_SENSOR_CONFIG_CHANGING,
+    EVT_SENSOR_RESTORE_IDLE,
     EVT_TIME_SYNC
 };
 
@@ -514,6 +529,8 @@ enum SensorState {
     SENSOR_POWERING_DOWN,
     SENSOR_CONFIG_CHANGING,
     SENSOR_CONFIG_WATERMARK_CHANGING,
+    SENSOR_CALIBRATION,
+    SENSOR_STORE_CALIBRATION_DATA,
     SENSOR_SELFTEST,
     SENSOR_INT1_STATUS_REG_HANDLING,
     SENSOR_INT1_OUTPUT_DATA_HANDLING,
@@ -748,7 +765,8 @@ struct LSM6DSMTimeCalibration {
     bool timestampIsValid;
 };
 
-/* LSM6DSMSelfTestResultPkt: calibration packet result data
+/*
+ * struct LSM6DSMSelfTestResultPkt: self-test packet result data
  * @header: describe packet size and application ID of packet.
  * @dataHeader: payload of message.
  */
@@ -757,7 +775,34 @@ struct LSM6DSMSelfTestResultPkt {
     struct SensorAppEventHeader dataHeader;
 } __attribute__((packed));
 
-/* struct LSM6DSMTask: driver task data
+/*
+ * struct LSM6DSMCalibrationResultPkt: calibration packet result data
+ * @header: describe packet size and application ID of packet.
+ * @dataHeader: payload of header message.
+ * @xBias: raw offset value X axis.
+ * @yBias: raw offset value Y axis.
+ * @zBias: raw offset value Z axis.
+ */
+struct LSM6DSMCalibrationResultPkt {
+    struct HostHubRawPacket header;
+    struct SensorAppEventHeader dataHeader;
+    int32_t xBias;
+    int32_t yBias;
+    int32_t zBias;
+} __attribute__((packed));
+
+/*
+ * struct LSM6DSMAccelGyroCfgData: configuration packet data
+ * @hw: chip level calibration data.
+ * @sw: software level calibration data (algos).
+ */
+struct LSM6DSMAccelGyroCfgData {
+    int32_t hw[3];
+    float sw[3];
+};
+
+/*
+ * struct LSM6DSMTask: driver task data
  * @sensors: sensor status data list.
  * @slaveConn: slave interface / communication data.
  * @accelCal: accelerometer calibration algo data.
@@ -773,12 +818,21 @@ struct LSM6DSMSelfTestResultPkt {
  * @currentTemperature: sensor temperature data value used by gyroscope/accelerometer bias calibration libs.
  * @lastFifoReadTimestamp: store when last time FIFO was read.
  * @initState: initialization is done in several steps (enum InitState).
+ * @selftestState: self-test is performed in several steps (enum SelfTestState).
+ * @calibrationState: sensor calibration is done in several steps (enum CalibrationState).
  * @tid: task id.
  * @totalNumSteps: total number of steps of step counter sensor.
  * @fifoDataToRead: number of byte to read in current FIFO read.
  * @fifoDataToReadPending: in order to reduce txrxBuffer, FIFO read is performed in several read. This value tell how many data still need to read from FIFO.
  * @baroTimerId: barometer task timer id.
+ * @dataSelftestEnabled: sensor data read during GapSelfTestProgram while self-test bit is set.
+ * @dataSelftestNotEnabled: sensor data read during GapSelfTestProgram while self-test bit is not set.
+ * @dataCalibration: sensor data read during calibration program.
+ * @accelCalibrationData: accelerometer offset value (hw) to store into sensor.
+ * @gyroCalibrationData: gyroscope offset value (hw) applied to each sample (by software).
  * @state: task state, driver manage operations using a state machine (enum SensorState).
+ * @numSamplesSelftest: temp variable storing number of samples read by self-test program.
+ * @numSamplesCalibration: temp variable storing number of samples read by calibration program.
  * @mRetryLeft: counter used to retry operations #n times before return a failure.
  * @pedometerDependencies: dependencies mask of sensors that are using embedded functions.
  * @masterConfigDependencies: dependencies mask of sensors that are using I2C master.
@@ -794,6 +848,7 @@ struct LSM6DSMSelfTestResultPkt {
  * @pendingInt: pending interrupt task to be executed.
  * @pendingTimeSyncTask: pending time sync task to be executed.
  * @pendingBaroTimerTask: pending baro read data task to be executed.
+ * @pendingStoreAccelCalibData: pending calibration data store task to be executed.
  */
 typedef struct LSM6DSMTask {
     struct LSM6DSMSensor sensors[NUM_SENSORS];
@@ -829,6 +884,7 @@ typedef struct LSM6DSMTask {
 
     enum InitState initState;
     enum SelfTestState selftestState;
+    enum CalibrationState calibrationState;
 
     uint32_t tid;
     uint32_t totalNumSteps;
@@ -839,10 +895,14 @@ typedef struct LSM6DSMTask {
 #endif /* LSM6DSM_I2C_MASTER_MAGNETOMETER_ENABLED, LSM6DSM_I2C_MASTER_BAROMETER_ENABLED */
     int32_t dataSelftestEnabled[3];
     int32_t dataSelftestNotEnabled[3];
+    int32_t dataCalibration[3];
+    int32_t accelCalibrationData[3];
+    int32_t gyroCalibrationData[3];
 
     volatile uint8_t state;
 
     uint8_t numSamplesSelftest;
+    uint8_t numSamplesCalibration;
     uint8_t mRetryLeft;
     uint8_t pedometerDependencies;
     uint8_t masterConfigDependencies;
@@ -863,6 +923,7 @@ typedef struct LSM6DSMTask {
 #if defined(LSM6DSM_I2C_MASTER_MAGNETOMETER_ENABLED) && defined(LSM6DSM_I2C_MASTER_BAROMETER_ENABLED)
     bool pendingBaroTimerTask;
 #endif /* LSM6DSM_I2C_MASTER_MAGNETOMETER_ENABLED, LSM6DSM_I2C_MASTER_BAROMETER_ENABLED */
+    bool pendingStoreAccelCalibData;
 } LSM6DSMTask;
 
 static LSM6DSMTask mTask;
@@ -923,7 +984,8 @@ static void lsm6dsm_readStatusReg_(TASK, bool isInterruptContext);
     .flags1 = SENSOR_INFO_FLAGS1_RAW | SENSOR_INFO_FLAGS1_BIAS, \
     .biasType = bias
 
-/* LSM6DSMImuRates: supported frequencies by accelerometer and gyroscope sensors
+/*
+ * LSM6DSMImuRates: supported frequencies by accelerometer and gyroscope sensors
  * LSM6DSMImuRatesRegValue, LSM6DSMRatesSamplesToDiscardGyroPowerOn, LSM6DSMAccelRatesSamplesToDiscard,
  *     LSM6DSMGyroRatesSamplesToDiscard must have same length.
  */
@@ -1095,8 +1157,15 @@ static const struct SensorInfo LSM6DSMSensorInfo[NUM_SENSORS] = {
     .sensorFlush = flush, \
     .sensorSendOneDirectEvt = send
 
-#define DEC_OPS_SELFTEST(power, firmware, rate, flush, selftest) \
+#define DEC_OPS_CFG_SELFTEST(power, firmware, rate, flush, cfgData, selftest) \
     DEC_OPS(power, firmware, rate, flush), \
+    .sensorCfgData = cfgData, \
+    .sensorSelfTest = selftest
+
+#define DEC_OPS_CAL_CFG_SELFTEST(power, firmware, rate, flush, cal, cfgData, selftest) \
+    DEC_OPS(power, firmware, rate, flush), \
+    .sensorCalibrate = cal, \
+    .sensorCfgData = cfgData, \
     .sensorSelfTest = selftest
 
 static bool lsm6dsm_setAccelPower(bool on, void *cookie);
@@ -1122,15 +1191,18 @@ static bool lsm6dsm_signMotionFlush(void *cookie);
 static bool lsm6dsm_stepCounterSendLastData(void *cookie, uint32_t tid);
 static bool lsm6dsm_runAccelSelfTest(void *cookie);
 static bool lsm6dsm_runGyroSelfTest(void *cookie);
-#ifdef LSM6DSM_I2C_MASTER_MAGNETOMETER_ENABLED
-static bool lsm6dsm_runMagnSelfTest(void *cookie);
-#endif /* LSM6DSM_I2C_MASTER_MAGNETOMETER_ENABLED */
+static bool lsm6dsm_runAccelCalibration(void *cookie);
+static bool lsm6dsm_runGyroCalibration(void *cookie);
+static bool lsm6dsm_accelCfgData(void *data, void *cookie);
+static bool lsm6dsm_gyroCfgData(void *data, void *cookie);
 
 #ifdef LSM6DSM_I2C_MASTER_MAGNETOMETER_ENABLED
 static bool lsm6dsm_setMagnPower(bool on, void *cookie);
 static bool lsm6dsm_magnFirmwareUpload(void *cookie);
 static bool lsm6dsm_setMagnRate(uint32_t rate, uint64_t latency, void *cookie);
 static bool lsm6dsm_magnFlush(void *cookie);
+static bool lsm6dsm_runMagnSelfTest(void *cookie);
+static bool lsm6dsm_magnCfgData(void *data, void *cookie);
 #endif /* LSM6DSM_I2C_MASTER_MAGNETOMETER_ENABLED */
 
 #ifdef LSM6DSM_I2C_MASTER_BAROMETER_ENABLED
@@ -1145,17 +1217,21 @@ static bool lsm6dsm_tempFlush(void *cookie);
 #endif /* LSM6DSM_I2C_MASTER_BAROMETER_ENABLED */
 
 static const struct SensorOps LSM6DSMSensorOps[NUM_SENSORS] = {
-    { DEC_OPS_SELFTEST(lsm6dsm_setGyroPower, lsm6dsm_gyroFirmwareUpload, lsm6dsm_setGyroRate, lsm6dsm_gyroFlush, lsm6dsm_runGyroSelfTest) },
-    { DEC_OPS_SELFTEST(lsm6dsm_setAccelPower, lsm6dsm_accelFirmwareUpload, lsm6dsm_setAccelRate, lsm6dsm_accelFlush, lsm6dsm_runAccelSelfTest) },
+    { DEC_OPS_CAL_CFG_SELFTEST(lsm6dsm_setGyroPower, lsm6dsm_gyroFirmwareUpload, lsm6dsm_setGyroRate,
+                                lsm6dsm_gyroFlush, lsm6dsm_runGyroCalibration, lsm6dsm_gyroCfgData, lsm6dsm_runGyroSelfTest) },
+    { DEC_OPS_CAL_CFG_SELFTEST(lsm6dsm_setAccelPower, lsm6dsm_accelFirmwareUpload, lsm6dsm_setAccelRate,
+                                lsm6dsm_accelFlush, lsm6dsm_runAccelCalibration, lsm6dsm_accelCfgData, lsm6dsm_runAccelSelfTest) },
 #ifdef LSM6DSM_I2C_MASTER_MAGNETOMETER_ENABLED
-    { DEC_OPS_SELFTEST(lsm6dsm_setMagnPower, lsm6dsm_magnFirmwareUpload, lsm6dsm_setMagnRate, lsm6dsm_magnFlush, lsm6dsm_runMagnSelfTest) },
+    { DEC_OPS_CFG_SELFTEST(lsm6dsm_setMagnPower, lsm6dsm_magnFirmwareUpload, lsm6dsm_setMagnRate,
+                                lsm6dsm_magnFlush, lsm6dsm_magnCfgData, lsm6dsm_runMagnSelfTest) },
 #endif /* LSM6DSM_I2C_MASTER_MAGNETOMETER_ENABLED */
 #ifdef LSM6DSM_I2C_MASTER_BAROMETER_ENABLED
     { DEC_OPS(lsm6dsm_setPressPower, lsm6dsm_pressFirmwareUpload, lsm6dsm_setPressRate, lsm6dsm_pressFlush) },
     { DEC_OPS(lsm6dsm_setTempPower, lsm6dsm_tempFirmwareUpload, lsm6dsm_setTempRate, lsm6dsm_tempFlush) },
 #endif /* LSM6DSM_I2C_MASTER_BAROMETER_ENABLED */
     { DEC_OPS(lsm6dsm_setStepDetectorPower, lsm6dsm_stepDetectorFirmwareUpload, lsm6dsm_setStepDetectorRate, lsm6dsm_stepDetectorFlush) },
-    { DEC_OPS_SEND(lsm6dsm_setStepCounterPower, lsm6dsm_stepCounterFirmwareUpload, lsm6dsm_setStepCounterRate, lsm6dsm_stepCounterFlush, lsm6dsm_stepCounterSendLastData) },
+    { DEC_OPS_SEND(lsm6dsm_setStepCounterPower, lsm6dsm_stepCounterFirmwareUpload, lsm6dsm_setStepCounterRate,
+                                lsm6dsm_stepCounterFlush, lsm6dsm_stepCounterSendLastData) },
     { DEC_OPS(lsm6dsm_setSignMotionPower, lsm6dsm_signMotionFirmwareUpload, lsm6dsm_setSignMotionRate, lsm6dsm_signMotionFlush) },
 };
 
@@ -1457,6 +1533,40 @@ static void lsm6dsm_sendSelfTestResult(uint8_t sensorType, uint8_t result)
 }
 
 /*
+ * lsm6dsm_sendCalibrationResult: send to nanohub result of calibration
+ * @sensorType: android sensor type.
+ * @result: status message to send (VALID/ERROR).
+ * @xBias: raw offset value X axis.
+ * @yBias: raw offset value Y axis.
+ * @zBias: raw offset value Z axis.
+ */
+static void lsm6dsm_sendCalibrationResult(uint8_t sensorType, uint8_t result, int32_t xBias, int32_t yBias, int32_t zBias)
+{
+    struct LSM6DSMCalibrationResultPkt *data;
+
+    data = heapAlloc(sizeof(struct LSM6DSMCalibrationResultPkt));
+    if (!data) {
+        ERROR_PRINT("sendCalibrationResult: cannot allocate calibration result packet\n");
+        return;
+    }
+
+    data->header.appId = LSM6DSM_APP_ID;
+    data->header.dataLen = (sizeof(struct LSM6DSMCalibrationResultPkt) - sizeof(struct HostHubRawPacket));
+
+    data->dataHeader.msgId = SENSOR_APP_MSG_ID_CAL_RESULT;
+    data->dataHeader.sensorType = sensorType;
+    data->dataHeader.status = result;
+
+    data->xBias = xBias;
+    data->yBias = yBias;
+    data->zBias = zBias;
+
+    if (!osEnqueueEvtOrFree(EVT_APP_TO_HOST, data, heapFree)) {
+        ERROR_PRINT("sendCalibrationResult: failed to enqueue calibration result packet\n");
+    }
+}
+
+/*
  * lsm6dsm_runGapSelfTestProgram: state machine that is executing self-test verifying data gap
  * @idx: sensor driver index.
  */
@@ -1713,11 +1823,141 @@ static void lsm6dsm_runGapSelfTestProgram(enum SensorIndex idx)
     }
 }
 
+/*
+ * lsm6dsm_convertAccelOffsetValue: convert accel LSB value to offset digit
+ * @val: LSB axis offset value.
+ */
+static uint8_t lsm6dsm_convertAccelOffsetValue(int32_t val)
+{
+    float temp;
+
+    temp = val * LSM6DSM_ACCEL_LSB_TO_OFFSET_DIGIT_SCALE;
+    if (temp > LSM6DSM_ACCEL_MAX_CALIBRATION_THR_LSB)
+        temp = LSM6DSM_ACCEL_MAX_CALIBRATION_THR_LSB;
+
+    if (temp < -LSM6DSM_ACCEL_MAX_CALIBRATION_THR_LSB)
+        temp = -LSM6DSM_ACCEL_MAX_CALIBRATION_THR_LSB;
+
+    return (uint8_t)((int8_t)temp);
+}
+
+/*
+ * lsm6dsm_runCalibrationProgram: state machine that is executing calibration
+ * @idx: sensor driver index.
+ */
+static void lsm6dsm_runCalibrationProgram(enum SensorIndex idx)
+{
+    TDECL();
+    uint8_t *sensorData, numberOfAverage;
+    uint8_t buffer[3] = { 0 };
+
+    numberOfAverage = LSM6DSM_NUM_AVERAGE_CALIBRATION;
+
+    switch (T(calibrationState)) {
+    case CALIBRATION_INITIALIZATION:
+        DEBUG_PRINT("runCalibrationProgram: initialization\n");
+
+        T(numSamplesCalibration) = 0;
+        memset(T(dataCalibration), 0, 3 * sizeof(int32_t));
+
+        /* Power on sensor */
+        switch (idx) {
+        case ACCEL:
+            SPI_MULTIWRITE(LSM6DSM_X_OFS_USR_ADDR, buffer, 3, 500);
+            SPI_WRITE(LSM6DSM_CTRL1_XL_ADDR, LSM6DSM_CTRL1_XL_BASE | LSM6DSM_ODR_104HZ_REG_VALUE, 30000);
+            break;
+        case GYRO:
+            SPI_WRITE(LSM6DSM_CTRL2_G_ADDR, LSM6DSM_CTRL2_G_BASE | LSM6DSM_ODR_104HZ_REG_VALUE, 100000);
+            break;
+        default:
+            return;
+        }
+
+        T(calibrationState) = CALIBRATION_READ_DATA;
+        lsm6dsm_spiBatchTxRx(&T_SLAVE_INTERFACE(mode), lsm6dsm_spiCallback, &T(sensors[idx]), __FUNCTION__);
+        break;
+
+    case CALIBRATION_READ_DATA:
+        if (T(numSamplesCalibration) > 0) {
+            sensorData = &T_SLAVE_INTERFACE(tmpDataBuffer[1]);
+            T(dataCalibration[0]) += (int16_t)*((uint16_t *)&sensorData[0]);
+            T(dataCalibration[1]) += (int16_t)*((uint16_t *)&sensorData[2]);
+            T(dataCalibration[2]) += (int16_t)*((uint16_t *)&sensorData[4]);
+        }
+        T(numSamplesCalibration)++;
+
+        if (T(numSamplesCalibration) <= numberOfAverage) {
+            DEBUG_PRINT("runCalibrationProgram: reading output data\n");
+
+            switch (idx) {
+            case ACCEL:
+                SPI_READ(LSM6DSM_OUTX_L_XL_ADDR, LSM6DSM_ONE_SAMPLE_BYTE, &T_SLAVE_INTERFACE(tmpDataBuffer), 10000);
+                break;
+            case GYRO:
+                SPI_READ(LSM6DSM_OUTX_L_G_ADDR, LSM6DSM_ONE_SAMPLE_BYTE, &T_SLAVE_INTERFACE(tmpDataBuffer), 10000);
+                break;
+            default:
+                return;
+            }
+            lsm6dsm_spiBatchTxRx(&T_SLAVE_INTERFACE(mode), lsm6dsm_spiCallback, &T(sensors[idx]), __FUNCTION__);
+            break;
+        }
+
+        T(dataCalibration[0]) /= numberOfAverage;
+        T(dataCalibration[1]) /= numberOfAverage;
+        T(dataCalibration[2]) /= numberOfAverage;
+        T(calibrationState) = CALIBRATION_VERIFICATION;
+
+    case CALIBRATION_VERIFICATION: ;
+        uint8_t sType;
+
+        switch (idx) {
+        case ACCEL:
+            sType = SENS_TYPE_ACCEL;
+
+            /* Power off sensor */
+            SPI_WRITE(LSM6DSM_CTRL1_XL_ADDR, LSM6DSM_CTRL1_XL_BASE);
+
+            /* Supposed 0,0,1g (Android coordinate system) */
+            T(dataCalibration[0]) = -T(dataCalibration[0]);
+            T(dataCalibration[1]) = -T(dataCalibration[1]);
+            T(dataCalibration[2]) = T(dataCalibration[2]) - LSM6DSM_1G_IN_LSB_CALIBRATION;
+
+            for (int8_t i = 0; i < 3; i++)
+                buffer[i] = lsm6dsm_convertAccelOffsetValue(T(dataCalibration[i]));
+
+            SPI_MULTIWRITE(LSM6DSM_X_OFS_USR_ADDR, buffer, 3);
+            break;
+        case GYRO:
+            sType = SENS_TYPE_GYRO;
+
+            /* Power off sensor */
+            SPI_WRITE(LSM6DSM_CTRL2_G_ADDR, LSM6DSM_CTRL2_G_BASE);
+
+            memcpy(T(gyroCalibrationData), T(dataCalibration), 3 * sizeof(int32_t));
+            break;
+        default:
+            return;
+        }
+
+        INFO_PRINT("runCalibrationProgram: completed. offset [LSB]: %ld %ld %ld\n", T(dataCalibration[0]), T(dataCalibration[1]), T(dataCalibration[2]));
+        lsm6dsm_sendCalibrationResult(sType, SENSOR_APP_EVT_STATUS_SUCCESS, T(dataCalibration[0]), T(dataCalibration[1]), T(dataCalibration[2]));
+
+        T(calibrationState) = CALIBRATION_COMPLETED;
+        lsm6dsm_spiBatchTxRx(&T_SLAVE_INTERFACE(mode), lsm6dsm_spiCallback, &T(sensors[idx]), __FUNCTION__);
+        break;
+
+    default:
+        break;
+    }
+}
+
+
 #ifdef LSM6DSM_I2C_MASTER_AK09916
 /*
  * lsm6dsm_runAbsoluteSelfTestProgram: state machine that is executing self-test verifying absolute value
  */
-static void lsm6dsm_runAbsoluteSelfTestProgram()
+static void lsm6dsm_runAbsoluteSelfTestProgram(void)
 {
     TDECL();
     uint8_t *sensorData;
@@ -2141,7 +2381,7 @@ static inline void lsm6dsm_updateSyncTaskMode(uint64_t *minLatency)
 /*
  * lsm6dsm_updateOdrs: update ODRs based on rates
  */
-static bool lsm6dsm_updateOdrs()
+static bool lsm6dsm_updateOdrs(void)
 {
     TDECL();
     bool accelOdrChanged = false, gyroOdrChanged = false, decChanged, watermarkChanged, gyroFirstEnable = false;
@@ -3191,7 +3431,7 @@ static bool lsm6dsm_accelFlush(void *cookie)
 
         if (sensorGetTime() <= (T(lastFifoReadTimestamp) + ((uint64_t)lsm6dsm_sensorHzToNs(T(fifoCntl).triggerRate) * T(fifoCntl).maxDecimator))) {
             osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_ACCEL), SENSOR_DATA_EVENT_FLUSH, NULL);
-            SET_STATE(SENSOR_IDLE);
+            osEnqueuePrivateEvt(EVT_SENSOR_RESTORE_IDLE, cookie, NULL, mTask.tid);
             return true;
         }
 
@@ -3218,7 +3458,7 @@ static bool lsm6dsm_gyroFlush(void *cookie)
 
         if (sensorGetTime() <= (T(lastFifoReadTimestamp) + ((uint64_t)lsm6dsm_sensorHzToNs(T(fifoCntl).triggerRate) * T(fifoCntl).maxDecimator))) {
             osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_GYRO), SENSOR_DATA_EVENT_FLUSH, NULL);
-            SET_STATE(SENSOR_IDLE);
+            osEnqueuePrivateEvt(EVT_SENSOR_RESTORE_IDLE, cookie, NULL, mTask.tid);
             return true;
         }
 
@@ -3246,7 +3486,7 @@ static bool lsm6dsm_magnFlush(void *cookie)
 
         if (sensorGetTime() <= (T(lastFifoReadTimestamp) + ((uint64_t)lsm6dsm_sensorHzToNs(T(fifoCntl).triggerRate) * T(fifoCntl).maxDecimator))) {
             osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_MAG), SENSOR_DATA_EVENT_FLUSH, NULL);
-            SET_STATE(SENSOR_IDLE);
+            osEnqueuePrivateEvt(EVT_SENSOR_RESTORE_IDLE, cookie, NULL, mTask.tid);
             return true;
         }
 
@@ -3276,7 +3516,7 @@ static bool lsm6dsm_pressFlush(void *cookie)
 
         if (sensorGetTime() <= (T(lastFifoReadTimestamp) + ((uint64_t)lsm6dsm_sensorHzToNs(T(fifoCntl).triggerRate) * T(fifoCntl).maxDecimator))) {
             osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_BARO), SENSOR_DATA_EVENT_FLUSH, NULL);
-            SET_STATE(SENSOR_IDLE);
+            osEnqueuePrivateEvt(EVT_SENSOR_RESTORE_IDLE, cookie, NULL, mTask.tid);
             return true;
         }
 
@@ -3309,7 +3549,7 @@ static bool lsm6dsm_tempFlush(void *cookie)
 
         if (sensorGetTime() <= (T(lastFifoReadTimestamp) + ((uint64_t)lsm6dsm_sensorHzToNs(T(fifoCntl).triggerRate) * T(fifoCntl).maxDecimator))) {
             osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_TEMP), SENSOR_DATA_EVENT_FLUSH, NULL);
-            SET_STATE(SENSOR_IDLE);
+            osEnqueuePrivateEvt(EVT_SENSOR_RESTORE_IDLE, cookie, NULL, mTask.tid);
             return true;
         }
 
@@ -3405,7 +3645,7 @@ static bool lsm6dsm_runAccelSelfTest(void *cookie)
             lsm6dsm_runGapSelfTestProgram(ACCEL);
             return true;
         } else
-            SET_STATE(SENSOR_IDLE);
+            osEnqueuePrivateEvt(EVT_SENSOR_RESTORE_IDLE, cookie, NULL, mTask.tid);
     }
 
     ERROR_PRINT("runAccelSelfTest: cannot run selftest because sensor is busy!\n");
@@ -3429,7 +3669,7 @@ static bool lsm6dsm_runGyroSelfTest(void *cookie)
             lsm6dsm_runGapSelfTestProgram(GYRO);
             return true;
         } else
-            SET_STATE(SENSOR_IDLE);
+            osEnqueuePrivateEvt(EVT_SENSOR_RESTORE_IDLE, cookie, NULL, mTask.tid);
     }
 
     ERROR_PRINT("runGyroSelfTest: cannot run selftest because sensor is busy!\n");
@@ -3458,7 +3698,7 @@ static bool lsm6dsm_runMagnSelfTest(void *cookie)
 #endif
             return true;
         } else
-            SET_STATE(SENSOR_IDLE);
+            osEnqueuePrivateEvt(EVT_SENSOR_RESTORE_IDLE, cookie, NULL, mTask.tid);
     }
 
     ERROR_PRINT("runMagnSelfTest: cannot run selftest because sensor is busy!\n");
@@ -3466,7 +3706,140 @@ static bool lsm6dsm_runMagnSelfTest(void *cookie)
 
     return false;
 }
+
+/*
+ * lsm6dsm_magnCfgData: set sw magnetometer calibration values
+ * @data: calibration data struct.
+ * @cookie: private data.
+ */
+static bool lsm6dsm_magnCfgData(void *data, void *cookie)
+{
+    TDECL();
+    float *values = data;
+
+    DEBUG_PRINT("Magn sw bias data [uT * 1000]: %ld %ld %ld\n", (int32_t)(values[0] * 1000), (int32_t)(values[1] * 1000), (int32_t)(values[2] * 1000));
+
+    T(magnCal).x_bias = values[0];
+    T(magnCal).y_bias = values[1];
+    T(magnCal).z_bias = values[2];
+
+    return true;
+}
 #endif /* LSM6DSM_I2C_MASTER_MAGNETOMETER_ENABLED */
+
+/*
+ * lsm6dsm_runAccelCalibration: execute accelerometer calibration
+ * @cookie: private data.
+ */
+static bool lsm6dsm_runAccelCalibration(void *cookie)
+{
+    TDECL();
+
+    if (trySwitchState(SENSOR_CALIBRATION)) {
+        if (!T(sensors[ACCEL]).enabled && (T(sensors[ACCEL]).hwRate == 0) && (T(sensors[GYRO]).hwRate == 0)) {
+            INFO_PRINT("runAccelCalibration: executing accelerometer calibration\n");
+            T(calibrationState) = CALIBRATION_INITIALIZATION;
+            lsm6dsm_runCalibrationProgram(ACCEL);
+            return true;
+        } else
+            osEnqueuePrivateEvt(EVT_SENSOR_RESTORE_IDLE, cookie, NULL, mTask.tid);
+    }
+
+    ERROR_PRINT("runAccelCalibration: cannot run selftest because sensor is busy!\n");
+    lsm6dsm_sendCalibrationResult(SENS_TYPE_ACCEL, SENSOR_APP_EVT_STATUS_BUSY, 0, 0, 0);
+
+    return true;
+}
+
+/*
+ * lsm6dsm_runGyroCalibration: execute gyroscope calibration
+ * @cookie: private data.
+ */
+static bool lsm6dsm_runGyroCalibration(void *cookie)
+{
+    TDECL();
+
+    if (trySwitchState(SENSOR_CALIBRATION)) {
+        if (!T(sensors[GYRO]).enabled && (T(sensors[GYRO]).hwRate == 0) && (T(sensors[ACCEL]).hwRate == 0)) {
+            INFO_PRINT("runGyroCalibration: executing gyroscope calibration\n");
+            T(calibrationState) = CALIBRATION_INITIALIZATION;
+            lsm6dsm_runCalibrationProgram(GYRO);
+            return true;
+        } else
+            osEnqueuePrivateEvt(EVT_SENSOR_RESTORE_IDLE, cookie, NULL, mTask.tid);
+    }
+
+    ERROR_PRINT("runGyroCalibration: cannot run selftest because sensor is busy!\n");
+    lsm6dsm_sendCalibrationResult(SENS_TYPE_GYRO, SENSOR_APP_EVT_STATUS_BUSY, 0, 0, 0);
+
+    return true;
+}
+
+/*
+ * lsm6dsm_storeAccelCalibrationData: store hw calibration into sensor
+ */
+static bool lsm6dsm_storeAccelCalibrationData(void)
+{
+    TDECL();
+    uint8_t buffer[3];
+
+    if (trySwitchState(SENSOR_STORE_CALIBRATION_DATA)) {
+        for (uint8_t i = 0; i < 3; i++)
+            buffer[i] = lsm6dsm_convertAccelOffsetValue(T(accelCalibrationData[i]));
+
+        SPI_MULTIWRITE(LSM6DSM_X_OFS_USR_ADDR, buffer, 3);
+
+        lsm6dsm_spiBatchTxRx(&T_SLAVE_INTERFACE(mode), lsm6dsm_spiCallback, NULL, __FUNCTION__);
+    } else
+        return false;
+
+    return true;
+}
+
+/*
+ * lsm6dsm_accelCfgData: set hw and sw accelerometer calibration values
+ * @data: calibration data struct.
+ * @cookie: private data.
+ */
+static bool lsm6dsm_accelCfgData(void *data, void *cookie)
+{
+    TDECL();
+    struct LSM6DSMAccelGyroCfgData *cfgData = data;
+
+#ifdef LSM6DSM_ACCEL_CALIB_ENABLED
+    accelCalBiasSet(&T(accelCal) , cfgData->sw[0], cfgData->sw[1], cfgData->sw[2]);
+#endif /* LSM6DSM_ACCEL_CALIB_ENABLED */
+
+    DEBUG_PRINT("Accel hw bias data [LSB]: %ld %ld %ld\n", cfgData->hw[0], cfgData->hw[1], cfgData->hw[2]);
+
+    memcpy(T(accelCalibrationData), cfgData->hw, 3 * sizeof(int32_t));
+
+    if (!lsm6dsm_storeAccelCalibrationData())
+        T(pendingStoreAccelCalibData) = true;
+
+    return true;
+}
+
+/*
+ * lsm6dsm_gyroCfgData: set hw and sw gyroscope calibration values
+ * @data: calibration data struct.
+ * @cookie: private data.
+ */
+static bool lsm6dsm_gyroCfgData(void *data, void *cookie)
+{
+    TDECL();
+    struct LSM6DSMAccelGyroCfgData *cfgData = data;
+
+#ifdef LSM6DSM_GYRO_CALIB_ENABLED
+    gyroCalSetBias(&T(gyroCal), cfgData->sw[0], cfgData->sw[1], cfgData->sw[2], sensorGetTime());
+#endif /* LSM6DSM_GYRO_CALIB_ENABLED */
+
+    DEBUG_PRINT("Gyro hw bias data [LSB]: %ld %ld %ld\n", cfgData->hw[0], cfgData->hw[1], cfgData->hw[2]);
+
+    memcpy(T(gyroCalibrationData), cfgData->hw, 3 * sizeof(int32_t));
+
+    return true;
+}
 
 /*
  * lsm6dsm_sensorInit: initial sensors configuration
@@ -3711,6 +4084,11 @@ static void lsm6dsm_processPendingEvt(void)
     }
 #endif /* LSM6DSM_I2C_MASTER_MAGNETOMETER_ENABLED, LSM6DSM_I2C_MASTER_BAROMETER_ENABLED */
 
+    if (T(pendingStoreAccelCalibData)) {
+        T(pendingStoreAccelCalibData) = lsm6dsm_storeAccelCalibrationData();
+        return;
+    }
+
     if (T(pendingInt)) {
         T(pendingInt) = false;
         lsm6dsm_readStatusReg(false);
@@ -3848,6 +4226,10 @@ static bool lsm6dsm_processSensorThreeAxisData(struct LSM6DSMSensor *mSensor, ui
         break;
 
     case GYRO:
+        x -= (int16_t)T(gyroCalibrationData)[0];
+        y -= (int16_t)T(gyroCalibrationData)[1];
+        z -= (int16_t)T(gyroCalibrationData)[2];
+
         x_remap = LSM6DSM_REMAP_X_DATA(x, y, z, LSM6DSM_ACCEL_GYRO_ROT_MATRIX) * LSM6DSM_GYRO_KSCALE;
         y_remap = LSM6DSM_REMAP_Y_DATA(x, y, z, LSM6DSM_ACCEL_GYRO_ROT_MATRIX) * LSM6DSM_GYRO_KSCALE;
         z_remap = LSM6DSM_REMAP_Z_DATA(x, y, z, LSM6DSM_ACCEL_GYRO_ROT_MATRIX) * LSM6DSM_GYRO_KSCALE;
@@ -4249,6 +4631,20 @@ static void lsm6dsm_handleSpiDoneEvt(const void *evtData)
         returnIdle = true;
         break;
 
+    case SENSOR_CALIBRATION:
+        mSensor = (struct LSM6DSMSensor *)evtData;
+
+        if (T(calibrationState == CALIBRATION_COMPLETED)) {
+            returnIdle = true;
+        } else {
+            lsm6dsm_runCalibrationProgram(mSensor->idx);
+        }
+        break;
+
+    case SENSOR_STORE_CALIBRATION_DATA:
+        returnIdle = true;
+        break;
+
     case SENSOR_SELFTEST:
         mSensor = (struct LSM6DSMSensor *)evtData;
 
@@ -4528,6 +4924,10 @@ static void lsm6dsm_handleEvent(uint32_t evtType, const void *evtData)
     case EVT_APP_FROM_HOST:
         break;
 
+    case EVT_SENSOR_RESTORE_IDLE:
+        lsm6dsm_processPendingEvt();
+        break;
+
     case EVT_TIME_SYNC:
         lsm6dsm_timeSyncTask();
         break;
@@ -4625,6 +5025,7 @@ static bool lsm6dsm_startTask(uint32_t taskId)
     T(baroTimerId) = 0;
     T(pendingBaroTimerTask) = false;
 #endif /* LSM6DSM_I2C_MASTER_MAGNETOMETER_ENABLED, LSM6DSM_I2C_MASTER_BAROMETER_ENABLED */
+    memset(T(gyroCalibrationData), 0, 3 * sizeof(int32_t));
 
     slabSize = sizeof(struct TripleAxisDataEvent) + (LSM6DSM_MAX_NUM_COMMS_EVENT_SAMPLE * sizeof(struct TripleAxisDataPoint));
 
