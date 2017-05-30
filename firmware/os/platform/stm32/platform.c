@@ -184,6 +184,9 @@ void platEarlyLogFlush(void)
 
 void platLogFlush(void *userData)
 {
+#ifdef DEBUG_UART_UNITNO
+    usartFlush(&mDbgUart);
+#endif
 #if defined(DEBUG_LOG_EVT)
     if (userData && mLateBoot)
         osEnqueueEvtOrFree(EVENT_TYPE_BIT_DISCARDABLE | EVT_DEBUG_LOG, userData, heapFree);
