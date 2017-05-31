@@ -26,7 +26,7 @@ OS_FILE = $(OUT)/os.checked.bin
 DELIVERABLES += showsizes
 FLAGS += -I. -fno-unwind-tables -fstack-reuse=all -ffunction-sections -fdata-sections
 FLAGS += -Wl,--gc-sections -nostartfiles
-FLAGS_os += -nostdlib
+FLAGS += -nostdlib
 
 #platform bootloader
 SRCS_bl += os/platform/$(PLATFORM)/bl.c

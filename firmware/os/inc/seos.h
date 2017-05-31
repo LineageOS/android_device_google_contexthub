@@ -276,7 +276,7 @@ enum LogLevel {
     LOG_DEBUG = 'D',
 };
 
-void osLogv(char clevel, const char *str, va_list vl);
+void osLogv(char clevel, uint32_t flags, const char *str, va_list vl);
 void osLog(enum LogLevel level, const char *str, ...) PRINTF_ATTRIBUTE(2, 3);
 
 #ifndef INTERNAL_APP_INIT
