@@ -89,7 +89,7 @@ static void osExpApiLogLogv(uintptr_t *retValP, va_list args)
     const char *str = va_arg(args, const char*);
     va_list innerArgs;
     va_copy(innerArgs, INTEGER_TO_VA_LIST(va_arg(args, uintptr_t)));
-    osLogv((char)level, str, innerArgs);
+    osLogv((char)level, 0, str, innerArgs);
     va_end(innerArgs);
 }
 
