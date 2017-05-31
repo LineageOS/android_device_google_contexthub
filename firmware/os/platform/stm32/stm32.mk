@@ -75,7 +75,7 @@ FLAGS += -DPLATFORM_HW_VER=0
 OBJCOPY_PARAMS = -I elf32-littlearm -O binary
 
 $(OUT)/bl.%.bin : $(OUT)/bl.%.elf
-	$(OBJCOPY) -j .bl -j .blrodata -j .eedata $(OBJCOPY_PARAMS) $< $@
+	$(OBJCOPY) -j .bl -j .data -j .eedata $(OBJCOPY_PARAMS) $< $@
 
 $(OUT)/os.%.bin : $(OUT)/os.%.elf
 	$(OBJCOPY) -j .data -j .text $(OBJCOPY_PARAMS) $< $@
