@@ -3908,7 +3908,8 @@ static bool startTask(uint32_t task_id)
                0.0f, 0.0f, 0.0f,   // bias x, y, z
                1.0f, 0.0f, 0.0f,   // c00, c01, c02
                0.0f, 1.0f, 0.0f,   // c10, c11, c12
-               0.0f, 0.0f, 1.0f);  // c20, c21, c22
+               0.0f, 0.0f, 1.0f,   // c20, c21, c22
+               3000000);           // min_batch_window_in_micros
 #endif
 #endif
 
