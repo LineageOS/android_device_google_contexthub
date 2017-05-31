@@ -241,6 +241,7 @@ static void chreappHandle(uint32_t eventTypeAndTid, const void *eventData)
         data = ((struct TimerEvent *)eventData)->data;
         break;
     case EVT_APP_FROM_HOST:
+        srcTid = CHRE_INSTANCE_ID;
         evt = CHRE_EVENT_MESSAGE_FROM_HOST;
         data = &u.msg;
         u.msg.message = (uint8_t*)eventData + 1;
@@ -250,6 +251,7 @@ static void chreappHandle(uint32_t eventTypeAndTid, const void *eventData)
     case EVT_APP_FROM_HOST_CHRE:
     {
         const struct NanohubMsgChreHdr *hdr = eventData;
+        srcTid = CHRE_INSTANCE_ID;
         evt = CHRE_EVENT_MESSAGE_FROM_HOST;
         data = &u.msg;
         u.msg.message = hdr + 1;
