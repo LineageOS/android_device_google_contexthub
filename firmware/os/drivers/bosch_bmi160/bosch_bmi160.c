@@ -4253,7 +4253,7 @@ static uint32_t cvprintf_ellipsis(printf_write_c writeF, void* writeD, const cha
     uint32_t ret;
 
     va_start(vl, fmtStr);
-    ret = cvprintf(writeF, writeD, fmtStr, vl);
+    ret = cvprintf(writeF, 0, writeD, fmtStr, vl);
     va_end(vl);
 
     return ret;

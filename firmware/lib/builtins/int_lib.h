@@ -19,8 +19,20 @@
 #define CHAR_BIT 8
 
 typedef unsigned su_int;
+typedef int si_int;
+
 typedef unsigned long long du_int;
 typedef long long di_int;
+
+typedef union
+{
+    di_int all;
+    struct
+    {
+        su_int low;
+        si_int high;
+    } s;
+} dwords;
 
 typedef union
 {
