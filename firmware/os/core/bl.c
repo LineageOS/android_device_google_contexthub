@@ -110,7 +110,7 @@ void blLog(const char *str, ...)
     va_list vl;
 
     va_start(vl, str);
-    cvprintf(blLogPutcharF, NULL, str, vl);
+    cvprintf(blLogPutcharF, 0, NULL, str, vl);
     va_end(vl);
 }
 
