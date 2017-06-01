@@ -43,9 +43,9 @@ struct KasaFit {
 };
 
 enum MagUpdate {
-  NO_UPDATE = 0,
-  UPDATE_BIAS,
-  UPDATE_SPHERE_FIT,
+  NO_UPDATE = 0x00,
+  UPDATE_BIAS = 0x01,
+  UPDATE_SPHERE_FIT = 0x02,
 };
 
 #ifdef MAG_CAL_DEBUG_ENABLE
