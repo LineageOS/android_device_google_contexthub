@@ -72,7 +72,7 @@ bool AppToHostEvent::CheckAppId(SensorType sensor_type) const {
         break;
 
       case SensorType::Barometer:
-        if (GetAppId() != kAppIdBoschBmp280) {
+        if (GetAppId() != kAppIdBoschBmp280 && GetAppId() != kAppIdSTMicroLps22hb) {
             return false;
         }
         break;
