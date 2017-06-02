@@ -21,6 +21,7 @@
 #include <plat/gpio.h>
 #include <platform.h>
 #include <plat/syscfg.h>
+#include <heap.h>
 #include <sensors.h>
 #include <seos.h>
 #include <slab.h>
@@ -51,6 +52,9 @@
 #define LPS22HB_ODR_25_HZ               0x30
 #define LPS22HB_ODR_50_HZ               0x40
 #define LPS22HB_ODR_75_HZ               0x50
+
+#define LPS22HB_RPDS_L                  0x18
+#define LPS22HB_RPDS_H                  0x19
 
 #define LPS22HB_PRESS_OUTXL_REG_ADDR    0x28
 #define LPS22HB_TEMP_OUTL_REG_ADDR      0x2B
@@ -93,6 +97,11 @@ enum lps22hbSensorState {
     SENSOR_VERIFY_ID,
     SENSOR_BARO_POWER_UP,
     SENSOR_BARO_POWER_DOWN,
+    SENSOR_BARO_START_CAL,
+    SENSOR_BARO_READ_CAL_MEAS,
+    SENSOR_BARO_CAL_DONE,
+    SENSOR_BARO_SET_OFFSET,
+    SENSOR_BARO_CFG_DONE,
     SENSOR_TEMP_POWER_UP,
     SENSOR_TEMP_POWER_DOWN,
     SENSOR_READ_SAMPLES,
@@ -121,6 +130,12 @@ enum lps22hbSensorIndex {
 struct lps22hbSensor {
     uint32_t handle;
 };
+
+struct CalibrationData {
+    struct HostHubRawPacket header;
+    struct SensorAppEventHeader data_header;
+    float value;
+} __attribute__((packed));
 
 #define LPS22HB_MAX_PENDING_I2C_REQUESTS   4
 #define LPS22HB_MAX_I2C_TRANSFER_SIZE      6
@@ -153,6 +168,9 @@ struct lps22hbTask {
     bool tempOn;
     bool tempReading;
     bool tempWantRead;
+
+    uint8_t offset_L;
+    uint8_t offset_H;
 
     //int sensLastRead;
 
@@ -262,6 +280,26 @@ static bool i2c_write(uint8_t addr, uint8_t data, uint32_t delay, uint8_t state)
     return (ret == -1) ? false : true;
 }
 
+static void sendCalibrationResult(uint8_t status, float value)
+{
+    struct CalibrationData *data = heapAlloc(sizeof(struct CalibrationData));
+    if (!data) {
+        ERROR_PRINT("Couldn't alloc cal result pkt\n");
+        return;
+    }
+
+    data->header.appId = LPS22HB_APP_ID;
+    data->header.dataLen = (sizeof(struct CalibrationData) - sizeof(struct HostHubRawPacket));
+    data->data_header.msgId = SENSOR_APP_MSG_ID_CAL_RESULT;
+    data->data_header.sensorType = SENS_TYPE_BARO;
+    data->data_header.status = status;
+
+    data->value = value;
+
+    if (!osEnqueueEvtOrFree(EVT_APP_TO_HOST, data, heapFree))
+        ERROR_PRINT("Couldn't send cal result evt\n");
+}
+
 /* Sensor Info */
 static void sensorBaroTimerCallback(uint32_t timerId, void *data)
 {
@@ -367,6 +405,46 @@ static bool baroFlush(void *cookie)
     return osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_BARO), SENSOR_DATA_EVENT_FLUSH, NULL);
 }
 
+static bool baroCalibrate(void *cookie)
+{
+    INFO_PRINT("baroCalibrate\n");
+
+    if (mTask.baroOn) {
+        ERROR_PRINT("cannot calibrate while baro is active\n");
+        sendCalibrationResult(SENSOR_APP_EVT_STATUS_BUSY, 0.0f);
+        return false;
+    }
+
+    mTask.comm_tx(LPS22HB_RPDS_L, 0, 0, SENSOR_BARO_START_CAL);
+    return true;
+}
+
+/*
+ * Offset data is sent in hPa, and must be transformed in 16th of hPa.
+ * Since offset is expected to be summed to the out regs but the sensor
+ * will actually subctract it then we need to invert the sign.
+ */
+static bool baroCfgData(void *data, void *cookie)
+{
+    float offset_f = *((float *)data) * 16;
+    int32_t offset;
+    bool ret;
+
+    offset_f = (offset_f > 0) ? offset_f + 0.5f : offset_f - 0.5f;
+    offset = -(int32_t)offset_f;
+
+    INFO_PRINT("baroCfgData %ld\n", offset);
+
+    mTask.offset_H = (offset >> 8) & 0xff;
+    mTask.offset_L = (offset & 0xff);
+
+    ret = mTask.comm_tx(LPS22HB_RPDS_L, mTask.offset_L, 0, SENSOR_BARO_SET_OFFSET);
+    if (!ret)
+        DEBUG_PRINT("baroCfgData: comm_tx failed\n");
+
+    return ret;
+}
+
 static bool tempPower(bool on, void *cookie)
 {
     bool oldMode = mTask.baroOn || mTask.tempOn;
@@ -433,7 +511,7 @@ static bool tempFlush(void *cookie)
 
 static const struct SensorOps lps22hbSensorOps[NUM_OF_SENSOR] =
 {
-    { DEC_OPS(baroPower, baroFwUpload, baroSetRate, baroFlush, NULL, NULL) },
+    { DEC_OPS(baroPower, baroFwUpload, baroSetRate, baroFlush, baroCalibrate, baroCfgData) },
     { DEC_OPS(tempPower, tempFwUpload, tempSetRate, tempFlush, NULL, NULL) },
 };
 
@@ -490,6 +568,30 @@ static int handleCommDoneEvt(const void* evtData)
     case SENSOR_TEMP_POWER_DOWN:
         sensorSignalInternalEvt(mTask.sensors[TEMP].handle,
                     SENSOR_INTERNAL_EVT_POWER_STATE_CHG, false, 0);
+        break;
+
+    case SENSOR_BARO_START_CAL:
+        mTask.comm_tx(LPS22HB_RPDS_H, 0, 0, SENSOR_BARO_READ_CAL_MEAS);
+        break;
+
+    case SENSOR_BARO_READ_CAL_MEAS:
+        mTask.comm_rx(LPS22HB_PRESS_OUTXL_REG_ADDR, 3, 1, SENSOR_BARO_CAL_DONE);
+        break;
+
+    case SENSOR_BARO_CAL_DONE:
+        ptr_samples = xfer->txrxBuf;
+
+        baro_val = ((ptr_samples[2] << 16) & 0xff0000) |
+                   ((ptr_samples[1] << 8) & 0xff00) | (ptr_samples[0]);
+
+        sendCalibrationResult(SENSOR_APP_EVT_STATUS_SUCCESS, LPS22HB_HECTO_PASCAL((float)baro_val));
+        break;
+
+    case SENSOR_BARO_SET_OFFSET:
+        mTask.comm_tx(LPS22HB_RPDS_H, mTask.offset_H, 0, SENSOR_BARO_CFG_DONE);
+        break;
+
+    case SENSOR_BARO_CFG_DONE:
         break;
 
     case SENSOR_READ_SAMPLES:
@@ -602,6 +704,9 @@ static bool startTask(uint32_t task_id)
 
     mTask.baroOn = mTask.tempOn = false;
     mTask.baroReading = mTask.tempReading = false;
+
+    mTask.offset_H = 0;
+    mTask.offset_L = 0;
 
     slabSize = sizeof(struct SingleAxisDataEvent) + sizeof(struct SingleAxisDataPoint);
 
