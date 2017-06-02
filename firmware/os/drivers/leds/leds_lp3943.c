@@ -250,7 +250,7 @@ static void sensorLedsOnOff(bool flag)
 
 static const struct SensorInfo sensorInfoLedsLP3943 = {
     .sensorName = "Leds-LP3943",
-    .sensorType = SENS_TYPE_LEDS,
+    .sensorType = SENS_TYPE_LEDS_I2C,
     .supportedRates = ledsRates,
 };
 
