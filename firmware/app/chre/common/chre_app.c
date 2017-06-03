@@ -176,7 +176,7 @@ static void chreappProcessSensorData(uint16_t evt, const void *eventData)
         return;
 
     si = eOsSensorFind(SENSOR_TYPE(evt), 0, &sensorHandle);
-    if (si) {
+    if (si && eOsSensorGetReqRate(sensorHandle)) {
         switch (si->numAxis) {
         case NUM_AXIS_EMBEDDED:
             processEmbeddedData(eventData, sensorHandle, SENSOR_TYPE(evt));
