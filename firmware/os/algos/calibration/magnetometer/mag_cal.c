@@ -416,7 +416,7 @@ void magLogPrint(struct DiversityChecker* diverse_data, float temp) {
   // Sample counter.
   static size_t sample_counter = 0;
   const float* data_log_ptr =
-      &diverse_data->diversity_dbg.diverse_kasa_batchingdata_log[0];
+      &diverse_data->diversity_dbg.diverse_data_log[0];
   if (diverse_data->diversity_dbg.new_trigger == 1) {
     sample_counter++;
     if (sample_counter == 2) {
