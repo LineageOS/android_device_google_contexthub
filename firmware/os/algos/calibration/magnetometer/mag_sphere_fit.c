@@ -70,8 +70,8 @@ void magCalSphereDestroy(struct MagCalSphere *mocs) { (void)mocs; }
 void magCalSphereOdrUpdate(struct MagCalSphere *mocs, float odr_in_hz) {
   // Calculate the numbers of samples to be dropped, in order to fill up
   // the data set.
-  mocs->sample_drop =
-      floor(odr_in_hz * mocs->batch_time_in_sec * mocs->inv_data_size);
+  float sample_drop = odr_in_hz * mocs->batch_time_in_sec * mocs->inv_data_size;
+  mocs->sample_drop = (uint32_t)floorf(sample_drop);
 }
 
 // Updates the sphere fit data set, by calculating the numbers
