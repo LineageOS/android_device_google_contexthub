@@ -143,6 +143,10 @@ enum {
         osLog(LOG_INFO, "[Rohm RPR-0521] " fmt, ##__VA_ARGS__); \
     } while (0);
 
+#define ERROR_PRINT(fmt, ...) do { \
+        osLog(LOG_ERROR, "[Rohm RPR-0521] " fmt, ##__VA_ARGS__); \
+    } while (0);
+
 #define DEBUG_PRINT(fmt, ...) do { \
         if (enable_debug) {  \
             osLog(LOG_INFO, "[Rohm RPR-0521] " fmt, ##__VA_ARGS__); \
@@ -298,7 +302,7 @@ static void i2cCallback(void *cookie, size_t tx, size_t rx, int err)
 
     osEnqueuePrivateEvt(EVT_SENSOR_I2C, cookie, NULL, mTask.tid);
     if (err != 0)
-        INFO_PRINT("i2c error (tx: %d, rx: %d, err: %d)\n", tx, rx, err);
+        ERROR_PRINT("i2c error (tx: %d, rx: %d, err: %d)\n", tx, rx, err);
 }
 
 static void alsTimerCallback(uint32_t timerId, void *cookie)
@@ -385,7 +389,7 @@ static void setMode(bool alsOn, bool proxOn, uint8_t state)
 
 static bool sensorPowerAls(bool on, void *cookie)
 {
-    DEBUG_PRINT("sensorPowerAls: %d\n", on);
+    VERBOSE_PRINT("sensorPowerAls: %d\n", on);
 
     if (on && !mTask.alsTimerHandle) {
         mTask.alsTimerHandle = timTimerSet(ROHM_RPR0521_ALS_TIMER_DELAY, 0, 50, alsTimerCallback, NULL, false);
@@ -411,7 +415,7 @@ static bool sensorRateAls(uint32_t rate, uint64_t latency, void *cookie)
     if (rate == SENSOR_RATE_ONCHANGE)
         rate = ROHM_RPR0521_DEFAULT_RATE;
 
-    DEBUG_PRINT("sensorRateAls: rate=%ld Hz latency=%lld ns\n", rate/1024, latency);
+    VERBOSE_PRINT("sensorRateAls: rate=%ld Hz latency=%lld ns\n", rate/1024, latency);
 
     return sensorSignalInternalEvt(mTask.alsHandle, SENSOR_INTERNAL_EVT_RATE_CHG, rate, latency);
 }
@@ -434,7 +438,7 @@ static bool sendLastSampleAls(void *cookie, uint32_t tid) {
 
 static bool sensorPowerProx(bool on, void *cookie)
 {
-    DEBUG_PRINT("sensorPowerProx: %d\n", on);
+    VERBOSE_PRINT("sensorPowerProx: %d\n", on);
 
     if (on) {
         extiClearPendingGpio(mTask.pin);
@@ -461,7 +465,7 @@ static bool sensorRateProx(uint32_t rate, uint64_t latency, void *cookie)
     if (rate == SENSOR_RATE_ONCHANGE)
         rate = ROHM_RPR0521_DEFAULT_RATE;
 
-    DEBUG_PRINT("sensorRateProx: rate=%ld Hz latency=%lld ns\n", rate/1024, latency);
+    VERBOSE_PRINT("sensorRateProx: rate=%ld Hz latency=%lld ns\n", rate/1024, latency);
 
     return sensorSignalInternalEvt(mTask.proxHandle, SENSOR_INTERNAL_EVT_RATE_CHG, rate, latency);
 }
@@ -474,8 +478,6 @@ static bool sensorFlushProx(void *cookie)
 static bool sensorCfgDataProx(void *data, void *cookie)
 {
     struct I2cTransfer *xfer;
-
-    DEBUG_PRINT("sensorCfgDataProx");
 
     int32_t offset = *(int32_t*)data;
 
