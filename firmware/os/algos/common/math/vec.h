@@ -61,6 +61,15 @@ struct Vec4 {
 
 #define NANO_MIN(a, b) ((a) < (b)) ? (a) : (b)
 
+// Time check helper macro that returns true if:
+//    i.  't1' is equal to or exceeds 't2' plus 't_delta'.
+//    ii. Or, a negative timestamp delta occurred since,
+//        't1' should always >= 't2'. This prevents potential lockout conditions
+//        if the timer count 't1' rolls over or an erroneously large
+//        timestamp is passed through.
+#define NANO_TIMER_CHECK_T1_GEQUAL_T2_PLUS_DELTA(t1, t2, t_delta) \
+  (((t1) >= (t2) + (t_delta)) || ((t1) < (t2)))
+
 // 3-DIMENSIONAL VECTOR MATH ///////////////////////////////////////////
 static inline void initVec3(struct Vec3 *v, float x, float y, float z) {
   ASSERT_NOT_NULL(v);
