@@ -501,6 +501,20 @@ static bool magFlush(void *cookie)
     return osEnqueueEvt(sensorGetMyEventType(SENS_TYPE_MAG), SENSOR_DATA_EVENT_FLUSH, NULL);
 }
 
+static bool magCfgData(void *data, void *cookie)
+{
+#if defined(ST_MAG40_CAL_ENABLED)
+    float *values = data;
+
+    INFO_PRINT("magCfgData: (values in uT * 1000) %ld, %ld, %ld\n",
+            (int32_t)(values[0] * 1000), (int32_t)(values[1] * 1000), (int32_t)(values[2] * 1000));
+
+    magCalAddBias(&mTask.moc, values[0], values[1], values[2]);
+#endif
+
+    return true;
+}
+
 static void sendTestResult(uint8_t status, uint8_t sensorType)
 {
     struct TestResultData *data = heapAlloc(sizeof(struct TestResultData));
@@ -636,7 +650,7 @@ static bool magSelfTest(void *cookie)
 
 static const struct SensorOps st_mag40_SensorOps =
 {
-    DEC_OPS(magPower, magFwUpload, magSetRate, magFlush, magSelfTest, NULL, NULL),
+    DEC_OPS(magPower, magFwUpload, magSetRate, magFlush, magSelfTest, NULL, magCfgData),
 };
 
 static void enableInterrupt(struct Gpio *pin, struct ChainedIsr *isr)
