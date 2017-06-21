@@ -58,6 +58,7 @@ public:
     int unregisterBuffer(const native_handle_t *handle);
     int lock(const native_handle_t *handle, int usage, int l, int t, int w, int h, void **vaddr);
     int unlock(const native_handle_t *handle);
+    bool unregisterImplyDelete() { return mUnregisterImplyDelete; }
 private:
     friend class Singleton<GrallocHalWrapper>;
     GrallocHalWrapper();
@@ -76,6 +77,7 @@ private:
     GRALLOC1_PFN_RELEASE mPfnRelease;
     GRALLOC1_PFN_LOCK mPfnLock;
     GRALLOC1_PFN_UNLOCK mPfnUnlock;
+    bool mUnregisterImplyDelete;
 };
 
 class GrallocDirectChannel : public DirectChannelBase {

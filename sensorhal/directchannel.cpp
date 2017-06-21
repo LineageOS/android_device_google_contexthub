@@ -79,7 +79,8 @@ ANDROID_SINGLETON_STATIC_INSTANCE(GrallocHalWrapper);
 GrallocHalWrapper::GrallocHalWrapper()
         : mError(NO_INIT), mVersion(-1),
           mGrallocModule(nullptr), mAllocDevice(nullptr), mGralloc1Device(nullptr),
-          mPfnRetain(nullptr), mPfnRelease(nullptr), mPfnLock(nullptr), mPfnUnlock(nullptr) {
+          mPfnRetain(nullptr), mPfnRelease(nullptr), mPfnLock(nullptr), mPfnUnlock(nullptr),
+          mUnregisterImplyDelete(false) {
     const hw_module_t *module;
     status_t err = ::hw_get_module(GRALLOC_HARDWARE_MODULE_ID, &module);
     ALOGE_IF(err, "couldn't load %s module (%s)", GRALLOC_HARDWARE_MODULE_ID, strerror(-err));
@@ -106,7 +107,7 @@ GrallocHalWrapper::GrallocHalWrapper()
             mGrallocModule = (gralloc_module_t *)module;
             mVersion = 0;
             break;
-        case 1:
+        case 1: {
             err = ::gralloc1_open(module, &mGralloc1Device);
             if (err != NO_ERROR) {
                 ALOGE("cannot open gralloc1 device (%s)", strerror(-err));
@@ -135,10 +136,23 @@ GrallocHalWrapper::GrallocHalWrapper()
                 break;
             }
 
+
+            int32_t caps[GRALLOC1_LAST_CAPABILITY];
+            uint32_t n_cap = GRALLOC1_LAST_CAPABILITY;
+            mGralloc1Device->getCapabilities(mGralloc1Device, &n_cap, caps);
+            for (size_t i = 0; i < n_cap; ++i) {
+                if (caps[i] == GRALLOC1_CAPABILITY_RELEASE_IMPLY_DELETE) {
+                    mUnregisterImplyDelete = true;
+                }
+            }
+            ALOGI("gralloc hal %ssupport RELEASE_IMPLY_DELETE",
+                  mUnregisterImplyDelete ? "" : "does not ");
+
             // successfully initialized gralloc1
             mGrallocModule = (gralloc_module_t *)module;
             mVersion = 1;
             break;
+        }
         default:
             ALOGE("Unknown version, not supported");
             break;
@@ -280,8 +294,10 @@ GrallocDirectChannel::~GrallocDirectChannel() {
             mBase = nullptr;
         }
         GrallocHalWrapper::getInstance().unregisterBuffer(mNativeHandle);
-        ::native_handle_close(mNativeHandle);
-        ::native_handle_delete(mNativeHandle);
+        if (!GrallocHalWrapper::getInstance().unregisterImplyDelete()) {
+            ::native_handle_close(mNativeHandle);
+            ::native_handle_delete(mNativeHandle);
+        }
         mNativeHandle = nullptr;
     }
 }
