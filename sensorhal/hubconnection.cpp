@@ -1060,6 +1060,9 @@ void HubConnection::postOsLog(uint8_t *buf, ssize_t len)
     case 'D':
         ALOGD("osLog: %s", &buf[5]);
         break;
+    case 'V':
+        ALOGV("osLog: %s", &buf[5]);
+        break;
     default:
         break;
     }
