@@ -42,7 +42,7 @@
 #define OTC_DEBUG_VERSION_STRING "[May 15, 2017]"
 
 // The time value used to throttle debug messaging.
-#define OTC_WAIT_TIME_NANOS (300000000)
+#define OTC_WAIT_TIME_NANOS (100000000)
 
 // Sensor axis label definition with index correspondence: 0=X, 1=Y, 2=Z.
 static const char  kDebugAxisLabel[3] = "XYZ";
@@ -660,8 +660,9 @@ void overTempCalUpdateSensorEstimate(struct OverTempCal *over_temp_cal,
   //          (current_timestamp_nanos - modelupdate_timestamp_nanos) <
   //            min_update_interval_nanos
   if (over_temp_cal->num_model_pts >= over_temp_cal->min_num_model_pts &&
-      timestamp_nanos > over_temp_cal->min_update_interval_nanos +
-                            over_temp_cal->modelupdate_timestamp_nanos) {
+      NANO_TIMER_CHECK_T1_GEQUAL_T2_PLUS_DELTA(
+          timestamp_nanos, over_temp_cal->modelupdate_timestamp_nanos,
+          over_temp_cal->min_update_interval_nanos)) {
     computeModelUpdate(over_temp_cal, timestamp_nanos);
   }
 
@@ -687,7 +688,8 @@ void overTempCalSetTemperature(struct OverTempCal *over_temp_cal,
   static uint64_t wait_timer = 0;
   // Prints the sensor temperature trajectory for debugging purposes.
   // This throttles the print statements.
-  if (timestamp_nanos >= 1000000000 + wait_timer) {
+  if (NANO_TIMER_CHECK_T1_GEQUAL_T2_PLUS_DELTA(timestamp_nanos, wait_timer,
+                                               1000000000)) {
     wait_timer = timestamp_nanos;  // Starts the wait timer.
 
     // Prints out temperature and the current timestamp.
@@ -776,73 +778,63 @@ void updateCalOffset(struct OverTempCal *over_temp_cal,
     removeStaleModelData(over_temp_cal, timestamp_nanos);
   }
 
+  // If there are points in the model data set, then a 'nearest_offset' has been
+  // defined.
+  bool nearest_offset_defined = (over_temp_cal->num_model_pts > 0);
+
   // Uses the most recent offset estimate for offset compensation if it is
   // defined and within a time delta specified by
   // OTC_USE_RECENT_OFFSET_TIME_NANOS.
-  if (over_temp_cal->latest_offset && over_temp_cal->num_model_pts > 0 &&
+  if (over_temp_cal->latest_offset && nearest_offset_defined &&
       timestamp_nanos < over_temp_cal->latest_offset->timestamp_nanos +
                             OTC_USE_RECENT_OFFSET_TIME_NANOS) {
     setCompensatedOffset(over_temp_cal, over_temp_cal->latest_offset->offset,
                          timestamp_nanos);
-    return;
+    return;  // Exits early.
   }
 
-  // Defaults to the current compensated offset vector.
+  // Sets the default compensated offset vector.
   float compensated_offset[3];
-  memcpy(compensated_offset, over_temp_cal->compensated_offset.offset,
-         3 * sizeof(float));
+  if (nearest_offset_defined) {
+    // Uses the nearest-temperature estimate to perform the compensation.
+    memcpy(compensated_offset, over_temp_cal->nearest_offset->offset,
+           3 * sizeof(float));
+  } else {
+    // Uses the current compensated offset value.
+    memcpy(compensated_offset, over_temp_cal->compensated_offset.offset,
+           3 * sizeof(float));
+  }
 
-  // Provides per-axis offset compensation updates.
+  // Provides per-axis checks to complete the offset compensation vector update.
   size_t index;
   for (index = 0; index < 3; index++) {
-    if (over_temp_cal->temp_sensitivity[index] >= OTC_INITIAL_SENSITIVITY) {
-      // Uses the nearest-temperature estimate to perform the compensation if
-      // this axis model is in its initial state. If the 'nearest_offset' is
-      // not defined (i.e., no model points defined), then no update is
-      // performed (i.e., keeps the current value).
-      if (over_temp_cal->num_model_pts > 0) {
+    if (over_temp_cal->temp_sensitivity[index] < OTC_INITIAL_SENSITIVITY) {
+      // If a valid axis model is defined then the default compensation will use
+      // the linear model:
+      //   compensated_offset = (temp_sensitivity * temperature +
+      //   sensor_intercept)
+      compensated_offset[index] =
+          (over_temp_cal->temp_sensitivity[index] * temperature_celsius +
+           over_temp_cal->sensor_intercept[index]);
+
+      if (nearest_offset_defined &&
+          NANO_ABS(temperature_celsius -
+                   over_temp_cal->nearest_offset->offset_temp_celsius) <
+              over_temp_cal->delta_temp_per_bin &&
+          NANO_ABS(compensated_offset[index] -
+                   over_temp_cal->nearest_offset->offset[index]) <
+              over_temp_cal->max_error_limit) {
+        // Uses the nearest-temperature estimate to perform the compensation if
+        // the sensor's temperature is within a small neighborhood of the
+        // 'nearest_offset', and the delta between the nearest-temperature
+        // estimate and the model fit is less than 'max_error_limit'.
         compensated_offset[index] =
             over_temp_cal->nearest_offset->offset[index];
-      }
-    } else {
-      if (NANO_ABS(temperature_celsius -
-                   over_temp_cal->nearest_offset->offset_temp_celsius) <
-              over_temp_cal->delta_temp_per_bin) {
-        // Attempts to use the nearest-temperature estimate to perform the
-        // compensation if the sensor's temperature is within a small
-        // neighborhood of the 'nearest_offset'. If the 'nearest_offset' is
-        // not defined (i.e., no model points defined), then no update is
-        // performed (i.e., keeps the current value).
-        if (over_temp_cal->num_model_pts > 0) {
-          // If the delta between the nearest-temperature estimate and the
-          // model fit is greater than 'max_error_limit', then the validity of
-          // the data may be questionable; then this defaults to using the
-          // model fit for compensation.
-          compensated_offset[index] =
-              (over_temp_cal->temp_sensitivity[index] * temperature_celsius +
-               over_temp_cal->sensor_intercept[index]);
-
-          if (NANO_ABS(compensated_offset[index] -
-                       over_temp_cal->nearest_offset->offset[index]) <
-                  over_temp_cal->max_error_limit) {
-            compensated_offset[index] =
-                over_temp_cal->nearest_offset->offset[index];
-          }
-        }
-      } else {
-        // If a valid axis model is defined but outside the temperature
-        // neighborhood of the 'nearest_offset', then compensate using the
-        // linear model:
-        //   compensated_offset = (temp_sensitivity * temperature +
-        //   sensor_intercept)
-        compensated_offset[index] =
-            (over_temp_cal->temp_sensitivity[index] * temperature_celsius +
-             over_temp_cal->sensor_intercept[index]);
       }
     }
   }
 
-  // Updates the offset compensation vector, and timestamp.
+  // Finalizes the update to the offset compensation vector, and timestamp.
   setCompensatedOffset(over_temp_cal, compensated_offset, timestamp_nanos);
 }
 
@@ -1270,7 +1262,8 @@ void overTempCalDebugPrint(struct OverTempCal *over_temp_cal,
 
     case OTC_WAIT_STATE:
       // This helps throttle the print statements.
-      if (timestamp_nanos >= OTC_WAIT_TIME_NANOS + wait_timer) {
+      if (NANO_TIMER_CHECK_T1_GEQUAL_T2_PLUS_DELTA(timestamp_nanos, wait_timer,
+                                                   OTC_WAIT_TIME_NANOS)) {
         over_temp_cal->debug_state = next_state;
       }
       break;

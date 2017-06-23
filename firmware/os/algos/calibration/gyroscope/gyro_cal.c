@@ -34,7 +34,7 @@
 
 #ifdef GYRO_CAL_DBG_ENABLED
 // The time value used to throttle debug messaging.
-#define GYROCAL_WAIT_TIME_NANOS (300000000)
+#define GYROCAL_WAIT_TIME_NANOS (100000000)
 
 // Unit conversion: nanoseconds to seconds.
 #define NANOS_TO_SEC (1.0e-9f)
@@ -295,8 +295,6 @@ bool gyroCalNewBiasAvailable(struct GyroCal* gyro_cal) {
 // Update the gyro calibration with gyro data [rad/sec].
 void gyroCalUpdateGyro(struct GyroCal* gyro_cal, uint64_t sample_time_nanos,
                        float x, float y, float z, float temperature_celsius) {
-  static float latest_temperature_celsius = 0.0f;
-
   // Make sure that a valid window end-time is set, and start the watchdog
   // timer.
   if (gyro_cal->stillness_win_endtime_nanos <= 0) {
@@ -307,10 +305,8 @@ void gyroCalUpdateGyro(struct GyroCal* gyro_cal, uint64_t sample_time_nanos,
     gyro_cal->gyro_watchdog_start_nanos = sample_time_nanos;
   }
 
-  // Update the temperature statistics (only on a temperature change).
-  if (NANO_ABS(temperature_celsius - latest_temperature_celsius) > FLT_MIN) {
-    gyroTemperatureStatsTracker(gyro_cal, temperature_celsius, DO_UPDATE_DATA);
-  }
+  // Update the temperature statistics.
+  gyroTemperatureStatsTracker(gyro_cal, temperature_celsius, DO_UPDATE_DATA);
 
 #ifdef GYRO_CAL_DBG_ENABLED
   // Update the gyro sampling rate estimate.
@@ -411,7 +407,7 @@ void deviceStillnessCheck(struct GyroCal* gyro_cal,
 
   // Determines if the device is currently still.
   device_is_still = (conf_still > gyro_cal->stillness_threshold) &&
-      !mean_not_stable && !min_max_temp_exceeded ;
+      !mean_not_stable && !min_max_temp_exceeded;
 
   if (device_is_still) {
     // Device is "still" logic:
@@ -429,9 +425,8 @@ void deviceStillnessCheck(struct GyroCal* gyro_cal,
 
     // Check to see if current stillness period exceeds the desired limit.
     stillness_duration_exceeded =
-        ((gyro_cal->gyro_stillness_detect.last_sample_time -
-          gyro_cal->start_still_time_nanos) >=
-         gyro_cal->max_still_duration_nanos);
+        (gyro_cal->gyro_stillness_detect.last_sample_time >=
+         gyro_cal->start_still_time_nanos + gyro_cal->max_still_duration_nanos);
 
     // Track the new stillness mean and temperature data.
     gyroStillMeanTracker(gyro_cal, DO_STORE_DATA);
@@ -482,9 +477,8 @@ void deviceStillnessCheck(struct GyroCal* gyro_cal,
     // If device was previously still and the total stillness duration is not
     // "too short", then do a calibration with the data accumulated thus far.
     stillness_duration_too_short =
-        ((gyro_cal->gyro_stillness_detect.window_start_time -
-          gyro_cal->start_still_time_nanos) <
-         gyro_cal->min_still_duration_nanos);
+        (gyro_cal->gyro_stillness_detect.window_start_time <
+         gyro_cal->start_still_time_nanos + gyro_cal->min_still_duration_nanos);
 
     if (gyro_cal->prev_still && !stillness_duration_too_short) {
       computeGyroCal(gyro_cal,
@@ -516,11 +510,11 @@ void deviceStillnessCheck(struct GyroCal* gyro_cal,
 // Calculates a new gyro bias offset calibration value.
 void computeGyroCal(struct GyroCal* gyro_cal, uint64_t calibration_time_nanos) {
   // Check to see if new calibration values is within acceptable range.
-  if (!(gyro_cal->gyro_stillness_detect.prev_mean_x < MAX_GYRO_BIAS &&
+  if (!(gyro_cal->gyro_stillness_detect.prev_mean_x <  MAX_GYRO_BIAS &&
         gyro_cal->gyro_stillness_detect.prev_mean_x > -MAX_GYRO_BIAS &&
-        gyro_cal->gyro_stillness_detect.prev_mean_y < MAX_GYRO_BIAS &&
+        gyro_cal->gyro_stillness_detect.prev_mean_y <  MAX_GYRO_BIAS &&
         gyro_cal->gyro_stillness_detect.prev_mean_y > -MAX_GYRO_BIAS &&
-        gyro_cal->gyro_stillness_detect.prev_mean_z < MAX_GYRO_BIAS &&
+        gyro_cal->gyro_stillness_detect.prev_mean_z <  MAX_GYRO_BIAS &&
         gyro_cal->gyro_stillness_detect.prev_mean_z > -MAX_GYRO_BIAS)) {
 #ifdef GYRO_CAL_DBG_ENABLED
     CAL_DEBUG_LOG("[GYRO_CAL:REJECT]",
@@ -582,14 +576,39 @@ void checkWatchdog(struct GyroCal* gyro_cal, uint64_t sample_time_nanos) {
     return;
   }
 
-  // Check for the watchdog timeout condition (i.e., the time elapsed since the
-  // last received sample has exceeded the allowed watchdog duration).
+  // Checks for the following watchdog timeout conditions:
+  //    i.  The current timestamp has exceeded the allowed watchdog duration.
+  //    ii. A timestamp was received that has jumped backwards by more than the
+  //    allowed watchdog duration (e.g., timestamp clock roll-over).
   watchdog_timeout =
       (sample_time_nanos > gyro_cal->gyro_watchdog_timeout_duration_nanos +
-                               gyro_cal->gyro_watchdog_start_nanos);
+                               gyro_cal->gyro_watchdog_start_nanos) ||
+      (sample_time_nanos + gyro_cal->gyro_watchdog_timeout_duration_nanos <
+       gyro_cal->gyro_watchdog_start_nanos);
 
   // If a timeout occurred then reset to known good state.
   if (watchdog_timeout) {
+#ifdef GYRO_CAL_DBG_ENABLED
+    gyro_cal->debug_watchdog_count++;
+    if (sample_time_nanos < gyro_cal->gyro_watchdog_start_nanos) {
+      CAL_DEBUG_LOG(
+          "[GYRO_CAL:WATCHDOG]",
+          "Total#, Timestamp | Delta [nsec]: %lu, %llu, -%llu",
+          (unsigned long int)gyro_cal->debug_watchdog_count,
+          (unsigned long long int)sample_time_nanos,
+          (unsigned long long int)(gyro_cal->gyro_watchdog_start_nanos -
+                                   sample_time_nanos));
+    } else {
+      CAL_DEBUG_LOG(
+          "[GYRO_CAL:WATCHDOG]",
+          "Total#, Timestamp | Delta  [nsec]: %lu, %llu, %llu",
+          (unsigned long int)gyro_cal->debug_watchdog_count,
+          (unsigned long long int)sample_time_nanos,
+          (unsigned long long int)(sample_time_nanos -
+                                   gyro_cal->gyro_watchdog_start_nanos));
+    }
+#endif  // GYRO_CAL_DBG_ENABLED
+
     // Reset stillness detectors and restart data capture.
     gyroStillDetReset(&gyro_cal->accel_stillness_detect, /*reset_stats=*/true);
     gyroStillDetReset(&gyro_cal->gyro_stillness_detect, /*reset_stats=*/true);
@@ -624,12 +643,6 @@ void checkWatchdog(struct GyroCal* gyro_cal, uint64_t sample_time_nanos) {
     // Assert watchdog timeout flags.
     gyro_cal->gyro_watchdog_timeout |= watchdog_timeout;
     gyro_cal->gyro_watchdog_start_nanos = 0;
-#ifdef GYRO_CAL_DBG_ENABLED
-    gyro_cal->debug_watchdog_count++;
-    CAL_DEBUG_LOG("[GYRO_CAL:WATCHDOG]", "Total#, Timestamp [nsec]: %lu, %llu",
-                  (unsigned long int)gyro_cal->debug_watchdog_count,
-                  (unsigned long long int)sample_time_nanos);
-#endif  // GYRO_CAL_DBG_ENABLED
   }
 }
 
@@ -653,7 +666,7 @@ bool gyroTemperatureStatsTracker(struct GyroCal* gyro_cal,
 
       // Initializes the min/max temperatures values.
       temperature_min_max_celsius[0] = FLT_MAX;
-      temperature_min_max_celsius[1] = -1.0f * (FLT_MAX - 1.0f);
+      temperature_min_max_celsius[1] = -FLT_MAX;
       break;
 
     case DO_UPDATE_DATA:
@@ -671,7 +684,7 @@ bool gyroTemperatureStatsTracker(struct GyroCal* gyro_cal,
       break;
 
     case DO_STORE_DATA:
-      // Store the most recent "stillness" mean data to the GyroCal data
+      // Store the most recent temperature statistics data to the GyroCal data
       // structure. This functionality allows previous results to be recalled
       // when the device suddenly becomes "not still".
       if (num_points > 0) {
@@ -718,7 +731,7 @@ bool gyroStillMeanTracker(struct GyroCal* gyro_cal,
       // Resets the min/max window mean values to a default value.
       for (i = 0; i < 3; i++) {
         gyro_winmean_min[i] = FLT_MAX;
-        gyro_winmean_max[i] = -1.0f * (FLT_MAX - 1.0f);
+        gyro_winmean_max[i] = -FLT_MAX;
       }
       break;
 
@@ -1146,7 +1159,8 @@ void gyroCalDebugPrint(struct GyroCal* gyro_cal, uint64_t timestamp_nanos) {
 
     case GYRO_WAIT_STATE:
       // This helps throttle the print statements.
-      if (timestamp_nanos >= GYROCAL_WAIT_TIME_NANOS + wait_timer_nanos) {
+      if (NANO_TIMER_CHECK_T1_GEQUAL_T2_PLUS_DELTA(
+              timestamp_nanos, wait_timer_nanos, GYROCAL_WAIT_TIME_NANOS)) {
         gyro_cal->debug_state = next_state;
       }
       break;
@@ -1228,10 +1242,11 @@ void gyroCalTuneDebugPrint(const struct GyroCal* gyro_cal,
   //   i.  Within the first 300 seconds of boot: output interval = 5
   //       seconds.
   //   ii. Thereafter: output interval is 60 seconds.
-  bool condition_i =
-      ((timestamp_nanos <= 300000000000) &&
-       (timestamp_nanos > 5000000000 + wait_timer_nanos));  // nsec
-  bool condition_ii = (timestamp_nanos > 60000000000 + wait_timer_nanos);
+  bool condition_i = ((timestamp_nanos <= 300000000000) &&
+                      NANO_TIMER_CHECK_T1_GEQUAL_T2_PLUS_DELTA(
+                          timestamp_nanos, wait_timer_nanos, 5000000000));
+  bool condition_ii = NANO_TIMER_CHECK_T1_GEQUAL_T2_PLUS_DELTA(
+      timestamp_nanos, wait_timer_nanos, 60000000000);
 
   // This is a state machine that controls the reporting out of tuning data.
   switch (debug_state) {
@@ -1250,7 +1265,8 @@ void gyroCalTuneDebugPrint(const struct GyroCal* gyro_cal,
 
     case GYRO_WAIT_STATE:
       // This helps throttle the print statements.
-      if (timestamp_nanos >= GYROCAL_WAIT_TIME_NANOS + wait_timer_nanos) {
+      if (NANO_TIMER_CHECK_T1_GEQUAL_T2_PLUS_DELTA(
+              timestamp_nanos, wait_timer_nanos, GYROCAL_WAIT_TIME_NANOS)) {
         debug_state = next_state;
       }
       break;
