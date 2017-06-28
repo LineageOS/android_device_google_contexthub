@@ -15,7 +15,6 @@
  */
 
 #define LOG_TAG "nanohub"
-#define LOG_NDEBUG 1
 
 #include "hubconnection.h"
 
@@ -1056,12 +1055,10 @@ void HubConnection::postOsLog(uint8_t *buf, ssize_t len)
         ALOGW("osLog: %s", &buf[5]);
         break;
     case 'I':
-        // The other side of this is too chatty, reducing the priority to VERBOSE
-        ALOGV("osLog: %s", &buf[5]);
+        ALOGI("osLog: %s", &buf[5]);
         break;
     case 'D':
-        // The other side of this is too chatty, reducing the priority to VERBOSE
-        ALOGV("osLog: %s", &buf[5]);
+        ALOGD("osLog: %s", &buf[5]);
         break;
     default:
         break;
