@@ -270,10 +270,11 @@ bool osAppIsChre(uint16_t tid);
 
 /* Logging */
 enum LogLevel {
-    LOG_ERROR = 'E',
-    LOG_WARN  = 'W',
-    LOG_INFO  = 'I',
-    LOG_DEBUG = 'D',
+    LOG_ERROR   = 'E',
+    LOG_WARN    = 'W',
+    LOG_INFO    = 'I',
+    LOG_DEBUG   = 'D',
+    LOG_VERBOSE = 'V',
 };
 
 void osLogv(char clevel, uint32_t flags, const char *str, va_list vl);

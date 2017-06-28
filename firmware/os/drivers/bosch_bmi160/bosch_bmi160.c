@@ -75,6 +75,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define VERBOSE_PRINT(fmt, ...) do { \
+        osLog(LOG_VERBOSE, "%s " fmt, "[BMI160]", ##__VA_ARGS__); \
+    } while (0);
+
 #define INFO_PRINT(fmt, ...) do { \
         osLog(LOG_INFO, "%s " fmt, "[BMI160]", ##__VA_ARGS__); \
     } while (0);
@@ -85,13 +89,13 @@
 
 #define DEBUG_PRINT(fmt, ...) do { \
         if (DBG_ENABLE) {  \
-            INFO_PRINT(fmt,  ##__VA_ARGS__); \
+            osLog(LOG_DEBUG, "%s " fmt, "[BMI160]", ##__VA_ARGS__); \
         } \
     } while (0);
 
 #define DEBUG_PRINT_IF(cond, fmt, ...) do { \
         if ((cond) && DBG_ENABLE) {  \
-            INFO_PRINT(fmt,  ##__VA_ARGS__); \
+            osLog(LOG_DEBUG, "%s " fmt, "[BMI160]", ##__VA_ARGS__); \
         } \
     } while (0);
 
@@ -1313,7 +1317,7 @@ static bool accPower(bool on, void *cookie)
 {
     TDECL();
 
-    INFO_PRINT("accPower: on=%d, state=%" PRI_STATE "\n", on, getStateName(GET_STATE()));
+    VERBOSE_PRINT("accPower: on=%d, state=%" PRI_STATE "\n", on, getStateName(GET_STATE()));
     if (trySwitchState(on ? SENSOR_POWERING_UP : SENSOR_POWERING_DOWN)) {
         if (on) {
             // set ACC power mode to NORMAL
@@ -1336,7 +1340,7 @@ static bool accPower(bool on, void *cookie)
 static bool gyrPower(bool on, void *cookie)
 {
     TDECL();
-    INFO_PRINT("gyrPower: on=%d, state=%" PRI_STATE "\n", on, getStateName(GET_STATE()));
+    VERBOSE_PRINT("gyrPower: on=%d, state=%" PRI_STATE "\n", on, getStateName(GET_STATE()));
 
     if (trySwitchState(on ? SENSOR_POWERING_UP : SENSOR_POWERING_DOWN)) {
         if (on) {
@@ -1369,7 +1373,7 @@ static bool gyrPower(bool on, void *cookie)
 static bool magPower(bool on, void *cookie)
 {
     TDECL();
-    INFO_PRINT("magPower: on=%d, state=%" PRI_STATE "\n", on, getStateName(GET_STATE()));
+    VERBOSE_PRINT("magPower: on=%d, state=%" PRI_STATE "\n", on, getStateName(GET_STATE()));
     if (trySwitchState(on ? SENSOR_POWERING_UP : SENSOR_POWERING_DOWN)) {
         if (on) {
             // set MAG power mode to NORMAL
@@ -1665,7 +1669,7 @@ static bool gyrSetRate(uint32_t rate, uint64_t latency, void *cookie)
     TDECL();
     int odr, osr = 0;
     int osr_mode = 2; // normal
-    INFO_PRINT("gyrSetRate: rate=%ld, latency=%lld, state=%" PRI_STATE "\n",
+    VERBOSE_PRINT("gyrSetRate: rate=%ld, latency=%lld, state=%" PRI_STATE "\n",
                rate, latency, getStateName(GET_STATE()));
 
     if (trySwitchState(SENSOR_CONFIG_CHANGING)) {
@@ -1732,7 +1736,7 @@ static bool magSetRate(uint32_t rate, uint64_t latency, void *cookie)
     if (rate == SENSOR_RATE_ONCHANGE)
         rate = SENSOR_HZ(100);
 
-    INFO_PRINT("magSetRate: rate=%ld, latency=%lld, state=%" PRI_STATE "\n",
+    VERBOSE_PRINT("magSetRate: rate=%ld, latency=%lld, state=%" PRI_STATE "\n",
                rate, latency, getStateName(GET_STATE()));
 
     if (trySwitchState(SENSOR_CONFIG_CHANGING)) {
@@ -3922,7 +3926,7 @@ static bool startTask(uint32_t task_id)
     // XXX: this consumes too much memeory, need to optimize
     T(mDataSlab) = slabAllocatorNew(slabSize, 4, 20);
     if (!T(mDataSlab)) {
-        INFO_PRINT("slabAllocatorNew() failed\n");
+        ERROR_PRINT("slabAllocatorNew() failed\n");
         return false;
     }
     T(mWbufCnt) = 0;
