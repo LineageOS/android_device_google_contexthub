@@ -13,6 +13,9 @@
 # limitations under the License.
 
 LOCAL_PATH := $(call my-dir)
+
+ifeq ($(TARGET_USES_NANOHUB_SENSORHAL), true)
+
 COMMON_CFLAGS := -Wall -Werror -Wextra
 
 ################################################################################
@@ -82,3 +85,7 @@ LOCAL_SHARED_LIBRARIES := \
     libutils \
 
 include $(BUILD_SHARED_LIBRARY)
+
+################################################################################
+
+endif
