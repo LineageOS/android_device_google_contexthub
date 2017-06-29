@@ -19,6 +19,7 @@ ifeq ($(TARGET_USES_NANOHUB_SENSORHAL), true)
 COMMON_CFLAGS := -Wall -Werror -Wextra
 
 ################################################################################
+ifeq ($(NANOHUB_SENSORHAL_LEFTY_IMPL_ENABLED), true)
 
 include $(CLEAR_VARS)
 
@@ -51,7 +52,9 @@ LOCAL_SHARED_LIBRARIES := \
 
 include $(BUILD_SHARED_LIBRARY)
 
+endif
 ################################################################################
+ifeq ($(NANOHUB_SENSORHAL_LEFTY_SERVICE_ENABLED), true)
 
 include $(CLEAR_VARS)
 
@@ -86,6 +89,7 @@ LOCAL_SHARED_LIBRARIES := \
 
 include $(BUILD_SHARED_LIBRARY)
 
+endif
 ################################################################################
 
 endif
