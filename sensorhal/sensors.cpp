@@ -35,6 +35,10 @@
 #include <SensorEventCallback.h>
 #endif
 
+#ifdef LEFTY_SERVICE_ENABLED
+#include "lefty_service.h"
+#endif
+
 using namespace android;
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -407,6 +411,9 @@ static int open_sensors(
     gHubAlive = ctx->getHubAlive();
     *dev = &ctx->device.common;
 
+#ifdef LEFTY_SERVICE_ENABLED
+    register_lefty_service();
+#endif
     return 0;
 }
 
