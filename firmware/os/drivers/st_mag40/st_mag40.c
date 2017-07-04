@@ -215,6 +215,7 @@ struct st_mag40_Task {
     uint8_t subState;
 
     /* sensor flags */
+    uint8_t samplesToDiscard;
     uint32_t rate;
     uint64_t latency;
     bool magOn;
@@ -484,6 +485,7 @@ static bool magSetRate(uint32_t rate, uint64_t latency, void *cookie)
     mTask.currentODR = st_mag40_regVal[num];
     mTask.rate = rate;
     mTask.latency = latency;
+    mTask.samplesToDiscard = 2;
 
     if (trySwitchState(SENSOR_MAG_CONFIGURATION)) {
         mTask.subState = CONFIG_SET_RATE;
@@ -698,6 +700,12 @@ static void parseRawData(uint8_t *raw)
 #if defined(ST_MAG40_CAL_ENABLED)
     float xi, yi, zi;
 #endif
+
+	/* Discard samples generated during sensor turn-on time */
+    if (mTask.samplesToDiscard > 0) {
+        mTask.samplesToDiscard--;
+        return;
+    }
 
     /* in uT */
     xs = (float)raw_x * kScale_mag;
