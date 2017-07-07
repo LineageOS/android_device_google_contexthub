@@ -27,10 +27,14 @@
 
 // Maximum gyro bias correction (should be set based on expected max bias
 // of the given sensor).
-#define MAX_GYRO_BIAS (0.1f)  // [rad/sec]
+#define MAX_GYRO_BIAS (0.2f)  // [rad/sec]
 
 // Converts units of radians to milli-degrees.
 #define RAD_TO_MILLI_DEGREES (float)(1e3f * 180.0f / NANO_PI)
+
+// Watchdog timeout value (5 seconds). Monitors dropouts in sensor data and
+// resets when exceeded.
+#define GYRO_WATCHDOG_TIMEOUT_NANOS (5000000000)
 
 #ifdef GYRO_CAL_DBG_ENABLED
 // The time value used to throttle debug messaging.
@@ -40,7 +44,7 @@
 #define NANOS_TO_SEC (1.0e-9f)
 
 // A debug version label to help with tracking results.
-#define GYROCAL_DEBUG_VERSION_STRING "[May 15, 2017]"
+#define GYROCAL_DEBUG_VERSION_STRING "[July 05, 2017]"
 
 // Debug log tag string used to identify debug report output data.
 #define GYROCAL_REPORT_TAG "[GYRO_CAL:REPORT]"
@@ -194,8 +198,7 @@ void gyroCalInit(struct GyroCal* gyro_cal, uint64_t min_still_duration_nanos,
   gyro_cal->window_time_duration_nanos = window_time_duration_nanos;
 
   // Set the watchdog timeout duration.
-  gyro_cal->gyro_watchdog_timeout_duration_nanos =
-      2 * window_time_duration_nanos;
+  gyro_cal->gyro_watchdog_timeout_duration_nanos = GYRO_WATCHDOG_TIMEOUT_NANOS;
 
   // Load the last valid cal from system memory.
   gyro_cal->bias_x = bias_x;  // [rad/sec]
@@ -225,9 +228,6 @@ void gyroCalInit(struct GyroCal* gyro_cal, uint64_t min_still_duration_nanos,
   gyroTemperatureStatsTracker(gyro_cal, 0.0f, DO_RESET);
 
 #ifdef GYRO_CAL_DBG_ENABLED
-  CAL_DEBUG_LOG("[GYRO_CAL:MEMORY]", "sizeof(struct GyroCal): %lu",
-                (unsigned long int)sizeof(struct GyroCal));
-
   if (gyro_cal->gyro_calibration_enable) {
     CAL_DEBUG_LOG("[GYRO_CAL:INIT]", "Online gyroscope calibration ENABLED.");
   } else {
@@ -263,11 +263,11 @@ void gyroCalSetBias(struct GyroCal* gyro_cal, float bias_x, float bias_y,
   gyro_cal->calibration_time_nanos = calibration_time_nanos;
 
 #ifdef GYRO_CAL_DBG_ENABLED
-  CAL_DEBUG_LOG("[GYRO_CAL:RECALL]",
-                "Gyro Bias Calibration [mdps]: %s%d.%06d, %s%d.%06d, %s%d.%06d",
-                CAL_ENCODE_FLOAT(gyro_cal->bias_x * RAD_TO_MILLI_DEGREES, 6),
-                CAL_ENCODE_FLOAT(gyro_cal->bias_y * RAD_TO_MILLI_DEGREES, 6),
-                CAL_ENCODE_FLOAT(gyro_cal->bias_z * RAD_TO_MILLI_DEGREES, 6));
+  CAL_DEBUG_LOG("[GYRO_CAL:SET BIAS]",
+                "Gyro Bias Calibration [mDPS]: %s%d.%03d, %s%d.%03d, %s%d.%03d",
+                CAL_ENCODE_FLOAT(gyro_cal->bias_x * RAD_TO_MILLI_DEGREES, 3),
+                CAL_ENCODE_FLOAT(gyro_cal->bias_y * RAD_TO_MILLI_DEGREES, 3),
+                CAL_ENCODE_FLOAT(gyro_cal->bias_z * RAD_TO_MILLI_DEGREES, 3));
 #endif  // GYRO_CAL_DBG_ENABLED
 }
 
@@ -518,18 +518,18 @@ void computeGyroCal(struct GyroCal* gyro_cal, uint64_t calibration_time_nanos) {
         gyro_cal->gyro_stillness_detect.prev_mean_z > -MAX_GYRO_BIAS)) {
 #ifdef GYRO_CAL_DBG_ENABLED
     CAL_DEBUG_LOG("[GYRO_CAL:REJECT]",
-                  "Offset|Temp|Time [mdps|C|nsec]: %s%d.%06d, %s%d.%06d, "
-                  "%s%d.%06d, %s%d.%06d, %llu",
+                  "Offset|Temp|Time [mDPS|C|nsec]: %s%d.%03d, %s%d.%03d, "
+                  "%s%d.%03d, %s%d.%03d, %llu",
                   CAL_ENCODE_FLOAT(gyro_cal->gyro_stillness_detect.prev_mean_x *
                                        RAD_TO_MILLI_DEGREES,
-                                   6),
+                                   3),
                   CAL_ENCODE_FLOAT(gyro_cal->gyro_stillness_detect.prev_mean_y *
                                        RAD_TO_MILLI_DEGREES,
-                                   6),
+                                   3),
                   CAL_ENCODE_FLOAT(gyro_cal->gyro_stillness_detect.prev_mean_z *
                                        RAD_TO_MILLI_DEGREES,
-                                   6),
-                  CAL_ENCODE_FLOAT(gyro_cal->temperature_mean_celsius, 6),
+                                   3),
+                  CAL_ENCODE_FLOAT(gyro_cal->temperature_mean_celsius, 3),
                   (unsigned long long int)calibration_time_nanos);
 #endif  // GYRO_CAL_DBG_ENABLED
 
@@ -956,18 +956,18 @@ void gyroCalDebugPrintData(const struct GyroCal* gyro_cal, char* debug_tag,
   switch (print_data) {
     case OFFSET:
       CAL_DEBUG_LOG(debug_tag,
-                    "Cal#|Offset|Temp|Time [mdps|C|nsec]: %lu, %s%d.%06d, "
-                    "%s%d.%06d, %s%d.%06d, %s%d.%03d, %llu",
+                    "Cal#|Offset|Temp|Time [mDPS|C|nsec]: %lu, %s%d.%03d, "
+                    "%s%d.%03d, %s%d.%03d, %s%d.%03d, %llu",
                     (unsigned long int)gyro_cal->debug_calibration_count,
                     CAL_ENCODE_FLOAT(gyro_cal->debug_gyro_cal.calibration[0] *
                                          RAD_TO_MILLI_DEGREES,
-                                     6),
+                                     3),
                     CAL_ENCODE_FLOAT(gyro_cal->debug_gyro_cal.calibration[1] *
                                          RAD_TO_MILLI_DEGREES,
-                                     6),
+                                     3),
                     CAL_ENCODE_FLOAT(gyro_cal->debug_gyro_cal.calibration[2] *
                                          RAD_TO_MILLI_DEGREES,
-                                     6),
+                                     3),
                     CAL_ENCODE_FLOAT(
                         gyro_cal->debug_gyro_cal.temperature_mean_celsius, 3),
                     (unsigned long long int)
@@ -980,12 +980,13 @@ void gyroCalDebugPrintData(const struct GyroCal* gyro_cal, char* debug_tag,
                      : -1.0f;  // Signals that magnetometer was not used.
       CAL_DEBUG_LOG(
           debug_tag,
-          "Cal#|Start|End|Confidence [nsec]: %lu, %llu, %llu, "
-          "%s%d.%03d, %s%d.%03d, %s%d.%03d",
+          "Cal#|Stillness|Confidence [nsec]: %lu, %llu, %s%d.%03d, %s%d.%03d, "
+          "%s%d.%03d",
           (unsigned long int)gyro_cal->debug_calibration_count,
-          (unsigned long long int)
-              gyro_cal->debug_gyro_cal.start_still_time_nanos,
-          (unsigned long long int)gyro_cal->debug_gyro_cal.end_still_time_nanos,
+          (unsigned long long int)(gyro_cal->debug_gyro_cal
+                                       .end_still_time_nanos -
+                                   gyro_cal->debug_gyro_cal
+                                       .start_still_time_nanos),
           CAL_ENCODE_FLOAT(gyro_cal->debug_gyro_cal.gyro_stillness_conf, 3),
           CAL_ENCODE_FLOAT(gyro_cal->debug_gyro_cal.accel_stillness_conf, 3),
           CAL_ENCODE_FLOAT(mag_data, 3));
@@ -1013,32 +1014,32 @@ void gyroCalDebugPrintData(const struct GyroCal* gyro_cal, char* debug_tag,
     case GYRO_MINMAX_STILLNESS_MEAN:
       CAL_DEBUG_LOG(
           debug_tag,
-          "Cal#|Gyro Peak Stillness Variation [mdps]: %lu, %s%d.%06d, "
-          "%s%d.%06d, %s%d.%06d",
+          "Cal#|Gyro Peak Stillness Variation [mDPS]: %lu, %s%d.%03d, "
+          "%s%d.%03d, %s%d.%03d",
           (unsigned long int)gyro_cal->debug_calibration_count,
           CAL_ENCODE_FLOAT((gyro_cal->debug_gyro_cal.gyro_winmean_max[0] -
                             gyro_cal->debug_gyro_cal.gyro_winmean_min[0]) *
                                RAD_TO_MILLI_DEGREES,
-                           6),
+                           3),
           CAL_ENCODE_FLOAT((gyro_cal->debug_gyro_cal.gyro_winmean_max[1] -
                             gyro_cal->debug_gyro_cal.gyro_winmean_min[1]) *
                                RAD_TO_MILLI_DEGREES,
-                           6),
+                           3),
           CAL_ENCODE_FLOAT((gyro_cal->debug_gyro_cal.gyro_winmean_max[2] -
                             gyro_cal->debug_gyro_cal.gyro_winmean_min[2]) *
                                RAD_TO_MILLI_DEGREES,
-                           6));
+                           3));
       break;
 
     case ACCEL_STATS:
       CAL_DEBUG_LOG(
           debug_tag,
           "Cal#|Accel Mean|Var [m/sec^2|(m/sec^2)^2]: %lu, "
-          "%s%d.%06d, %s%d.%06d, %s%d.%06d, %s%d.%08d, %s%d.%08d, %s%d.%08d",
+          "%s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%08d, %s%d.%08d, %s%d.%08d",
           (unsigned long int)gyro_cal->debug_calibration_count,
-          CAL_ENCODE_FLOAT(gyro_cal->debug_gyro_cal.accel_mean[0], 6),
-          CAL_ENCODE_FLOAT(gyro_cal->debug_gyro_cal.accel_mean[1], 6),
-          CAL_ENCODE_FLOAT(gyro_cal->debug_gyro_cal.accel_mean[2], 6),
+          CAL_ENCODE_FLOAT(gyro_cal->debug_gyro_cal.accel_mean[0], 3),
+          CAL_ENCODE_FLOAT(gyro_cal->debug_gyro_cal.accel_mean[1], 3),
+          CAL_ENCODE_FLOAT(gyro_cal->debug_gyro_cal.accel_mean[2], 3),
           CAL_ENCODE_FLOAT(gyro_cal->debug_gyro_cal.accel_var[0], 8),
           CAL_ENCODE_FLOAT(gyro_cal->debug_gyro_cal.accel_var[1], 8),
           CAL_ENCODE_FLOAT(gyro_cal->debug_gyro_cal.accel_var[2], 8));
@@ -1047,32 +1048,38 @@ void gyroCalDebugPrintData(const struct GyroCal* gyro_cal, char* debug_tag,
     case GYRO_STATS:
       CAL_DEBUG_LOG(
           debug_tag,
-          "Cal#|Gyro Mean|Var [mdps|(rad/sec)^2]: %lu, %s%d.%06d, "
-          "%s%d.%06d, %s%d.%06d, %s%d.%08d, %s%d.%08d, %s%d.%08d",
+          "Cal#|Gyro Mean|Var [mDPS|mDPS^2]: %lu, %s%d.%03d, "
+          "%s%d.%03d, %s%d.%03d, %s%d.%06d, %s%d.%06d, %s%d.%06d",
           (unsigned long int)gyro_cal->debug_calibration_count,
           CAL_ENCODE_FLOAT(
-              gyro_cal->debug_gyro_cal.gyro_mean[0] * RAD_TO_MILLI_DEGREES, 6),
+              gyro_cal->debug_gyro_cal.gyro_mean[0] * RAD_TO_MILLI_DEGREES, 3),
           CAL_ENCODE_FLOAT(
-              gyro_cal->debug_gyro_cal.gyro_mean[1] * RAD_TO_MILLI_DEGREES, 6),
+              gyro_cal->debug_gyro_cal.gyro_mean[1] * RAD_TO_MILLI_DEGREES, 3),
           CAL_ENCODE_FLOAT(
-              gyro_cal->debug_gyro_cal.gyro_mean[2] * RAD_TO_MILLI_DEGREES, 6),
-          CAL_ENCODE_FLOAT(gyro_cal->debug_gyro_cal.gyro_var[0], 8),
-          CAL_ENCODE_FLOAT(gyro_cal->debug_gyro_cal.gyro_var[1], 8),
-          CAL_ENCODE_FLOAT(gyro_cal->debug_gyro_cal.gyro_var[2], 8));
+              gyro_cal->debug_gyro_cal.gyro_mean[2] * RAD_TO_MILLI_DEGREES, 3),
+          CAL_ENCODE_FLOAT(gyro_cal->debug_gyro_cal.gyro_var[0] *
+                               RAD_TO_MILLI_DEGREES * RAD_TO_MILLI_DEGREES,
+                           6),
+          CAL_ENCODE_FLOAT(gyro_cal->debug_gyro_cal.gyro_var[1] *
+                               RAD_TO_MILLI_DEGREES * RAD_TO_MILLI_DEGREES,
+                           6),
+          CAL_ENCODE_FLOAT(gyro_cal->debug_gyro_cal.gyro_var[2] *
+                               RAD_TO_MILLI_DEGREES * RAD_TO_MILLI_DEGREES,
+                           6));
       break;
 
     case MAG_STATS:
       if (gyro_cal->debug_gyro_cal.using_mag_sensor) {
         CAL_DEBUG_LOG(debug_tag,
-                      "Cal#|Mag Mean|Var [uT|uT^2]: %lu, %s%d.%06d, "
-                      "%s%d.%06d, %s%d.%06d, %s%d.%08d, %s%d.%08d, %s%d.%08d",
+                      "Cal#|Mag Mean|Var [uT|uT^2]: %lu, %s%d.%03d, "
+                      "%s%d.%03d, %s%d.%03d, %s%d.%06d, %s%d.%06d, %s%d.%06d",
                       (unsigned long int)gyro_cal->debug_calibration_count,
-                      CAL_ENCODE_FLOAT(gyro_cal->debug_gyro_cal.mag_mean[0], 6),
-                      CAL_ENCODE_FLOAT(gyro_cal->debug_gyro_cal.mag_mean[1], 6),
-                      CAL_ENCODE_FLOAT(gyro_cal->debug_gyro_cal.mag_mean[2], 6),
-                      CAL_ENCODE_FLOAT(gyro_cal->debug_gyro_cal.mag_var[0], 8),
-                      CAL_ENCODE_FLOAT(gyro_cal->debug_gyro_cal.mag_var[1], 8),
-                      CAL_ENCODE_FLOAT(gyro_cal->debug_gyro_cal.mag_var[2], 8));
+                      CAL_ENCODE_FLOAT(gyro_cal->debug_gyro_cal.mag_mean[0], 3),
+                      CAL_ENCODE_FLOAT(gyro_cal->debug_gyro_cal.mag_mean[1], 3),
+                      CAL_ENCODE_FLOAT(gyro_cal->debug_gyro_cal.mag_mean[2], 3),
+                      CAL_ENCODE_FLOAT(gyro_cal->debug_gyro_cal.mag_var[0], 6),
+                      CAL_ENCODE_FLOAT(gyro_cal->debug_gyro_cal.mag_var[1], 6),
+                      CAL_ENCODE_FLOAT(gyro_cal->debug_gyro_cal.mag_var[2], 6));
       } else {
         CAL_DEBUG_LOG(debug_tag,
                       "Cal#|Mag Mean|Var [uT|uT^2]: %lu, 0, 0, 0, -1.0, -1.0, "
@@ -1085,47 +1092,53 @@ void gyroCalDebugPrintData(const struct GyroCal* gyro_cal, char* debug_tag,
     case ACCEL_STATS_TUNING:
       CAL_DEBUG_LOG(
           debug_tag,
-          "Accel Mean|Var [m/sec^2|(m/sec^2)^2]: %s%d.%06d, "
-          "%s%d.%06d, %s%d.%06d, %s%d.%08d, %s%d.%08d, %s%d.%08d",
-          CAL_ENCODE_FLOAT(gyro_cal->accel_stillness_detect.prev_mean_x, 6),
-          CAL_ENCODE_FLOAT(gyro_cal->accel_stillness_detect.prev_mean_y, 6),
-          CAL_ENCODE_FLOAT(gyro_cal->accel_stillness_detect.prev_mean_z, 6),
-          CAL_ENCODE_FLOAT(gyro_cal->accel_stillness_detect.win_var_x, 8),
-          CAL_ENCODE_FLOAT(gyro_cal->accel_stillness_detect.win_var_y, 8),
-          CAL_ENCODE_FLOAT(gyro_cal->accel_stillness_detect.win_var_z, 8));
+          "Accel Mean|Var [m/sec^2|(m/sec^2)^2]: %s%d.%03d, "
+          "%s%d.%03d, %s%d.%03d, %s%d.%06d, %s%d.%06d, %s%d.%06d",
+          CAL_ENCODE_FLOAT(gyro_cal->accel_stillness_detect.prev_mean_x, 3),
+          CAL_ENCODE_FLOAT(gyro_cal->accel_stillness_detect.prev_mean_y, 3),
+          CAL_ENCODE_FLOAT(gyro_cal->accel_stillness_detect.prev_mean_z, 3),
+          CAL_ENCODE_FLOAT(gyro_cal->accel_stillness_detect.win_var_x, 6),
+          CAL_ENCODE_FLOAT(gyro_cal->accel_stillness_detect.win_var_y, 6),
+          CAL_ENCODE_FLOAT(gyro_cal->accel_stillness_detect.win_var_z, 6));
       break;
 
     case GYRO_STATS_TUNING:
       CAL_DEBUG_LOG(
           debug_tag,
-          "Gyro Mean|Var [mdps|(rad/sec)^2]: %s%d.%06d, %s%d.%06d, %s%d.%06d, "
-          "%s%d.%08d, %s%d.%08d, %s%d.%08d",
+          "Gyro Mean|Var [mDPS|mDPS^2]: %s%d.%03d, %s%d.%03d, %s%d.%03d, "
+          "%s%d.%06d, %s%d.%06d, %s%d.%06d",
           CAL_ENCODE_FLOAT(gyro_cal->gyro_stillness_detect.prev_mean_x *
                                RAD_TO_MILLI_DEGREES,
-                           6),
+                           3),
           CAL_ENCODE_FLOAT(gyro_cal->gyro_stillness_detect.prev_mean_y *
                                RAD_TO_MILLI_DEGREES,
-                           6),
+                           3),
           CAL_ENCODE_FLOAT(gyro_cal->gyro_stillness_detect.prev_mean_z *
                                RAD_TO_MILLI_DEGREES,
+                           3),
+          CAL_ENCODE_FLOAT(gyro_cal->gyro_stillness_detect.win_var_x *
+                               RAD_TO_MILLI_DEGREES * RAD_TO_MILLI_DEGREES,
                            6),
-          CAL_ENCODE_FLOAT(gyro_cal->gyro_stillness_detect.win_var_x, 8),
-          CAL_ENCODE_FLOAT(gyro_cal->gyro_stillness_detect.win_var_y, 8),
-          CAL_ENCODE_FLOAT(gyro_cal->gyro_stillness_detect.win_var_z, 8));
+          CAL_ENCODE_FLOAT(gyro_cal->gyro_stillness_detect.win_var_y *
+                               RAD_TO_MILLI_DEGREES * RAD_TO_MILLI_DEGREES,
+                           6),
+          CAL_ENCODE_FLOAT(gyro_cal->gyro_stillness_detect.win_var_z *
+                               RAD_TO_MILLI_DEGREES * RAD_TO_MILLI_DEGREES,
+                           6));
       break;
 
     case MAG_STATS_TUNING:
       if (gyro_cal->using_mag_sensor) {
         CAL_DEBUG_LOG(
             debug_tag,
-            "Mag Mean|Var [uT|uT^2]: %s%d.%06d, %s%d.%06d, %s%d.%06d, "
-            "%s%d.%08d, %s%d.%08d, %s%d.%08d",
-            CAL_ENCODE_FLOAT(gyro_cal->mag_stillness_detect.prev_mean_x, 6),
-            CAL_ENCODE_FLOAT(gyro_cal->mag_stillness_detect.prev_mean_y, 6),
-            CAL_ENCODE_FLOAT(gyro_cal->mag_stillness_detect.prev_mean_z, 6),
-            CAL_ENCODE_FLOAT(gyro_cal->mag_stillness_detect.win_var_x, 8),
-            CAL_ENCODE_FLOAT(gyro_cal->mag_stillness_detect.win_var_y, 8),
-            CAL_ENCODE_FLOAT(gyro_cal->mag_stillness_detect.win_var_z, 8));
+            "Mag Mean|Var [uT|uT^2]: %s%d.%03d, %s%d.%03d, %s%d.%03d, "
+            "%s%d.%06d, %s%d.%06d, %s%d.%06d",
+            CAL_ENCODE_FLOAT(gyro_cal->mag_stillness_detect.prev_mean_x, 3),
+            CAL_ENCODE_FLOAT(gyro_cal->mag_stillness_detect.prev_mean_y, 3),
+            CAL_ENCODE_FLOAT(gyro_cal->mag_stillness_detect.prev_mean_z, 3),
+            CAL_ENCODE_FLOAT(gyro_cal->mag_stillness_detect.win_var_x, 6),
+            CAL_ENCODE_FLOAT(gyro_cal->mag_stillness_detect.win_var_y, 6),
+            CAL_ENCODE_FLOAT(gyro_cal->mag_stillness_detect.win_var_z, 6));
       } else {
         CAL_DEBUG_LOG(GYROCAL_TUNE_TAG,
                       "Mag Mean|Var [uT|uT^2]: 0, 0, 0, -1.0, -1.0, -1.0");
