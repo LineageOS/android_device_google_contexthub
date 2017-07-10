@@ -838,6 +838,7 @@ static void sensorInit(void)
 
     case INIT_ENABLE_DRDY:
         mTask.subState = INIT_DONE;
+        mTask.comm_rx(ST_MAG40_OUTXL_REG_ADDR, 6, 0, false);
         mTask.comm_tx(ST_MAG40_CFG_C_REG_ADDR,
                     ST_MAG40_BDU_ON | ST_MAG40_INT_MAG, 0, true);
         break;
@@ -883,6 +884,7 @@ static void handleCommDoneEvt(const void* evtData)
 
     case SENSOR_INITIALIZATION:
         if (mTask.subState == INIT_DONE) {
+            INFO_PRINT( "Initialization completed\n");
             returnIdle = true;
             sensorRegisterInitComplete(mTask.magHandle);
         } else {
