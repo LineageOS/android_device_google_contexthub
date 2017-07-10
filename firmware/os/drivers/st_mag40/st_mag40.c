@@ -781,6 +781,7 @@ static void sensorMagConfig(void)
     switch (mTask.subState) {
     case CONFIG_POWER_UP:
         mTask.subState = CONFIG_POWER_UP_2;
+        mTask.comm_tx(ST_MAG40_CFG_B_REG_ADDR, ST_MAG40_OFF_CANC, 0, false);
         mTask.comm_tx(ST_MAG40_CFG_A_REG_ADDR,
                       ST_MAG40_TEMP_COMP_EN | ST_MAG40_POWER_ON | mTask.currentODR, 0, true);
         break;
