@@ -39,7 +39,7 @@
 
 #ifdef OVERTEMPCAL_DBG_ENABLED
 // A debug version label to help with tracking results.
-#define OTC_DEBUG_VERSION_STRING "[May 15, 2017]"
+#define OTC_DEBUG_VERSION_STRING "[July 05, 2017]"
 
 // The time value used to throttle debug messaging.
 #define OTC_WAIT_TIME_NANOS (100000000)
@@ -281,9 +281,6 @@ void overTempCalInit(struct OverTempCal *over_temp_cal,
                               1e3f * 180.0f / NANO_PI);
 
   createDebugTag(over_temp_cal, ":INIT]");
-  CAL_DEBUG_LOG(over_temp_cal->otc_debug_tag, "sizeof(struct OverTempCal): %lu",
-                (unsigned long int)sizeof(struct OverTempCal));
-
   if (over_temp_cal->over_temp_enable) {
     CAL_DEBUG_LOG(over_temp_cal->otc_debug_tag,
                   "Over-temperature compensation ENABLED.");
@@ -359,20 +356,33 @@ void overTempCalSetModel(struct OverTempCal *over_temp_cal, const float *offset,
 
 #ifdef OVERTEMPCAL_DBG_ENABLED
   // Prints the recalled model data.
-  createDebugTag(over_temp_cal, ":RECALL]");
-  CAL_DEBUG_LOG(over_temp_cal->otc_debug_tag,
-                "Temperature|Offset|Sensitivity|Intercept [C|units/C|units]: "
-                "%s%d.%06d, | %s%d.%06d, %s%d.%06d, %s%d.%06d | %s%d.%06d, "
-                "%s%d.%06d, %s%d.%06d | %s%d.%06d, %s%d.%06d, %s%d.%06d",
-                CAL_ENCODE_FLOAT(offset_temp_celsius, 6),
-                CAL_ENCODE_FLOAT(offset[0], 6), CAL_ENCODE_FLOAT(offset[1], 6),
-                CAL_ENCODE_FLOAT(offset[2], 6),
-                CAL_ENCODE_FLOAT(temp_sensitivity[0], 6),
-                CAL_ENCODE_FLOAT(temp_sensitivity[1], 6),
-                CAL_ENCODE_FLOAT(temp_sensitivity[2], 6),
-                CAL_ENCODE_FLOAT(sensor_intercept[0], 6),
-                CAL_ENCODE_FLOAT(sensor_intercept[1], 6),
-                CAL_ENCODE_FLOAT(sensor_intercept[2], 6));
+  createDebugTag(over_temp_cal, ":SET MODEL]");
+  CAL_DEBUG_LOG(
+      over_temp_cal->otc_debug_tag,
+      "Offset|Temp [%s|C]: %s%d.%03d, %s%d.%03d, %s%d.%03d | %s%d.%03d",
+      over_temp_cal->otc_unit_tag,
+      CAL_ENCODE_FLOAT(offset[0] * over_temp_cal->otc_unit_conversion, 3),
+      CAL_ENCODE_FLOAT(offset[1] * over_temp_cal->otc_unit_conversion, 3),
+      CAL_ENCODE_FLOAT(offset[2] * over_temp_cal->otc_unit_conversion, 3),
+      CAL_ENCODE_FLOAT(offset_temp_celsius, 3));
+
+  CAL_DEBUG_LOG(
+      over_temp_cal->otc_debug_tag,
+      "Sensitivity|Intercept [%s/C|%s]: %s%d.%03d, %s%d.%03d, %s%d.%03d | "
+      "%s%d.%03d, %s%d.%03d, %s%d.%03d",
+      over_temp_cal->otc_unit_tag, over_temp_cal->otc_unit_tag,
+      CAL_ENCODE_FLOAT(temp_sensitivity[0] * over_temp_cal->otc_unit_conversion,
+                       3),
+      CAL_ENCODE_FLOAT(temp_sensitivity[1] * over_temp_cal->otc_unit_conversion,
+                       3),
+      CAL_ENCODE_FLOAT(temp_sensitivity[2] * over_temp_cal->otc_unit_conversion,
+                       3),
+      CAL_ENCODE_FLOAT(sensor_intercept[0] * over_temp_cal->otc_unit_conversion,
+                       3),
+      CAL_ENCODE_FLOAT(sensor_intercept[1] * over_temp_cal->otc_unit_conversion,
+                       3),
+      CAL_ENCODE_FLOAT(sensor_intercept[2] * over_temp_cal->otc_unit_conversion,
+                       3));
 
   // Resets the debug print machine to ensure that updateDebugData() can
   // produce a debug report and interupt any ongoing report.
@@ -400,25 +410,6 @@ void overTempCalGetModel(struct OverTempCal *over_temp_cal, float *offset,
 
   // Gets the latest temperature compensated offset estimate.
   overTempCalGetOffset(over_temp_cal, offset_temp_celsius, offset);
-
-#ifdef OVERTEMPCAL_DBG_ENABLED
-  // Prints the updated model data.
-  createDebugTag(over_temp_cal, ":STORED]");
-  CAL_DEBUG_LOG(over_temp_cal->otc_debug_tag,
-                "Temperature|Offset|Sensitivity|Intercept [C|units/C|units]: "
-                "%s%d.%06d, | %s%d.%06d, %s%d.%06d, %s%d.%06d | %s%d.%06d, "
-                "%s%d.%06d, %s%d.%06d | %s%d.%06d, %s%d.%06d, %s%d.%06d",
-                CAL_ENCODE_FLOAT(*offset_temp_celsius, 6),
-                CAL_ENCODE_FLOAT(offset[0], 6),
-                CAL_ENCODE_FLOAT(offset[1], 6),
-                CAL_ENCODE_FLOAT(offset[2], 6),
-                CAL_ENCODE_FLOAT(temp_sensitivity[0], 6),
-                CAL_ENCODE_FLOAT(temp_sensitivity[1], 6),
-                CAL_ENCODE_FLOAT(temp_sensitivity[2], 6),
-                CAL_ENCODE_FLOAT(sensor_intercept[0], 6),
-                CAL_ENCODE_FLOAT(sensor_intercept[1], 6),
-                CAL_ENCODE_FLOAT(sensor_intercept[2], 6));
-#endif  // OVERTEMPCAL_DBG_ENABLED
 }
 
 void overTempCalSetModelData(struct OverTempCal *over_temp_cal,
@@ -464,7 +455,7 @@ void overTempCalSetModelData(struct OverTempCal *over_temp_cal,
 
 #ifdef OVERTEMPCAL_DBG_ENABLED
   // Prints the updated model data.
-  createDebugTag(over_temp_cal, ":RECALL]");
+  createDebugTag(over_temp_cal, ":SET MODEL DATA SET]");
   CAL_DEBUG_LOG(over_temp_cal->otc_debug_tag,
                 "Over-temperature full model data set recalled.");
 
@@ -572,11 +563,11 @@ void overTempCalUpdateSensorEstimate(struct OverTempCal *over_temp_cal,
       CAL_DEBUG_LOG(
           over_temp_cal->otc_debug_tag,
           "Offset|Temperature|Time [%s|C|nsec]: "
-          "%s%d.%06d, %s%d.%06d, %s%d.%06d, %s%d.%03d, %llu",
+          "%s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d, %llu",
           over_temp_cal->otc_unit_tag,
-          CAL_ENCODE_FLOAT(offset[0] * over_temp_cal->otc_unit_conversion, 6),
-          CAL_ENCODE_FLOAT(offset[1] * over_temp_cal->otc_unit_conversion, 6),
-          CAL_ENCODE_FLOAT(offset[2] * over_temp_cal->otc_unit_conversion, 6),
+          CAL_ENCODE_FLOAT(offset[0] * over_temp_cal->otc_unit_conversion, 3),
+          CAL_ENCODE_FLOAT(offset[1] * over_temp_cal->otc_unit_conversion, 3),
+          CAL_ENCODE_FLOAT(offset[2] * over_temp_cal->otc_unit_conversion, 3),
           CAL_ENCODE_FLOAT(temperature_celsius, 3),
           (unsigned long long int)timestamp_nanos);
 #endif  // OVERTEMPCAL_DBG_ENABLED
@@ -695,8 +686,8 @@ void overTempCalSetTemperature(struct OverTempCal *over_temp_cal,
     // Prints out temperature and the current timestamp.
     createDebugTag(over_temp_cal, ":TEMP]");
     CAL_DEBUG_LOG(over_temp_cal->otc_debug_tag,
-                  "Temperature|Time [C|nsec] = %s%d.%06d, %llu",
-                  CAL_ENCODE_FLOAT(temperature_celsius, 6),
+                  "Temperature|Time [C|nsec] = %s%d.%03d, %llu",
+                  CAL_ENCODE_FLOAT(temperature_celsius, 3),
                   (unsigned long long int)timestamp_nanos);
   }
 #endif  // OVERTEMPCAL_DBG_LOG_TEMP
@@ -926,15 +917,15 @@ void computeModelUpdate(struct OverTempCal *over_temp_cal,
       CAL_DEBUG_LOG(
           over_temp_cal->otc_debug_tag,
           "%c-Axis Parameters|Max Error|Time [%s/C|%s|%s|nsec]: "
-          "%s%d.%06d, %s%d.%06d, %s%d.%06d, %llu",
+          "%s%d.%03d, %s%d.%03d, %s%d.%03d, %llu",
           kDebugAxisLabel[i], over_temp_cal->otc_unit_tag,
           over_temp_cal->otc_unit_tag, over_temp_cal->otc_unit_tag,
           CAL_ENCODE_FLOAT(
-              temp_sensitivity[i] * over_temp_cal->otc_unit_conversion, 6),
+              temp_sensitivity[i] * over_temp_cal->otc_unit_conversion, 3),
           CAL_ENCODE_FLOAT(
-              sensor_intercept[i] * over_temp_cal->otc_unit_conversion, 6),
+              sensor_intercept[i] * over_temp_cal->otc_unit_conversion, 3),
           CAL_ENCODE_FLOAT(max_error[i] * over_temp_cal->otc_unit_conversion,
-                           6),
+                           3),
           (unsigned long long int)timestamp_nanos);
 #endif  // OVERTEMPCAL_DBG_ENABLED
     }
@@ -1024,18 +1015,18 @@ bool removeModelDataByIndex(struct OverTempCal *over_temp_cal,
   createDebugTag(over_temp_cal, ":REMOVE]");
   CAL_DEBUG_LOG(
       over_temp_cal->otc_debug_tag,
-      "Offset|Temp|Time [%s|C|nsec]: %s%d.%06d, %s%d.%06d, %s%d.%06d, "
+      "Offset|Temp|Time [%s|C|nsec]: %s%d.%03d, %s%d.%03d, %s%d.%03d, "
       "%s%d.%03d, %llu",
       over_temp_cal->otc_unit_tag,
       CAL_ENCODE_FLOAT(over_temp_cal->model_data[model_index].offset[0] *
                            over_temp_cal->otc_unit_conversion,
-                       6),
+                       3),
       CAL_ENCODE_FLOAT(over_temp_cal->model_data[model_index].offset[1] *
                            over_temp_cal->otc_unit_conversion,
-                       6),
+                       3),
       CAL_ENCODE_FLOAT(over_temp_cal->model_data[model_index].offset[1] *
                            over_temp_cal->otc_unit_conversion,
-                       6),
+                       3),
       CAL_ENCODE_FLOAT(
           over_temp_cal->model_data[model_index].offset_temp_celsius, 3),
       (unsigned long long int)over_temp_cal->model_data[model_index]
@@ -1272,25 +1263,25 @@ void overTempCalDebugPrint(struct OverTempCal *over_temp_cal,
       // Prints out the latest offset estimate (input data).
       CAL_DEBUG_LOG(
           over_temp_cal->otc_debug_tag,
-          "Cal#|Offset|Temp|Time [%s|C|nsec]: %lu, %s%d.%06d, "
-          "%s%d.%06d, %s%d.%06d, %s%d.%03d, %llu",
+          "Cal#|Offset|Temp|Time [%s|C|nsec]: %lu, %s%d.%03d, "
+          "%s%d.%03d, %s%d.%03d, %s%d.%03d, %llu",
           over_temp_cal->otc_unit_tag,
           (unsigned long int)over_temp_cal->debug_num_estimates,
           CAL_ENCODE_FLOAT(
               over_temp_cal->debug_overtempcal.latest_offset.offset[0] *
                   over_temp_cal->otc_unit_conversion,
-              6),
+              3),
           CAL_ENCODE_FLOAT(
               over_temp_cal->debug_overtempcal.latest_offset.offset[1] *
                   over_temp_cal->otc_unit_conversion,
-              6),
+              3),
           CAL_ENCODE_FLOAT(
               over_temp_cal->debug_overtempcal.latest_offset.offset[2] *
                   over_temp_cal->otc_unit_conversion,
-              6),
+              3),
           CAL_ENCODE_FLOAT(over_temp_cal->debug_overtempcal.latest_offset
                                .offset_temp_celsius,
-                           6),
+                           3),
           (unsigned long long int)
               over_temp_cal->debug_overtempcal.latest_offset.timestamp_nanos);
 
@@ -1301,35 +1292,40 @@ void overTempCalDebugPrint(struct OverTempCal *over_temp_cal,
 
     case OTC_PRINT_MODEL_PARAMETERS:
       // Prints out the model parameters.
+      CAL_DEBUG_LOG(
+          over_temp_cal->otc_debug_tag,
+          "Cal#|Sensitivity [%s/C]: %lu, %s%d.%03d, %s%d.%03d, %s%d.%03d",
+          over_temp_cal->otc_unit_tag,
+          (unsigned long int)over_temp_cal->debug_num_estimates,
+          CAL_ENCODE_FLOAT(
+              over_temp_cal->debug_overtempcal.temp_sensitivity[0] *
+                  over_temp_cal->otc_unit_conversion,
+              3),
+          CAL_ENCODE_FLOAT(
+              over_temp_cal->debug_overtempcal.temp_sensitivity[1] *
+                  over_temp_cal->otc_unit_conversion,
+              3),
+          CAL_ENCODE_FLOAT(
+              over_temp_cal->debug_overtempcal.temp_sensitivity[2] *
+                  over_temp_cal->otc_unit_conversion,
+              3));
+
       CAL_DEBUG_LOG(over_temp_cal->otc_debug_tag,
-                    "Cal#|Sensitivity|Intercept [%s/C|%s]: %lu, %s%d.%06d, "
-                    "%s%d.%06d, %s%d.%06d, %s%d.%06d, %s%d.%06d, %s%d.%06d",
-                    over_temp_cal->otc_unit_tag, over_temp_cal->otc_unit_tag,
+                    "Cal#|Intercept [%s]: %lu, %s%d.%03d, %s%d.%03d, %s%d.%03d",
+                    over_temp_cal->otc_unit_tag,
                     (unsigned long int)over_temp_cal->debug_num_estimates,
-                    CAL_ENCODE_FLOAT(
-                        over_temp_cal->debug_overtempcal.temp_sensitivity[0] *
-                            over_temp_cal->otc_unit_conversion,
-                        6),
-                    CAL_ENCODE_FLOAT(
-                        over_temp_cal->debug_overtempcal.temp_sensitivity[1] *
-                            over_temp_cal->otc_unit_conversion,
-                        6),
-                    CAL_ENCODE_FLOAT(
-                        over_temp_cal->debug_overtempcal.temp_sensitivity[2] *
-                            over_temp_cal->otc_unit_conversion,
-                        6),
                     CAL_ENCODE_FLOAT(
                         over_temp_cal->debug_overtempcal.sensor_intercept[0] *
                             over_temp_cal->otc_unit_conversion,
-                        6),
+                        3),
                     CAL_ENCODE_FLOAT(
                         over_temp_cal->debug_overtempcal.sensor_intercept[1] *
                             over_temp_cal->otc_unit_conversion,
-                        6),
+                        3),
                     CAL_ENCODE_FLOAT(
                         over_temp_cal->debug_overtempcal.sensor_intercept[2] *
                             over_temp_cal->otc_unit_conversion,
-                        6));
+                        3));
 
       wait_timer = timestamp_nanos;                 // Starts the wait timer.
       next_state = OTC_PRINT_MODEL_ERROR;           // Sets the next state.
@@ -1340,23 +1336,21 @@ void overTempCalDebugPrint(struct OverTempCal *over_temp_cal,
       // Computes the maximum error over all of the model data.
       CAL_DEBUG_LOG(
           over_temp_cal->otc_debug_tag,
-          "Cal#|#Updates|#ModelPts|Model Error|Update Time [%s|nsec]: %lu, "
-          "%lu, %lu, %s%d.%06d, %s%d.%06d, %s%d.%06d, %llu",
+          "Cal#|#Updates|#ModelPts|Model Error [%s]: %lu, "
+          "%lu, %lu, %s%d.%03d, %s%d.%03d, %s%d.%03d",
           over_temp_cal->otc_unit_tag,
           (unsigned long int)over_temp_cal->debug_num_estimates,
           (unsigned long int)over_temp_cal->debug_num_model_updates,
           (unsigned long int)over_temp_cal->debug_overtempcal.num_model_pts,
           CAL_ENCODE_FLOAT(over_temp_cal->debug_overtempcal.max_error[0] *
                                over_temp_cal->otc_unit_conversion,
-                           6),
+                           3),
           CAL_ENCODE_FLOAT(over_temp_cal->debug_overtempcal.max_error[1] *
                                over_temp_cal->otc_unit_conversion,
-                           6),
+                           3),
           CAL_ENCODE_FLOAT(over_temp_cal->debug_overtempcal.max_error[2] *
                                over_temp_cal->otc_unit_conversion,
-                           6),
-          (unsigned long long int)
-              over_temp_cal->debug_overtempcal.modelupdate_timestamp_nanos);
+                           3));
 
       i = 0;                          // Resets the model data printer counter.
       wait_timer = timestamp_nanos;       // Starts the wait timer.
@@ -1369,18 +1363,18 @@ void overTempCalDebugPrint(struct OverTempCal *over_temp_cal,
       if (i < over_temp_cal->num_model_pts) {
         CAL_DEBUG_LOG(
             over_temp_cal->otc_debug_tag,
-            "  Model[%lu] [%s|C|nsec] = %s%d.%06d, %s%d.%06d, %s%d.%06d, "
+            "  Model[%lu] [%s|C|nsec] = %s%d.%03d, %s%d.%03d, %s%d.%03d, "
             "%s%d.%03d, %llu",
             (unsigned long int)i, over_temp_cal->otc_unit_tag,
             CAL_ENCODE_FLOAT(over_temp_cal->model_data[i].offset[0] *
                                  over_temp_cal->otc_unit_conversion,
-                             6),
+                             3),
             CAL_ENCODE_FLOAT(over_temp_cal->model_data[i].offset[1] *
                                  over_temp_cal->otc_unit_conversion,
-                             6),
+                             3),
             CAL_ENCODE_FLOAT(over_temp_cal->model_data[i].offset[2] *
                                  over_temp_cal->otc_unit_conversion,
-                             6),
+                             3),
             CAL_ENCODE_FLOAT(over_temp_cal->model_data[i].offset_temp_celsius,
                              3),
             (unsigned long long int)over_temp_cal->model_data[i]
