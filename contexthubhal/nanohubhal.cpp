@@ -26,8 +26,8 @@
 #include <hardware/context_hub.h>
 #include <hardware/hardware.h>
 
-#include <utils/Log.h>
 #include <cutils/properties.h>
+#include <log/log.h>
 
 #include <nanohub/nanohub.h>
 
