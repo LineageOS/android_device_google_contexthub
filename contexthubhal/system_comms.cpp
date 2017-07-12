@@ -90,7 +90,10 @@ NanohubRsp::NanohubRsp(MessageBuf &buf, bool no_status)
     } else if (no_status) {
         status = 0;
     } else {
-        status = buf.readU32();
+        if (cmd == NANOHUB_START_UPLOAD || cmd == NANOHUB_CONT_UPLOAD || cmd == NANOHUB_FINISH_UPLOAD)
+            status = buf.readU8();
+        else
+            status = buf.readU32();
     }
 }
 
@@ -273,6 +276,8 @@ int SystemComm::AppMgmtSession::setup(const hub_message_t *appMsg)
     mCmd = appMsg->message_type;
     mLen = appMsg->message_len;
     mPos = 0;
+    mNextPos = 0;
+    mErrCnt = 0;
 
     switch (mCmd) {
     case  CONTEXT_HUB_APPS_ENABLE:
@@ -361,9 +366,19 @@ int SystemComm::AppMgmtSession::handleTransfer(NanohubRsp &rsp)
 
     char data[MAX_RX_PACKET];
     MessageBuf buf(data, sizeof(data));
+    const bool success = rsp.status != 0;
 
     static_assert(NANOHUB_UPLOAD_CHUNK_SZ_MAX <= (MAX_RX_PACKET-5),
                   "Invalid chunk size");
+
+    if (success) {
+        mPos = mNextPos;
+        mErrCnt = 0;
+    } else if (mErrCnt > 5) {
+        mPos = mLen;
+    } else {
+        mErrCnt ++;
+    }
 
     if (mPos < mLen) {
         uint32_t chunkSize = mLen - mPos;
@@ -375,7 +390,7 @@ int SystemComm::AppMgmtSession::handleTransfer(NanohubRsp &rsp)
         buf.writeU8(NANOHUB_CONT_UPLOAD);
         buf.writeU32(mPos);
         buf.writeRaw(&mData[mPos], chunkSize);
-        mPos += chunkSize;
+        mNextPos = mPos + chunkSize;
     } else {
         buf.writeU8(NANOHUB_FINISH_UPLOAD);
         setState(FINISH);

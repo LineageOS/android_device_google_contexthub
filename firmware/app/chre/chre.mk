@@ -21,12 +21,13 @@
 
 SRCS += $(NANOHUB_DIR)/app/chre/common/chre_app.c
 SRCS += $(NANOHUB_DIR)/app/chre/common/chre_app_syscalls.c
-CFLAGS += -I$(NANOHUB_DIR)/../inc
 
 include $(NANOHUB_DIR)/firmware_conf.mk
 
 CFLAGS += $(COMMON_FLAGS)
 
-BIN_POSTPROCESS_ARGS := -f 0x10
+# CHRE API 1.1
+BIN_POSTPROCESS_ARGS := -c 0x0101
+CFLAGS += -I$(NANOHUB_DIR)/../../../../system/chre/chre_api/include/chre_api
 
 include $(NANOHUB_DIR)/app/app.mk
