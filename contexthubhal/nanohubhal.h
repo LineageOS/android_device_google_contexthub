@@ -37,7 +37,7 @@ namespace nanohub {
 void dumpBuffer(const char *pfx, const hub_app_name_t &appId, uint32_t evtId, const void *data, size_t len, int status = 0);
 
 struct nano_message_chre {
-    HostMsgHdrChre hdr;
+    HostMsgHdrChreV10 hdr;
     uint8_t data[MAX_RX_PACKET];
 } __attribute__((packed));
 
@@ -115,7 +115,7 @@ class NanoHub {
 
     int doSubscribeMessages(uint32_t hub_id, context_hub_callback *cbk, void *cookie);
     int doSendToNanohub(uint32_t hub_id, const hub_message_t *msg);
-    int doSendToDevice(const hub_app_name_t name, const void *data, uint32_t len, uint32_t messageType);
+    int doSendToDevice(const hub_app_name_t name, const void *data, uint32_t len, uint32_t messageType = 0);
     void doSendToApp(HubMessage &&msg);
 
     static constexpr unsigned int FL_MESSAGE_TRACING = 1;
@@ -148,7 +148,7 @@ public:
     }
     // passes message to kernel driver directly
     static int sendToDevice(const hub_app_name_t *name, const void *data, uint32_t len) {
-        return hubInstance()->doSendToDevice(*name, data, len, 0);
+        return hubInstance()->doSendToDevice(*name, data, len);
     }
     // passes message to APP via callback
     static void sendToApp(HubMessage &&msg) {

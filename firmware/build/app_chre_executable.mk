@@ -24,8 +24,8 @@ ifeq ($(strip $(my_variants)),)
 my_variants := $(AUX_OS_VARIANT_LIST_$(NANO_OS))
 endif
 
-# mark the app as CHRE nanoapp
-LOCAL_NANO_APP_POSTPROCESS_FLAGS += -f 0x10
+# mark the app as CHRE 1.1 nanoapp
+LOCAL_NANO_APP_POSTPROCESS_FLAGS += -c 0x0101
 
 # add app-side CHRE implementation
 LOCAL_WHOLE_STATIC_LIBRARIES += \
