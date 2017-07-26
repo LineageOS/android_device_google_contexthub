@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2016 The Android Open Source Project
+# Copyright (C) 2017 The Android Open Source Project
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,5 +14,13 @@
 # limitations under the License.
 #
 
-subdirs := nucleo lunchbox linux neonkey
-include $(call all-named-subdir-makefiles,$(subdirs))
+# settings that apps and OS both want to know about variant
+
+VENDOR := google
+VARIANT := neonkey
+CPU := cortexm4
+CHIP := stm32f411
+PLATFORM := stm32
+
+# VARIANT_PATH is relative to ANDROID TOP
+VARIANT_PATH := device/google/contexthub/firmware/variant/$(VARIANT)
