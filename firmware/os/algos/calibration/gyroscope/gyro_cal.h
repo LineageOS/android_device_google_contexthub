@@ -15,20 +15,16 @@
  */
 
 /*
- * This module contains the algorithms for producing a
- * gyroscope offset calibration.  The algorithm looks
- * for periods of stillness as indicated by accelerometer,
- * magnetometer and gyroscope, and computes a bias estimate
- * by taking the average of the gyroscope during the
- * stillness times.
+ * This module contains the algorithms for producing a gyroscope offset
+ * calibration. The algorithm looks for periods of stillness as indicated by
+ * accelerometer, magnetometer and gyroscope, and computes a bias estimate by
+ * taking the average of the gyroscope during the stillness times.
  *
- * Currently, this algorithm is tuned such that the device
- * is only considered still when the device is on a
- * stationary surface (e.g., not on a person).
+ * Currently, this algorithm is tuned such that the device is only considered
+ * still when the device is on a stationary surface (e.g., not on a person).
  *
- * NOTE - Time units are agnostic (i.e., determined by the
- * user's application and usage). However, typical time units
- * are nanoseconds.
+ * NOTE - Time units are agnostic (i.e., determined by the user's application
+ * and usage). However, typical time units are nanoseconds.
  *
  * Required Sensors and Units:
  *       - Gyroscope     [rad/sec]
@@ -88,13 +84,24 @@ struct DebugGyroCal {
   float temperature_mean_celsius;
   bool using_mag_sensor;
 };
-#endif
+#endif  // GYRO_CAL_DBG_ENABLED
+
+// Data structure for tracking temperature data during device stillness.
+struct TemperatureMeanData {
+  float temperature_min_max_celsius[2];
+  float latest_temperature_celsius;
+  float mean_accumulator;
+  size_t num_points;
+};
 
 struct GyroCal {
   // Stillness detectors.
   struct GyroStillDet accel_stillness_detect;
   struct GyroStillDet mag_stillness_detect;
   struct GyroStillDet gyro_stillness_detect;
+
+  // Data for tracking temperature mean during periods of device stillness.
+  struct TemperatureMeanData temperature_mean_tracker;
 
   // Aggregated sensor stillness threshold required for gyro bias calibration.
   float stillness_threshold;
@@ -147,10 +154,9 @@ struct GyroCal {
   float gyro_winmean_max[3];
   float stillness_mean_delta_limit;
 
-  // Computes the min/max/mean temperature over the stillness period. This is
-  // used to check the temperature stability and provide a gate for when
-  // temperature is rapidly changing.
-  float temperature_min_max_celsius[2];  // 0=min; 1=max
+  // The mean temperature over the stillness period. The limit is used to check
+  // for temperature stability and provide a gate for when temperature is
+  // rapidly changing.
   float temperature_mean_celsius;
   float temperature_delta_limit_celsius;
 
