@@ -579,7 +579,7 @@ void checkWatchdog(struct GyroCal* gyro_cal, uint64_t sample_time_nanos) {
   // Checks for the following watchdog timeout conditions:
   //    i.  The current timestamp has exceeded the allowed watchdog duration.
   //    ii. A timestamp was received that has jumped backwards by more than the
-  //    allowed watchdog duration (e.g., timestamp clock roll-over).
+  //        allowed watchdog duration (e.g., timestamp clock roll-over).
   watchdog_timeout =
       (sample_time_nanos > gyro_cal->gyro_watchdog_timeout_duration_nanos +
                                gyro_cal->gyro_watchdog_start_nanos) ||
@@ -652,34 +652,39 @@ void checkWatchdog(struct GyroCal* gyro_cal, uint64_t sample_time_nanos) {
 bool gyroTemperatureStatsTracker(struct GyroCal* gyro_cal,
                                  float temperature_celsius,
                                  enum GyroCalTrackerCommand do_this) {
-  // This is used for local calculations of the running mean.
-  static float mean_accumulator = 0.0f;
-  static float temperature_min_max_celsius[2] = {0.0f, 0.0f};
-  static size_t num_points = 0;
   bool min_max_temp_exceeded = false;
 
   switch (do_this) {
     case DO_RESET:
       // Resets the mean accumulator.
-      num_points = 0;
-      mean_accumulator = 0.0f;
+      gyro_cal->temperature_mean_tracker.num_points = 0;
+      gyro_cal->temperature_mean_tracker.mean_accumulator = 0.0f;
 
       // Initializes the min/max temperatures values.
-      temperature_min_max_celsius[0] = FLT_MAX;
-      temperature_min_max_celsius[1] = -FLT_MAX;
+      gyro_cal->temperature_mean_tracker.temperature_min_max_celsius[0] =
+          FLT_MAX;
+      gyro_cal->temperature_mean_tracker.temperature_min_max_celsius[1] =
+          -FLT_MAX;
       break;
 
     case DO_UPDATE_DATA:
       // Does the mean accumulation.
-      mean_accumulator += temperature_celsius;
-      num_points++;
+      gyro_cal->temperature_mean_tracker.mean_accumulator +=
+          temperature_celsius;
+      gyro_cal->temperature_mean_tracker.num_points++;
 
-      // Tracks the min and max temperature values.
-      if (temperature_min_max_celsius[0] > temperature_celsius) {
-        temperature_min_max_celsius[0] = temperature_celsius;
+      // Tracks the min, max, and latest temperature values.
+      gyro_cal->temperature_mean_tracker.latest_temperature_celsius =
+          temperature_celsius;
+      if (gyro_cal->temperature_mean_tracker.temperature_min_max_celsius[0] >
+          temperature_celsius) {
+        gyro_cal->temperature_mean_tracker.temperature_min_max_celsius[0] =
+            temperature_celsius;
       }
-      if (temperature_min_max_celsius[1] < temperature_celsius) {
-        temperature_min_max_celsius[1] = temperature_celsius;
+      if (gyro_cal->temperature_mean_tracker.temperature_min_max_celsius[1] <
+          temperature_celsius) {
+        gyro_cal->temperature_mean_tracker.temperature_min_max_celsius[1] =
+            temperature_celsius;
       }
       break;
 
@@ -687,19 +692,36 @@ bool gyroTemperatureStatsTracker(struct GyroCal* gyro_cal,
       // Store the most recent temperature statistics data to the GyroCal data
       // structure. This functionality allows previous results to be recalled
       // when the device suddenly becomes "not still".
-      if (num_points > 0) {
-        memcpy(gyro_cal->temperature_min_max_celsius,
-               temperature_min_max_celsius, 2 * sizeof(float));
-        gyro_cal->temperature_mean_celsius = mean_accumulator / num_points;
+      if (gyro_cal->temperature_mean_tracker.num_points > 0) {
+        gyro_cal->temperature_mean_celsius =
+            gyro_cal->temperature_mean_tracker.mean_accumulator /
+            gyro_cal->temperature_mean_tracker.num_points;
+      } else {
+        gyro_cal->temperature_mean_celsius =
+            gyro_cal->temperature_mean_tracker.latest_temperature_celsius;
+#ifdef GYRO_CAL_DBG_ENABLED
+        CAL_DEBUG_LOG("[GYRO_CAL:TEMP_GATE]",
+                      "Insufficient statistics (num_points = 0), using latest "
+                      "measured temperature as the mean value.");
+#endif  // GYRO_CAL_DBG_ENABLED
       }
+#ifdef GYRO_CAL_DBG_ENABLED
+      // Records the min/max and mean temperature values for debug purposes.
+      gyro_cal->debug_gyro_cal.temperature_mean_celsius =
+          gyro_cal->temperature_mean_celsius;
+      memcpy(gyro_cal->debug_gyro_cal.temperature_min_max_celsius,
+             gyro_cal->temperature_mean_tracker.temperature_min_max_celsius,
+             2 * sizeof(float));
+#endif
       break;
 
     case DO_EVALUATE:
       // Determines if the min/max delta exceeded the set limit.
-      if (num_points > 0) {
+      if (gyro_cal->temperature_mean_tracker.num_points > 0) {
         min_max_temp_exceeded =
-            (temperature_min_max_celsius[1] -
-             temperature_min_max_celsius[0]) >
+            (gyro_cal->temperature_mean_tracker.temperature_min_max_celsius[1] -
+             gyro_cal->temperature_mean_tracker
+                 .temperature_min_max_celsius[0]) >
             gyro_cal->temperature_delta_limit_celsius;
 
 #ifdef GYRO_CAL_DBG_ENABLED
@@ -886,12 +908,6 @@ void gyroCalUpdateDebug(struct GyroCal* gyro_cal) {
   gyroSamplingRateUpdate(&gyro_cal->debug_gyro_cal.mean_sampling_rate_hz, 0,
                          /*reset_stats=*/true);
 
-  // Records the min/max and mean temperature values.
-  gyro_cal->debug_gyro_cal.temperature_mean_celsius =
-      gyro_cal->temperature_mean_celsius;
-  memcpy(gyro_cal->debug_gyro_cal.temperature_min_max_celsius,
-         gyro_cal->temperature_min_max_celsius, 2 * sizeof(float));
-
   // Records the min/max gyroscope window stillness mean values.
   memcpy(gyro_cal->debug_gyro_cal.gyro_winmean_min, gyro_cal->gyro_winmean_min,
          3 * sizeof(float));
@@ -1035,21 +1051,21 @@ void gyroCalDebugPrintData(const struct GyroCal* gyro_cal, char* debug_tag,
       CAL_DEBUG_LOG(
           debug_tag,
           "Cal#|Accel Mean|Var [m/sec^2|(m/sec^2)^2]: %lu, "
-          "%s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%08d, %s%d.%08d, %s%d.%08d",
+          "%s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%06d, %s%d.%06d, %s%d.%06d",
           (unsigned long int)gyro_cal->debug_calibration_count,
           CAL_ENCODE_FLOAT(gyro_cal->debug_gyro_cal.accel_mean[0], 3),
           CAL_ENCODE_FLOAT(gyro_cal->debug_gyro_cal.accel_mean[1], 3),
           CAL_ENCODE_FLOAT(gyro_cal->debug_gyro_cal.accel_mean[2], 3),
-          CAL_ENCODE_FLOAT(gyro_cal->debug_gyro_cal.accel_var[0], 8),
-          CAL_ENCODE_FLOAT(gyro_cal->debug_gyro_cal.accel_var[1], 8),
-          CAL_ENCODE_FLOAT(gyro_cal->debug_gyro_cal.accel_var[2], 8));
+          CAL_ENCODE_FLOAT(gyro_cal->debug_gyro_cal.accel_var[0], 6),
+          CAL_ENCODE_FLOAT(gyro_cal->debug_gyro_cal.accel_var[1], 6),
+          CAL_ENCODE_FLOAT(gyro_cal->debug_gyro_cal.accel_var[2], 6));
       break;
 
     case GYRO_STATS:
       CAL_DEBUG_LOG(
           debug_tag,
           "Cal#|Gyro Mean|Var [mDPS|mDPS^2]: %lu, %s%d.%03d, "
-          "%s%d.%03d, %s%d.%03d, %s%d.%06d, %s%d.%06d, %s%d.%06d",
+          "%s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d",
           (unsigned long int)gyro_cal->debug_calibration_count,
           CAL_ENCODE_FLOAT(
               gyro_cal->debug_gyro_cal.gyro_mean[0] * RAD_TO_MILLI_DEGREES, 3),
@@ -1059,13 +1075,13 @@ void gyroCalDebugPrintData(const struct GyroCal* gyro_cal, char* debug_tag,
               gyro_cal->debug_gyro_cal.gyro_mean[2] * RAD_TO_MILLI_DEGREES, 3),
           CAL_ENCODE_FLOAT(gyro_cal->debug_gyro_cal.gyro_var[0] *
                                RAD_TO_MILLI_DEGREES * RAD_TO_MILLI_DEGREES,
-                           6),
+                           3),
           CAL_ENCODE_FLOAT(gyro_cal->debug_gyro_cal.gyro_var[1] *
                                RAD_TO_MILLI_DEGREES * RAD_TO_MILLI_DEGREES,
-                           6),
+                           3),
           CAL_ENCODE_FLOAT(gyro_cal->debug_gyro_cal.gyro_var[2] *
                                RAD_TO_MILLI_DEGREES * RAD_TO_MILLI_DEGREES,
-                           6));
+                           3));
       break;
 
     case MAG_STATS:
