@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2016 The Android Open Source Project
+# Copyright (C) 2017 The Android Open Source Project
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,5 +14,23 @@
 # limitations under the License.
 #
 
-subdirs := nucleo lunchbox linux neonkey
-include $(call all-named-subdir-makefiles,$(subdirs))
+LOCAL_PATH := $(call my-dir)
+
+include $(CLEAR_NANO_VARS)
+
+LOCAL_MODULE := libnanohub_os_neonkey
+LOCAL_MODULE_TAGS := optional
+LOCAL_AUX_OS_VARIANT := neonkey
+
+LOCAL_SRC_FILES :=      \
+    src/os/i2c.c        \
+    src/os/spi.c        \
+    src/os/led.c
+
+LOCAL_C_INCLUDES := \
+    $(LOCAL_PATH)/inc \
+
+LOCAL_EXPORT_C_INCLUDE_DIRS := \
+    $(LOCAL_C_INCLUDES)
+
+include $(BUILD_NANOHUB_OS_STATIC_LIBRARY)
