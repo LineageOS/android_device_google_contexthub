@@ -21,7 +21,7 @@ ifneq ($(PLATFORM),stm32)
         $(error "NEONKEY variant cannot be build on a platform that is not stm32")
 endif
 
-FLAGS += -DPLATFORM_HW_TYPE=0x4E75   #'Nu' ->neonkey
+FLAGS += -DPLATFORM_HW_TYPE=0x4E65   #'Ne' ->neonkey
 FLAGS += -DDEBUG_SWD
 
 FLAGS += -I$(VARIANT_PATH)/inc
