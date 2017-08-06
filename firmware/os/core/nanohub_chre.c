@@ -75,7 +75,7 @@ static void osChreApiLogLogv(uintptr_t *retValP, va_list args)
     va_list innerArgs;
     enum chreLogLevel level = va_arg(args, int /* enums promoted to ints in va_args in C */);
     const static char levels[] = "EWIDV";
-    char clevel = (level > CHRE_LOG_DEBUG || level < 0) ? 'V' : levels[level];
+    char clevel = (level > CHRE_LOG_DEBUG || (int) level < 0) ? 'V' : levels[level];
     const char *str = va_arg(args, const char*);
     uintptr_t inner = va_arg(args, uintptr_t);
 
@@ -89,7 +89,7 @@ static void osChreApiLogLogvOld(uintptr_t *retValP, va_list args)
     va_list innerArgs;
     enum chreLogLevel level = va_arg(args, int /* enums promoted to ints in va_args in C */);
     const static char levels[] = "EWIDV";
-    char clevel = (level > CHRE_LOG_DEBUG || level < 0) ? 'V' : levels[level];
+    char clevel = (level > CHRE_LOG_DEBUG || (int) level < 0) ? 'V' : levels[level];
     const char *str = va_arg(args, const char*);
     uintptr_t inner = va_arg(args, uintptr_t);
 

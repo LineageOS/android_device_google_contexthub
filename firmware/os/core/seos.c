@@ -711,7 +711,8 @@ static bool osStartApp(const struct AppHdr *app)
 
         // print external NanoApp info to facilitate NanoApp debugging
         if (!(task->app->hdr.fwFlags & FL_APP_HDR_INTERNAL))
-            osLog(LOG_INFO, "loaded app ID 0x%llx at flash base 0x%08x ram base 0x%08x; TID %04X\n",
+            osLog(LOG_INFO,
+                  "loaded app ID 0x%" PRIx64 " at flash base 0x%" PRIxPTR " ram base 0x%" PRIxPTR "; TID %04X\n",
                   task->app->hdr.appId, (uintptr_t) task->app, (uintptr_t) task->platInfo.data, task->tid);
 
         done = osTaskInit(task);
