@@ -480,7 +480,7 @@ int main(int argc, char *argv[])
                     LOGE("Download failed after %d retries; erasing all apps "
                          "before final attempt", i);
                     eraseSharedArea();
-                    uninstallCnt = 0;
+                    parseConfigAppInfo(&installCnt, &uninstallCnt);
                 }
                 removeApps(uninstallCnt);
                 downloadApps(installCnt);
