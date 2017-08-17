@@ -2131,7 +2131,7 @@ static void lsm6dsm_writeSlaveRegister(uint8_t addr, uint8_t value, uint32_t acc
 
     SPI_WRITE(LSM6DSM_FUNC_CFG_ACCESS_ADDR, LSM6DSM_FUNC_CFG_ACCESS_BASE, 50);
     SPI_WRITE(LSM6DSM_MASTER_CONFIG_ADDR, T(masterConfigRegister));
-    SPI_WRITE(LSM6DSM_CTRL10_C_ADDR, T(embeddedFunctionsRegister));
+    SPI_WRITE(LSM6DSM_CTRL10_C_ADDR, T(embeddedFunctionsRegister), delay);
 }
 #endif /* LSM6DSM_I2C_MASTER_ENABLED */
 
