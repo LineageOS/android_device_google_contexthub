@@ -444,6 +444,7 @@ struct OtcGyroUpdateBuffer {
     struct AppToSensorHalDataBuffer head;
     struct GyroOtcData data;
     volatile uint8_t lock; // lock for static object
+    bool sendToHostRequest;
 } __attribute__((packed));
 
 struct BMI160Task {
@@ -2227,7 +2228,7 @@ static void parseRawData(struct BMI160Sensor *mSensor, uint8_t *buf, float kScal
       if (overTempCalNewModelUpdateAvailable(&mTask.over_temp_gyro_cal)
           || new_otc_offset_update) {
         // Notify HAL to store new gyro OTC-Gyro data.
-        sendOtcGyroUpdate();
+        T(otcGyroUpdateBuffer).sendToHostRequest = true;
       }
 #endif  // OVERTEMPCAL_ENABLED
     }
@@ -3182,8 +3183,9 @@ static bool magCfgData(void *data, void *cookie)
                 (int)(d->inclination * 180 / M_PI + 0.5f));
 
         // Passing local field information to mag calibration routine
+#ifdef DIVERSITY_CHECK_ENABLED
         diversityCheckerLocalFieldUpdate(&mTask.moc.diversity_checker, d->strength);
-
+#endif
         // TODO: pass local field information to rotation vector sensor.
     } else {
         ERROR_PRINT("magCfgData: unknown type 0x%04x, size %d", p->type, p->size);
@@ -3304,6 +3306,13 @@ static void processPendingEvt(void)
         mTask.pending_calibration_save = !saveCalibration();
         return;
     }
+
+#ifdef OVERTEMPCAL_ENABLED
+    // tasks that do not initiate SPI transaction
+    if (T(otcGyroUpdateBuffer).sendToHostRequest) {
+        sendOtcGyroUpdate();
+    }
+#endif
 }
 
 static void sensorInit(void)
@@ -4266,6 +4275,7 @@ static bool sendOtcGyroUpdate_(TASK) {
         if (osEnqueueEvtOrFree(EVT_APP_TO_SENSOR_HAL_DATA, // bit-or EVENT_TYPE_BIT_DISCARDABLE
                                                           // to make event discardable
                                p, unlockOtcGyroUpdateBuffer)) {
+            T(otcGyroUpdateBuffer).sendToHostRequest = false;
             ++step;
         }
     }
