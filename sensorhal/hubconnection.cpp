@@ -2017,6 +2017,13 @@ int HubConnection::addDirectChannel(const struct sensors_direct_mem_t *mem) {
     std::unique_ptr<DirectChannelBase> ch;
     int ret = NO_MEMORY;
 
+    Mutex::Autolock autoLock(mDirectChannelLock);
+    for (const auto& c : mDirectChannel) {
+        if (c.second->memoryMatches(mem)) {
+            // cannot reusing same memory
+            return BAD_VALUE;
+        }
+    }
     switch(mem->type) {
         case SENSOR_DIRECT_MEM_TYPE_ASHMEM:
             ch = std::make_unique<AshmemDirectChannel>(mem);
@@ -2030,7 +2037,6 @@ int HubConnection::addDirectChannel(const struct sensors_direct_mem_t *mem) {
 
     if (ch) {
         if (ch->isValid()) {
-            Mutex::Autolock autoLock(mDirectChannelLock);
             ret = mDirectChannelHandle++;
             mDirectChannel.insert(std::make_pair(ret, std::move(ch)));
         } else {
