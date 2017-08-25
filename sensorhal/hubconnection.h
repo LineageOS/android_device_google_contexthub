@@ -173,6 +173,8 @@ private:
 
     struct SensorState {
         uint64_t latency;
+        uint64_t lastTimestamp;
+        uint64_t desiredTSample;
         rate_q10_t rate;
         uint8_t sensorType;
         uint8_t primary;
@@ -329,12 +331,24 @@ public:
 private:
     void sendDirectReportEvent(const sensors_event_t *nev, size_t n);
     void mergeDirectReportRequest(struct ConfigCmd *cmd, int handle);
+    bool isSampleIntervalSatisfied(int handle, uint64_t timestamp);
+    void updateSampleRate(int handle, int reason);
 #ifdef DIRECT_REPORT_ENABLED
     int stopAllDirectReportOnChannel(
             int channel_handle, std::vector<int32_t> *unstoppedSensors);
+    uint64_t rateLevelToDeviceSamplingPeriodNs(int handle, int rateLevel) const;
+    inline static bool intervalLargeEnough(uint64_t actual, uint64_t desired) {
+        return (actual + (actual >> 4)) >= desired; // >= 94.11% of desired
+    }
+
+    struct DirectChannelTimingInfo{
+        uint64_t lastTimestamp;
+        int rateLevel;
+    };
     Mutex mDirectChannelLock;
-    //sensor_handle=>(channel_handle, rate_level)
-    std::unordered_map<int32_t, std::unordered_map<int32_t, int32_t> > mSensorToChannel;
+    //sensor_handle=>(channel_handle => DirectChannelTimingInfo)
+    std::unordered_map<int32_t,
+            std::unordered_map<int32_t, DirectChannelTimingInfo> > mSensorToChannel;
     //channel_handle=>ptr of Channel obj
     std::unordered_map<int32_t, std::unique_ptr<DirectChannelBase>> mDirectChannel;
     int32_t mDirectChannelHandle;
