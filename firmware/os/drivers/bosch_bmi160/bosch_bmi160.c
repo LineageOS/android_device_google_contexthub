@@ -107,7 +107,7 @@
 #define DBG_WM_CALC               0
 #define TIMESTAMP_DBG             0
 
-#define BMI160_APP_VERSION 15
+#define BMI160_APP_VERSION 16
 
 // fixme: to list required definitions for a slave mag
 #ifdef USE_BMM150
@@ -4203,10 +4203,10 @@ static size_t calcFifoSize(const int* iPeriod, const int* iLatency, const int* f
     for (i = 0; i < n; i++) {
         if (iPeriod[i] > 0) {
             anyActive = true;
-            size_t t =  minLatency / iPeriod[i];
+            size_t t = minLatency / iPeriod[i];
             head = t > head ? t : head;
             s += t * factor[i];
-            DEBUG_PRINT_IF(DBG_WM_CALC, "cfifo: %d, s+= %d*%d, head = %d", i, t, factor[i], head);
+            DEBUG_PRINT_IF(DBG_WM_CALC, "cfifo %d: s += %d * %d, head = %d", i, t, factor[i], head);
         }
     }
 
@@ -4216,7 +4216,7 @@ static size_t calcFifoSize(const int* iPeriod, const int* iLatency, const int* f
 /**
  * Calculate the watermark setting from sensor registration information
  *
- * It is assumed  that all sensor period share a common denominator (true for BMI160) and the
+ * It is assumed that all sensor periods share a common denominator (true for BMI160) and the
  * latency of sensor will be lower bounded by its sampling period.
  *
  * @return watermark register setting
@@ -4228,12 +4228,12 @@ static uint8_t calcWatermark2_(TASK) {
     int i;
 
     for (i = FIRST_CONT_SENSOR; i < NUM_CONT_SENSOR; ++i) {
-        if (T(sensors[i]).configed) {
+        if (T(sensors[i]).configed && T(sensors[i]).latency != SENSOR_LATENCY_NODATA) {
             period[i - ACC] = SENSOR_HZ((float)WATERMARK_MAX_SENSOR_RATE) / T(sensors[i]).rate;
             latency[i - ACC] = U64_DIV_BY_U64_CONSTANT(
                     T(sensors[i]).latency + WATERMARK_TIME_UNIT_NS/2, WATERMARK_TIME_UNIT_NS);
-            DEBUG_PRINT_IF(DBG_WM_CALC, "cwm2: f %dHz, l %dus => T %d unit, L %d unit",
-                    (int) T(sensors[i]).rate/1024,
+            DEBUG_PRINT_IF(DBG_WM_CALC, "cwm2 %d: f %dHz, l %dus => T %d unit, L %d unit",
+                    i, (int) T(sensors[i]).rate/1024,
                     (int) U64_DIV_BY_U64_CONSTANT(T(sensors[i]).latency, 1000),
                     period[i-ACC], latency[i-ACC]);
         }
