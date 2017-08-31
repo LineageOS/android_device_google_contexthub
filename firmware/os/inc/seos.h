@@ -174,6 +174,7 @@ bool osDefer(OsDeferCbkF callback, void *cookie, bool urgent);
 bool osTidById(uint64_t *appId, uint32_t *tid);
 bool osAppInfoById(uint64_t appId, uint32_t *appIdx, uint32_t *appVer, uint32_t *appSize);
 bool osAppInfoByIndex(uint32_t appIdx, uint64_t *appId, uint32_t *appVer, uint32_t *appSize);
+bool osExtAppInfoByIndex(uint32_t appIdx, uint64_t *appId, uint32_t *appVer, uint32_t *appSize);
 uint32_t osGetCurrentTid();
 uint32_t osSetCurrentTid(uint32_t);
 
