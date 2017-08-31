@@ -250,7 +250,7 @@ static void chreappHandle(uint32_t eventTypeAndTid, const void *eventData)
         break;
     case EVT_APP_FROM_HOST_CHRE:
     {
-        const struct NanohubMsgChreHdr *hdr = eventData;
+        const struct NanohubMsgChreHdrV10 *hdr = eventData;
         srcTid = CHRE_INSTANCE_ID;
         evt = CHRE_EVENT_MESSAGE_FROM_HOST;
         data = &u.msg;
