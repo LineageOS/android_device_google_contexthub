@@ -56,7 +56,6 @@ FLAGS += -Ios/platform/$(PLATFORM)/inc
 FLAGS += -I$(VARIANT_PATH)/inc
 FLAGS += -Iexternal/freebsd/inc
 FLAGS += -I../lib/include
-FLAGS += -I../inc
 
 FLAGS += -Wall -Werror
 #help avoid commmon embedded C mistakes

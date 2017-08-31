@@ -204,6 +204,8 @@ private:
         std::vector<uint8_t> mData;
         uint32_t mLen;
         uint32_t mPos;
+        uint32_t mNextPos;
+        uint32_t mErrCnt;
         hub_app_name_t mAppName;
 
         int setupMgmt(const hub_message_t *appMsg, uint32_t cmd);

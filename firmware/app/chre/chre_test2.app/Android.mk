@@ -14,15 +14,18 @@
 # limitations under the License.
 #
 
-LOCAL_C_INCLUDES +=                                     \
-    $(NANOHUB_OS_PATH)/os/inc                           \
-    $(NANOHUB_OS_PATH)/os/platform/$(AUX_ARCH)/inc      \
-    $(NANOHUB_OS_PATH)/os/cpu/$(AUX_CPU)/inc            \
-    $(NANOHUB_OS_PATH)/../lib/include                   \
-    system/chre/chre_api/include/chre_api               \
+LOCAL_PATH := $(call my-dir)
 
-LOCAL_WHOLE_STATIC_LIBRARIES_BL += libnanohub_bl_$(AUX_CPU)
-LOCAL_WHOLE_STATIC_LIBRARIES_BL += libnanohub_bl_$(AUX_ARCH)
+include $(CLEAR_NANO_VARS)
 
-LOCAL_WHOLE_STATIC_LIBRARIES_OS += libnanohub_os_$(AUX_CPU)
-LOCAL_WHOLE_STATIC_LIBRARIES_OS += libnanohub_os_$(AUX_ARCH)
+LOCAL_MODULE := chre_test2
+LOCAL_MODULE_TAGS := optional
+
+# Googl + T + 0x9002
+LOCAL_NANO_APP_ID := 476f6f676c549002
+LOCAL_NANO_APP_VERSION := 0
+
+LOCAL_SRC_FILES := \
+    main.cpp \
+
+include $(BUILD_NANOHUB_APP_CHRE_EXECUTABLE)
