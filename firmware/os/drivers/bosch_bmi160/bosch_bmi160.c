@@ -258,6 +258,18 @@
 
 #define MAX_NUM_COMMS_EVENT_SAMPLES 15
 
+#ifndef BMI160_ACC_SAMPLES
+#define BMI160_ACC_SAMPLES 3000
+#endif
+
+#ifndef BMI160_GYRO_SAMPLES
+#define BMI160_GYRO_SAMPLES 20
+#endif
+
+#ifndef BMI160_MAG_SAMPLES
+#define BMI160_MAG_SAMPLES 600
+#endif
+
 // Default accel range is 8g
 #ifndef BMI160_ACC_RANGE_G
 #define BMI160_ACC_RANGE_G 8
@@ -748,18 +760,19 @@ static const struct SensorInfo mSensorInfo[NUM_OF_SENSOR] =
 {
 #ifdef ACCEL_CAL_ENABLED
     { DEC_INFO_RATE_RAW_BIAS("Accelerometer", AccRates, SENS_TYPE_ACCEL, NUM_AXIS_THREE,
-            NANOHUB_INT_NONWAKEUP, 3000, SENS_TYPE_ACCEL_RAW, 1.0/kScale_acc,
-            SENS_TYPE_ACCEL_BIAS) },
+            NANOHUB_INT_NONWAKEUP, BMI160_ACC_SAMPLES, SENS_TYPE_ACCEL_RAW,
+            1.0/kScale_acc, SENS_TYPE_ACCEL_BIAS) },
 #else
     { DEC_INFO_RATE_RAW("Accelerometer", AccRates, SENS_TYPE_ACCEL, NUM_AXIS_THREE,
-            NANOHUB_INT_NONWAKEUP, 3000, SENS_TYPE_ACCEL_RAW, 1.0/kScale_acc) },
+            NANOHUB_INT_NONWAKEUP, BMI160_ACC_SAMPLES, SENS_TYPE_ACCEL_RAW,
+            1.0/kScale_acc) },
 #endif
     { DEC_INFO_RATE_BIAS("Gyroscope", GyrRates, SENS_TYPE_GYRO, NUM_AXIS_THREE,
-            NANOHUB_INT_NONWAKEUP, 20, SENS_TYPE_GYRO_BIAS) },
+            NANOHUB_INT_NONWAKEUP, BMI160_GYRO_SAMPLES, SENS_TYPE_GYRO_BIAS) },
 #ifdef MAG_SLAVE_PRESENT
     { DEC_INFO_RATE_RAW_BIAS("Magnetometer", MagRates, SENS_TYPE_MAG, NUM_AXIS_THREE,
-            NANOHUB_INT_NONWAKEUP, 600, SENS_TYPE_MAG_RAW, 1.0/kScale_mag,
-            SENS_TYPE_MAG_BIAS) },
+            NANOHUB_INT_NONWAKEUP, BMI160_MAG_SAMPLES, SENS_TYPE_MAG_RAW,
+            1.0/kScale_mag, SENS_TYPE_MAG_BIAS) },
 #endif
     { DEC_INFO("Step Detector", SENS_TYPE_STEP_DETECT, NUM_AXIS_EMBEDDED,
             NANOHUB_INT_NONWAKEUP, 100) },
