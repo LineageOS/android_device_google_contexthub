@@ -139,6 +139,10 @@ enum {
 #define ROHM_RPR0521_MAX_PENDING_I2C_REQUESTS   4
 #define ROHM_RPR0521_MAX_I2C_TRANSFER_SIZE      16
 
+#define VERBOSE_PRINT(fmt, ...) do { \
+        osLog(LOG_VERBOSE, "[Rohm RPR-0521] " fmt, ##__VA_ARGS__); \
+    } while (0);
+
 #define INFO_PRINT(fmt, ...) do { \
         osLog(LOG_INFO, "[Rohm RPR-0521] " fmt, ##__VA_ARGS__); \
     } while (0);
