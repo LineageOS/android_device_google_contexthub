@@ -1438,9 +1438,6 @@ ssize_t HubConnection::processBuf(uint8_t *buf, size_t len)
                 ev.sensor = 0;
                 ev.meta_data.what = META_DATA_FLUSH_COMPLETE;
                 ev.meta_data.sensor = flush.handle;
-                if (mSensorState[flush.handle].enable) {
-                    updateSampleRate(flush.handle, CONFIG_CMD_FLUSH);
-                }
 
                 if (flush.internal) {
                     if (flush.handle == COMMS_SENSOR_ACCEL_WRIST_AWARE)
@@ -1756,12 +1753,14 @@ void HubConnection::queueBatch(
         initConfigCmd(&cmd, handle);
 
         ret = TEMP_FAILURE_RETRY(::write(mFd, &cmd, sizeof(cmd)));
-        if (ret == sizeof(cmd))
+        if (ret == sizeof(cmd)) {
+            updateSampleRate(handle, CONFIG_CMD_ENABLE); // batch uses CONFIG_CMD_ENABLE command
             ALOGV("queueBatch: sensor=%d, handle=%d, period=%" PRId64 ", latency=%" PRId64,
                     cmd.sensorType, handle, sampling_period_ns, max_report_latency_ns);
-        else
+        } else {
             ALOGW("queueBatch: failed to send command: sensor=%d, handle=%d, period=%" PRId64 ", latency=%" PRId64,
                     cmd.sensorType, handle, sampling_period_ns, max_report_latency_ns);
+        }
     } else {
         ALOGV("queueBatch: unhandled handle=%d, period=%" PRId64 ", latency=%" PRId64,
                 handle, sampling_period_ns, max_report_latency_ns);
@@ -2208,13 +2207,7 @@ void HubConnection::updateSampleRate(int handle, int reason) {
     }
 
     switch (reason) {
-        case CONFIG_CMD_ENABLE:
-            // filter out duplicated enable
-            if (mSensorState[handle].desiredTSample != INT64_MAX) {
-                break;
-            }
-            // fall through
-        case CONFIG_CMD_FLUSH: {
+        case CONFIG_CMD_ENABLE: {
             constexpr uint64_t PERIOD_800HZ = 1250000;
             uint64_t period_multiplier =
                     (frequency_q10_to_period_ns(mSensorState[handle].rate) + PERIOD_800HZ / 2)
