@@ -130,17 +130,26 @@ extern "C" {
 #define OTC_NUM_WEIGHT_LEVELS (2)
 
 // Rate-limits the check of old data to every 2 hours.
-#define OTC_STALE_CHECK_TIME_NANOS (7200000000000)
+#define OTC_STALE_CHECK_TIME_NANOS (HRS_TO_NANOS(2))
 
 // Time duration in which to enforce using the last offset estimate for
 // compensation (30 seconds).
-#define OTC_USE_RECENT_OFFSET_TIME_NANOS (30000000000)
+#define OTC_USE_RECENT_OFFSET_TIME_NANOS (SEC_TO_NANOS(30))
 
 // The age at which an offset estimate is considered stale (30 minutes).
-#define OTC_OFFSET_IS_STALE_NANOS (1800000000000)
+#define OTC_OFFSET_IS_STALE_NANOS (MIN_TO_NANOS(30))
 
 // The refresh interval for the OTC model (30 seconds).
-#define OTC_REFRESH_MODEL_NANOS (30000000000)
+#define OTC_REFRESH_MODEL_NANOS (SEC_TO_NANOS(30))
+
+// Defines a weighting function value for the linear model fit routine.
+struct OverTempCalWeightPt {
+  // The age limit below which an offset will use this weight value.
+  uint64_t offset_age_nanos;
+
+  // The weighting applied (>0).
+  float weight;
+};
 
 // Over-temperature sensor offset estimate structure.
 struct OverTempCalDataPt {
@@ -148,15 +157,6 @@ struct OverTempCalDataPt {
   uint64_t timestamp_nanos;   // [nanoseconds]
   float offset_temp_celsius;  // [Celsius]
   float offset[3];
-};
-
-// Weighting data used to improve the quality of the linear model fit.
-struct OverTempCalWeightPt {
-  // Offset age below which this weight applies.
-  uint64_t offset_age_nanos;
-
-  // Weighting value for offset estimates more recent than 'offset_age_nanos'.
-  float weight;
 };
 
 #ifdef OVERTEMPCAL_DBG_ENABLED
@@ -532,14 +532,13 @@ void overTempGetModelError(const struct OverTempCal *over_temp_cal,
  * INPUTS:
  *   over_temp_cal:    Over-temp data structure.
  *   index:            Weighting function index.
- *   offset_age_nanos: The age limit below which an offset will use this weight
- *                     value.
- *   weight:           The weighting applied (>0).
+ *   new_otc_weight:   Pointer to the settings for the new non-zero weighting
+ *                     value and corresponding age limit below which an offset
+ *                     will use the weight.
  */
-void overTempSetWeightingFunction(struct OverTempCal *over_temp_cal,
-                                  size_t index,
-                                  uint64_t offset_age_nanos,
-                                  float weight);
+void overTempSetWeightingFunction(
+    struct OverTempCal *over_temp_cal, size_t index,
+    const struct OverTempCalWeightPt *new_otc_weight);
 
 #ifdef OVERTEMPCAL_DBG_ENABLED
 // This debug printout function assumes the input sensor data is a gyroscope

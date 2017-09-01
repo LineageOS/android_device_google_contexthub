@@ -15,6 +15,7 @@
  */
 
 #include "common/math/vec.h"
+#include "common/math/macros.h"
 
 void findOrthogonalVector(float inX, float inY, float inZ, float *outX,
                           float *outY, float *outZ) {
