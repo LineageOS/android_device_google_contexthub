@@ -35,7 +35,6 @@
  *       - Temperature   [Celsius]
  *
  * #define GYRO_CAL_DBG_ENABLED to enable debug printout statements.
- * #define GYRO_CAL_DBG_TUNE_ENABLED to periodically printout sensor variance
  * data to assist in tuning the GyroCal parameters.
  */
 
@@ -80,15 +79,30 @@ struct DebugGyroCal {
   float mag_var[3];
   float gyro_winmean_min[3];
   float gyro_winmean_max[3];
-  float temperature_min_max_celsius[2];  // 0=min; 1=max
+  float temperature_min_celsius;
+  float temperature_max_celsius;
   float temperature_mean_celsius;
   bool using_mag_sensor;
 };
+
+// Data structure for sample rate estimation.
+struct SampleRateData {
+  uint64_t last_timestamp_nanos;
+  uint64_t time_delta_accumulator;
+  size_t num_samples;
+};
 #endif  // GYRO_CAL_DBG_ENABLED
+
+// Data structure for tracking min/max window mean during device stillness.
+struct MinMaxWindowMeanData {
+  float gyro_winmean_min[3];
+  float gyro_winmean_max[3];
+};
 
 // Data structure for tracking temperature data during device stillness.
 struct TemperatureMeanData {
-  float temperature_min_max_celsius[2];
+  float temperature_min_celsius;
+  float temperature_max_celsius;
   float latest_temperature_celsius;
   float mean_accumulator;
   size_t num_points;
@@ -102,6 +116,9 @@ struct GyroCal {
 
   // Data for tracking temperature mean during periods of device stillness.
   struct TemperatureMeanData temperature_mean_tracker;
+
+  // Data for tracking gyro mean during periods of device stillness.
+  struct MinMaxWindowMeanData window_mean_tracker;
 
   // Aggregated sensor stillness threshold required for gyro bias calibration.
   float stillness_threshold;
@@ -166,6 +183,11 @@ struct GyroCal {
   // Debug info.
   struct DebugGyroCal debug_gyro_cal;  // Debug data structure.
   enum GyroCalDebugState debug_state;  // Debug printout state machine.
+  enum GyroCalDebugState next_state;   // Debug state machine next state.
+  uint64_t wait_timer_nanos;           // Debug message throttle timer.
+
+  struct SampleRateData sample_rate_estimator;  // Debug sample rate estimator.
+
   size_t debug_calibration_count;      // Total number of cals performed.
   size_t debug_watchdog_count;         // Total number of watchdog timeouts.
   bool debug_print_trigger;            // Flag used to trigger data printout.
