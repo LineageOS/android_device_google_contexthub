@@ -74,6 +74,8 @@
 
 #define OS_LOG_EVENT            0x474F4C41  // ascii: ALOG
 
+#define MAX_RETRY_CNT           5
+
 #ifdef LID_STATE_REPORTING_ENABLED
 const char LID_STATE_PROPERTY[] = "sensors.contexthub.lid_state";
 const char LID_STATE_UNKNOWN[]  = "unknown";
@@ -528,6 +530,25 @@ void HubConnection::saveSensorSettings() const {
     }
 }
 
+ssize_t HubConnection::sendCmd(const void *buf, size_t count)
+{
+    ssize_t ret;
+    int retryCnt = 0;
+
+    do {
+        ret = TEMP_FAILURE_RETRY(::write(mFd, buf, count));
+    } while (ret == 0 && retryCnt++ < MAX_RETRY_CNT);
+
+    if (retryCnt > 0)
+        ALOGW("sendCmd: retry: count=%zu, ret=%zd, retryCnt=%d",
+              count, ret, retryCnt);
+    else if (ret < 0 || static_cast<size_t>(ret) != count)
+        ALOGW("sendCmd: failed: count=%zu, ret=%zd, errno=%d",
+              count, ret, errno);
+
+    return ret;
+}
+
 void HubConnection::setLeftyMode(bool enable) {
     struct MsgCmd *cmd;
     size_t ret;
@@ -544,7 +565,7 @@ void HubConnection::setLeftyMode(bool enable) {
         cmd->msg.dataLen = sizeof(bool);
         memcpy((bool *)(cmd+1), &enable, sizeof(bool));
 
-        ret = TEMP_FAILURE_RETRY(::write(mFd, cmd, sizeof(*cmd) + sizeof(bool)));
+        ret = sendCmd(cmd, sizeof(*cmd) + sizeof(bool));
         if (ret == sizeof(*cmd) + sizeof(bool))
             ALOGV("setLeftyMode: lefty (gaze) = %s\n",
                   (enable ? "true" : "false"));
@@ -554,7 +575,7 @@ void HubConnection::setLeftyMode(bool enable) {
 
         cmd->msg.appId = APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, APP_ID_APP_UNGAZE_DETECT);
 
-        ret = TEMP_FAILURE_RETRY(::write(mFd, cmd, sizeof(*cmd) + sizeof(bool)));
+        ret = sendCmd(cmd, sizeof(*cmd) + sizeof(bool));
         if (ret == sizeof(*cmd) + sizeof(bool))
             ALOGV("setLeftyMode: lefty (ungaze) = %s\n",
                   (enable ? "true" : "false"));
@@ -564,7 +585,7 @@ void HubConnection::setLeftyMode(bool enable) {
 
         cmd->msg.appId = APP_ID_MAKE(APP_ID_VENDOR_GOOGLE, APP_ID_APP_WRIST_TILT_DETECT);
 
-        ret = TEMP_FAILURE_RETRY(::write(mFd, cmd, sizeof(*cmd) + sizeof(bool)));
+        ret = sendCmd(cmd, sizeof(*cmd) + sizeof(bool));
         if (ret == sizeof(*cmd) + sizeof(bool))
             ALOGV("setLeftyMode: lefty (tilt) = %s\n",
                   (enable ? "true" : "false"));
@@ -1049,7 +1070,7 @@ void HubConnection::restoreSensorState()
                   cmd.sensorType, i, mSensorState[i].enable, frequency_q10_to_period_ns(mSensorState[i].rate),
                   mSensorState[i].latency);
 
-            int ret = TEMP_FAILURE_RETRY(::write(mFd, &cmd, sizeof(cmd)));
+            int ret = sendCmd(&cmd, sizeof(cmd));
             if (ret != sizeof(cmd)) {
                 ALOGW("failed to send config command to restore sensor %d\n", cmd.sensorType);
             }
@@ -1058,7 +1079,7 @@ void HubConnection::restoreSensorState()
 
             for (auto iter = mFlushesPending[i].cbegin(); iter != mFlushesPending[i].cend(); ++iter) {
                 for (int j = 0; j < iter->count; j++) {
-                    int ret = TEMP_FAILURE_RETRY(::write(mFd, &cmd, sizeof(cmd)));
+                    int ret = sendCmd(&cmd, sizeof(cmd));
                     if (ret != sizeof(cmd)) {
                         ALOGW("failed to send flush command to sensor %d\n", cmd.sensorType);
                     }
@@ -1690,7 +1711,7 @@ void HubConnection::queueActivate(int handle, bool enable)
 
         initConfigCmd(&cmd, handle);
 
-        ret = TEMP_FAILURE_RETRY(::write(mFd, &cmd, sizeof(cmd)));
+        ret = sendCmd(&cmd, sizeof(cmd));
         if (ret == sizeof(cmd)) {
             updateSampleRate(handle, enable ? CONFIG_CMD_ENABLE : CONFIG_CMD_DISABLE);
             ALOGV("queueActivate: sensor=%d, handle=%d, enable=%d",
@@ -1720,7 +1741,7 @@ void HubConnection::queueSetDelay(int handle, nsecs_t sampling_period_ns)
 
         initConfigCmd(&cmd, handle);
 
-        ret = TEMP_FAILURE_RETRY(::write(mFd, &cmd, sizeof(cmd)));
+        ret = sendCmd(&cmd, sizeof(cmd));
         if (ret == sizeof(cmd))
             ALOGV("queueSetDelay: sensor=%d, handle=%d, period=%" PRId64,
                     cmd.sensorType, handle, sampling_period_ns);
@@ -1752,7 +1773,7 @@ void HubConnection::queueBatch(
 
         initConfigCmd(&cmd, handle);
 
-        ret = TEMP_FAILURE_RETRY(::write(mFd, &cmd, sizeof(cmd)));
+        ret = sendCmd(&cmd, sizeof(cmd));
         if (ret == sizeof(cmd)) {
             updateSampleRate(handle, CONFIG_CMD_ENABLE); // batch uses CONFIG_CMD_ENABLE command
             ALOGV("queueBatch: sensor=%d, handle=%d, period=%" PRId64 ", latency=%" PRId64,
@@ -1798,7 +1819,7 @@ void HubConnection::queueFlushInternal(int handle, bool internal)
         initConfigCmd(&cmd, handle);
         cmd.cmd = CONFIG_CMD_FLUSH;
 
-        ret = TEMP_FAILURE_RETRY(::write(mFd, &cmd, sizeof(cmd)));
+        ret = sendCmd(&cmd, sizeof(cmd));
         if (ret == sizeof(cmd)) {
             ALOGV("queueFlush: sensor=%d, handle=%d",
                     cmd.sensorType, handle);
@@ -1821,7 +1842,7 @@ void HubConnection::queueDataInternal(int handle, void *data, size_t length)
         memcpy(cmd->data, data, length);
         cmd->cmd = CONFIG_CMD_CFG_DATA;
 
-        ret = TEMP_FAILURE_RETRY(::write(mFd, cmd, sizeof(*cmd) + length));
+        ret = sendCmd(cmd, sizeof(*cmd) + length);
         if (ret == sizeof(*cmd) + length)
             ALOGV("queueData: sensor=%d, length=%zu",
                     cmd->sensorType, length);
@@ -1907,7 +1928,7 @@ void HubConnection::queueUsbMagBias()
         cmd->msg.dataLen = sizeof(float);
         memcpy((float *)(cmd+1), &mUsbMagBias, sizeof(float));
 
-        ret = TEMP_FAILURE_RETRY(::write(mFd, cmd, sizeof(*cmd) + sizeof(float)));
+        ret = sendCmd(cmd, sizeof(*cmd) + sizeof(float));
         if (ret == sizeof(*cmd) + sizeof(float))
             ALOGV("queueUsbMagBias: bias=%f\n", mUsbMagBias);
         else
@@ -2139,7 +2160,7 @@ int HubConnection::stopAllDirectReportOnChannel(
         struct ConfigCmd cmd;
         initConfigCmd(&cmd, sensor_handle);
 
-        int result = TEMP_FAILURE_RETRY(::write(mFd, &cmd, sizeof(cmd)));
+        int result = sendCmd(&cmd, sizeof(cmd));
         ret = ret && (result == sizeof(cmd));
     }
     return ret ? NO_ERROR : BAD_VALUE;
@@ -2180,7 +2201,7 @@ int HubConnection::configDirectReport(int sensor_handle, int channel_handle, int
     struct ConfigCmd cmd;
     initConfigCmd(&cmd, sensor_handle);
 
-    int ret = TEMP_FAILURE_RETRY(::write(mFd, &cmd, sizeof(cmd)));
+    int ret = sendCmd(&cmd, sizeof(cmd));
 
     if (rate_level == SENSOR_DIRECT_RATE_STOP) {
         ret = NO_ERROR;
