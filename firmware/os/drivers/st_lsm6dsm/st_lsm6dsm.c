@@ -236,7 +236,6 @@
 #define LSM6DSM_EMBEDDED_STEP_COUNT_DELTA_ADDR          (0x15)
 
 #define LSM6DSM_EMBEDDED_READ_OP_SENSOR_HUB             (0x01)
-#define LSM6DSM_EMBEDDED_SENSOR_HUB_HAVE_ONLY_WRITE     (0x00)
 #define LSM6DSM_EMBEDDED_SENSOR_HUB_HAVE_ONE_SENSOR     (0x10)
 #define LSM6DSM_EMBEDDED_SENSOR_HUB_HAVE_TWO_SENSOR     (0x20)
 #define LSM6DSM_EMBEDDED_SENSOR_HUB_HAVE_THREE_SENSOR   (0x30)
@@ -1600,7 +1599,6 @@ static void lsm6dsm_runGapSelfTestProgram(enum SensorIndex idx)
         case MAGN:
             /* Enable accelerometer and sensor-hub */
             SPI_WRITE(LSM6DSM_CTRL1_XL_ADDR, LSM6DSM_CTRL1_XL_BASE | LSM6DSM_ODR_104HZ_REG_VALUE);
-            SPI_WRITE(LSM6DSM_MASTER_CONFIG_ADDR, LSM6DSM_MASTER_CONFIG_BASE | LSM6DSM_MASTER_CONFIG_MASTER_ON, 10000);
             T(masterConfigRegister) |= LSM6DSM_MASTER_CONFIG_MASTER_ON;
 
             uint8_t rateIndex = ARRAY_SIZE(LSM6DSMSHRates) - 2;
@@ -1972,7 +1970,6 @@ static void lsm6dsm_runAbsoluteSelfTestProgram(void)
 
         /* Enable accelerometer and sensor-hub */
         SPI_WRITE(LSM6DSM_CTRL1_XL_ADDR, LSM6DSM_CTRL1_XL_BASE | LSM6DSM_ODR_104HZ_REG_VALUE);
-        SPI_WRITE(LSM6DSM_MASTER_CONFIG_ADDR, LSM6DSM_MASTER_CONFIG_BASE | LSM6DSM_MASTER_CONFIG_MASTER_ON, 20000);
         T(masterConfigRegister) |= LSM6DSM_MASTER_CONFIG_MASTER_ON;
 
         SPI_WRITE_SLAVE_SENSOR_REGISTER(AK09916_CNTL2_ADDR, AK09916_ENABLE_SELFTEST_MODE, SENSOR_HZ(104.0f), MAGN, 20000);
@@ -2080,7 +2077,7 @@ static void lsm6dsm_writeEmbeddedRegister(uint8_t addr, uint8_t value)
 static void lsm6dsm_writeSlaveRegister(uint8_t addr, uint8_t value, uint32_t accelRate, uint32_t delay, enum SensorIndex si)
 {
     TDECL();
-    uint8_t slave_addr, buffer[3];
+    uint8_t slave_addr, buffer[2];
     uint32_t SHOpCompleteTime;
 
     switch (si) {
@@ -2111,12 +2108,11 @@ static void lsm6dsm_writeSlaveRegister(uint8_t addr, uint8_t value, uint32_t acc
 
     buffer[0] = slave_addr << 1;                                     /* LSM6DSM_EMBEDDED_SLV0_ADDR */
     buffer[1] = addr;                                                /* LSM6DSM_EMBEDDED_SLV0_SUBADDR */
-    buffer[2] = LSM6DSM_EMBEDDED_SENSOR_HUB_HAVE_ONLY_WRITE;         /* LSM6DSM_EMBEDDED_SLV0_CONFIG */
-    SPI_MULTIWRITE(LSM6DSM_EMBEDDED_SLV0_ADDR_ADDR, buffer, 3);
+    SPI_MULTIWRITE(LSM6DSM_EMBEDDED_SLV0_ADDR_ADDR, buffer, 2);
     SPI_WRITE(LSM6DSM_EMBEDDED_DATAWRITE_SLV0_ADDR, value);
 
     SPI_WRITE(LSM6DSM_FUNC_CFG_ACCESS_ADDR, LSM6DSM_FUNC_CFG_ACCESS_BASE, 50);
-    SPI_WRITE(LSM6DSM_MASTER_CONFIG_ADDR, T(masterConfigRegister));
+    SPI_WRITE(LSM6DSM_MASTER_CONFIG_ADDR, T(masterConfigRegister) | LSM6DSM_MASTER_CONFIG_MASTER_ON);
     SPI_WRITE(LSM6DSM_CTRL10_C_ADDR, T(embeddedFunctionsRegister), (3 * SHOpCompleteTime) / 2);
 
     /* After write is completed slave 0 must be set to sleep mode */
@@ -2126,8 +2122,7 @@ static void lsm6dsm_writeSlaveRegister(uint8_t addr, uint8_t value, uint32_t acc
 
     buffer[0] = LSM6DSM_EMBEDDED_SLV0_WRITE_ADDR_SLEEP;              /* LSM6DSM_EMBEDDED_SLV0_ADDR */
     buffer[1] = addr;                                                /* LSM6DSM_EMBEDDED_SLV0_SUBADDR */
-    buffer[2] = LSM6DSM_EMBEDDED_SENSOR_HUB_NUM_SLAVE;               /* LSM6DSM_EMBEDDED_SLV0_CONFIG */
-    SPI_MULTIWRITE(LSM6DSM_EMBEDDED_SLV0_ADDR_ADDR, buffer, 3);
+    SPI_MULTIWRITE(LSM6DSM_EMBEDDED_SLV0_ADDR_ADDR, buffer, 2);
 
     SPI_WRITE(LSM6DSM_FUNC_CFG_ACCESS_ADDR, LSM6DSM_FUNC_CFG_ACCESS_BASE, 50);
     SPI_WRITE(LSM6DSM_MASTER_CONFIG_ADDR, T(masterConfigRegister));
@@ -3970,7 +3965,6 @@ static void lsm6dsm_sensorInit(void)
 
         /* Enable accelerometer and sensor-hub to initialize slave sensor */
         SPI_WRITE(LSM6DSM_CTRL1_XL_ADDR, LSM6DSM_CTRL1_XL_BASE | LSM6DSM_ODR_104HZ_REG_VALUE);
-        SPI_WRITE(LSM6DSM_MASTER_CONFIG_ADDR, LSM6DSM_MASTER_CONFIG_BASE | LSM6DSM_MASTER_CONFIG_MASTER_ON);
         T(masterConfigRegister) |= LSM6DSM_MASTER_CONFIG_MASTER_ON;
 
 #ifdef LSM6DSM_I2C_MASTER_MAGNETOMETER_ENABLED
