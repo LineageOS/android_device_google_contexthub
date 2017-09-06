@@ -284,6 +284,7 @@ private:
             && mSensorState[handle].sensorType;
     }
 
+    ssize_t sendCmd(const void *buf, size_t count);
     void initConfigCmd(struct ConfigCmd *cmd, int handle);
 
     void queueFlushInternal(int handle, bool internal);
