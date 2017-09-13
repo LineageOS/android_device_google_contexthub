@@ -139,6 +139,9 @@ struct AccelCal {
   // to store a new offset, which gets updated during a power down event.
   float x_bias_new, y_bias_new, z_bias_new;
 
+  // Average temperature of the bias update.
+  float average_temperature_celsius;
+
   // Offset values that get subtracted from live data
   float x_bias, y_bias, z_bias;
 
