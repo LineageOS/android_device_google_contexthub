@@ -71,7 +71,10 @@ static int moc_eigen_test(struct KasaFit *kasa) {
   float evmin = (eigenvals.x < eigenvals.y) ? eigenvals.x : eigenvals.y;
   evmin = (eigenvals.z < evmin) ? eigenvals.z : evmin;
 
-  float evmag = sqrtf(eigenvals.x + eigenvals.y + eigenvals.z);
+  float eigenvals_sum = eigenvals.x + eigenvals.y + eigenvals.z;
+
+  // Testing for negative number.
+  float evmag = (eigenvals_sum > 0) ? sqrtf(eigenvals_sum) : 0;
 
   int eigen_pass = (evmin * MAX_EIGEN_RATIO > evmax) &&
                    (evmag > MIN_EIGEN_MAG) && (evmag < MAX_EIGEN_MAG);
@@ -119,7 +122,8 @@ int magKasaFit(struct KasaFit *kasa, struct Vec3 *bias, float *radius) {
   initVec3(&v, out.x, out.y, out.z);
   vec3ScalarMul(&v, -0.5f);
 
-  float r = sqrtf(vec3Dot(&v, &v) - out.w);
+  float r_square = vec3Dot(&v, &v) - out.w;
+  float r = (r_square > 0) ? sqrtf(r_square) : 0;
 
   initVec3(bias, v.x, v.y, v.z);
   *radius = r;
