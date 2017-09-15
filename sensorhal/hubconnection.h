@@ -79,10 +79,7 @@ struct HubConnection : public Thread {
 
     void setOperationParameter(const additional_info_event_t &info);
 
-    bool isWakeEvent(int32_t sensor);
     void releaseWakeLockIfAppropriate();
-    ssize_t getWakeEventCount();
-    ssize_t decrementWakeEventCount();
 
     //TODO: factor out event ring buffer functionality into a separate class
     ssize_t read(sensors_event_t *ev, size_t size);
@@ -111,7 +108,8 @@ private:
     bool mWakelockHeld;
     int32_t mWakeEventCount;
 
-    void protectIfWakeEvent(int32_t sensor);
+    void protectIfWakeEventLocked(int32_t sensor);
+    ssize_t decrementIfWakeEventLocked(int32_t sensor);
 
     static inline uint64_t period_ns_to_frequency_q10(nsecs_t period_ns) {
         return 1024000000000ULL / period_ns;
@@ -244,6 +242,7 @@ private:
     Mutex mLock;
 
     RingBuffer mRing;
+    int32_t mWriteFailures;
 
     ActivityEventHandler *mActivityEventHandler;
 
