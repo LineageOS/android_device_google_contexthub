@@ -114,6 +114,21 @@ static bool isActivitySensor(int sensorIndex) {
         && sensorIndex <= COMMS_SENSOR_ACTIVITY_LAST;
 }
 
+static bool isWakeEvent(int32_t sensor)
+{
+    switch (sensor) {
+    case COMMS_SENSOR_DOUBLE_TOUCH:
+    case COMMS_SENSOR_DOUBLE_TWIST:
+    case COMMS_SENSOR_GESTURE:
+    case COMMS_SENSOR_PROXIMITY:
+    case COMMS_SENSOR_SIGNIFICANT_MOTION:
+    case COMMS_SENSOR_TILT:
+        return true;
+    default:
+        return false;
+    }
+}
+
 HubConnection::HubConnection()
     : Thread(false /* canCallJava */),
       mRing(10 *1024),
@@ -143,6 +158,7 @@ HubConnection::HubConnection()
 
     mWakelockHeld = false;
     mWakeEventCount = 0;
+    mWriteFailures = 0;
 
     initNanohubLock();
 
@@ -616,31 +632,20 @@ sensors_event_t *HubConnection::initEv(sensors_event_t *ev, uint64_t timestamp, 
     return ev;
 }
 
-ssize_t HubConnection::getWakeEventCount()
+ssize_t HubConnection::decrementIfWakeEventLocked(int32_t sensor)
 {
+    if (isWakeEvent(sensor)) {
+        if (mWakeEventCount > 0)
+            mWakeEventCount--;
+        else
+            ALOGW("%s: sensor=%d, unexpected count=%d, no-op",
+                  __FUNCTION__, sensor, mWakeEventCount);
+    }
+
     return mWakeEventCount;
 }
 
-ssize_t HubConnection::decrementWakeEventCount()
-{
-    return --mWakeEventCount;
-}
-
-bool HubConnection::isWakeEvent(int32_t sensor)
-{
-    switch (sensor) {
-    case COMMS_SENSOR_PROXIMITY:
-    case COMMS_SENSOR_SIGNIFICANT_MOTION:
-    case COMMS_SENSOR_TILT:
-    case COMMS_SENSOR_DOUBLE_TWIST:
-    case COMMS_SENSOR_GESTURE:
-        return true;
-    default:
-        return false;
-    }
-}
-
-void HubConnection::protectIfWakeEvent(int32_t sensor)
+void HubConnection::protectIfWakeEventLocked(int32_t sensor)
 {
     if (isWakeEvent(sensor)) {
         if (mWakelockHeld == false) {
@@ -653,6 +658,8 @@ void HubConnection::protectIfWakeEvent(int32_t sensor)
 
 void HubConnection::releaseWakeLockIfAppropriate()
 {
+    Mutex::Autolock autoLock(mLock);
+
     if (mWakelockHeld && (mWakeEventCount == 0)) {
         mWakelockHeld = false;
         release_wake_lock(WAKELOCK_NAME);
@@ -728,11 +735,8 @@ void HubConnection::processSample(uint64_t timestamp, uint32_t type, uint32_t se
         break;
     }
 
-    if (cnt > 0) {
-        // If event is a wake event, protect it with a wakelock
-        protectIfWakeEvent(sensor);
+    if (cnt > 0)
         write(nev, cnt);
-    }
 }
 
 uint8_t HubConnection::magAccuracyUpdate(sensors_vec_t *sv)
@@ -830,11 +834,8 @@ void HubConnection::processSample(uint64_t timestamp, uint32_t type, uint32_t se
         break;
     }
 
-    if (cnt > 0) {
-        // If event is a wake event, protect it with a wakelock
-        protectIfWakeEvent(sensor);
+    if (cnt > 0)
         write(nev, cnt);
-    }
 }
 
 void HubConnection::processSample(uint64_t timestamp, uint32_t type, uint32_t sensor, struct ThreeAxisSample *sample, bool highAccuracy)
@@ -1021,11 +1022,8 @@ void HubConnection::processSample(uint64_t timestamp, uint32_t type, uint32_t se
         break;
     }
 
-    if (cnt > 0) {
-        // If event is a wake event, protect it with a wakelock
-        protectIfWakeEvent(sensor);
+    if (cnt > 0)
         write(nev, cnt);
-    }
 }
 
 void HubConnection::discardInotifyEvent() {
@@ -1659,10 +1657,6 @@ bool HubConnection::threadLoop() {
     return false;
 }
 
-ssize_t HubConnection::read(sensors_event_t *ev, size_t size) {
-    return mRing.read(ev, size);
-}
-
 void HubConnection::setActivityCallback(ActivityEventHandler *eventHandler)
 {
     Mutex::Autolock autoLock(mLock);
@@ -1912,8 +1906,44 @@ void HubConnection::initNanohubLock() {
     }
 }
 
+ssize_t HubConnection::read(sensors_event_t *ev, size_t size) {
+    ssize_t n = mRing.read(ev, size);
+
+    Mutex::Autolock autoLock(mLock);
+
+    // We log the first failure in write, so only log 2+ errors
+    if (mWriteFailures > 1) {
+        ALOGW("%s: mRing.write failed %d times",
+              __FUNCTION__, mWriteFailures);
+        mWriteFailures = 0;
+    }
+
+    for (ssize_t i = 0; i < n; i++)
+        decrementIfWakeEventLocked(ev[i].sensor);
+
+    return n;
+}
+
+
 ssize_t HubConnection::write(const sensors_event_t *ev, size_t n) {
-    return mRing.write(ev, n);
+    ssize_t ret = 0;
+
+    Mutex::Autolock autoLock(mLock);
+
+    for (size_t i=0; i<n; i++) {
+        if (mRing.write(&ev[i], 1) == 1) {
+            ret++;
+            // If event is a wake event, protect it with a wakelock
+            protectIfWakeEventLocked(ev[i].sensor);
+        } else {
+            if (mWriteFailures++ == 0)
+                ALOGW("%s: mRing.write failed @ %zu/%zu",
+                      __FUNCTION__, i, n);
+            break;
+        }
+    }
+
+    return ret;
 }
 
 #ifdef USB_MAG_BIAS_REPORTING_ENABLED
