@@ -300,12 +300,25 @@ static inline bool osTaskInit(struct Task *task)
 
 static void osTaskRelease(struct Task *task)
 {
-    uint32_t task_tid = task->tid;
+    uint32_t taskTid = task->tid;
+    uint32_t platErr, sensorErr;
+    int timErr, heapErr;
+    uint64_t appId;
 
-    platFreeResources(task_tid); // HW resources cleanup (IRQ, DMA etc)
-    sensorFreeAll(task_tid);
-    timTimerCancelAll(task_tid);
-    heapFreeAll(task_tid);
+    if (task->app)
+        appId = task->app->hdr.appId;
+    else
+        appId = 0;
+
+    platErr = platFreeResources(taskTid); // HW resources cleanup (IRQ, DMA etc)
+    sensorErr = sensorFreeAll(taskTid);
+    timErr = timTimerCancelAll(taskTid);
+    heapErr = heapFreeAll(taskTid);
+
+    if (platErr || sensorErr || timErr || heapErr)
+        osLog(LOG_WARN, "released app ID 0x%" PRIx64 "; plat:%08" PRIx32 " sensor:%08" PRIx32 " tim:%d heap:%d; TID %04" PRIX32 "\n", appId, platErr, sensorErr, timErr, heapErr, taskTid);
+    else
+        osLog(LOG_INFO, "released app ID 0x%" PRIx64 "; TID %04" PRIX32 "\n", appId, taskTid);
 }
 
 static inline void osTaskEnd(struct Task *task)
@@ -721,7 +734,7 @@ static bool osStartApp(const struct AppHdr *app)
         // print external NanoApp info to facilitate NanoApp debugging
         if (!(task->app->hdr.fwFlags & FL_APP_HDR_INTERNAL))
             osLog(LOG_INFO,
-                  "loaded app ID 0x%" PRIx64 " at flash base 0x%" PRIxPTR " ram base 0x%" PRIxPTR "; TID %04X\n",
+                  "loaded app ID 0x%" PRIx64 " at flash base 0x%" PRIxPTR " ram base 0x%" PRIxPTR "; TID %04" PRIX16 "\n",
                   task->app->hdr.appId, (uintptr_t) task->app, (uintptr_t) task->platInfo.data, task->tid);
 
         done = osTaskInit(task);
@@ -1272,12 +1285,8 @@ static bool osEnqueueEvtCommon(uint32_t evt, void *evtData, TaggedPtr evtFreeInf
 
     osTaskAddIoCount(task, 1);
 
-    if (osTaskTestFlags(task, FL_TASK_STOPPED)) {
-        handleEventFreeing(evtType, evtData, evtFreeInfo);
-        return true;
-    }
-
-    if (!evtQueueEnqueue(mEvtsInternal, evtType, evtData, evtFreeInfo, urgent)) {
+    if (osTaskTestFlags(task, FL_TASK_STOPPED) ||
+        !evtQueueEnqueue(mEvtsInternal, evtType, evtData, evtFreeInfo, urgent)) {
         osTaskAddIoCount(task, -1);
         return false;
     }
