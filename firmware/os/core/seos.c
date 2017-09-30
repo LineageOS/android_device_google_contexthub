@@ -1216,13 +1216,22 @@ static void osDeferredActionFreeF(void* event)
 
 static bool osEventsSubscribeUnsubscribeV(bool sub, uint32_t numEvts, va_list ap)
 {
-    union SeosInternalSlabData *act = slabAllocatorAlloc(mMiscInternalThingsSlab);
+    struct Task *task = osGetCurrentTask();
+    union SeosInternalSlabData *act;
     int i;
 
-    if (!act || numEvts > MAX_EVT_SUB_CNT)
+    if (!sub && osTaskTestFlags(task, FL_TASK_STOPPED)) // stopping, so this is a no-op
+        return true;
+
+    if (numEvts > MAX_EVT_SUB_CNT)
         return false;
 
-    act->evtSub.tid = osGetCurrentTid();
+    act = slabAllocatorAlloc(mMiscInternalThingsSlab);
+
+    if (!act)
+        return false;
+
+    act->evtSub.tid = task->tid;
     act->evtSub.numEvts = numEvts;
     for (i = 0; i < numEvts; i++)
         act->evtSub.evts[i] = va_arg(ap, uint32_t);
