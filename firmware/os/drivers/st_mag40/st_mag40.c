@@ -1024,6 +1024,9 @@ static bool startTask(uint32_t task_id)
 static void endTask(void)
 {
     INFO_PRINT("ended\n");
+#if defined(ST_MAG40_CAL_ENABLED)
+    magCalDestroy(&mTask.moc);
+#endif /* ST_MAG40_CAL_ENABLED */
     slabAllocatorDestroy(mTask.magDataSlab);
     disableInterrupt(mTask.Int1, &mTask.Isr1);
 }
