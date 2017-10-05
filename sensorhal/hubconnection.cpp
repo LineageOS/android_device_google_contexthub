@@ -19,10 +19,6 @@
 
 #include "hubconnection.h"
 
-// TODO: remove the includes that introduce LIKELY and UNLIKELY (firmware/os/inc/toolchain.h)
-#undef LIKELY
-#undef UNLIKELY
-
 #include "file.h"
 #include "JSONObject.h"
 
@@ -36,13 +32,10 @@
 #include <linux/input.h>
 #include <linux/uinput.h>
 
-#include <android/frameworks/schedulerservice/1.0/ISchedulingPolicyService.h>
 #include <cutils/ashmem.h>
 #include <cutils/properties.h>
 #include <hardware_legacy/power.h>
 #include <media/stagefright/foundation/ADebug.h>
-#include <utils/Log.h>
-#include <utils/SystemClock.h>
 
 #include <algorithm>
 #include <cmath>
@@ -79,14 +72,10 @@ const char LID_STATE_OPEN[]     = "open";
 const char LID_STATE_CLOSED[]   = "closed";
 #endif  // LID_STATE_REPORTING_ENABLED
 
+constexpr int HUBCONNECTION_SCHED_FIFO_PRIORITY = 3;
+
 static const uint32_t delta_time_encoded = 1;
 static const uint32_t delta_time_shift_table[2] = {9, 0};
-
-#ifdef USE_SENSORSERVICE_TO_GET_FIFO
-// TODO(b/35219747): retain sched_fifo before eval is done to avoid
-// performance regression.
-const char SCHED_FIFO_PRIOIRTY[] = "sensor.hubconnection.sched_fifo";
-#endif
 
 namespace android {
 
@@ -270,49 +259,16 @@ HubConnection::~HubConnection()
 void HubConnection::onFirstRef()
 {
     run("HubConnection", PRIORITY_URGENT_DISPLAY);
-#ifdef USE_SENSORSERVICE_TO_GET_FIFO
-    if (property_get_bool(SCHED_FIFO_PRIOIRTY, true)) {
-        ALOGV("Try activate sched-fifo priority for HubConnection thread");
-        mEnableSchedFifoThread = std::thread(enableSchedFifoMode, this);
-    }
-#else
-    enableSchedFifoMode(this);
-#endif
+    enableSchedFifoMode();
 }
 
 // Set main thread to SCHED_FIFO to lower sensor event latency when system is under load
-void HubConnection::enableSchedFifoMode(sp<HubConnection> hub) {
-#ifdef USE_SENSORSERVICE_TO_GET_FIFO
-    using ::android::frameworks::schedulerservice::V1_0::ISchedulingPolicyService;
-    using ::android::hardware::Return;
-
-    // SchedulingPolicyService will not start until system server start.
-    // Thus, cannot block on this.
-    sp<ISchedulingPolicyService> scheduler = ISchedulingPolicyService::getService();
-
-    if (scheduler == nullptr) {
-        ALOGW("Couldn't get scheduler scheduler to set SCHED_FIFO.");
-    } else {
-        Return<int32_t> max = scheduler->getMaxAllowedPriority();
-        if (!max.isOk()) {
-            ALOGW("Failed to retrieve maximum allowed priority for HubConnection.");
-            return;
-        }
-        Return<bool> ret = scheduler->requestPriority(::getpid(), hub->getTid(), max);
-        if (!ret.isOk() || !ret) {
-            ALOGW("Failed to set SCHED_FIFO for HubConnection.");
-        } else {
-            ALOGV("Enabled sched fifo thread mode (prio %d)", static_cast<int32_t>(max));
-        }
-    }
-#else
-#define HUBCONNECTION_SCHED_FIFO_PRIORITY 10
+void HubConnection::enableSchedFifoMode() {
     struct sched_param param = {0};
     param.sched_priority = HUBCONNECTION_SCHED_FIFO_PRIORITY;
-    if (sched_setscheduler(hub->getTid(), SCHED_FIFO | SCHED_RESET_ON_FORK, &param) != 0) {
+    if (sched_setscheduler(getTid(), SCHED_FIFO | SCHED_RESET_ON_FORK, &param) != 0) {
         ALOGW("Couldn't set SCHED_FIFO for HubConnection thread");
     }
-#endif
 }
 
 status_t HubConnection::initCheck() const
