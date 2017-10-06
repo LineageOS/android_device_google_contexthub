@@ -674,8 +674,6 @@ static bool st_mag40_int1_isr(struct ChainedIsr *isr)
     if (!extiIsPendingGpio(mTask.Int1))
         return false;
 
-    mTask.timestampInt = rtcGetTime();
-
     /* Start sampling for a value */
     if (!osEnqueuePrivateEvt(EVT_SENSOR_INTERRUPT, NULL, NULL, mTask.tid))
         ERROR_PRINT("st_mag40_int1_isr: osEnqueuePrivateEvt() failed\n");
@@ -700,6 +698,8 @@ static void parseRawData(uint8_t *raw)
 #if defined(ST_MAG40_CAL_ENABLED)
     float xi, yi, zi;
 #endif
+
+    mTask.timestampInt = sensorGetTime();
 
 	/* Discard samples generated during sensor turn-on time */
     if (mTask.samplesToDiscard > 0) {
@@ -1024,6 +1024,9 @@ static bool startTask(uint32_t task_id)
 static void endTask(void)
 {
     INFO_PRINT("ended\n");
+#if defined(ST_MAG40_CAL_ENABLED)
+    magCalDestroy(&mTask.moc);
+#endif /* ST_MAG40_CAL_ENABLED */
     slabAllocatorDestroy(mTask.magDataSlab);
     disableInterrupt(mTask.Int1, &mTask.Isr1);
 }
