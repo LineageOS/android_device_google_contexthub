@@ -36,9 +36,6 @@
 #include "hubdefs.h"
 #include "ring.h"
 
-#ifdef USE_SENSORSERVICE_TO_GET_FIFO
-#include <thread>
-#endif
 #include <unordered_map>
 
 #define WAKELOCK_NAME "sensorHal"
@@ -277,11 +274,8 @@ private:
     void restoreSensorState();
     void sendCalibrationOffsets();
 
-#ifdef USE_SENSORSERVICE_TO_GET_FIFO
     // Enable SCHED_FIFO priority for main thread
-    std::thread mEnableSchedFifoThread;
-#endif
-    static void enableSchedFifoMode(sp<HubConnection> hub);
+    void enableSchedFifoMode();
 
 #ifdef LID_STATE_REPORTING_ENABLED
     int mUinputFd;
