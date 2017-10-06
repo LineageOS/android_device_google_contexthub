@@ -133,9 +133,6 @@ LOCAL_MODULE_OWNER := google
 LOCAL_PROPRIETARY_MODULE := true
 
 LOCAL_CFLAGS += $(COMMON_CFLAGS)
-ifeq ($(PRODUCT_FULL_TREBLE),true)
-LOCAL_CFLAGS += -DUSE_SENSORSERVICE_TO_GET_FIFO
-endif
 
 ifeq ($(NANOHUB_SENSORHAL_LID_STATE_ENABLED), true)
 LOCAL_CFLAGS += -DLID_STATE_REPORTING_ENABLED
@@ -164,12 +161,9 @@ LOCAL_STATIC_LIBRARIES := \
     libhubutilcommon
 
 LOCAL_SHARED_LIBRARIES := \
-    android.frameworks.schedulerservice@1.0 \
     libcutils \
     libhardware \
     libhardware_legacy \
-    libhidlbase \
-    libhidltransport \
     liblog \
     libstagefright_foundation \
     libutils \
