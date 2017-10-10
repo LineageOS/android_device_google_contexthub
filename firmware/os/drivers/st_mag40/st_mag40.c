@@ -701,7 +701,7 @@ static void parseRawData(uint8_t *raw)
 
     mTask.timestampInt = sensorGetTime();
 
-	/* Discard samples generated during sensor turn-on time */
+    /* Discard samples generated during sensor turn-on time */
     if (mTask.samplesToDiscard > 0) {
         mTask.samplesToDiscard--;
         return;
