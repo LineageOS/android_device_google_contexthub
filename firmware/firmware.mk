@@ -93,6 +93,7 @@ endif
 DEPS += $(wildcard inc/*.h)
 DEPS += $(wildcard ../inc/*.h)
 DEPS += $(wildcard ../inc/chre/*.h)
+DEPS += $(wildcard $(VARIANT_PATH)/inc/variant/*.h)
 DEPS += firmware.mk firmware_conf.mk $(MAKE_PLAT) $(MAKE_CPU) $(MAKE_VAR)
 DELIVERABLES += $(OUT)/full.bin
 
