@@ -56,6 +56,7 @@ FLAGS += -Ios/platform/$(PLATFORM)/inc
 FLAGS += -I$(VARIANT_PATH)/inc
 FLAGS += -Iexternal/freebsd/inc
 FLAGS += -I../lib/include
+FLAGS += -I../../../../system/chre/chre_api/include/chre_api
 
 FLAGS += -Wall -Werror
 #help avoid commmon embedded C mistakes
@@ -92,6 +93,7 @@ endif
 DEPS += $(wildcard inc/*.h)
 DEPS += $(wildcard ../inc/*.h)
 DEPS += $(wildcard ../inc/chre/*.h)
+DEPS += $(wildcard $(VARIANT_PATH)/inc/variant/*.h)
 DEPS += firmware.mk firmware_conf.mk $(MAKE_PLAT) $(MAKE_CPU) $(MAKE_VAR)
 DELIVERABLES += $(OUT)/full.bin
 
