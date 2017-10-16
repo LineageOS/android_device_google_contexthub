@@ -34,6 +34,9 @@ extern "C" {
 #define AP_INT_WAKEUP               GPIO_PB(5)
 #undef AP_INT_NONWAKEUP
 
+//enable logging through nanohub driver
+#define DEBUG_LOG_EVT               0x3B474F4C
+
 #define DEBUG_UART_UNITNO           1
 #define DEBUG_UART_GPIO_TX          GPIO_PA(9)
 #define DEBUG_UART_GPIO_RX          GPIO_PA(10)
