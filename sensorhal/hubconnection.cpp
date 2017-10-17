@@ -211,6 +211,7 @@ HubConnection::HubConnection()
     mSensorState[COMMS_SENSOR_PROXIMITY].sensorType = SENS_TYPE_PROX;
     mSensorState[COMMS_SENSOR_PRESSURE].sensorType = SENS_TYPE_BARO;
     mSensorState[COMMS_SENSOR_TEMPERATURE].sensorType = SENS_TYPE_TEMP;
+    mSensorState[COMMS_SENSOR_AMBIENT_TEMPERATURE].sensorType = SENS_TYPE_AMBIENT_TEMP;
     mSensorState[COMMS_SENSOR_ORIENTATION].sensorType = SENS_TYPE_ORIENTATION;
     mSensorState[COMMS_SENSOR_WINDOW_ORIENTATION].sensorType = SENS_TYPE_WIN_ORIENTATION;
     mSensorState[COMMS_SENSOR_WINDOW_ORIENTATION].rate = SENSOR_RATE_ONCHANGE;
@@ -650,6 +651,9 @@ void HubConnection::processSample(uint64_t timestamp, uint32_t type, uint32_t se
         initEv(&nev[cnt++], timestamp, type, sensor)->relative_humidity = sample->fdata;
         break;
     case COMMS_SENSOR_TEMPERATURE:
+        initEv(&nev[cnt++], timestamp, type, sensor)->temperature = sample->fdata;
+        break;
+    case COMMS_SENSOR_AMBIENT_TEMPERATURE:
         initEv(&nev[cnt++], timestamp, type, sensor)->temperature = sample->fdata;
         break;
     case COMMS_SENSOR_PROXIMITY:
@@ -1177,6 +1181,11 @@ ssize_t HubConnection::processBuf(uint8_t *buf, size_t len)
             // internal temp because we currently don't have ambient temp
             type = SENSOR_TYPE_INTERNAL_TEMPERATURE;
             sensor = COMMS_SENSOR_TEMPERATURE;
+            one = true;
+            break;
+        case SENS_TYPE_TO_EVENT(SENS_TYPE_AMBIENT_TEMP):
+            type = SENSOR_TYPE_AMBIENT_TEMPERATURE;
+            sensor = COMMS_SENSOR_AMBIENT_TEMPERATURE;
             one = true;
             break;
         case SENS_TYPE_TO_EVENT(SENS_TYPE_ORIENTATION):
