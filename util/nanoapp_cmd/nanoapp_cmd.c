@@ -102,6 +102,8 @@ static int setType(struct ConfigCmd *cmd, char *sensor)
         cmd->sensorType = SENS_TYPE_GYRO;
     } else if (strcmp(sensor, "mag") == 0) {
         cmd->sensorType = SENS_TYPE_MAG;
+    } else if (strcmp(sensor, "uncal_accel") == 0) {
+        cmd->sensorType = SENS_TYPE_ACCEL;
     } else if (strcmp(sensor, "uncal_gyro") == 0) {
         cmd->sensorType = SENS_TYPE_GYRO;
     } else if (strcmp(sensor, "uncal_mag") == 0) {
@@ -114,6 +116,8 @@ static int setType(struct ConfigCmd *cmd, char *sensor)
         cmd->sensorType = SENS_TYPE_BARO;
     } else if (strcmp(sensor, "temp") == 0) {
         cmd->sensorType = SENS_TYPE_TEMP;
+    } else if (strcmp(sensor, "ambient_temp") == 0) {
+        cmd->sensorType = SENS_TYPE_AMBIENT_TEMP;
     } else if (strcmp(sensor, "orien") == 0) {
         cmd->sensorType = SENS_TYPE_ORIENTATION;
     } else if (strcmp(sensor, "gravity") == 0) {
@@ -449,11 +453,11 @@ int main(int argc, char *argv[])
     if (argc < 3 && (argc < 2 || strcmp(argv[1], "download") != 0)) {
         printf("usage: %s <action> <sensor> <data> -d\n", argv[0]);
         printf("       action: config|cfgdata|calibrate|flush\n");
-        printf("       sensor: accel|(uncal_)gyro|(uncal_)mag|als|prox|baro|temp|orien\n");
+        printf("       sensor: (uncal_)accel|(uncal_)gyro|(uncal_)mag|als|prox|baro|temp|orien\n");
         printf("               gravity|geomag|linear_acc|rotation|game\n");
         printf("               win_orien|tilt|step_det|step_cnt|double_tap\n");
         printf("               flat|anymo|nomo|sigmo|gesture|hall|vsync\n");
-        printf("               activity|twist|leds|leds_i2c|humidity\n");
+        printf("               activity|twist|leds|leds_i2c|humidity|ambient_temp\n");
         printf("       data: config: <true|false> <rate in Hz> <latency in u-sec>\n");
         printf("             cfgdata: leds: led_num value\n");
         printf("             calibrate: [N.A.]\n");
