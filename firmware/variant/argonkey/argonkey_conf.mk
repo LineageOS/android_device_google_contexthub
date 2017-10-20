@@ -14,5 +14,13 @@
 # limitations under the License.
 #
 
-subdirs := nucleo lunchbox linux neonkey argonkey
-include $(call all-named-subdir-makefiles,$(subdirs))
+# settings that apps and OS both want to know about variant
+
+VENDOR := google
+VARIANT := argonkey
+CPU := cortexm4
+CHIP := stm32f412
+PLATFORM := stm32
+
+# VARIANT_PATH is relative to ANDROID TOP
+VARIANT_PATH := device/google/contexthub/firmware/variant/$(VARIANT)
