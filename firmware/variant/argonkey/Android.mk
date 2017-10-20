@@ -14,5 +14,23 @@
 # limitations under the License.
 #
 
-subdirs := nucleo lunchbox linux neonkey argonkey
-include $(call all-named-subdir-makefiles,$(subdirs))
+LOCAL_PATH := $(call my-dir)
+
+include $(CLEAR_NANO_VARS)
+
+LOCAL_MODULE := libnanohub_os_argonkey
+LOCAL_MODULE_TAGS := optional
+LOCAL_AUX_OS_VARIANT := argonkey
+
+LOCAL_SRC_FILES :=      \
+    src/os/i2c.c        \
+    src/os/led.c        \
+    src/os/spi.c        \
+
+LOCAL_C_INCLUDES := \
+    $(LOCAL_PATH)/inc \
+
+LOCAL_EXPORT_C_INCLUDE_DIRS := \
+    $(LOCAL_C_INCLUDES)
+
+include $(BUILD_NANOHUB_OS_STATIC_LIBRARY)
