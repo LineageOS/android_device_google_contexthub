@@ -21,6 +21,7 @@
 #include <sensors.h>
 #include <slab.h>
 #include <heap.h>
+#include <halIntf.h>
 #include <spi.h>
 #include <gpio.h>
 #include <atomic.h>
@@ -45,6 +46,8 @@
 #include "st_lsm6dsm_lsm303agr_slave.h"
 #include "st_lsm6dsm_ak09916_slave.h"
 #include "st_lsm6dsm_lps22hb_slave.h"
+
+#define LSM6DSM_APP_VERSION 1
 
 #if defined(LSM6DSM_I2C_MASTER_MAGNETOMETER_ENABLED) || defined(LSM6DSM_I2C_MASTER_BAROMETER_ENABLED)
 #define LSM6DSM_I2C_MASTER_ENABLED                      1
@@ -3711,13 +3714,33 @@ static bool lsm6dsm_runMagnSelfTest(void *cookie)
 static bool lsm6dsm_magnCfgData(void *data, void *cookie)
 {
     TDECL();
-    float *values = data;
+    const struct AppToSensorHalDataPayload *p = data;
 
-    DEBUG_PRINT("Magn sw bias data [uT * 1000]: %ld %ld %ld\n", (int32_t)(values[0] * 1000), (int32_t)(values[1] * 1000), (int32_t)(values[2] * 1000));
+    if (p->type == HALINTF_TYPE_MAG_CAL_BIAS && p->size == sizeof(struct MagCalBias)) {
+        const struct MagCalBias *d = p->magCalBias;
+        INFO_PRINT("lsm6dsm_magnCfgData: calibration %ldnT, %ldnT, %ldnT\n",
+                (int32_t)(d->bias[0] * 1000),
+                (int32_t)(d->bias[1] * 1000),
+                (int32_t)(d->bias[2] * 1000));
 
-    T(magnCal).x_bias = values[0];
-    T(magnCal).y_bias = values[1];
-    T(magnCal).z_bias = values[2];
+        T(magnCal).x_bias = d->bias[0];
+        T(magnCal).y_bias = d->bias[1];
+        T(magnCal).z_bias = d->bias[2];
+    } else if (p->type == HALINTF_TYPE_MAG_LOCAL_FIELD && p->size == sizeof(struct MagLocalField)) {
+        const struct MagLocalField *d = p->magLocalField;
+        INFO_PRINT("lsm6dsm_magnCfgData: local field strength %dnT, dec %ddeg, inc %ddeg\n",
+                (int)(d->strength * 1000),
+                (int)(d->declination * 180 / M_PI + 0.5f),
+                (int)(d->inclination * 180 / M_PI + 0.5f));
+
+        // Passing local field information to mag calibration routine
+#ifdef DIVERSITY_CHECK_ENABLED
+        diversityCheckerLocalFieldUpdate(&T(magnCal).diversity_checker, d->strength);
+#endif
+        // TODO: pass local field information to rotation vector sensor.
+    } else {
+        ERROR_PRINT("lsm6dsm_magnCfgData: unknown type 0x%04x, size %d", p->type, p->size);
+    }
 
     return true;
 }
@@ -5111,11 +5134,28 @@ static bool lsm6dsm_startTask(uint32_t taskId)
 #endif /* LSM6DSM_OVERTEMP_CALIB_ENABLED */
 
 #ifdef LSM6DSM_MAGN_CALIB_ENABLED
+#ifdef DIVERSITY_CHECK_ENABLED
     initMagCal(&T(magnCal),
             0.0f, 0.0f, 0.0f,           /* magn offset x - y - z */
             1.0f, 0.0f, 0.0f,           /* magn scale matrix c00 - c01 - c02 */
             0.0f, 1.0f, 0.0f,           /* magn scale matrix c10 - c11 - c12 */
-            0.0f, 0.0f, 1.0f);          /* magn scale matrix c20 - c21 - c22 */
+            0.0f, 0.0f, 1.0f,           /* magn scale matrix c20 - c21 - c22 */
+            3000000,                    /* min_batch_window_in_micros */
+            8,                          /* min_num_diverse_vectors */
+            1,                          /* max_num_max_distance */
+            6.0f,                       /* var_threshold */
+            10.0f,                      /* max_min_threshold */
+            48.f,                       /* local_field */
+            0.5f,                       /* threshold_tuning_param */
+            2.552f);                    /* max_distance_tuning_param */
+#else
+    initMagCal(&T(magnCal),
+            0.0f, 0.0f, 0.0f,           /* magn offset x - y - z */
+            1.0f, 0.0f, 0.0f,           /* magn scale matrix c00 - c01 - c02 */
+            0.0f, 1.0f, 0.0f,           /* magn scale matrix c10 - c11 - c12 */
+            0.0f, 0.0f, 1.0f,           /* magn scale matrix c20 - c21 - c22 */
+            3000000);                   /* min_batch_window_in_micros */
+#endif
 #endif /* LSM6DSM_MAGN_CALIB_ENABLED */
 
     /* Initialize index used to fill/get data from buffer */
@@ -5163,4 +5203,4 @@ static void lsm6dsm_endTask(void)
     gpioRelease(T(int1));
 }
 
-INTERNAL_APP_INIT(LSM6DSM_APP_ID, 0, lsm6dsm_startTask, lsm6dsm_endTask, lsm6dsm_handleEvent);
+INTERNAL_APP_INIT(LSM6DSM_APP_ID, LSM6DSM_APP_VERSION, lsm6dsm_startTask, lsm6dsm_endTask, lsm6dsm_handleEvent);
