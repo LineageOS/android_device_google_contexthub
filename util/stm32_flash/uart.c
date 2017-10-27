@@ -56,11 +56,17 @@ uint8_t uart_write_cmd(handle_t *handle, uint8_t cmd)
 uint8_t uart_read_data(handle_t *handle, uint8_t *data, int length)
 {
     uart_handle_t *uart_handle = (uart_handle_t *)handle;
+    int ret;
 
-    if (read(uart_handle->fd, data, length) == length)
-        return CMD_ACK;
-    else
-        return CMD_NACK;
+    while (length > 0) {
+        ret = read(uart_handle->fd, data, length);
+        if (ret <= 0)
+            return CMD_NACK;
+        data += ret;
+        length -= ret;
+    }
+
+    return CMD_ACK;
 }
 
 uint8_t uart_read_ack(handle_t *handle)
