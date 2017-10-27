@@ -89,6 +89,8 @@ int uart_init(handle_t *handle)
     handle->cmd_read_memory = CMD_READ_MEMORY;
     handle->cmd_write_memory = CMD_WRITE_MEMORY;
 
+    handle->no_extra_sync = 1;
+
     handle->write_data = uart_write_data;
     handle->write_cmd = uart_write_cmd;
     handle->read_data = uart_read_data;
