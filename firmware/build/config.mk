@@ -98,6 +98,17 @@ define nano-gen-linker-script-native
 $(eval $(call nano-gen-linker-script-from-list,$(1),$(NANOHUB_OS_PATH)/os/platform/$(5)/lkr/$(4).extra.lkr))
 endef
 
+# create linker script rule
+#
+# $(1) - target file
+# $(2) - { os | bl }
+# $(3) - full path to map file
+# $(4) - platform class
+# $(5) - platform dir
+define nano-gen-linker-script-map
+$(eval $(call nano-gen-linker-script-from-list,$(1),$(3) $(patsubst %,$(NANOHUB_OS_PATH)/os/platform/$(5)/lkr/%.lkr,$(4).$(2) $(4).common)))
+endef
+
 # variables that Android.mk or our config files may define per-cpu, per-arch etc;
 # must include all LOCAL* variables we modify in any place within the scope of for-each-variant.
 #
