@@ -117,3 +117,5 @@ $(OUT)/full.bin: $(BL_FILE) $(OS_FILE)
 
 clean:
 	rm -rf $(OUT)
+
+.SECONDARY: $(OUT)/os.checked.elf
