@@ -522,6 +522,7 @@ static void handleI2cEvent(struct I2cTransfer *xfer)
         case STATE_CONFIG: {
             // standby time: 62.5ms, IIR filter coefficient: 4
             writeRegister(BOSCH_BMP280_REG_CONFIG, (1 << 5) | (2 << 2), STATE_FINISH_INIT);
+            break;
         }
 
         case STATE_ENABLING_BARO: {
