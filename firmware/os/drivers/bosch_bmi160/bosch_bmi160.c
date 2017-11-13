@@ -61,6 +61,7 @@
 
 #ifdef GYRO_CAL_ENABLED
 #include <calibration/gyroscope/gyro_cal.h>
+#include <common/math/macros.h>
 #endif  // GYRO_CAL_ENABLED
 
 #if defined(GYRO_CAL_DBG_ENABLED) || defined(OVERTEMPCAL_DBG_ENABLED)
@@ -75,6 +76,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define VERBOSE_PRINT(fmt, ...) do { \
+        osLog(LOG_VERBOSE, "%s " fmt, "[BMI160]", ##__VA_ARGS__); \
+    } while (0);
+
 #define INFO_PRINT(fmt, ...) do { \
         osLog(LOG_INFO, "%s " fmt, "[BMI160]", ##__VA_ARGS__); \
     } while (0);
@@ -85,13 +90,13 @@
 
 #define DEBUG_PRINT(fmt, ...) do { \
         if (DBG_ENABLE) {  \
-            INFO_PRINT(fmt,  ##__VA_ARGS__); \
+            osLog(LOG_DEBUG, "%s " fmt, "[BMI160]", ##__VA_ARGS__); \
         } \
     } while (0);
 
 #define DEBUG_PRINT_IF(cond, fmt, ...) do { \
         if ((cond) && DBG_ENABLE) {  \
-            INFO_PRINT(fmt,  ##__VA_ARGS__); \
+            osLog(LOG_DEBUG, "%s " fmt, "[BMI160]", ##__VA_ARGS__); \
         } \
     } while (0);
 
@@ -103,7 +108,7 @@
 #define DBG_WM_CALC               0
 #define TIMESTAMP_DBG             0
 
-#define BMI160_APP_VERSION 15
+#define BMI160_APP_VERSION 17
 
 // fixme: to list required definitions for a slave mag
 #ifdef USE_BMM150
@@ -1313,7 +1318,7 @@ static bool accPower(bool on, void *cookie)
 {
     TDECL();
 
-    INFO_PRINT("accPower: on=%d, state=%" PRI_STATE "\n", on, getStateName(GET_STATE()));
+    VERBOSE_PRINT("accPower: on=%d, state=%" PRI_STATE "\n", on, getStateName(GET_STATE()));
     if (trySwitchState(on ? SENSOR_POWERING_UP : SENSOR_POWERING_DOWN)) {
         if (on) {
             // set ACC power mode to NORMAL
@@ -1336,7 +1341,7 @@ static bool accPower(bool on, void *cookie)
 static bool gyrPower(bool on, void *cookie)
 {
     TDECL();
-    INFO_PRINT("gyrPower: on=%d, state=%" PRI_STATE "\n", on, getStateName(GET_STATE()));
+    VERBOSE_PRINT("gyrPower: on=%d, state=%" PRI_STATE "\n", on, getStateName(GET_STATE()));
 
     if (trySwitchState(on ? SENSOR_POWERING_UP : SENSOR_POWERING_DOWN)) {
         if (on) {
@@ -1369,7 +1374,7 @@ static bool gyrPower(bool on, void *cookie)
 static bool magPower(bool on, void *cookie)
 {
     TDECL();
-    INFO_PRINT("magPower: on=%d, state=%" PRI_STATE "\n", on, getStateName(GET_STATE()));
+    VERBOSE_PRINT("magPower: on=%d, state=%" PRI_STATE "\n", on, getStateName(GET_STATE()));
     if (trySwitchState(on ? SENSOR_POWERING_UP : SENSOR_POWERING_DOWN)) {
         if (on) {
             // set MAG power mode to NORMAL
@@ -1665,7 +1670,7 @@ static bool gyrSetRate(uint32_t rate, uint64_t latency, void *cookie)
     TDECL();
     int odr, osr = 0;
     int osr_mode = 2; // normal
-    INFO_PRINT("gyrSetRate: rate=%ld, latency=%lld, state=%" PRI_STATE "\n",
+    VERBOSE_PRINT("gyrSetRate: rate=%ld, latency=%lld, state=%" PRI_STATE "\n",
                rate, latency, getStateName(GET_STATE()));
 
     if (trySwitchState(SENSOR_CONFIG_CHANGING)) {
@@ -1732,7 +1737,7 @@ static bool magSetRate(uint32_t rate, uint64_t latency, void *cookie)
     if (rate == SENSOR_RATE_ONCHANGE)
         rate = SENSOR_HZ(100);
 
-    INFO_PRINT("magSetRate: rate=%ld, latency=%lld, state=%" PRI_STATE "\n",
+    VERBOSE_PRINT("magSetRate: rate=%ld, latency=%lld, state=%" PRI_STATE "\n",
                rate, latency, getStateName(GET_STATE()));
 
     if (trySwitchState(SENSOR_CONFIG_CHANGING)) {
@@ -2203,25 +2208,16 @@ static void parseRawData(struct BMI160Sensor *mSensor, uint8_t *buf, float kScal
       }
 
 #ifdef OVERTEMPCAL_ENABLED
-      // OTC-Gyro Cal -- A timer is used to limit the frequency of the offset
-      // update checks.
-      static uint64_t imu_new_otc_offset_timer = 0;  // nanoseconds
-      bool new_otc_offset_update = false;
-      bool new_otc_model_update = false;
-      if ((rtc_time - imu_new_otc_offset_timer) >= 500000000) {
-        imu_new_otc_offset_timer = rtc_time;
+      // OTC-Gyro Cal --  Gets the latest OTC-Gyro temperature compensated
+      // offset estimate.
+      bool new_otc_offset_update =
+          overTempCalNewOffsetAvailable(&mTask.over_temp_gyro_cal);
+      overTempCalGetOffset(&mTask.over_temp_gyro_cal,
+                           &gyro_offset_temperature_celsius, gyro_offset);
 
-        // OTC-Gyro Cal --  Gets the latest OTC-Gyro temperature compensated
-        // offset estimate.
-        new_otc_offset_update =
-            overTempCalNewOffsetAvailable(&mTask.over_temp_gyro_cal);
-        overTempCalGetOffset(&mTask.over_temp_gyro_cal,
-                             &gyro_offset_temperature_celsius, gyro_offset);
-
-        // OTC-Gyro Cal --  Checks for a model update.
-        new_otc_model_update =
-            overTempCalNewModelUpdateAvailable(&mTask.over_temp_gyro_cal);
-      }
+      // OTC-Gyro Cal --  Checks for a model update.
+      bool new_otc_model_update =
+          overTempCalNewModelUpdateAvailable(&mTask.over_temp_gyro_cal);
 
       if (new_otc_offset_update) {
 #else   // OVERTEMPCAL_ENABLED
@@ -3853,38 +3849,40 @@ static bool startTask(uint32_t task_id)
 
 #ifdef GYRO_CAL_ENABLED
     // Gyro Cal -- Initialization.
-    gyroCalInit(
-        &mTask.gyro_cal,
-        5e9,                       // min stillness period = 5 seconds
-        6e9,                       // max stillness period = 6 seconds
-        0, 0, 0,                   // initial bias offset calibration
-        0,                         // time stamp of initial bias calibration
-        1.5e9,                     // analysis window length = 1.5 seconds
-        7.5e-5f,                   // gyroscope variance threshold [rad/sec]^2
-        1.5e-5f,                   // gyroscope confidence delta [rad/sec]^2
-        4.5e-3f,                   // accelerometer variance threshold [m/sec^2]^2
-        9.0e-4f,                   // accelerometer confidence delta [m/sec^2]^2
-        5.0f,                      // magnetometer variance threshold [uT]^2
-        1.0f,                      // magnetometer confidence delta [uT]^2
-        0.95f,                     // stillness threshold [0,1]
-        40.0e-3f * M_PI / 180.0f,  // stillness mean variation limit [rad/sec]
-        1.5f,                      // maximum temperature deviation during stillness [C]
-        true);                     // gyro calibration enable
+    gyroCalInit(&mTask.gyro_cal,
+                SEC_TO_NANOS(5.0f),   // Min stillness period = 5.0 seconds
+                SEC_TO_NANOS(5.9f),   // Max stillness period = 6.0 seconds (NOTE 1)
+                0, 0, 0,              // Initial bias offset calibration
+                0,                    // Time stamp of initial bias calibration
+                SEC_TO_NANOS(1.5f),   // Analysis window length = 1.5 seconds
+                7.5e-5f,              // Gyroscope variance threshold [rad/sec]^2
+                1.5e-5f,              // Gyroscope confidence delta [rad/sec]^2
+                4.5e-3f,              // Accelerometer variance threshold [m/sec^2]^2
+                9.0e-4f,              // Accelerometer confidence delta [m/sec^2]^2
+                5.0f,                 // Magnetometer variance threshold [uT]^2
+                1.0f,                 // Magnetometer confidence delta [uT]^2
+                0.95f,                // Stillness threshold [0,1]
+                40.0f * MDEG_TO_RAD,  // Stillness mean variation limit [rad/sec]
+                1.5f,                 // Max temperature delta during stillness [C]
+                true);                // Gyro calibration enable
+    // NOTE 1: This parameter is set to 5.9 seconds to achieve a max stillness
+    // period of 6.0 seconds and avoid buffer boundary conditions that could push
+    // the max stillness to the next multiple of the analysis window length
+    // (i.e., 7.5 seconds).
 
 #ifdef OVERTEMPCAL_ENABLED
     // Initialize over-temp calibration.
-    overTempCalInit(
-        &mTask.over_temp_gyro_cal,
-        5,                         // Min num of points to enable model update
-        5000000000,                // Min model update interval [nsec]
-        0.75f,                     // Temperature span of bin method [C]
-        50.0e-3f * M_PI / 180.0f,  // Model fit tolerance [rad/sec]
-        50.0e-3f * M_PI / 180.0f,  // Outlier rejection tolerance [rad/sec]
-        172800000000000,           // Model data point age limit [nsec]
-        50.0e-3f * M_PI / 180.0f,  // Limit for temp. sensitivity [rad/sec/C]
-        3.0f * M_PI / 180.0f,      // Limit for model intercept [rad/sec]
-        3.0e-3f * M_PI / 180.0f,   // Significant offset change [rad/sec]
-        true);                     // Over-temp compensation enable
+    overTempCalInit(&mTask.over_temp_gyro_cal,
+                    5,                     // Min num of points to enable model update
+                    SEC_TO_NANOS(0.5f),    // Min temperature update interval [nsec]
+                    0.75f,                 // Temperature span of bin method [C]
+                    40.0f * MDEG_TO_RAD,   // Jump tolerance [rad/sec]
+                    50.0f * MDEG_TO_RAD,   // Outlier rejection tolerance [rad/sec]
+                    DAYS_TO_NANOS(2),      // Model data point age limit [nsec]
+                    80.0f * MDEG_TO_RAD,   // Limit for temp. sensitivity [rad/sec/C]
+                    3.0e3f * MDEG_TO_RAD,  // Limit for model intercept parameter [rad/sec]
+                    0.1f * MDEG_TO_RAD,    // Significant offset change [rad/sec]
+                    true);                 // Over-temp compensation enable
 #endif  // OVERTEMPCAL_ENABLED
 #endif  // GYRO_CAL_ENABLED
 
@@ -3922,7 +3920,7 @@ static bool startTask(uint32_t task_id)
     // XXX: this consumes too much memeory, need to optimize
     T(mDataSlab) = slabAllocatorNew(slabSize, 4, 20);
     if (!T(mDataSlab)) {
-        INFO_PRINT("slabAllocatorNew() failed\n");
+        ERROR_PRINT("slabAllocatorNew() failed\n");
         return false;
     }
     T(mWbufCnt) = 0;
@@ -4199,10 +4197,10 @@ static size_t calcFifoSize(const int* iPeriod, const int* iLatency, const int* f
     for (i = 0; i < n; i++) {
         if (iPeriod[i] > 0) {
             anyActive = true;
-            size_t t =  minLatency / iPeriod[i];
+            size_t t = minLatency / iPeriod[i];
             head = t > head ? t : head;
             s += t * factor[i];
-            DEBUG_PRINT_IF(DBG_WM_CALC, "cfifo: %d, s+= %d*%d, head = %d", i, t, factor[i], head);
+            DEBUG_PRINT_IF(DBG_WM_CALC, "cfifo %d: s += %d * %d, head = %d", i, t, factor[i], head);
         }
     }
 
@@ -4212,7 +4210,7 @@ static size_t calcFifoSize(const int* iPeriod, const int* iLatency, const int* f
 /**
  * Calculate the watermark setting from sensor registration information
  *
- * It is assumed  that all sensor period share a common denominator (true for BMI160) and the
+ * It is assumed that all sensor periods share a common denominator (true for BMI160) and the
  * latency of sensor will be lower bounded by its sampling period.
  *
  * @return watermark register setting
@@ -4224,12 +4222,12 @@ static uint8_t calcWatermark2_(TASK) {
     int i;
 
     for (i = FIRST_CONT_SENSOR; i < NUM_CONT_SENSOR; ++i) {
-        if (T(sensors[i]).configed) {
+        if (T(sensors[i]).configed && T(sensors[i]).latency != SENSOR_LATENCY_NODATA) {
             period[i - ACC] = SENSOR_HZ((float)WATERMARK_MAX_SENSOR_RATE) / T(sensors[i]).rate;
             latency[i - ACC] = U64_DIV_BY_U64_CONSTANT(
                     T(sensors[i]).latency + WATERMARK_TIME_UNIT_NS/2, WATERMARK_TIME_UNIT_NS);
-            DEBUG_PRINT_IF(DBG_WM_CALC, "cwm2: f %dHz, l %dus => T %d unit, L %d unit",
-                    (int) T(sensors[i]).rate/1024,
+            DEBUG_PRINT_IF(DBG_WM_CALC, "cwm2 %d: f %dHz, l %dus => T %d unit, L %d unit",
+                    i, (int) T(sensors[i]).rate/1024,
                     (int) U64_DIV_BY_U64_CONSTANT(T(sensors[i]).latency, 1000),
                     period[i-ACC], latency[i-ACC]);
         }

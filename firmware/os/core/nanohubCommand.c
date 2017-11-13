@@ -1078,7 +1078,7 @@ static void halQueryApps(void *rx, uint8_t rx_len)
     uint64_t appId;
     uint32_t appVer, appSize;
 
-    if (osAppInfoByIndex(le32toh(req->idx), &appId, &appVer, &appSize)) {
+    if (osExtAppInfoByIndex(le32toh(req->idx), &appId, &appVer, &appSize)) {
         resp = heapAlloc(sizeof(*resp));
         if (resp) {
             resp->hdr.appId = APP_ID_MAKE(NANOHUB_VENDOR_GOOGLE, 0);

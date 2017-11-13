@@ -102,7 +102,7 @@ static void osChreApiGetTime(uintptr_t *retValP, va_list args)
 {
     uint64_t *timeNanos = va_arg(args, uint64_t *);
     if (timeNanos)
-        *timeNanos = timGetTime();
+        *timeNanos = sensorGetTime();
 }
 
 static inline uint32_t osChreTimerSet(uint64_t duration, const void* cookie, bool oneShot)

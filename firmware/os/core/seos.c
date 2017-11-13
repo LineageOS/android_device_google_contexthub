@@ -1360,6 +1360,28 @@ bool osAppInfoByIndex(uint32_t appIdx, uint64_t *appId, uint32_t *appVer, uint32
     return false;
 }
 
+bool osExtAppInfoByIndex(uint32_t appIdx, uint64_t *appId, uint32_t *appVer, uint32_t *appSize)
+{
+    struct Task *task;
+    int i = 0;
+
+    for_each_task(&mTasks, task) {
+        const struct AppHdr *app = task->app;
+        if (!(app->hdr.fwFlags & FL_APP_HDR_INTERNAL)) {
+            if (i != appIdx) {
+                ++i;
+            } else {
+                *appId = app->hdr.appId;
+                *appVer = app->hdr.appVer;
+                *appSize = app->sect.rel_end;
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
 void osLogv(char clevel, uint32_t flags, const char *str, va_list vl)
 {
     void *userData = platLogAllocUserData();
