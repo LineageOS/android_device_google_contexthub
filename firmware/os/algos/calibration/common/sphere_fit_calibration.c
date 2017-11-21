@@ -19,7 +19,7 @@ static bool runCalibration(struct SphereFitCal *sphere_cal,
                            const struct SphereFitData *data,
                            uint64_t timestamp_nanos);
 
-#define MIN_VALID_DATA_NORM (1e-4)
+#define MIN_VALID_DATA_NORM (1e-4f)
 
 // FUNCTION IMPLEMENTATIONS
 //////////////////////////////////////////////////////////////////////////////

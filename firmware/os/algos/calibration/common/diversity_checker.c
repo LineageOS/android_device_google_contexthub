@@ -78,10 +78,8 @@ void diversityCheckerReset(struct DiversityChecker* diverse_data) {
   diverse_data->data_full = false;
 }
 
-void diversityCheckerUpdate(
-    struct DiversityChecker* diverse_data, float x, float y, float z) {
-  ASSERT_NOT_NULL(diverse_data);
-
+int32_t diversityCheckerFindNearestPoint(struct DiversityChecker* diverse_data,
+                                         float x, float y, float z) {
   // Converting three single inputs to a vector.
   const float vec[3] = {x, y, z};
 
@@ -91,44 +89,59 @@ void diversityCheckerUpdate(
   // normSquared result (k)
   float norm_squared_result;
 
-  // If memory is full, no need to run through the data.
-  if (!diverse_data->data_full) {
-    size_t i;
-    // Running over all existing data points
-    for (i = 0; i < diverse_data->num_points; ++i) {
-      // v = v1 - v2;
-      vecSub(vec_diff,
-             &diverse_data->diverse_data[i * THREE_AXIS_DATA_DIM],
-             vec,
-             THREE_AXIS_DATA_DIM);
+  size_t i;
 
-      // k = |v|^2
-      norm_squared_result = vecNormSquared(vec_diff, THREE_AXIS_DATA_DIM);
+  // Running over all existing data points
+  for (i = 0; i < diverse_data->num_points; ++i) {
+    // v = v1 - v2;
+    vecSub(vec_diff,
+           &diverse_data->diverse_data[i * THREE_AXIS_DATA_DIM],
+           vec,
+           THREE_AXIS_DATA_DIM);
 
-      // if k < Threshold then leave the function.
-      if (norm_squared_result < diverse_data->threshold) {
-        return;
-      }
+    // k = |v|^2
+    norm_squared_result = vecNormSquared(vec_diff, THREE_AXIS_DATA_DIM);
 
-      // if k > max_distance, count and leave the function.
-      if (norm_squared_result > diverse_data->max_distance) {
-        diverse_data->num_max_dist_violations++;
-        return;
-      }
+    // if k < Threshold then leave the function.
+    if (norm_squared_result < diverse_data->threshold) {
+      return (int32_t)i;
     }
 
-    // If none of the above caused to leave the function, data is diverse.
-    // Notice that the first data vector will be stored no matter what.
-    memcpy(&diverse_data->
-           diverse_data[diverse_data->num_points * THREE_AXIS_DATA_DIM],
-           vec,
-           sizeof(float) * THREE_AXIS_DATA_DIM);
-    // Count new data point.
-    diverse_data->num_points++;
+    // if k > max_distance, count and leave the function.
+    if (norm_squared_result > diverse_data->max_distance) {
+      diverse_data->num_max_dist_violations++;
+      return -2;
+    }
+  }
+  return -1;
+}
 
-    // Setting data_full to 1, if memory is full.
-    if (diverse_data->num_points == NUM_DIVERSE_VECTORS) {
-      diverse_data->data_full = true;
+void diversityCheckerUpdate(
+    struct DiversityChecker* diverse_data, float x, float y, float z) {
+  ASSERT_NOT_NULL(diverse_data);
+
+  // If memory is full, no need to run through the data.
+  if (!diverse_data->data_full) {
+
+    // diversityCheckerDataSet() returns -1, if input data is diverse against
+    // the already stored.
+    if (diversityCheckerFindNearestPoint(diverse_data, x, y, z) == -1) {
+      // Converting three single inputs to a vector.
+      const float vec[3] = {x, y, z};
+
+      // Notice that the first data vector will be stored no matter what.
+      memcpy(&diverse_data->
+             diverse_data[diverse_data->num_points * THREE_AXIS_DATA_DIM],
+             vec,
+             sizeof(float) * THREE_AXIS_DATA_DIM);
+
+      // Count new data point.
+      diverse_data->num_points++;
+
+      // Setting data_full to 1, if memory is full.
+      if (diverse_data->num_points == NUM_DIVERSE_VECTORS) {
+        diverse_data->data_full = true;
+      }
     }
   }
 }
