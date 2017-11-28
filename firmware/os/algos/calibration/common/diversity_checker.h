@@ -82,7 +82,7 @@ struct DiversityChecker {
   // Threshold value that is used to check k against.
   float threshold;
 
-  // Threshold tuning paramter used to calculate threshold (k_algo):
+  // Threshold tuning parameter used to calculate threshold (k_algo):
   // threshold = threshold_tuning_param_sq * (local_field)^2.
   float threshold_tuning_param_sq;
 
@@ -132,6 +132,13 @@ void diversityCheckerInit(struct DiversityChecker* diverse_data,
 // Resetting the memory and the counters, leaves threshold and max_distance
 // as well as the setup variables for NormQuality check untouched.
 void diversityCheckerReset(struct DiversityChecker* diverse_data);
+
+// Checks if data point (x, y, z) is diverse against the diverse_data set. It
+// returns -1: when the input point is diverse or the index to which vector the
+// input is diverse
+  // returns -2: when a maximum distance check is violated
+int32_t diversityCheckerFindNearestPoint(struct DiversityChecker* diverse_data,
+                                         float x, float y, float z);
 
 // Main function. Tests the data (x,y,z) against the memory if diverse and
 // stores it, if so.

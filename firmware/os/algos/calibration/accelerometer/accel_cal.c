@@ -36,8 +36,8 @@
 #define MIN_TEMP 20.0f  // No Data is collected below 20 degree C.
 #define MAX_TEMP 45.0f  // No Data is collected above 45 degree C.
 #define TEMP_CUT 30     // Separation point for temperature buckets 30 degree C.
-#define EIGEN_RATIO 0.35  // EIGEN_RATIO (must be greater than 0.35).
-#define EIGEN_MAG 0.97    // Eigen value magnitude (must be greater than 0.97).
+#define EIGEN_RATIO 0.35f  // EIGEN_RATIO (must be greater than 0.35).
+#define EIGEN_MAG 0.97f    // Eigen value magnitude (must be greater than 0.97).
 #ifdef ACCEL_CAL_DBG_ENABLED
 #define TEMP_HIST_LOW \
   16  // Putting all Temp counts in first bucket for temp < 16 degree C.
