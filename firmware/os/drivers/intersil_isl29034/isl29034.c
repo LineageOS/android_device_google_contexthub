@@ -35,6 +35,10 @@
 #define ISL29034_DBG_ENABLED                    1
 #endif
 
+#ifndef ISL29034_DBG_ENABLED
+#define ISL29034_DBG_ENABLED                    0
+#endif /* ISL29034_DBG_ENABLED */
+
 #define ISL29034_APP_VERSION                    1
 
 #define ISL29034_REG_CMD_1                      0x00
