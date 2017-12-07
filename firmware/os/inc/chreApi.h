@@ -20,6 +20,8 @@
 #include <stdarg.h>
 #include <stdint.h>
 
+#include "util.h"
+
 /* if va_list is passed by value it must fit in 32-bit register */
 #if !defined(SYSCALL_PARAMS_PASSED_AS_PTRS) || !defined(SYSCALL_VARARGS_PARAMS_PASSED_AS_PTRS)
 C_STATIC_ASSERT(va_list_size, sizeof(va_list) == sizeof(uint32_t));
