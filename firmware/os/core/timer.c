@@ -31,6 +31,8 @@
 
 #define MAX_INTERNAL_EVENTS       32 //also used for external app timer() calls
 
+#define MAX_TIMER_ID              0xFF
+
 #define INFO_PRINT(fmt, ...) do { \
         osLog(LOG_INFO, "%s " fmt, "[timer]", ##__VA_ARGS__); \
     } while (0);
@@ -40,7 +42,8 @@
 struct Timer {
     uint64_t      expires; /* time of next expiration */
     uint64_t      period;  /* 0 for oneshot */
-    uint16_t      id;      /* 0 for disabled */
+    uint8_t       id;      /* 0 for disabled */
+    uint8_t       useRtc;  /* 1 for rtc, 0 for tim */
     uint16_t      tid;     /* we need TID always, for system management */
     uint32_t      jitterPpm;
     uint32_t      driftPpm;
@@ -102,7 +105,7 @@ static bool timFireAsNeededAndUpdateAlarms(void)
 {
     uint32_t maxDrift = 0, maxJitter = 0, maxErrTotal = 0;
     bool somethingDone, totalSomethingDone = false;
-    uint64_t nextTimer;
+    uint64_t nextTimer, expires;
     uint32_t i;
     struct Timer *tim;
 
@@ -118,7 +121,7 @@ static bool timFireAsNeededAndUpdateAlarms(void)
             if (!tim->id)
                 continue;
 
-            if (tim->expires <= timGetTime()) {
+            if ((!tim->useRtc && tim->expires <= timGetTime()) || (tim->useRtc && tim->expires <= rtcGetTime())) {
                 somethingDone = true;
                 if (tim->period) {
                     tim->expires += tim->period;
@@ -136,8 +139,12 @@ static bool timFireAsNeededAndUpdateAlarms(void)
                     maxDrift = tim->driftPpm;
                 if (tim->driftPpm + tim->jitterPpm > maxErrTotal)
                     maxErrTotal = tim->driftPpm + tim->jitterPpm;
-                if (!nextTimer || nextTimer > tim->expires)
-                    nextTimer = tim->expires;
+                if (tim->useRtc)
+                    expires = tim->expires - rtcGetTime() + timGetTime();
+                else
+                    expires = tim->expires;
+                if (!nextTimer || nextTimer > expires)
+                    nextTimer = expires;
             }
         }
 
@@ -155,9 +162,9 @@ static bool timFireAsNeededAndUpdateAlarms(void)
     return totalSomethingDone;
 }
 
-static uint32_t timTimerSetEx(uint64_t length, uint32_t jitterPpm, uint32_t driftPpm, TaggedPtr info, void* data, bool oneShot)
+static uint32_t timTimerSetEx(uint64_t length, uint32_t jitterPpm, uint32_t driftPpm, TaggedPtr info, void* data, bool oneShot, bool useRtc)
 {
-    uint64_t curTime = timGetTime();
+    uint64_t curTime = useRtc ? rtcGetTime() : timGetTime();
     int32_t idx = atomicBitsetFindClearAndSet(mTimersValid);
     struct Timer *t;
     uint16_t timId;
@@ -169,7 +176,7 @@ static uint32_t timTimerSetEx(uint64_t length, uint32_t jitterPpm, uint32_t drif
 
     /* generate next timer ID */
     do {
-        timId = atomicAdd32bits(&mNextTimerId, 1);
+        timId = atomicAdd32bits(&mNextTimerId, 1) & MAX_TIMER_ID;
     } while (!timId || timFindTimerById(timId));
 
     /* grab our struct & fill it in */
@@ -180,10 +187,11 @@ static uint32_t timTimerSetEx(uint64_t length, uint32_t jitterPpm, uint32_t drif
     t->driftPpm = driftPpm;
     t->callInfo = info;
     t->callData = data;
+    t->useRtc = useRtc;
+    t->tid = osGetCurrentTid();
 
     /* as soon as we write timer Id, it becomes valid and might fire */
     t->id = timId;
-    t->tid = osGetCurrentTid();
 
     /* fire as needed & recalc alarms*/
     timFireAsNeededAndUpdateAlarms();
@@ -194,17 +202,17 @@ static uint32_t timTimerSetEx(uint64_t length, uint32_t jitterPpm, uint32_t drif
 
 uint32_t timTimerSet(uint64_t length, uint32_t jitterPpm, uint32_t driftPpm, TimTimerCbkF cbk, void* data, bool oneShot)
 {
-    return timTimerSetEx(length, jitterPpm, driftPpm, taggedPtrMakeFromPtr(cbk), data, oneShot);
+    return timTimerSetEx(length, jitterPpm, driftPpm, taggedPtrMakeFromPtr(cbk), data, oneShot, false);
 }
 
 uint32_t timTimerSetAsApp(uint64_t length, uint32_t jitterPpm, uint32_t driftPpm, uint32_t tid, void* data, bool oneShot)
 {
-    return timTimerSetEx(length, jitterPpm, driftPpm, taggedPtrMakeFromUint(0), data, oneShot);
+    return timTimerSetEx(length, jitterPpm, driftPpm, taggedPtrMakeFromUint(0), data, oneShot, false);
 }
 
 uint32_t timTimerSetNew(uint64_t length, const void* data, bool oneShot)
 {
-    return timTimerSetEx(length, 0, 0, taggedPtrMakeFromUint(0), (void *)data, oneShot);
+    return timTimerSetEx(length, 0, 50, taggedPtrMakeFromUint(0), (void *)data, oneShot, true);
 }
 
 static bool timerEventMatch(uint32_t evtType, const void *evtData, void *context)

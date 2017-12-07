@@ -14,15 +14,25 @@
 # limitations under the License.
 #
 
-LOCAL_C_INCLUDES +=                                     \
-    $(NANOHUB_OS_PATH)/os/inc                           \
-    $(NANOHUB_OS_PATH)/os/platform/$(AUX_ARCH)/inc      \
-    $(NANOHUB_OS_PATH)/os/cpu/$(AUX_CPU)/inc            \
-    $(NANOHUB_OS_PATH)/../lib/include                   \
-    system/chre/chre_api/include/chre_api               \
+################################################################################
+#
+# test NanoApp Makefile
+#
+################################################################################
 
-LOCAL_WHOLE_STATIC_LIBRARIES_BL += libnanohub_bl_$(AUX_CPU)
-LOCAL_WHOLE_STATIC_LIBRARIES_BL += libnanohub_bl_$(AUX_ARCH)
 
-LOCAL_WHOLE_STATIC_LIBRARIES_OS += libnanohub_os_$(AUX_CPU)
-LOCAL_WHOLE_STATIC_LIBRARIES_OS += libnanohub_os_$(AUX_ARCH)
+SRCS := main.cpp
+BIN := chre_test2
+APP_ID := 476f6f676c549002
+APP_VERSION := 0
+
+# Nanohub relative path
+NANOHUB_DIR := ../../..
+
+# Device configuration #########################################################
+
+# select device variant for this app
+TARGET_PRODUCT ?= nucleo
+VARIANT := $(TARGET_PRODUCT)
+
+include $(NANOHUB_DIR)/app/chre/chre.mk

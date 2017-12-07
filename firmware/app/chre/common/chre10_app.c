@@ -232,8 +232,7 @@ static void chreappHandle(uint32_t eventTypeAndTid, const void *eventData)
     const void *data = eventData;
 
     union EventLocalData {
-        struct chreMessageFromHostData msg;
-        struct chreNanoappInfo info;
+    struct chreMessageFromHostData msg;
     } u;
 
     switch(evt) {
@@ -246,46 +245,18 @@ static void chreappHandle(uint32_t eventTypeAndTid, const void *eventData)
         evt = CHRE_EVENT_MESSAGE_FROM_HOST;
         data = &u.msg;
         u.msg.message = (uint8_t*)eventData + 1;
-        u.msg.messageType = 0;
+        u.msg.reservedMessageType = 0;
         u.msg.messageSize = *(uint8_t*)eventData;
-        u.msg.hostEndpoint = CHRE_HOST_ENDPOINT_UNSPECIFIED;
         break;
     case EVT_APP_FROM_HOST_CHRE:
     {
-        if (chreGetApiVersion() == CHRE_API_VERSION_1_0) {
-            const struct NanohubMsgChreHdrV10 *hdr = eventData;
-            srcTid = CHRE_INSTANCE_ID;
-            evt = CHRE_EVENT_MESSAGE_FROM_HOST;
-            data = &u.msg;
-            u.msg.message = hdr + 1;
-            u.msg.messageType = hdr->appEvent;
-            u.msg.messageSize = hdr->size;
-            u.msg.hostEndpoint = CHRE_HOST_ENDPOINT_UNSPECIFIED;
-        } else {
-            const struct NanohubMsgChreHdr *hdr = eventData;
-            srcTid = CHRE_INSTANCE_ID;
-            evt = CHRE_EVENT_MESSAGE_FROM_HOST;
-            data = &u.msg;
-            u.msg.message = hdr + 1;
-            u.msg.messageType = hdr->appEvent;
-            u.msg.messageSize = hdr->size;
-            u.msg.hostEndpoint = hdr->endpoint;
-        }
-        break;
-    }
-    case EVT_APP_STARTED:
-    case EVT_APP_STOPPED:
-    {
-        const struct AppEventStartStop *msg = eventData;
+        const struct NanohubMsgChreHdr *hdr = eventData;
         srcTid = CHRE_INSTANCE_ID;
-        if (evt == EVT_APP_STARTED)
-            evt = CHRE_EVENT_NANOAPP_STARTED;
-        else
-            evt = CHRE_EVENT_NANOAPP_STOPPED;
-        data = &u.info;
-        u.info.appId = msg->appId;
-        u.info.version = msg->version;
-        u.info.instanceId = msg->tid;
+        evt = CHRE_EVENT_MESSAGE_FROM_HOST;
+        data = &u.msg;
+        u.msg.message = hdr + 1;
+        u.msg.reservedMessageType = hdr->appEvent;
+        u.msg.messageSize = hdr->size;
         break;
     }
     case EVT_APP_SENSOR_SELF_TEST:

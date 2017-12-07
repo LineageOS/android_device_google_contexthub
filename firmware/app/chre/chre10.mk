@@ -13,16 +13,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
+################################################################################
+#
+# NanoApp C/C++ Makefile Utils
+#
+################################################################################
 
-LOCAL_C_INCLUDES +=                                     \
-    $(NANOHUB_OS_PATH)/os/inc                           \
-    $(NANOHUB_OS_PATH)/os/platform/$(AUX_ARCH)/inc      \
-    $(NANOHUB_OS_PATH)/os/cpu/$(AUX_CPU)/inc            \
-    $(NANOHUB_OS_PATH)/../lib/include                   \
-    system/chre/chre_api/include/chre_api               \
+SRCS += $(NANOHUB_DIR)/app/chre/common/chre10_app.c
+SRCS += $(NANOHUB_DIR)/app/chre/common/chre10_app_syscalls.c
 
-LOCAL_WHOLE_STATIC_LIBRARIES_BL += libnanohub_bl_$(AUX_CPU)
-LOCAL_WHOLE_STATIC_LIBRARIES_BL += libnanohub_bl_$(AUX_ARCH)
+include $(NANOHUB_DIR)/firmware_conf.mk
 
-LOCAL_WHOLE_STATIC_LIBRARIES_OS += libnanohub_os_$(AUX_CPU)
-LOCAL_WHOLE_STATIC_LIBRARIES_OS += libnanohub_os_$(AUX_ARCH)
+CFLAGS += $(COMMON_FLAGS)
+
+# CHRE API 1.0
+BIN_POSTPROCESS_ARGS := -c 0x0100
+CFLAGS += -I$(NANOHUB_DIR)/../../../../system/chre/chre_api/legacy/v1_0
+
+include $(NANOHUB_DIR)/app/app.mk

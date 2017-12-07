@@ -49,6 +49,12 @@ uint64_t chreGetTime(void) {
     return time_ns;
 }
 
+int64_t chreGetEstimatedHostTimeOffset(void) {
+    int64_t time_ns = 0;
+    (void)syscallDo1P(SYSCALL_CHRE_API(GET_HOST_TIME_OFFSET), &time_ns);
+    return time_ns;
+}
+
 void chreLog(enum chreLogLevel level, const char *str, ...)
 {
     va_list vl;
@@ -113,23 +119,12 @@ bool chreSensorConfigure(uint32_t sensorHandle,
                        interval_lo, interval_hi, latency_lo, latency_hi);
 }
 
-bool chreSendEvent(uint16_t eventType, void *eventData,
-                   chreEventCompleteFunction *freeCallback,
-                   uint32_t targetInstanceId)
-{
-    return syscallDo4P(SYSCALL_CHRE_API(SEND_EVENT), eventType, eventData, freeCallback, targetInstanceId);
-}
-
-bool chreSendMessageToHost(void *message, uint32_t messageSize,
-                           uint32_t reservedMessageType,
-                           chreMessageFreeFunction *freeCallback)
-{
-    return syscallDo4P(SYSCALL_CHRE_API(SEND_MSG), message, messageSize, reservedMessageType, freeCallback);
-}
-
 uint32_t chreGetApiVersion(void)
 {
-    return syscallDo0P(SYSCALL_CHRE_API(GET_OS_API_VERSION));
+    static uint32_t apiVersion = 0;
+    if (!apiVersion)
+        apiVersion = syscallDo0P(SYSCALL_CHRE_API(GET_OS_API_VERSION));
+    return apiVersion;
 }
 
 uint32_t chreGetVersion(void)
@@ -142,4 +137,98 @@ uint64_t chreGetPlatformId(void)
     uint64_t plat = 0;
     (void)syscallDo1P(SYSCALL_CHRE_API(GET_PLATFORM_ID), &plat);
     return plat;
+}
+
+bool chreSendEvent(uint16_t eventType, void *eventData,
+                   chreEventCompleteFunction *freeCallback,
+                   uint32_t targetInstanceId)
+{
+    if (chreGetApiVersion() == CHRE_API_VERSION_1_0)
+        return syscallDo4P(SYSCALL_CHRE_API(SEND_EVENT), eventType, eventData, freeCallback, targetInstanceId);
+    else
+        return syscallDo4P(SYSCALL_NO(SYSCALL_DOMAIN_CHRE, SYSCALL_CHRE_MAIN, SYSCALL_CHRE_MAIN_EVENT, SYSCALL_CHRE_MAIN_EVENT_SEND_EVENT), eventType, eventData, freeCallback, targetInstanceId);
+}
+
+bool chreSendMessageToHost(void *message, uint32_t messageSize,
+                           uint32_t messageType,
+                           chreMessageFreeFunction *freeCallback)
+{
+    if (chreGetApiVersion() == CHRE_API_VERSION_1_0)
+        return syscallDo4P(SYSCALL_CHRE_API(SEND_MSG), message, messageSize, messageType, freeCallback);
+    else
+        return syscallDo5P(SYSCALL_NO(SYSCALL_DOMAIN_CHRE, SYSCALL_CHRE_MAIN, SYSCALL_CHRE_MAIN_EVENT, SYSCALL_CHRE_MAIN_EVENT_SEND_MSG), message, messageSize, messageType, CHRE_HOST_ENDPOINT_BROADCAST, freeCallback);
+}
+
+bool chreSendMessageToHostEndpoint(void *message, size_t messageSize,
+                                   uint32_t messageType, uint16_t hostEndpoint,
+                                   chreMessageFreeFunction *freeCallback)
+{
+    return syscallDo5P(SYSCALL_NO(SYSCALL_DOMAIN_CHRE, SYSCALL_CHRE_MAIN, SYSCALL_CHRE_MAIN_EVENT, SYSCALL_CHRE_MAIN_EVENT_SEND_MSG), message, messageSize, messageType, hostEndpoint, freeCallback);
+}
+
+bool chreGetNanoappInfoByAppId(uint64_t appId, struct chreNanoappInfo *info)
+{
+    uint32_t app_lo = appId;
+    uint32_t app_hi = appId >> 32;
+    return syscallDo3P(SYSCALL_NO(SYSCALL_DOMAIN_CHRE, SYSCALL_CHRE_MAIN, SYSCALL_CHRE_MAIN_EVENT, SYSCALL_CHRE_MAIN_EVENT_INFO_BY_APP_ID), app_lo, app_hi, info);
+}
+
+bool chreGetNanoappInfoByInstanceId(uint32_t instanceId, struct chreNanoappInfo *info)
+{
+    return syscallDo2P(SYSCALL_NO(SYSCALL_DOMAIN_CHRE, SYSCALL_CHRE_MAIN, SYSCALL_CHRE_MAIN_EVENT, SYSCALL_CHRE_MAIN_EVENT_INFO_BY_INST_ID), instanceId, info);
+}
+
+void chreConfigureNanoappInfoEvents(bool enable)
+{
+    syscallDo1P(SYSCALL_NO(SYSCALL_DOMAIN_CHRE, SYSCALL_CHRE_MAIN, SYSCALL_CHRE_MAIN_EVENT, SYSCALL_CHRE_MAIN_EVENT_CFG_INFO), enable);
+}
+
+uint32_t chreGnssGetCapabilities(void)
+{
+    return syscallDo0P(SYSCALL_NO(SYSCALL_DOMAIN_CHRE, SYSCALL_CHRE_DRIVERS, SYSCALL_CHRE_DRV_GNSS, SYSCALL_CHRE_DRV_GNSS_GET_CAP));
+}
+
+bool chreGnssLocationSessionStartAsync(uint32_t minIntervalMs, uint32_t minTimeToNextFixMs, const void *cookie)
+{
+    return syscallDo3P(SYSCALL_NO(SYSCALL_DOMAIN_CHRE, SYSCALL_CHRE_DRIVERS, SYSCALL_CHRE_DRV_GNSS, SYSCALL_CHRE_DRV_GNSS_LOC_START_ASYNC), minIntervalMs, minTimeToNextFixMs, cookie);
+}
+
+bool chreGnssLocationSessionStopAsync(const void *cookie)
+{
+    return syscallDo1P(SYSCALL_NO(SYSCALL_DOMAIN_CHRE, SYSCALL_CHRE_DRIVERS, SYSCALL_CHRE_DRV_GNSS, SYSCALL_CHRE_DRV_GNSS_LOC_STOP_ASYNC), cookie);
+}
+
+bool chreGnssMeasurementSessionStartAsync(uint32_t minIntervalMs, const void *cookie)
+{
+    return syscallDo2P(SYSCALL_NO(SYSCALL_DOMAIN_CHRE, SYSCALL_CHRE_DRIVERS, SYSCALL_CHRE_DRV_GNSS, SYSCALL_CHRE_DRV_GNSS_MEAS_START_ASYNC), minIntervalMs, cookie);
+}
+
+bool chreGnssMeasurementSessionStopAsync(const void *cookie)
+{
+    return syscallDo1P(SYSCALL_NO(SYSCALL_DOMAIN_CHRE, SYSCALL_CHRE_DRIVERS, SYSCALL_CHRE_DRV_GNSS, SYSCALL_CHRE_DRV_GNSS_MEAS_STOP_ASYNC), cookie);
+}
+
+uint32_t chreWifiGetCapabilities(void)
+{
+    return syscallDo0P(SYSCALL_NO(SYSCALL_DOMAIN_CHRE, SYSCALL_CHRE_DRIVERS, SYSCALL_CHRE_DRV_WIFI, SYSCALL_CHRE_DRV_WIFI_GET_CAP));
+}
+
+bool chreWifiConfigureScanMonitorAsync(bool enable, const void *cookie)
+{
+    return syscallDo2P(SYSCALL_NO(SYSCALL_DOMAIN_CHRE, SYSCALL_CHRE_DRIVERS, SYSCALL_CHRE_DRV_WIFI, SYSCALL_CHRE_DRV_WIFI_CONF_SCAN_MON_ASYNC), enable, cookie);
+}
+
+bool chreWifiRequestScanAsync(const struct chreWifiScanParams *params, const void *cookie)
+{
+    return syscallDo2P(SYSCALL_NO(SYSCALL_DOMAIN_CHRE, SYSCALL_CHRE_DRIVERS, SYSCALL_CHRE_DRV_WIFI, SYSCALL_CHRE_DRV_WIFI_REQ_SCAN_ASYNC), params, cookie);
+}
+
+uint32_t chreWwanGetCapabilities(void)
+{
+    return syscallDo0P(SYSCALL_NO(SYSCALL_DOMAIN_CHRE, SYSCALL_CHRE_DRIVERS, SYSCALL_CHRE_DRV_WWAN, SYSCALL_CHRE_DRV_WWAN_GET_CAP));
+}
+
+bool chreWwanGetCellInfoAsync(const void *cookie)
+{
+    return syscallDo1P(SYSCALL_NO(SYSCALL_DOMAIN_CHRE, SYSCALL_CHRE_DRIVERS, SYSCALL_CHRE_DRV_WWAN, SYSCALL_CHRE_DRV_WWAN_GET_CELL_INFO_ASYNC), cookie);
 }

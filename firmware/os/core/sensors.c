@@ -815,6 +815,20 @@ uint64_t sensorGetCurLatency(uint32_t sensorHandle)
     return s ? s->currentLatency : SENSOR_LATENCY_INVALID;
 }
 
+uint32_t sensorGetHwRate(uint32_t sensorHandle)
+{
+    struct Sensor* s = sensorFindByHandle(sensorHandle);
+
+    return s ? sensorCalcHwRate(s, 0, 0) : SENSOR_RATE_OFF;
+}
+
+uint64_t sensorGetHwLatency(uint32_t sensorHandle)
+{
+    struct Sensor* s = sensorFindByHandle(sensorHandle);
+
+    return s ? sensorCalcHwLatency(s) : SENSOR_LATENCY_INVALID;
+}
+
 uint32_t sensorGetReqRate(uint32_t sensorHandle)
 {
     struct SensorsClientRequest *req = sensorClientRequestFind(sensorHandle, osGetCurrentTid());

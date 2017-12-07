@@ -50,6 +50,8 @@
 #include <cpu/cpuMath.h>
 #include <algos/ap_hub_sync.h>
 
+#include <chre.h>
+
 #define NANOHUB_COMMAND(_reason, _fastHandler, _handler, _minReqType, _maxReqType) \
         { .reason = _reason, .fastHandler = _fastHandler, .handler = _handler, \
           .minDataLen = sizeof(_minReqType), .maxDataLen = sizeof(_maxReqType) }
@@ -563,7 +565,7 @@ static uint32_t doFirmwareChunk(uint8_t *data, uint32_t offset, uint32_t len, vo
         if (mDownloadState->erase == true) {
             reply = NANOHUB_FIRMWARE_CHUNK_REPLY_WAIT;
             if (!mDownloadState->eraseScheduled) {
-                ret = osExtAppStopApps(APP_ID_ANY);
+                ret = osExtAppStopAppsByAppId(APP_ID_ANY);
                 osLog(LOG_INFO, "%s: unloaded apps, ret=%08lx\n", __func__, ret);
                 mDownloadState->eraseScheduled = osDefer(firmwareErase, NULL, false);
             }
@@ -664,12 +666,26 @@ static uint32_t unmaskInterrupt(void *rx, uint8_t rx_len, void *tx, uint64_t tim
     return sizeof(*resp);
 }
 
+static void nanohubDelayStartApps(void *cookie)
+{
+    uint32_t status = 0;
+    status = osExtAppStartAppsDelayed();
+    osLog(LOG_DEBUG, "Started delayed apps; EXT status: %08" PRIX32 "\n", status);
+}
+
 static void addDelta(struct ApHubSync *sync, uint64_t apTime, uint64_t hubTime)
 {
+    static bool delayStart = false;
+
 #if DEBUG_APHUB_TIME_SYNC
     syncDebugAdd(apTime, hubTime);
 #endif
     apHubSyncAddDelta(sync, apTime, hubTime);
+
+    if (!delayStart) {
+        delayStart = true;
+        osDefer(nanohubDelayStartApps, NULL, false);
+    }
 }
 
 static int64_t getAvgDelta(struct ApHubSync *sync)
@@ -930,12 +946,22 @@ static uint32_t writeEvent(void *rx, uint8_t rx_len, void *tx, uint64_t timestam
         }
     } else if (event == EVT_APP_FROM_HOST_CHRE) {
         // new version of HAL; full support for CHRE apps
+        struct HostMsgHdrChreV10 *hostPacketV10 = rx;
         struct HostMsgHdrChre *hostPacket = rx;
         if (rx_len >= sizeof(struct HostMsgHdrChre) &&
             rx_len == sizeof(struct HostMsgHdrChre) + hostPacket->len &&
             osTidById(&hostPacket->appId, &tid)) {
-            if (osAppIsChre(tid)) {
+            if (osAppChreVersion(tid) == CHRE_API_VERSION_1_1) {
                 struct NanohubMsgChreHdr hdr = {
+                    .size = hostPacket->len,
+                    .endpoint = hostPacket->endpoint,
+                    .appEvent = hostPacket->appEventId,
+                };
+                // CHRE app receives message in new format
+                resp->accepted = forwardPacket(event, hostPacket + 1, hostPacket->len,
+                                               &hdr, sizeof(hdr), tid);
+            } else if (osAppChreVersion(tid) == CHRE_API_VERSION_1_0) {
+                struct NanohubMsgChreHdrV10 hdr = {
                     .size = hostPacket->len,
                     .appEvent = hostPacket->appEventId,
                 };
@@ -946,6 +972,31 @@ static uint32_t writeEvent(void *rx, uint8_t rx_len, void *tx, uint64_t timestam
                 // legacy app receives message in old format
                 resp->accepted = forwardPacket(EVT_APP_FROM_HOST, hostPacket + 1, hostPacket->len,
                                                &hostPacket->len, sizeof(hostPacket->len), tid);
+            }
+        } else if (rx_len >= sizeof(struct HostMsgHdrChreV10) &&
+                   rx_len == sizeof(struct HostMsgHdrChreV10) + hostPacketV10->len &&
+                   osTidById(&hostPacketV10->appId, &tid)) {
+            if (osAppChreVersion(tid) == CHRE_API_VERSION_1_1) {
+                struct NanohubMsgChreHdr hdr = {
+                    .size = hostPacketV10->len,
+                    .endpoint = CHRE_HOST_ENDPOINT_UNSPECIFIED,
+                    .appEvent = hostPacketV10->appEventId,
+                };
+                // CHRE app receives message in new format
+                resp->accepted = forwardPacket(event, hostPacketV10 + 1, hostPacketV10->len,
+                                               &hdr, sizeof(hdr), tid);
+            } else if (osAppChreVersion(tid) == CHRE_API_VERSION_1_0) {
+                struct NanohubMsgChreHdrV10 hdr = {
+                    .size = hostPacketV10->len,
+                    .appEvent = hostPacketV10->appEventId,
+                };
+                // CHRE app receives message in new format
+                resp->accepted = forwardPacket(event, hostPacketV10 + 1, hostPacketV10->len,
+                                               &hdr, sizeof(hdr), tid);
+            } else {
+                // legacy app receives message in old format
+                resp->accepted = forwardPacket(EVT_APP_FROM_HOST, hostPacketV10 + 1, hostPacketV10->len,
+                                               &hostPacketV10->len, sizeof(hostPacketV10->len), tid);
             }
         } else {
             resp->accepted = false;
@@ -1049,21 +1100,21 @@ static void halExtAppsOn(void *rx, uint8_t rx_len)
 {
     struct NanohubHalMgmtRx *req = rx;
 
-    halSendMgmtResponse(NANOHUB_HAL_EXT_APPS_ON, osExtAppStartApps(le64toh(unaligned_u64(&req->appId))));
+    halSendMgmtResponse(NANOHUB_HAL_EXT_APPS_ON, osExtAppStartAppsByAppId(le64toh(unaligned_u64(&req->appId))));
 }
 
 static void halExtAppsOff(void *rx, uint8_t rx_len)
 {
     struct NanohubHalMgmtRx *req = rx;
 
-    halSendMgmtResponse(NANOHUB_HAL_EXT_APPS_OFF, osExtAppStopApps(le64toh(unaligned_u64(&req->appId))));
+    halSendMgmtResponse(NANOHUB_HAL_EXT_APPS_OFF, osExtAppStopAppsByAppId(le64toh(unaligned_u64(&req->appId))));
 }
 
 static void halExtAppDelete(void *rx, uint8_t rx_len)
 {
     struct NanohubHalMgmtRx *req = rx;
 
-    halSendMgmtResponse(NANOHUB_HAL_EXT_APP_DELETE, osExtAppEraseApps(le64toh(unaligned_u64(&req->appId))));
+    halSendMgmtResponse(NANOHUB_HAL_EXT_APP_DELETE, osExtAppEraseAppsByAppId(le64toh(unaligned_u64(&req->appId))));
 }
 
 static void halQueryMemInfo(void *rx, uint8_t rx_len)
@@ -1236,6 +1287,16 @@ const struct NanohubHalCommand *nanohubHalFindCommand(uint8_t msg)
             return cmd;
     }
     return NULL;
+}
+
+int64_t hostGetTimeDelta(void)
+{
+    int64_t delta = getAvgDelta(&mTimeSync);
+
+    if (delta == INT64_MIN)
+        return 0ULL;
+    else
+        return delta;
 }
 
 uint64_t hostGetTime(void)
