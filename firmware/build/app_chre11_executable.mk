@@ -24,12 +24,12 @@ ifeq ($(strip $(my_variants)),)
 my_variants := $(AUX_OS_VARIANT_LIST_$(NANO_OS))
 endif
 
-# mark the app as CHRE 1.2 nanoapp
-LOCAL_NANO_APP_POSTPROCESS_FLAGS += -c 0x0102
+# mark the app as CHRE 1.1 nanoapp
+LOCAL_NANO_APP_POSTPROCESS_FLAGS += -c 0x0101
 
 # add app-side CHRE implementation
 LOCAL_WHOLE_STATIC_LIBRARIES += \
-    libnanochre                 \
+    libnanochre11               \
 
 # add standard libaries
 LOCAL_STATIC_LIBRARIES +=       \
@@ -38,7 +38,6 @@ LOCAL_STATIC_LIBRARIES +=       \
     libnanolibm                 \
 
 LOCAL_C_INCLUDES +=                                     \
-    system/chre/chre_api/include/chre_api               \
-    system/chre/util/include                            \
+    system/chre/chre_api/legacy/v1_1                    \
 
 $(call for-each-variant,$(my_variants),APP,$(BUILD_NANOHUB_EXECUTABLE))
