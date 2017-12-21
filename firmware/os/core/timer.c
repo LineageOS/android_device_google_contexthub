@@ -62,6 +62,14 @@ uint64_t timGetTime(void)
     return platGetTicks();
 }
 
+void timDelay(uint32_t length)
+{
+    uint64_t curTime = timGetTime();
+
+    while (curTime + length > timGetTime())
+        ;
+}
+
 static struct Timer *timFindTimerById(uint32_t timId) /* no locks taken. be careful what you do with this */
 {
     uint32_t i;
