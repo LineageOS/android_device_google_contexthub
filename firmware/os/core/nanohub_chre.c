@@ -207,7 +207,7 @@ static bool osChreSendMessageToHost(void *message, uint32_t messageSize,
                            chreMessageFreeFunction *freeCallback)
 {
     bool result = false;
-    struct HostHubRawPacket *hostMsg = NULL;
+    struct HostHubChrePacket *hostMsg = NULL;
 
     if (messageSize > CHRE_MESSAGE_TO_HOST_MAX_SIZE || (messageSize && !message))
         goto out;
@@ -220,8 +220,10 @@ static bool osChreSendMessageToHost(void *message, uint32_t messageSize,
         memcpy(hostMsg+1, message, messageSize);
 
     hostMsg->appId = osChreGetAppId();
-    hostMsg->dataLen = messageSize;
-    result = osEnqueueEvtOrFree(EVT_APP_TO_HOST, hostMsg, heapFree);
+    hostMsg->messageSize = messageSize;
+    hostMsg->messageType = messageType;
+    hostMsg->hostEndpoint = hostEndpoint;
+    result = osEnqueueEvtOrFree(EVT_APP_TO_HOST_CHRE, hostMsg, heapFree);
 
 out:
     if (freeCallback)

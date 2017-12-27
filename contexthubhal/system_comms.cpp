@@ -100,7 +100,7 @@ NanohubRsp::NanohubRsp(MessageBuf &buf, bool no_status)
 int SystemComm::sendToSystem(const void *data, size_t len)
 {
     if (NanoHub::messageTracingEnabled()) {
-        dumpBuffer("HAL -> SYS", getSystem()->mHostIfAppName, 0, data, len);
+        dumpBuffer("HAL -> SYS", getSystem()->mHostIfAppName, 0, 0, data, len);
     }
     return NanoHub::sendToDevice(&getSystem()->mHostIfAppName, data, len);
 }
@@ -568,25 +568,25 @@ int SystemComm::KeyInfoSession::requestRsaKeys(void)
     return sendToSystem(buf.getData(), buf.getPos());
 }
 
-int SystemComm::doHandleRx(const nano_message *msg)
+int SystemComm::doHandleRx(uint64_t appId, const char *data, int len)
 {
     //we only care for messages from HostIF
-    if (msg->hdr.appId != mHostIfAppName.id)
+    if (appId != mHostIfAppName.id)
         return 1;
 
     //they must all be at least 1 byte long
-    if (!msg->hdr.len) {
+    if (!len) {
         return -EINVAL;
     }
-    MessageBuf buf(reinterpret_cast<const char*>(msg->data), msg->hdr.len);
+    MessageBuf buf(data, len);
     if (NanoHub::messageTracingEnabled()) {
-        dumpBuffer("SYS -> HAL", mHostIfAppName, 0, buf.getData(), buf.getSize());
+        dumpBuffer("SYS -> HAL", mHostIfAppName, 0, 0, buf.getData(), buf.getSize());
     }
     int status = mSessions.handleRx(buf);
     if (status) {
         // provide default handler for any system message, that is not properly handled
         dumpBuffer(status > 0 ? "HAL (not handled)" : "HAL (error)",
-                   mHostIfAppName, 0, buf.getData(), buf.getSize(), status);
+                   mHostIfAppName, 0, 0, buf.getData(), buf.getSize(), status);
         status = status > 0 ? 0 : status;
     }
 
