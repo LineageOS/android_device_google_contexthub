@@ -202,7 +202,7 @@ void* NanoHub::runAppTx()
         }
         HubMessage &m = mAppTxQueue.front();
         lk.unlock();
-        mMsgCbkFunc(0, &m, mMsgCbkData);
+        mMsgCbkFunc(0, m, mMsgCbkData);
         lk.lock();
         mAppTxQueue.pop_front();
     };
@@ -368,7 +368,7 @@ int NanoHub::closeHub(void)
     return 0;
 }
 
-int NanoHub::doSubscribeMessages(uint32_t hub_id, context_hub_callback *cbk, void *cookie)
+int NanoHub::doSubscribeMessages(uint32_t hub_id, Contexthub_callback *cbk, void *cookie)
 {
     if (hub_id) {
         return -ENODEV;
@@ -400,7 +400,7 @@ int NanoHub::doSubscribeMessages(uint32_t hub_id, context_hub_callback *cbk, voi
     return ret;
 }
 
-int NanoHub::doSendToNanohub(uint32_t hub_id, const hub_message_t *msg)
+int NanoHub::doSendToNanohub(uint32_t hub_id, const hub_message_t *msg, uint16_t endpoint)
 {
     if (hub_id) {
         return -ENODEV;
@@ -427,37 +427,15 @@ int NanoHub::doSendToNanohub(uint32_t hub_id, const hub_message_t *msg)
             ret = -EINVAL;
         } else {
             if (messageTracingEnabled()) {
-                dumpBuffer("APP -> DEV", msg->app_name, msg->message_type, 0, msg->message, msg->message_len);
+                dumpBuffer("APP -> DEV", msg->app_name, msg->message_type, endpoint, msg->message, msg->message_len);
             }
-            ret = doSendToDevice(msg->app_name, msg->message, msg->message_len, msg->message_type);
+            ret = doSendToDevice(msg->app_name, msg->message, msg->message_len, msg->message_type, endpoint);
         }
     }
 
     return ret;
 }
 
-static int hal_get_hubs(context_hub_module_t*, const context_hub_t ** list)
-{
-    *list = get_hub_info();
-
-    return 1; /* we have one hub */
-}
-
 }; // namespace nanohub
 
 }; // namespace android
-
-context_hub_module_t HAL_MODULE_INFO_SYM = {
-    .common = {
-        .tag = HARDWARE_MODULE_TAG,
-        .module_api_version = CONTEXT_HUB_DEVICE_API_VERSION_1_0,
-        .hal_api_version = HARDWARE_HAL_API_VERSION,
-        .id = CONTEXT_HUB_MODULE_ID,
-        .name = "Nanohub HAL",
-        .author = "Google",
-    },
-
-    .get_hubs = android::nanohub::hal_get_hubs,
-    .subscribe_messages = android::nanohub::NanoHub::subscribeMessages,
-    .send_message = android::nanohub::NanoHub::sendToNanohub,
-};

@@ -55,9 +55,9 @@ union nano_message {
 } __attribute__((packed));
 
 class HubMessage : public hub_message_t {
-    uint16_t message_endpoint;
     std::unique_ptr<uint8_t> data_;
 public:
+    uint16_t message_endpoint;
     HubMessage(const HubMessage &other) = delete;
     HubMessage &operator = (const HubMessage &other) = delete;
 
@@ -88,6 +88,8 @@ public:
     }
 };
 
+typedef int Contexthub_callback(uint32_t hub_id, const HubMessage &rxed_msg, void *cookie);
+
 class NanoHub {
     std::mutex mLock;
     bool mAppQuit;
@@ -96,7 +98,7 @@ class NanoHub {
     std::list<HubMessage> mAppTxQueue;
     std::thread mPollThread;
     std::thread mAppThread;
-    context_hub_callback *mMsgCbkFunc;
+    Contexthub_callback *mMsgCbkFunc;
     int mThreadClosingPipe[2];
     int mFd; // [0] is read end
     void * mMsgCbkData;
@@ -124,8 +126,8 @@ class NanoHub {
         return &theHub;
     }
 
-    int doSubscribeMessages(uint32_t hub_id, context_hub_callback *cbk, void *cookie);
-    int doSendToNanohub(uint32_t hub_id, const hub_message_t *msg);
+    int doSubscribeMessages(uint32_t hub_id, Contexthub_callback *cbk, void *cookie);
+    int doSendToNanohub(uint32_t hub_id, const hub_message_t *msg, uint16_t endpoint);
     int doSendToDevice(const hub_app_name_t name, const void *data, uint32_t len, uint32_t messageType = 0, uint16_t endpoint = ENDPOINT_UNSPECIFIED);
     void doSendToApp(HubMessage &&msg);
 
@@ -150,12 +152,12 @@ public:
     // messaging interface
 
     // define callback to invoke for APP messages
-    static int subscribeMessages(uint32_t hub_id, context_hub_callback *cbk, void *cookie) {
+    static int subscribeMessages(uint32_t hub_id, Contexthub_callback *cbk, void *cookie) {
         return hubInstance()->doSubscribeMessages(hub_id, cbk, cookie);
     }
     // all messages from APP go here
-    static int sendToNanohub(uint32_t hub_id, const hub_message_t *msg) {
-        return hubInstance()->doSendToNanohub(hub_id, msg);
+    static int sendToNanohub(uint32_t hub_id, const hub_message_t *msg, uint16_t endpoint) {
+        return hubInstance()->doSendToNanohub(hub_id, msg, endpoint);
     }
     // passes message to kernel driver directly
     static int sendToDevice(const hub_app_name_t *name, const void *data, uint32_t len) {
