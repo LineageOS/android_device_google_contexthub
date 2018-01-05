@@ -28,6 +28,7 @@ cc_library {
     header_libs: [
         "libnanohub_common_headers",
         "libhardware_headers",
+        "libutils_headers",
     ],
     proprietary: true,
 }
