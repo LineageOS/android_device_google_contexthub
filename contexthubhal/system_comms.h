@@ -57,7 +57,7 @@ namespace android {
 
 namespace nanohub {
 
-int system_comms_handle_rx(const nano_message *msg);
+int system_comms_handle_rx(const nano_message_raw *msg);
 int system_comms_handle_tx(const hub_message_t *outMsg);
 
 struct NanohubAppInfo {
@@ -293,13 +293,21 @@ private:
     ~SystemComm() = default;
 
     int doHandleTx(const hub_message_t *txMsg);
-    int doHandleRx(const nano_message *rxMsg);
+    int doHandleRx(uint64_t appId, const char *data, int len);
+
+    int doHandleRx(const nano_message_raw *rxMsg) {
+        return doHandleRx(rxMsg->hdr.appId, reinterpret_cast<const char*>(rxMsg->data), rxMsg->hdr.len);
+    }
+
+    int doHandleRx(const nano_message_chre *rxMsg) {
+        return doHandleRx(rxMsg->hdr.appId, reinterpret_cast<const char*>(rxMsg->data), rxMsg->hdr.len);
+    }
 
     static void sendToApp(uint32_t typ, const void *data, uint32_t len) {
         if (NanoHub::messageTracingEnabled()) {
-            dumpBuffer("HAL -> APP", get_hub_info()->os_app_name, typ, data, len);
+            dumpBuffer("HAL -> APP", get_hub_info()->os_app_name, typ, 0, data, len);
         }
-        NanoHub::sendToApp(HubMessage(&get_hub_info()->os_app_name, typ, data, len));
+        NanoHub::sendToApp(HubMessage(&get_hub_info()->os_app_name, typ, ENDPOINT_BROADCAST, data, len));
     }
     static int sendToSystem(const void *data, size_t len);
 
@@ -312,7 +320,10 @@ public:
     static int handleTx(const hub_message_t *txMsg) {
         return getSystem()->doHandleTx(txMsg);
     }
-    static int handleRx(const nano_message *rxMsg) {
+    static int handleRx(const nano_message_raw *rxMsg) {
+        return getSystem()->doHandleRx(rxMsg);
+    }
+    static int handleRx(const nano_message_chre *rxMsg) {
         return getSystem()->doHandleRx(rxMsg);
     }
 };

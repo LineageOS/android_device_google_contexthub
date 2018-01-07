@@ -30,33 +30,43 @@
 #define APP_FROM_HOST_EVENT_ID      0x000000F8
 #define APP_FROM_HOST_CHRE_EVENT_ID 0x000000F9
 
+#define ENDPOINT_UNSPECIFIED        0xFFFE
+#define ENDPOINT_BROADCAST          0xFFFF
+
 namespace android {
 
 namespace nanohub {
 
-void dumpBuffer(const char *pfx, const hub_app_name_t &appId, uint32_t evtId, const void *data, size_t len, int status = 0);
+void dumpBuffer(const char *pfx, const hub_app_name_t &appId, uint32_t evtId, uint16_t endpoint, const void *data, size_t len, int status = 0);
 
 struct nano_message_chre {
-    HostMsgHdrChreV10 hdr;
+    HostMsgHdrChre hdr;
     uint8_t data[MAX_RX_PACKET];
 } __attribute__((packed));
 
-struct nano_message {
+struct nano_message_raw {
     HostMsgHdr hdr;
     uint8_t data[MAX_RX_PACKET];
 } __attribute__((packed));
 
+union nano_message {
+    struct nano_message_chre chre;
+    struct nano_message_raw raw;
+} __attribute__((packed));
+
 class HubMessage : public hub_message_t {
+    uint16_t message_endpoint;
     std::unique_ptr<uint8_t> data_;
 public:
     HubMessage(const HubMessage &other) = delete;
     HubMessage &operator = (const HubMessage &other) = delete;
 
-    HubMessage(const hub_app_name_t *name, uint32_t typ, const void *data, uint32_t len) {
+    HubMessage(const hub_app_name_t *name, uint32_t typ, uint16_t endpoint, const void *data, uint32_t len) {
         app_name = *name;
         message_type = typ;
         message_len = len;
         message = data;
+        message_endpoint = endpoint;
         if (len > 0 && data != nullptr) {
             data_ = std::unique_ptr<uint8_t>(new uint8_t[len]);
             memcpy(data_.get(), data, len);
@@ -70,6 +80,7 @@ public:
 
     HubMessage &operator = (HubMessage &&other) {
         *static_cast<hub_message_t *>(this) = static_cast<hub_message_t>(other);
+        message_endpoint = other.message_endpoint;
         data_ = std::move(other.data_);
         other.message = nullptr;
         other.message_len = 0;
@@ -115,7 +126,7 @@ class NanoHub {
 
     int doSubscribeMessages(uint32_t hub_id, context_hub_callback *cbk, void *cookie);
     int doSendToNanohub(uint32_t hub_id, const hub_message_t *msg);
-    int doSendToDevice(const hub_app_name_t name, const void *data, uint32_t len, uint32_t messageType = 0);
+    int doSendToDevice(const hub_app_name_t name, const void *data, uint32_t len, uint32_t messageType = 0, uint16_t endpoint = ENDPOINT_UNSPECIFIED);
     void doSendToApp(HubMessage &&msg);
 
     static constexpr unsigned int FL_MESSAGE_TRACING = 1;

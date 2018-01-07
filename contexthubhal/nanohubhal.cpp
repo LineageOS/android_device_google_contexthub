@@ -65,13 +65,15 @@ inline std::ostream &operator << (std::ostream &os, const hub_app_name_t &appId)
     return os;
 }
 
-void dumpBuffer(const char *pfx, const hub_app_name_t &appId, uint32_t evtId, const void *data, size_t len, int status)
+void dumpBuffer(const char *pfx, const hub_app_name_t &appId, uint32_t evtId, uint16_t endpoint, const void *data, size_t len, int status)
 {
     std::ostringstream os;
     const uint8_t *p = static_cast<const uint8_t *>(data);
     os << pfx << ": [ID=" << appId << "; SZ=" << std::dec << len;
     if (evtId)
         os << "; EVT=" << std::hex << evtId;
+    if (endpoint)
+        os << "; EPT=" << std::hex << endpoint;
     os << "]:" << std::hex;
     for (size_t i = 0; i < len; ++i) {
         os << " "  << std::setfill('0') << std::setw(2) << (unsigned int)p[i];
@@ -160,7 +162,7 @@ NanoHub::~NanoHub() {
     }
 }
 
-int NanoHub::doSendToDevice(const hub_app_name_t name, const void *data, uint32_t len, uint32_t messageType)
+int NanoHub::doSendToDevice(const hub_app_name_t name, const void *data, uint32_t len, uint32_t messageType, uint16_t endpoint)
 {
     if (len > MAX_RX_PACKET) {
         return -EINVAL;
@@ -173,6 +175,7 @@ int NanoHub::doSendToDevice(const hub_app_name_t name, const void *data, uint32_
             .appId = name.id,
             .len = static_cast<uint8_t>(len),
             .appEventId = messageType,
+            .endpoint = endpoint,
         },
     };
 
@@ -250,34 +253,45 @@ void* NanoHub::runDeviceRx()
                 ALOGE("read failed with %d", ret);
                 break;
             }
-            if (ret < (int)sizeof(msg.hdr)) {
+            if (ret < (int)sizeof(msg.raw.hdr)) {
                 ALOGE("Only read %d bytes", ret);
                 break;
             }
 
-            uint32_t len = msg.hdr.len;
+            uint32_t len = msg.raw.hdr.len;
 
-            if (len > sizeof(msg.data)) {
+            if (len > MAX_RX_PACKET) {
                 ALOGE("malformed packet with len %" PRIu32, len);
                 break;
             }
 
             // receive message from FW in legacy format
-            if (ret != (int)(sizeof(msg.hdr) + len)) {
-                ALOGE("Expected %zu bytes, read %d bytes", sizeof(msg.hdr) + len, ret);
+            if (ret == (int)(sizeof(msg.raw.hdr) + len)) {
+                ret = SystemComm::handleRx(&msg.raw);
+                if (ret > 0) {
+                    hub_app_name_t app_name = { .id = msg.raw.hdr.appId };
+                    if (messageTracingEnabled()) {
+                        dumpBuffer("(RAW) DEV -> APP", app_name, msg.raw.hdr.eventId, 0, &msg.raw.data[0], len);
+                    }
+                    doSendToApp(HubMessage(&app_name, msg.raw.hdr.eventId, ENDPOINT_BROADCAST, &msg.raw.data[0], len));
+                }
+            // receive message from FW in chre format
+            } else if (ret == (int)(sizeof(msg.chre.hdr) + len)) {
+                ret = SystemComm::handleRx(&msg.chre);
+                if (ret > 0) {
+                    hub_app_name_t app_name = { .id = msg.chre.hdr.appId };
+                    if (messageTracingEnabled()) {
+                        dumpBuffer("(CHRE) DEV -> APP", app_name, msg.chre.hdr.appEventId, msg.chre.hdr.endpoint, &msg.chre.data[0], len);
+                    }
+                    doSendToApp(HubMessage(&app_name, msg.chre.hdr.appEventId, msg.chre.hdr.endpoint, &msg.chre.data[0], len));
+                }
+            } else {
+                ALOGE("Expected (%zu|%zu) bytes, read %d bytes", sizeof(msg.raw.hdr) + len, sizeof(msg.chre.hdr) + len, ret);
                 break;
             }
 
-            ret = SystemComm::handleRx(&msg);
-            if (ret < 0) {
+            if (ret < 0)
                 ALOGE("SystemComm::handleRx() returned %d", ret);
-            } else if (ret) {
-                hub_app_name_t app_name = { .id = msg.hdr.appId };
-                if (messageTracingEnabled()) {
-                    dumpBuffer("DEV -> APP", app_name, msg.hdr.eventId, &msg.data[0], msg.hdr.len);
-                }
-                doSendToApp(HubMessage(&app_name, msg.hdr.eventId, &msg.data[0], msg.hdr.len));
-            }
         }
 
         if (myFds[IDX_CLOSE_PIPE].revents & POLLIN) { // we have been asked to die
@@ -405,7 +419,7 @@ int NanoHub::doSendToNanohub(uint32_t hub_id, const hub_message_t *msg)
         } else if (get_hub_info()->os_app_name == msg->app_name) {
             //messages to the "system" app are special - hal handles them
             if (messageTracingEnabled()) {
-                dumpBuffer("APP -> HAL", msg->app_name, msg->message_type, msg->message, msg->message_len);
+                dumpBuffer("APP -> HAL", msg->app_name, msg->message_type, 0, msg->message, msg->message_len);
             }
             ret = SystemComm::handleTx(msg);
         } else if (msg->message_len > MAX_RX_PACKET) {
@@ -413,7 +427,7 @@ int NanoHub::doSendToNanohub(uint32_t hub_id, const hub_message_t *msg)
             ret = -EINVAL;
         } else {
             if (messageTracingEnabled()) {
-                dumpBuffer("APP -> DEV", msg->app_name, msg->message_type, msg->message, msg->message_len);
+                dumpBuffer("APP -> DEV", msg->app_name, msg->message_type, 0, msg->message, msg->message_len);
             }
             ret = doSendToDevice(msg->app_name, msg->message, msg->message_len, msg->message_type);
         }

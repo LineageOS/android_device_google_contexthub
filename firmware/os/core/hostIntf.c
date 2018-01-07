@@ -1151,9 +1151,10 @@ static void onEvtAppStart(const void *evtData)
         struct HostIntfDataBuffer *data;
 
         osEventUnsubscribe(mHostIntfTid, EVT_APP_START);
-        osEventSubscribe(mHostIntfTid, EVT_NO_SENSOR_CONFIG_EVENT);
-        osEventSubscribe(mHostIntfTid, EVT_APP_TO_SENSOR_HAL_DATA);
-        osEventSubscribe(mHostIntfTid, EVT_APP_TO_HOST);
+        osEventsSubscribe(4, EVT_NO_SENSOR_CONFIG_EVENT,
+                             EVT_APP_TO_SENSOR_HAL_DATA,
+                             EVT_APP_TO_HOST,
+                             EVT_APP_TO_HOST_CHRE);
 #ifdef DEBUG_LOG_EVT
         osEventSubscribe(mHostIntfTid, EVT_DEBUG_LOG);
         platEarlyLogFlush();
@@ -1179,6 +1180,22 @@ static void onEvtAppToHost(const void *evtData)
 
         data->sensType = SENS_TYPE_INVALID;
         data->length = sizeof(*hostMsg) + hostMsg->dataLen;
+        data->dataType = HOSTINTF_DATA_TYPE_APP_TO_HOST;
+        data->interrupt = NANOHUB_INT_WAKEUP;
+        memcpy(data->buffer, evtData, data->length);
+        hostIntfAddBlock(data, false, true);
+    }
+}
+
+static void onEvtAppToHostChre(const void *evtData)
+{
+    const struct HostHubChrePacket *hostMsg = evtData;
+
+    if (hostMsg->messageSize <= HOST_HUB_CHRE_PACKET_MAX_LEN) {
+        struct HostIntfDataBuffer *data = alloca(sizeof(uint32_t) + sizeof(*hostMsg) + hostMsg->messageSize);
+
+        data->sensType = SENS_TYPE_INVALID;
+        data->length = sizeof(*hostMsg) + hostMsg->messageSize;
         data->dataType = HOSTINTF_DATA_TYPE_APP_TO_HOST;
         data->interrupt = NANOHUB_INT_WAKEUP;
         memcpy(data->buffer, evtData, data->length);
@@ -1491,6 +1508,9 @@ static void hostIntfHandleEvent(uint32_t evtType, const void* evtData)
         break;
     case EVT_APP_TO_HOST:
         onEvtAppToHost(evtData);
+        break;
+    case EVT_APP_TO_HOST_CHRE:
+        onEvtAppToHostChre(evtData);
         break;
     case EVT_APP_FROM_HOST:
         onEvtAppFromHost(evtData);
