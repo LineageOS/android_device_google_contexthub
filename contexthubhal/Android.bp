@@ -19,11 +19,68 @@ cc_library {
         "nanohubhal.cpp",
         "system_comms.cpp",
         "nanohubhal_default.cpp",
+        "legacyhal.cpp",
     ],
     cflags: ["-Wall", "-Werror", "-Wextra"],
     shared_libs: [
         "liblog",
         "libcutils",
+    ],
+    header_libs: [
+        "libnanohub_common_headers",
+        "libhardware_headers",
+        "libutils_headers",
+    ],
+    proprietary: true,
+}
+
+cc_library_shared {
+    name: "android.hardware.contexthub@1.0-impl.nanohub",
+    proprietary: true,
+    relative_install_path: "hw",
+    srcs: [
+        "NanohubHidlAdapter.cpp",
+        "nanohubhal.cpp",
+        "nanohubhal_default.cpp",
+        "system_comms.cpp",
+    ],
+    cflags: ["-Wall", "-Werror", "-Wextra"],
+    shared_libs: [
+        "liblog",
+        "libbase",
+        "libcutils",
+        "libutils",
+        "libhidlbase",
+        "libhidltransport",
+        "android.hardware.contexthub@1.0",
+    ],
+    header_libs: [
+        "libnanohub_common_headers",
+        "libhardware_headers",
+        "libutils_headers",
+    ],
+}
+
+cc_binary {
+    name: "android.hardware.contexthub@1.0-service.nanohub",
+    relative_install_path: "hw",
+    init_rc: ["android.hardware.contexthub@1.0-service.nanohub.rc"],
+    srcs: [
+        "service.cpp",
+        "NanohubHidlAdapter.cpp",
+        "nanohubhal.cpp",
+        "nanohubhal_default.cpp",
+        "system_comms.cpp",
+    ],
+    cflags: ["-Wall", "-Werror"],
+    shared_libs: [
+        "libhidlbase",
+        "libhidltransport",
+        "libhwbinder",
+        "liblog",
+        "libutils",
+        "libcutils",
+        "android.hardware.contexthub@1.0",
     ],
     header_libs: [
         "libnanohub_common_headers",

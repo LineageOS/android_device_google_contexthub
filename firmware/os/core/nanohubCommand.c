@@ -951,7 +951,7 @@ static uint32_t writeEvent(void *rx, uint8_t rx_len, void *tx, uint64_t timestam
         if (rx_len >= sizeof(struct HostMsgHdrChre) &&
             rx_len == sizeof(struct HostMsgHdrChre) + hostPacket->len &&
             osTidById(&hostPacket->appId, &tid)) {
-            if (osAppChreVersion(tid) == CHRE_API_VERSION_1_1) {
+            if (osAppChreVersion(tid) >= CHRE_API_VERSION_1_1) {
                 struct NanohubMsgChreHdr hdr = {
                     .size = hostPacket->len,
                     .endpoint = hostPacket->endpoint,
@@ -976,7 +976,7 @@ static uint32_t writeEvent(void *rx, uint8_t rx_len, void *tx, uint64_t timestam
         } else if (rx_len >= sizeof(struct HostMsgHdrChreV10) &&
                    rx_len == sizeof(struct HostMsgHdrChreV10) + hostPacketV10->len &&
                    osTidById(&hostPacketV10->appId, &tid)) {
-            if (osAppChreVersion(tid) == CHRE_API_VERSION_1_1) {
+            if (osAppChreVersion(tid) >= CHRE_API_VERSION_1_1) {
                 struct NanohubMsgChreHdr hdr = {
                     .size = hostPacketV10->len,
                     .endpoint = CHRE_HOST_ENDPOINT_UNSPECIFIED,
