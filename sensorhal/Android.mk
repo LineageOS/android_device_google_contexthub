@@ -72,6 +72,9 @@ LOCAL_SRC_FILES := \
 	sensors.cpp \
 	../../../../$(NANOHUB_SENSORHAL_SENSORLIST)
 
+LOCAL_HEADER_LIBRARIES := \
+    libhardware_headers
+
 LOCAL_SHARED_LIBRARIES := \
 	liblog \
 	libcutils \
@@ -113,6 +116,9 @@ LOCAL_C_INCLUDES += \
 
 LOCAL_SRC_FILES := \
 	activity.cpp
+
+LOCAL_HEADER_LIBRARIES := \
+    libhardware_headers
 
 LOCAL_SHARED_LIBRARIES := \
 	libcutils \

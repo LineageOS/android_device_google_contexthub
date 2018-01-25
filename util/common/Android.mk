@@ -20,6 +20,7 @@ include $(CLEAR_VARS)
 
 LOCAL_MODULE := libhubutilcommon
 LOCAL_MODULE_TAGS := optional
+LOCAL_PROPRIETARY_MODULE := true
 
 LOCAL_CFLAGS += $(COMMON_CFLAGS)
 
@@ -30,6 +31,16 @@ LOCAL_SRC_FILES := \
     file.cpp \
     JSONObject.cpp \
     ring.cpp
+
+LOCAL_HEADER_LIBRARIES := \
+    libhardware_headers \
+    libstagefright_foundation_headers \
+    libstagefright_headers \
+    libutils_headers
+
+LOCAL_EXPORT_HEADER_LIBRARY_HEADERS := \
+    libhardware_headers \
+    libutils_headers
 
 LOCAL_EXPORT_C_INCLUDE_DIRS := $(LOCAL_C_INCLUDES)
 
