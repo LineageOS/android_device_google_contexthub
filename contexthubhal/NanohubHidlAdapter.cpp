@@ -28,6 +28,7 @@
 
 #include <log/log.h>
 #include <utils/String8.h>
+#include <sys/stat.h>
 
 #include <android/hardware/contexthub/1.0/IContexthub.h>
 #include <hardware/context_hub.h>
@@ -151,7 +152,7 @@ Return<Result> Contexthub::sendMessageToHub(uint32_t hubId,
           txMsg.message_len,
           txMsg.app_name.id);
 
-    if(NanoHub::sendToNanohub(hubId, &txMsg, msg.hostEndPoint) != 0) {
+    if(NanoHub::sendToNanohub(hubId, &txMsg, 0, msg.hostEndPoint) != 0) {
         return Result::TRANSACTION_FAILED;
     }
 
@@ -221,7 +222,8 @@ static bool isValidOsStatus(const uint8_t *msg,
 int Contexthub::handleOsMessage(sp<IContexthubCallback> cb,
                                 uint32_t msgType,
                                 const uint8_t *msg,
-                                int msgLen) {
+                                int msgLen,
+                                uint32_t transactionId) {
     int retVal = -1;
 
 
@@ -242,7 +244,7 @@ int Contexthub::handleOsMessage(sp<IContexthubCallback> cb,
 
             mIsTransactionPending = false;
             if (cb != nullptr) {
-                cb->handleTxnResult(mTransactionId, result);
+                cb->handleTxnResult(transactionId, result);
             }
             retVal = 0;
             break;
@@ -331,7 +333,8 @@ int Contexthub::contextHubCb(uint32_t hubId,
         obj->handleOsMessage(cb,
                              rxMsg.message_type,
                              static_cast<const uint8_t *>(rxMsg.message),
-                             rxMsg.message_len);
+                             rxMsg.message_len,
+                             rxMsg.message_transaction_id);
     } else {
         ContextHubMsg msg;
 
@@ -370,10 +373,10 @@ Return<Result> Contexthub::unloadNanoApp(uint32_t hubId,
 
     if(NanoHub::sendToNanohub(hubId,
                               &msg,
+                              transactionId,
                               static_cast<uint16_t>(HostEndPoint::UNSPECIFIED)) != 0) {
         return Result::TRANSACTION_FAILED;
     } else {
-        mTransactionId = transactionId;
         mIsTransactionPending = true;
         return Result::OK;
     }
@@ -418,10 +421,10 @@ Return<Result> Contexthub::loadNanoApp(uint32_t hubId,
 
     if(NanoHub::sendToNanohub(hubId,
                               &hubMsg,
+                              transactionId,
                               static_cast<uint16_t>(HostEndPoint::UNSPECIFIED)) != 0) {
         return Result::TRANSACTION_FAILED;
     } else {
-        mTransactionId = transactionId;
         mIsTransactionPending = true;
         return Result::OK;
     }
@@ -449,10 +452,10 @@ Return<Result> Contexthub::enableNanoApp(uint32_t hubId,
 
     if(NanoHub::sendToNanohub(hubId,
                               &msg,
+                              transactionId,
                               static_cast<uint16_t>(HostEndPoint::UNSPECIFIED)) != 0) {
         return Result::TRANSACTION_FAILED;
     } else {
-        mTransactionId = transactionId;
         mIsTransactionPending = true;
         return Result::OK;
     }
@@ -480,10 +483,10 @@ Return<Result> Contexthub::disableNanoApp(uint32_t hubId,
 
     if(NanoHub::sendToNanohub(hubId,
                               &msg,
+                              transactionId,
                               static_cast<uint16_t>(HostEndPoint::UNSPECIFIED)) != 0) {
         return Result::TRANSACTION_FAILED;
     } else {
-        mTransactionId = transactionId;
         mIsTransactionPending = true;
         return Result::OK;
     }
@@ -505,6 +508,7 @@ Return<Result> Contexthub::queryApps(uint32_t hubId) {
 
     if(NanoHub::sendToNanohub(hubId,
                               &msg,
+                              0,
                               static_cast<uint16_t>(HostEndPoint::UNSPECIFIED)) != 0) {
         ALOGW("Query Apps sendMessage failed");
         return Result::TRANSACTION_FAILED;
@@ -515,6 +519,32 @@ Return<Result> Contexthub::queryApps(uint32_t hubId) {
 
 IContexthub *HIDL_FETCH_IContexthub(const char *) {
     return new Contexthub();
+}
+
+static bool readApp(const char *file, NanoAppBinary *appBinary)
+{
+    bool success = false;
+    int fd = open(file, O_RDONLY);
+
+    if (fd >= 0) {
+        struct stat sb;
+        if (fstat(fd, &sb) == 0) {
+            void *buf = malloc(sb.st_size);
+            if (buf != nullptr && read(fd, buf, sb.st_size) == sb.st_size) {
+                success = true;
+                const struct nano_app_binary_t *header = static_cast<const struct nano_app_binary_t *>(buf);
+                appBinary->appId = header->app_id.id;
+                appBinary->appVersion = header->app_version;
+                appBinary->flags = header->flags;
+                appBinary->targetChreApiMajorVersion = header->target_chre_api_major_version;
+                appBinary->targetChreApiMinorVersion = header->target_chre_api_minor_version;
+                appBinary->customBinary = std::vector<uint8_t>(static_cast<const uint8_t *>(buf) + sizeof(struct nano_app_binary_t), static_cast<const uint8_t *>(buf) + sb.st_size);
+            }
+            free(buf);
+        }
+        close(fd);
+    }
+    return success;
 }
 
 Return<void> Contexthub::debug(const hidl_handle& hh_fd,
@@ -528,9 +558,24 @@ Return<void> Contexthub::debug(const hidl_handle& hh_fd,
 
     if (hh_data.size() == 0) {
         result.appendFormat("debug: %d\n", NanoHub::getDebugFlags());
+        std::string appInfo;
+        NanoHub::dumpAppInfo(appInfo);
+        result.append(appInfo.c_str());
     } else if (hh_data.size() == 1) {
         NanoHub::setDebugFlags(atoi(hh_data[0].c_str()));
         result.appendFormat("debug: %d\n", NanoHub::getDebugFlags());
+    } else if (hh_data.size() == 2) {
+        if (strncmp(hh_data[0].c_str(), "load", 4) == 0) {
+            NanoAppBinary appBinary;
+            if (readApp(hh_data[1].c_str(), &appBinary))
+                loadNanoApp(0, appBinary, 0);
+        } else if (strncmp(hh_data[0].c_str(), "unload", 6) == 0) {
+            unloadNanoApp(0, strtoul(hh_data[1].c_str(), NULL, 16), 0);
+        } else if (strncmp(hh_data[0].c_str(), "enable", 6) == 0) {
+            enableNanoApp(0, strtoul(hh_data[1].c_str(), NULL, 16), 0);
+        } else if (strncmp(hh_data[0].c_str(), "disable", 7) == 0) {
+            disableNanoApp(0, strtoul(hh_data[1].c_str(), NULL, 16), 0);
+        }
     } else {
         result.appendFormat("unknown debug options");
     }

@@ -106,7 +106,8 @@ private:
     int handleOsMessage(sp<IContexthubCallback> cb,
                         uint32_t msgType,
                         const uint8_t *msg,
-                        int msgLen);
+                        int msgLen,
+                        uint32_t transactionId);
 
     // Handle the case where the callback registered for the given hub ID dies
     void handleServiceDeath(uint32_t hubId);

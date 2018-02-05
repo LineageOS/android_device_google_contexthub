@@ -192,6 +192,11 @@ void NanoHub::doSendToApp(HubMessage &&msg)
     mAppTxCond.notify_all();
 }
 
+void NanoHub::doDumpAppInfo(std::string &result)
+{
+    SystemComm::dumpAppInfo(result);
+}
+
 void* NanoHub::runAppTx()
 {
     std::unique_lock<std::mutex> lk(mAppTxLock);
@@ -400,7 +405,7 @@ int NanoHub::doSubscribeMessages(uint32_t hub_id, Contexthub_callback *cbk, void
     return ret;
 }
 
-int NanoHub::doSendToNanohub(uint32_t hub_id, const hub_message_t *msg, uint16_t endpoint)
+int NanoHub::doSendToNanohub(uint32_t hub_id, const hub_message_t *msg, uint32_t transaction_id, uint16_t endpoint)
 {
     if (hub_id) {
         return -ENODEV;
@@ -421,7 +426,7 @@ int NanoHub::doSendToNanohub(uint32_t hub_id, const hub_message_t *msg, uint16_t
             if (messageTracingEnabled()) {
                 dumpBuffer("APP -> HAL", msg->app_name, msg->message_type, 0, msg->message, msg->message_len);
             }
-            ret = SystemComm::handleTx(msg);
+            ret = SystemComm::handleTx(msg, transaction_id);
         } else if (msg->message_len > MAX_RX_PACKET) {
             ALOGW("not sending invalid message 2");
             ret = -EINVAL;
