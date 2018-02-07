@@ -218,9 +218,9 @@ bool chreGnssMeasurementSessionStopAsync(const void *cookie)
     return syscallDo1P(SYSCALL_NO(SYSCALL_DOMAIN_CHRE, SYSCALL_CHRE_DRIVERS, SYSCALL_CHRE_DRV_GNSS, SYSCALL_CHRE_DRV_GNSS_MEAS_STOP_ASYNC), cookie);
 }
 
-bool chreGnssConfigureLocationMonitor(bool enable)
+bool chreGnssConfigurePassiveLocationListener(bool enable)
 {
-    return syscallDo1P(SYSCALL_NO(SYSCALL_DOMAIN_CHRE, SYSCALL_CHRE_DRIVERS, SYSCALL_CHRE_DRV_GNSS, SYSCALL_CHRE_DRV_GNSS_CONF_LOC_MON), enable);
+    return syscallDo1P(SYSCALL_NO(SYSCALL_DOMAIN_CHRE, SYSCALL_CHRE_DRIVERS, SYSCALL_CHRE_DRV_GNSS, SYSCALL_CHRE_DRV_GNSS_CONF_PASV_LOC_LIS), enable);
 }
 
 uint32_t chreWifiGetCapabilities(void)

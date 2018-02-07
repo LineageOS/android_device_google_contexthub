@@ -91,7 +91,8 @@ C_STATIC_ASSERT(uintptr_size, sizeof(uintptr_t) >= sizeof(uint32_t));
 #define SYSCALL_CHRE_DRV_GNSS_LOC_STOP_ASYNC        2 // (const void *) -> bool
 #define SYSCALL_CHRE_DRV_GNSS_MEAS_START_ASYNC      3 // (uint32_t, const void *) -> bool
 #define SYSCALL_CHRE_DRV_GNSS_MEAS_STOP_ASYNC       4 // (const void *) -> bool
-#define SYSCALL_CHRE_DRV_GNSS_LAST                  5 // always last. holes are allowed, but not immediately before this
+#define SYSCALL_CHRE_DRV_GNSS_CONF_PASV_LOC_LIS     5 // (bool) -> bool
+#define SYSCALL_CHRE_DRV_GNSS_LAST                  6 // always last. holes are allowed, but not immediately before this
 
 //level 3 indices in the CHRE.drivers.wifi table
 #define SYSCALL_CHRE_DRV_WIFI_GET_CAP               0 // (void) -> uint32_t
@@ -102,8 +103,7 @@ C_STATIC_ASSERT(uintptr_size, sizeof(uintptr_t) >= sizeof(uint32_t));
 //level 3 indices in the CHRE.drivers.wwan table
 #define SYSCALL_CHRE_DRV_WWAN_GET_CAP               0 // (void) -> uint32_t
 #define SYSCALL_CHRE_DRV_WWAN_GET_CELL_INFO_ASYNC   1 // (const void *) -> bool
-#define SYSCALL_CHRE_DRV_GNSS_CONF_LOC_MON          2 // (bool) -> bool
-#define SYSCALL_CHRE_DRV_WWAN_LAST                  3 // always last. holes are allowed, but not immediately before this
+#define SYSCALL_CHRE_DRV_WWAN_LAST                  2 // always last. holes are allowed, but not immediately before this
 
 //level 3 indicies in the CHRE.drivers.audio table
 #define SYSCALL_CHRE_DRV_AUDIO_GET_SRC              0 // (uint32_t, struct chreAudioSource *) -> bool
