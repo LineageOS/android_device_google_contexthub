@@ -519,6 +519,10 @@ IContexthub *HIDL_FETCH_IContexthub(const char *) {
 
 Return<void> Contexthub::debug(const hidl_handle& hh_fd,
                                const hidl_vec<hidl_string>& hh_data) {
+    if (hh_fd == nullptr || hh_fd->numFds < 1) {
+        return Void();
+    }
+
     String8 result;
     int fd = hh_fd.getNativeHandle()->data[0];
 

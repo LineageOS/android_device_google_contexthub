@@ -701,7 +701,7 @@ static const struct SyscallTable chreDrvGnssTable = {
         [SYSCALL_CHRE_DRV_GNSS_LOC_STOP_ASYNC]          = { .func = osChreDrvGnssLocStopAsync },
         [SYSCALL_CHRE_DRV_GNSS_MEAS_START_ASYNC]        = { .func = osChreDrvGnssMeasStartAsync },
         [SYSCALL_CHRE_DRV_GNSS_MEAS_STOP_ASYNC]         = { .func = osChreDrvGnssMeasStopAsync },
-        [SYSCALL_CHRE_DRV_GNSS_CONF_LOC_MON]            = { .func = osChreDrvGnssConfLocMon },
+        [SYSCALL_CHRE_DRV_GNSS_CONF_PASV_LOC_LIS]       = { .func = osChreDrvGnssConfLocMon },
     },
 };
 
