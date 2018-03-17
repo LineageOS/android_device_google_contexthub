@@ -22,6 +22,7 @@
 #ifndef LOCATION_LBS_CONTEXTHUB_NANOAPPS_CALIBRATION_UTIL_CAL_LOG_H_
 #define LOCATION_LBS_CONTEXTHUB_NANOAPPS_CALIBRATION_UTIL_CAL_LOG_H_
 
+// clang-format off
 #ifdef GCC_DEBUG_LOG
 # include <stdio.h>
 # define CAL_DEBUG_LOG(tag, fmt, ...) \
@@ -40,6 +41,7 @@
 # define CAL_DEBUG_LOG(tag, fmt, ...) \
    chreLog(CHRE_LOG_INFO, "%s " fmt, tag, ##__VA_ARGS__)
 #endif  // GCC_DEBUG_LOG
+// clang-format on
 
 #ifdef __cplusplus
 extern "C" {
@@ -50,9 +52,10 @@ extern "C" {
 #define CAL_FLOOR(x) ((int)(x) - ((x) < (int)(x)))  // NOLINT
 
 // Macro used to print floating point numbers with a specified number of digits.
-#define CAL_ENCODE_FLOAT(x, num_digits) \
-  ((x < 0) ? "-" : ""),                 \
-  (int)CAL_FLOOR(fabsf(x)), (int)((fabsf(x) - CAL_FLOOR(fabsf(x))) * powf(10, num_digits))  // NOLINT
+#define CAL_ENCODE_FLOAT(x, num_digits)           \
+  ((x < 0) ? "-" : ""), (int)CAL_FLOOR(fabsf(x)), \
+      (int)((fabsf(x) - CAL_FLOOR(fabsf(x))) *    \
+            powf(10, num_digits))  // NOLINT
 
 // Helper definitions for CAL_ENCODE_FLOAT to specify the print format with
 // desired significant digits.

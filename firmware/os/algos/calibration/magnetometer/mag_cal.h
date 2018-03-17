@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 #ifndef LOCATION_LBS_CONTEXTHUB_NANOAPPS_CALIBRATION_MAGNETOMETER_MAG_CAL_H_
 #define LOCATION_LBS_CONTEXTHUB_NANOAPPS_CALIBRATION_MAGNETOMETER_MAG_CAL_H_
 
@@ -26,8 +27,9 @@
 #include <stdint.h>
 #include <sys/types.h>
 #ifdef DIVERSITY_CHECK_ENABLED
-#include "calibration/common/diversity_checker.h"
+#include "calibration/diversity_checker/diversity_checker.h"
 #endif
+#include "common/math/kasa.h"
 #include "common/math/mat.h"
 #include "common/math/vec.h"
 
@@ -35,17 +37,13 @@
 extern "C" {
 #endif
 
-struct KasaFit {
-  float acc_x, acc_y, acc_z, acc_w;
-  float acc_xx, acc_xy, acc_xz, acc_xw;
-  float acc_yy, acc_yz, acc_yw, acc_zz, acc_zw;
-  size_t nsamples;
-};
-
 enum MagUpdate {
   NO_UPDATE = 0x00,
   UPDATE_BIAS = 0x01,
   UPDATE_SPHERE_FIT = 0x02,
+  UPDATE_BIAS_MAGGYRO_MEDIUM = 0x04,
+  UPDATE_BIAS_MAGGYRO_HIGH = 0x08,
+  MAGGYRO_TIMEOUT = 0x10,
 };
 
 #ifdef MAG_CAL_DEBUG_ENABLE
@@ -55,17 +53,34 @@ struct MagDbg {
 };
 #endif
 
+// MagCal algorithm parameters (see MagCal for details).
+struct MagCalParameters {
+  uint32_t min_batch_window_in_micros;
+  float x_bias;  // [micro-Tesla]
+  float y_bias;  // [micro-Tesla]
+  float z_bias;  // [micro-Tesla]
+  float c00;
+  float c01;
+  float c02;
+  float c10;
+  float c11;
+  float c12;
+  float c20;
+  float c21;
+  float c22;
+};
+
 struct MagCal {
 #ifdef DIVERSITY_CHECK_ENABLED
   struct DiversityChecker diversity_checker;
 #endif
   struct KasaFit kasa;
 
-  uint64_t start_time;
-  uint64_t update_time;
+  uint64_t start_time;   // [micro-seconds]
+  uint64_t update_time;  // [micro-seconds]
   uint32_t min_batch_window_in_micros;
   float x_bias, y_bias, z_bias;
-  float radius;
+  float radius;  // [micro-Tesla]
   bool kasa_batching;
   float c00, c01, c02, c10, c11, c12, c20, c21, c22;
 
@@ -74,21 +89,13 @@ struct MagCal {
 #endif
 };
 
-void initKasa(struct KasaFit *kasa);
-
 #ifdef DIVERSITY_CHECK_ENABLED
-void initMagCal(struct MagCal *moc, float x_bias, float y_bias, float z_bias,
-                float c00, float c01, float c02, float c10, float c11,
-                float c12, float c20, float c21, float c22,
-                uint32_t min_batch_window_in_micros,
-                size_t min_num_diverse_vectors, size_t max_num_max_distance,
-                float var_threshold, float max_min_threshold, float local_field,
-                float threshold_tuning_param, float max_distance_tuning_param);
+void initMagCal(struct MagCal *moc,
+                const struct MagCalParameters *mag_cal_parameters,
+                const struct DiversityCheckerParameters *diverse_parameters);
 #else
-void initMagCal(struct MagCal *moc, float x_bias, float y_bias, float z_bias,
-                float c00, float c01, float c02, float c10, float c11,
-                float c12, float c20, float c21, float c22,
-                uint32_t min_batch_window_in_micros);
+void initMagCal(struct MagCal *moc,
+                const struct MagCalParameters *mag_cal_parameters);
 #endif
 
 void magCalDestroy(struct MagCal *moc);
@@ -110,11 +117,7 @@ void magCalSetSoftiron(struct MagCal *moc, float c00, float c01, float c02,
 void magCalRemoveSoftiron(struct MagCal *moc, float xi, float yi, float zi,
                           float *xo, float *yo, float *zo);
 
-void magKasaReset(struct KasaFit *kasa);
-
 void magCalReset(struct MagCal *moc);
-
-int magKasaFit(struct KasaFit *kasa, struct Vec3 *bias, float *radius);
 
 #if defined MAG_CAL_DEBUG_ENABLE && defined DIVERSITY_CHECK_ENABLED
 void magLogPrint(struct DiversityChecker *moc, float temp);
