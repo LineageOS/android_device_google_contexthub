@@ -33,22 +33,16 @@ void magCalSphereReset(struct MagCalSphere *mocs) {
   memset(&mocs->sphere_data, 0, sizeof(mocs->sphere_data));
 }
 
-void initMagCalSphere(struct MagCalSphere *mocs, float x_bias, float y_bias,
-                      float z_bias, float c00, float c01, float c02, float c10,
-                      float c11, float c12, float c20, float c21, float c22,
-                      uint32_t min_batch_window_in_micros,
-                      size_t min_num_diverse_vectors,
-                      size_t max_num_max_distance, float var_threshold,
-                      float max_min_threshold, float local_field,
-                      float threshold_tuning_param,
-                      float max_distance_tuning_param) {
-  initMagCal(&mocs->moc, x_bias, y_bias, z_bias, c00, c01, c02, c10, c11, c12,
-             c20, c21, c22, min_batch_window_in_micros, min_num_diverse_vectors,
-             max_num_max_distance, var_threshold, max_min_threshold,
-             local_field, threshold_tuning_param, max_distance_tuning_param);
+void initMagCalSphere(
+    struct MagCalSphere *mocs,
+    const struct MagCalParameters *mag_cal_parameters,
+    const struct DiversityCheckerParameters *diverse_parameters,
+    float default_odr_in_hz) {
+  initMagCal(&mocs->moc, mag_cal_parameters, diverse_parameters);
   mocs->inv_data_size = 1.0f / (float)NUM_SPHERE_FIT_DATA;
   mocs->batch_time_in_sec =
-      (float)(min_batch_window_in_micros) * FROM_MICRO_SEC_TO_SEC;
+      (float)(mag_cal_parameters->min_batch_window_in_micros) *
+      FROM_MICRO_SEC_TO_SEC;
   // Initialize to take every sample, default setting.
   mocs->sample_drop = 0;
   magCalSphereReset(mocs);
@@ -63,6 +57,9 @@ void initMagCalSphere(struct MagCalSphere *mocs, float x_bias, float y_bias,
   sphereFitSetSolverData(&mocs->sphere_fit.sphere_cal,
                          &mocs->sphere_fit.lm_data);
   calDataReset(&mocs->sphere_fit.sphere_param);
+
+  // Initializes the starting output data rate estimate.
+  magCalSphereOdrUpdate(mocs, default_odr_in_hz);
 }
 
 void magCalSphereDestroy(struct MagCalSphere *mocs) { (void)mocs; }
@@ -91,7 +88,7 @@ void magCalSphereDataUpdate(struct MagCalSphere *mocs, float x, float y,
     if (mocs->number_of_data_samples < NUM_SPHERE_FIT_DATA) {
       memcpy(&mocs->sphere_data[mocs->number_of_data_samples *
                                 THREE_AXIS_DATA_DIM],
-             vec, sizeof(float) * 3);
+             vec, sizeof(float) * THREE_AXIS_DATA_DIM);
       // counting the numbers of samples in the data set.
       mocs->number_of_data_samples++;
     }
@@ -114,8 +111,7 @@ enum MagUpdate magCalSphereFit(struct MagCalSphere *mocs,
 
   // Running the sphere fit and checking if successful.
   if (sphereFitRunCal(&mocs->sphere_fit.sphere_cal, &data, sample_time_us)) {
-    // Updating Sphere parameters. Can use "calDataCorrectData" function to
-    // correct data.
+    // Updating sphere parameters.
     sphereFitGetLatestCal(&mocs->sphere_fit.sphere_cal,
                           &mocs->sphere_fit.sphere_param);
 
