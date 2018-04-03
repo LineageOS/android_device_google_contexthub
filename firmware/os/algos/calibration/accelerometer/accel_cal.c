@@ -15,13 +15,15 @@
  */
 
 #include "calibration/accelerometer/accel_cal.h"
+
 #include <errno.h>
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
-#include "calibration/magnetometer/mag_cal.h"
+
 #include "calibration/util/cal_log.h"
 
+// clang-format off
 #define KSCALE \
   0.101936799f         // Scaling from m/s^2 to g (0.101 = 1/(9.81 m/s^2)).
 #define KSCALE2 9.81f  // Scaling from g to m/s^2.
@@ -38,6 +40,7 @@
 #define TEMP_CUT 30     // Separation point for temperature buckets 30 degree C.
 #define EIGEN_RATIO 0.35f  // EIGEN_RATIO (must be greater than 0.35).
 #define EIGEN_MAG 0.97f    // Eigen value magnitude (must be greater than 0.97).
+#define ACCEL_NEW_BIAS_THRESHOLD (0.0f)  // Bias update detection threshold.
 #ifdef ACCEL_CAL_DBG_ENABLED
 #define TEMP_HIST_LOW \
   16  // Putting all Temp counts in first bucket for temp < 16 degree C.
@@ -47,8 +50,9 @@
 #endif
 #ifdef IMU_TEMP_DBG_ENABLED
 #define IMU_TEMP_DELTA_TIME_NANOS \
-  5000000000 // Printing every 5 seconds IMU temp.
+  5000000000   // Printing every 5 seconds IMU temp.
 #endif
+// clang-format on
 
 /////////// Start Debug //////////////////////
 
@@ -159,19 +163,29 @@ static void accelCalAlgoInit(struct AccelCalAlgo *acc, uint32_t fx,
                              uint32_t fxb, uint32_t fy, uint32_t fyb,
                              uint32_t fz, uint32_t fzb, uint32_t fle) {
   accelGoodDataInit(&acc->agd, fx, fxb, fy, fyb, fz, fzb, fle);
-  initKasa(&acc->akf);
+  kasaInit(&acc->akf);
+}
+
+// Returns true when a new accel calibration is available.
+bool accelCalNewBiasAvailable(struct AccelCal *acc) {
+  return fabsf(acc->x_bias - acc->x_bias_new) > ACCEL_NEW_BIAS_THRESHOLD ||
+         fabsf(acc->y_bias - acc->y_bias_new) > ACCEL_NEW_BIAS_THRESHOLD ||
+         fabsf(acc->z_bias - acc->z_bias_new) > ACCEL_NEW_BIAS_THRESHOLD;
 }
 
 // Accel cal init.
-void accelCalInit(struct AccelCal *acc, uint32_t t0, uint32_t n_s, float th,
-                  uint32_t fx, uint32_t fxb, uint32_t fy, uint32_t fyb,
-                  uint32_t fz, uint32_t fzb, uint32_t fle) {
+void accelCalInit(struct AccelCal *acc,
+                  const struct AccelCalParameters *parameters) {
   // Init core accel data.
-  accelCalAlgoInit(&acc->ac1[0], fx, fxb, fy, fyb, fz, fzb, fle);
-  accelCalAlgoInit(&acc->ac1[1], fx, fxb, fy, fyb, fz, fzb, fle);
+  accelCalAlgoInit(&acc->ac1[0], parameters->fx, parameters->fxb,
+                   parameters->fy, parameters->fyb, parameters->fz,
+                   parameters->fzb, parameters->fle);
+  accelCalAlgoInit(&acc->ac1[1], parameters->fx, parameters->fxb,
+                   parameters->fy, parameters->fyb, parameters->fz,
+                   parameters->fzb, parameters->fle);
 
   // Stillness Reset.
-  accelStillInit(&acc->asd, t0, n_s, th);
+  accelStillInit(&acc->asd, parameters->t0, parameters->n_s, parameters->th);
 
 // Debug data init.
 #ifdef ACCEL_CAL_DBG_ENABLED
@@ -267,31 +281,6 @@ static int accelStillnessDetection(struct AccelStillDet *asd,
   return complete;
 }
 
-// Accumulate data for KASA fit.
-static void accelCalUpdate(struct KasaFit *akf, struct AccelStillDet *asd) {
-  // Run accumulators.
-  float w = asd->mean_x * asd->mean_x + asd->mean_y * asd->mean_y +
-            asd->mean_z * asd->mean_z;
-
-  akf->acc_x += asd->mean_x;
-  akf->acc_y += asd->mean_y;
-  akf->acc_z += asd->mean_z;
-  akf->acc_w += w;
-
-  akf->acc_xx += asd->mean_x * asd->mean_x;
-  akf->acc_xy += asd->mean_x * asd->mean_y;
-  akf->acc_xz += asd->mean_x * asd->mean_z;
-  akf->acc_xw += asd->mean_x * w;
-
-  akf->acc_yy += asd->mean_y * asd->mean_y;
-  akf->acc_yz += asd->mean_y * asd->mean_z;
-  akf->acc_yw += asd->mean_y * w;
-
-  akf->acc_zz += asd->mean_z * asd->mean_z;
-  akf->acc_zw += asd->mean_z * w;
-  akf->nsamples += 1;
-}
-
 // Good data detection, sorting and accumulate the data for Kasa.
 static int accelGoodData(struct AccelStillDet *asd, struct AccelCalAlgo *ac1,
                          float temp) {
@@ -304,42 +293,42 @@ static int accelGoodData(struct AccelStillDet *asd, struct AccelCalAlgo *ac1,
     ac1->agd.nx += 1;
     ac1->agd.acc_t += temp;
     ac1->agd.acc_tt += temp * temp;
-    accelCalUpdate(&ac1->akf, asd);
+    kasaAccumulate(&ac1->akf, asd->mean_x, asd->mean_y, asd->mean_z);
   }
   // Negative x bucket nxb.
   if (PHIb > asd->mean_x && ac1->agd.nxb < ac1->agd.nfxb) {
     ac1->agd.nxb += 1;
     ac1->agd.acc_t += temp;
     ac1->agd.acc_tt += temp * temp;
-    accelCalUpdate(&ac1->akf, asd);
+    kasaAccumulate(&ac1->akf, asd->mean_x, asd->mean_y, asd->mean_z);
   }
   // Y bucket ny.
   if (PHI < asd->mean_y && ac1->agd.ny < ac1->agd.nfy) {
     ac1->agd.ny += 1;
     ac1->agd.acc_t += temp;
     ac1->agd.acc_tt += temp * temp;
-    accelCalUpdate(&ac1->akf, asd);
+    kasaAccumulate(&ac1->akf, asd->mean_x, asd->mean_y, asd->mean_z);
   }
   // Negative y bucket nyb.
   if (PHIb > asd->mean_y && ac1->agd.nyb < ac1->agd.nfyb) {
     ac1->agd.nyb += 1;
     ac1->agd.acc_t += temp;
     ac1->agd.acc_tt += temp * temp;
-    accelCalUpdate(&ac1->akf, asd);
+    kasaAccumulate(&ac1->akf, asd->mean_x, asd->mean_y, asd->mean_z);
   }
   // Z bucket nz.
   if (PHIZ < asd->mean_z && ac1->agd.nz < ac1->agd.nfz) {
     ac1->agd.nz += 1;
     ac1->agd.acc_t += temp;
     ac1->agd.acc_tt += temp * temp;
-    accelCalUpdate(&ac1->akf, asd);
+    kasaAccumulate(&ac1->akf, asd->mean_x, asd->mean_y, asd->mean_z);
   }
   // Negative z bucket nzb.
   if (PHIZb > asd->mean_z && ac1->agd.nzb < ac1->agd.nfzb) {
     ac1->agd.nzb += 1;
     ac1->agd.acc_t += temp;
     ac1->agd.acc_tt += temp * temp;
-    accelCalUpdate(&ac1->akf, asd);
+    kasaAccumulate(&ac1->akf, asd->mean_x, asd->mean_y, asd->mean_z);
   }
   // The leftover bucket nle.
   if (PHI > asd->mean_x && PHIb < asd->mean_x && PHI > asd->mean_y &&
@@ -348,7 +337,7 @@ static int accelGoodData(struct AccelStillDet *asd, struct AccelCalAlgo *ac1,
     ac1->agd.nle += 1;
     ac1->agd.acc_t += temp;
     ac1->agd.acc_tt += temp * temp;
-    accelCalUpdate(&ac1->akf, asd);
+    kasaAccumulate(&ac1->akf, asd->mean_x, asd->mean_y, asd->mean_z);
   }
   // Checking if all buckets are full.
   if (ac1->agd.nx == ac1->agd.nfx && ac1->agd.nxb == ac1->agd.nfxb &&
@@ -357,32 +346,16 @@ static int accelGoodData(struct AccelStillDet *asd, struct AccelCalAlgo *ac1,
     //  Check if akf->nsamples is zero.
     if (ac1->akf.nsamples == 0) {
       agdReset(&ac1->agd);
-      magKasaReset(&ac1->akf);
+      kasaReset(&ac1->akf);
       complete = 0;
       return complete;
-    } else {
-      // Normalize the data to the sample numbers.
-      inv = 1.0f / ac1->akf.nsamples;
     }
 
-    ac1->akf.acc_x *= inv;
-    ac1->akf.acc_y *= inv;
-    ac1->akf.acc_z *= inv;
-    ac1->akf.acc_w *= inv;
+    // Normalize the data to the sample numbers.
+    kasaNormalize(&ac1->akf);
 
-    ac1->akf.acc_xx *= inv;
-    ac1->akf.acc_xy *= inv;
-    ac1->akf.acc_xz *= inv;
-    ac1->akf.acc_xw *= inv;
-
-    ac1->akf.acc_yy *= inv;
-    ac1->akf.acc_yz *= inv;
-    ac1->akf.acc_yw *= inv;
-
-    ac1->akf.acc_zz *= inv;
-    ac1->akf.acc_zw *= inv;
-
-    // Calculate the temp VAR and MEA.N
+    // Calculate the temp VAR and MEAN.
+    inv = 1.0f / ac1->akf.nsamples;
     ac1->agd.var_t =
         (ac1->agd.acc_tt - (ac1->agd.acc_t * ac1->agd.acc_t) * inv) * inv;
     ac1->agd.mean_t = ac1->agd.acc_t * inv;
@@ -395,7 +368,7 @@ static int accelGoodData(struct AccelStillDet *asd, struct AccelCalAlgo *ac1,
       ac1->agd.ny > ac1->agd.nfy || ac1->agd.nyb > ac1->agd.nfyb ||
       ac1->agd.nz > ac1->agd.nfz || ac1->agd.nzb > ac1->agd.nfzb) {
     agdReset(&ac1->agd);
-    magKasaReset(&ac1->akf);
+    kasaReset(&ac1->akf);
     complete = 0;
     return complete;
   }
@@ -488,11 +461,11 @@ void accelCalRun(struct AccelCal *acc, uint64_t sample_time_nanos, float x,
                   ", %s%d.%02d,  %llu, %s%d.%05d, %s%d.%05d, %s%d.%05d \n",
                   CAL_ENCODE_FLOAT(temp, 2),
                   (unsigned long long int)sample_time_nanos,
-                  CAL_ENCODE_FLOAT(acc->x_bias_new,5),
-                  CAL_ENCODE_FLOAT(acc->y_bias_new,5),
-                  CAL_ENCODE_FLOAT(acc->z_bias_new,5));
+                  CAL_ENCODE_FLOAT(acc->x_bias_new, 5),
+                  CAL_ENCODE_FLOAT(acc->y_bias_new, 5),
+                  CAL_ENCODE_FLOAT(acc->z_bias_new, 5));
     acc->temp_time_nanos = sample_time_nanos;
-    }
+  }
 #endif
 
   int temp_gate = 0;
@@ -523,7 +496,8 @@ void accelCalRun(struct AccelCal *acc, uint64_t sample_time_nanos, float x,
         float radius;
 
         // Grabbing the fit from the MAG cal.
-        magKasaFit(&acc->ac1[temp_gate].akf, &bias, &radius);
+        kasaFit(&acc->ac1[temp_gate].akf, &bias, &radius, G_NORM_MAX,
+                G_NORM_MIN);
 
         // If offset is too large don't take.
         if (fabsf(bias.x) < MAX_OFF && fabsf(bias.y) < MAX_OFF &&
@@ -567,7 +541,7 @@ void accelCalRun(struct AccelCal *acc, uint64_t sample_time_nanos, float x,
 
         // Resetting the structs for a new accel cal run.
         agdReset(&acc->ac1[temp_gate].agd);
-        magKasaReset(&acc->ac1[temp_gate].akf);
+        kasaReset(&acc->ac1[temp_gate].akf);
       }
     }
   }
