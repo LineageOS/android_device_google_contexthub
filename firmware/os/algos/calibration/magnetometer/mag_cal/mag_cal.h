@@ -14,21 +14,19 @@
  * limitations under the License.
  */
 
-#ifndef LOCATION_LBS_CONTEXTHUB_NANOAPPS_CALIBRATION_MAGNETOMETER_MAG_CAL_H_
-#define LOCATION_LBS_CONTEXTHUB_NANOAPPS_CALIBRATION_MAGNETOMETER_MAG_CAL_H_
+#ifndef LOCATION_LBS_CONTEXTHUB_NANOAPPS_CALIBRATION_MAGNETOMETER_MAG_CAL_MAG_CAL_H_
+#define LOCATION_LBS_CONTEXTHUB_NANOAPPS_CALIBRATION_MAGNETOMETER_MAG_CAL_MAG_CAL_H_
 
-#ifdef SPHERE_FIT_ENABLED
-#ifndef DIVERSITY_CHECK_ENABLED
-#define DIVERSITY_CHECK_ENABLED
-#endif
-#endif
+#ifdef MAG_CAL_DEBUG_ENABLE
+// Enables diversity debug messages if mag_cal debugging is enabled.
+#define DIVERSE_DEBUG_ENABLE
+#endif  // MAG_CAL_DEBUG_ENABLE
 
 #include <stdbool.h>
 #include <stdint.h>
 #include <sys/types.h>
-#ifdef DIVERSITY_CHECK_ENABLED
+
 #include "calibration/diversity_checker/diversity_checker.h"
-#endif
 #include "common/math/kasa.h"
 #include "common/math/mat.h"
 #include "common/math/vec.h"
@@ -71,9 +69,7 @@ struct MagCalParameters {
 };
 
 struct MagCal {
-#ifdef DIVERSITY_CHECK_ENABLED
   struct DiversityChecker diversity_checker;
-#endif
   struct KasaFit kasa;
 
   uint64_t start_time;   // [micro-seconds]
@@ -89,21 +85,16 @@ struct MagCal {
 #endif
 };
 
-#ifdef DIVERSITY_CHECK_ENABLED
 void initMagCal(struct MagCal *moc,
                 const struct MagCalParameters *mag_cal_parameters,
                 const struct DiversityCheckerParameters *diverse_parameters);
-#else
-void initMagCal(struct MagCal *moc,
-                const struct MagCalParameters *mag_cal_parameters);
-#endif
 
 void magCalDestroy(struct MagCal *moc);
 
 enum MagUpdate magCalUpdate(struct MagCal *moc, uint64_t sample_time_us,
                             float x, float y, float z);
 
-void magCalGetBias(struct MagCal *moc, float *x, float *y, float *z);
+void magCalGetBias(const struct MagCal *moc, float *x, float *y, float *z);
 
 void magCalAddBias(struct MagCal *moc, float x, float y, float z);
 
@@ -119,7 +110,7 @@ void magCalRemoveSoftiron(struct MagCal *moc, float xi, float yi, float zi,
 
 void magCalReset(struct MagCal *moc);
 
-#if defined MAG_CAL_DEBUG_ENABLE && defined DIVERSITY_CHECK_ENABLED
+#if defined MAG_CAL_DEBUG_ENABLE
 void magLogPrint(struct DiversityChecker *moc, float temp);
 #endif
 
@@ -127,4 +118,4 @@ void magLogPrint(struct DiversityChecker *moc, float temp);
 }
 #endif
 
-#endif  // LOCATION_LBS_CONTEXTHUB_NANOAPPS_CALIBRATION_MAGNETOMETER_MAG_CAL_H_
+#endif  // LOCATION_LBS_CONTEXTHUB_NANOAPPS_CALIBRATION_MAGNETOMETER_MAG_CAL_MAG_CAL_H_

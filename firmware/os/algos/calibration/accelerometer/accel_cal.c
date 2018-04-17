@@ -17,6 +17,7 @@
 #include "calibration/accelerometer/accel_cal.h"
 
 #include <errno.h>
+#include <inttypes.h>
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -458,12 +459,13 @@ void accelCalRun(struct AccelCal *acc, uint64_t sample_time_nanos, float x,
 #ifdef IMU_TEMP_DBG_ENABLED
   if ((sample_time_nanos - acc->temp_time_nanos) > IMU_TEMP_DELTA_TIME_NANOS) {
     CAL_DEBUG_LOG("IMU Temp Data: ",
-                  ", %s%d.%02d,  %llu, %s%d.%05d, %s%d.%05d, %s%d.%05d \n",
-                  CAL_ENCODE_FLOAT(temp, 2),
-                  (unsigned long long int)sample_time_nanos,
-                  CAL_ENCODE_FLOAT(acc->x_bias_new, 5),
-                  CAL_ENCODE_FLOAT(acc->y_bias_new, 5),
-                  CAL_ENCODE_FLOAT(acc->z_bias_new, 5));
+                  ", " CAL_FORMAT_3DIGITS ",  %" PRIu64
+                  ", " CAL_FORMAT_6DIGITS_TRIPLET " \n",
+                  CAL_ENCODE_FLOAT(temp, 3),
+                  sample_time_nanos,
+                  CAL_ENCODE_FLOAT(acc->x_bias_new, 6),
+                  CAL_ENCODE_FLOAT(acc->y_bias_new, 6),
+                  CAL_ENCODE_FLOAT(acc->z_bias_new, 6));
     acc->temp_time_nanos = sample_time_nanos;
   }
 #endif
@@ -548,231 +550,216 @@ void accelCalRun(struct AccelCal *acc, uint64_t sample_time_nanos, float x,
 }
 
 #ifdef ACCEL_CAL_DBG_ENABLED
+
+// Local helper macro for printing log messages.
+#ifdef CAL_NO_FLOAT_FORMAT_STRINGS
+#define CAL_FORMAT_ACCEL_HISTORY                                           \
+  "%s%d.%06d,%s%d.%06d,%s%d.%06d,%s%d.%06d,%s%d.%06d,%s%d.%06d,%s%d.%06d," \
+  "%s%d.%06d,%s%d.%06d,%s%d.%06d"
+#else
+#define CAL_FORMAT_ACCEL_HISTORY \
+  "%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f"
+#endif  // CAL_NO_FLOAT_FORMAT_STRINGS
+
 // Debug Print Output
 void accelCalDebPrint(struct AccelCal *acc, float temp) {
   static int32_t kk = 0;
   if (++kk == 1000) {
     // X offset history last 10 values.
-    CAL_DEBUG_LOG(
-        "[BMI160]",
-        "{MK_ACCEL,11,%s%d.%06d,%s%d.%06d,%s%d.%06d,%s%d.%06d,%s%d.%06d,%s%d.%"
-        "06d,%s%d.%06d,%s%d.%06d,%s%d.%06d,%s%d.%06d,}(x_off history)\n",
-        CAL_ENCODE_FLOAT(acc->adf.x_o[0], 6),
-        CAL_ENCODE_FLOAT(acc->adf.x_o[1], 6),
-        CAL_ENCODE_FLOAT(acc->adf.x_o[2], 6),
-        CAL_ENCODE_FLOAT(acc->adf.x_o[3], 6),
-        CAL_ENCODE_FLOAT(acc->adf.x_o[4], 6),
-        CAL_ENCODE_FLOAT(acc->adf.x_o[5], 6),
-        CAL_ENCODE_FLOAT(acc->adf.x_o[6], 6),
-        CAL_ENCODE_FLOAT(acc->adf.x_o[7], 6),
-        CAL_ENCODE_FLOAT(acc->adf.x_o[8], 6),
-        CAL_ENCODE_FLOAT(acc->adf.x_o[9], 6));
+    CAL_DEBUG_LOG("[ACCEL_CAL]",
+                  "{11," CAL_FORMAT_ACCEL_HISTORY "}(x_off history)\n",
+                  CAL_ENCODE_FLOAT(acc->adf.x_o[0], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.x_o[1], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.x_o[2], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.x_o[3], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.x_o[4], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.x_o[5], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.x_o[6], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.x_o[7], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.x_o[8], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.x_o[9], 6));
 
     // Y offset history last 10 values.
-    CAL_DEBUG_LOG(
-        "[BMI160]",
-        "{MK_ACCEL,12,%s%d.%06d,%s%d.%06d,%s%d.%06d,%s%d.%06d,%s%d.%06d,%s%d.%"
-        "06d,%s%d.%06d,%s%d.%06d,%s%d.%06d,%s%d.%06d,}(y_off history)\n",
-        CAL_ENCODE_FLOAT(acc->adf.y_o[0], 6),
-        CAL_ENCODE_FLOAT(acc->adf.y_o[1], 6),
-        CAL_ENCODE_FLOAT(acc->adf.y_o[2], 6),
-        CAL_ENCODE_FLOAT(acc->adf.y_o[3], 6),
-        CAL_ENCODE_FLOAT(acc->adf.y_o[4], 6),
-        CAL_ENCODE_FLOAT(acc->adf.y_o[5], 6),
-        CAL_ENCODE_FLOAT(acc->adf.y_o[6], 6),
-        CAL_ENCODE_FLOAT(acc->adf.y_o[7], 6),
-        CAL_ENCODE_FLOAT(acc->adf.y_o[8], 6),
-        CAL_ENCODE_FLOAT(acc->adf.y_o[9], 6));
+    CAL_DEBUG_LOG("[ACCEL_CAL]",
+                  "{12," CAL_FORMAT_ACCEL_HISTORY "}(y_off history)\n",
+                  CAL_ENCODE_FLOAT(acc->adf.y_o[0], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.y_o[1], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.y_o[2], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.y_o[3], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.y_o[4], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.y_o[5], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.y_o[6], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.y_o[7], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.y_o[8], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.y_o[9], 6));
 
     // Z offset history last 10 values.
-    CAL_DEBUG_LOG(
-        "[BMI160]",
-        "{MK_ACCEL,13,%s%d.%06d,%s%d.%06d,%s%d.%06d,%s%d.%06d,%s%d.%06d,%s%d.%"
-        "06d,%s%d.%06d,%s%d.%06d,%s%d.%06d,%s%d.%06d,}(z_off history)\n",
-        CAL_ENCODE_FLOAT(acc->adf.z_o[0], 6),
-        CAL_ENCODE_FLOAT(acc->adf.z_o[1], 6),
-        CAL_ENCODE_FLOAT(acc->adf.z_o[2], 6),
-        CAL_ENCODE_FLOAT(acc->adf.z_o[3], 6),
-        CAL_ENCODE_FLOAT(acc->adf.z_o[4], 6),
-        CAL_ENCODE_FLOAT(acc->adf.z_o[5], 6),
-        CAL_ENCODE_FLOAT(acc->adf.z_o[6], 6),
-        CAL_ENCODE_FLOAT(acc->adf.z_o[7], 6),
-        CAL_ENCODE_FLOAT(acc->adf.z_o[8], 6),
-        CAL_ENCODE_FLOAT(acc->adf.z_o[9], 6));
+    CAL_DEBUG_LOG("[ACCEL_CAL]",
+                  "{13," CAL_FORMAT_ACCEL_HISTORY "}(z_off history)\n",
+                  CAL_ENCODE_FLOAT(acc->adf.z_o[0], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.z_o[1], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.z_o[2], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.z_o[3], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.z_o[4], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.z_o[5], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.z_o[6], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.z_o[7], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.z_o[8], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.z_o[9], 6));
 
     // Temp history variation VAR of offset.
-    CAL_DEBUG_LOG(
-        "[BMI160]",
-        "{MK_ACCEL,14,%s%d.%06d,%s%d.%06d,%s%d.%06d,%s%d.%06d,%s%d.%06d,%s%d.%"
-        "06d,%s%d.%06d,%s%d.%06d,%s%d.%06d,%s%d.%06d,}(VAR temp history)\n",
-        CAL_ENCODE_FLOAT(acc->adf.var_t[0], 6),
-        CAL_ENCODE_FLOAT(acc->adf.var_t[1], 6),
-        CAL_ENCODE_FLOAT(acc->adf.var_t[2], 6),
-        CAL_ENCODE_FLOAT(acc->adf.var_t[3], 6),
-        CAL_ENCODE_FLOAT(acc->adf.var_t[4], 6),
-        CAL_ENCODE_FLOAT(acc->adf.var_t[5], 6),
-        CAL_ENCODE_FLOAT(acc->adf.var_t[6], 6),
-        CAL_ENCODE_FLOAT(acc->adf.var_t[7], 6),
-        CAL_ENCODE_FLOAT(acc->adf.var_t[8], 6),
-        CAL_ENCODE_FLOAT(acc->adf.var_t[9], 6));
+    CAL_DEBUG_LOG("[ACCEL_CAL]",
+                  "{14," CAL_FORMAT_ACCEL_HISTORY "}(VAR temp history)\n",
+                  CAL_ENCODE_FLOAT(acc->adf.var_t[0], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.var_t[1], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.var_t[2], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.var_t[3], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.var_t[4], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.var_t[5], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.var_t[6], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.var_t[7], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.var_t[8], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.var_t[9], 6));
 
     // Temp mean history of offset.
-    CAL_DEBUG_LOG(
-        "[BMI160]",
-        "{MK_ACCEL,15,%s%d.%06d,%s%d.%06d,%s%d.%06d,%s%d.%06d,%s%d.%06d,%s%d.%"
-        "06d,%s%d.%06d,%s%d.%06d,%s%d.%06d,%s%d.%06d,}(MEAN Temp history)\n",
-        CAL_ENCODE_FLOAT(acc->adf.mean_t[0], 6),
-        CAL_ENCODE_FLOAT(acc->adf.mean_t[1], 6),
-        CAL_ENCODE_FLOAT(acc->adf.mean_t[2], 6),
-        CAL_ENCODE_FLOAT(acc->adf.mean_t[3], 6),
-        CAL_ENCODE_FLOAT(acc->adf.mean_t[4], 6),
-        CAL_ENCODE_FLOAT(acc->adf.mean_t[5], 6),
-        CAL_ENCODE_FLOAT(acc->adf.mean_t[6], 6),
-        CAL_ENCODE_FLOAT(acc->adf.mean_t[7], 6),
-        CAL_ENCODE_FLOAT(acc->adf.mean_t[8], 6),
-        CAL_ENCODE_FLOAT(acc->adf.mean_t[9], 6));
+    CAL_DEBUG_LOG("[ACCEL_CAL]",
+                  "{15," CAL_FORMAT_ACCEL_HISTORY "}(MEAN Temp history)\n",
+                  CAL_ENCODE_FLOAT(acc->adf.mean_t[0], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.mean_t[1], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.mean_t[2], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.mean_t[3], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.mean_t[4], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.mean_t[5], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.mean_t[6], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.mean_t[7], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.mean_t[8], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.mean_t[9], 6));
 
     // KASA radius history.
-    CAL_DEBUG_LOG(
-        "[BMI160]",
-        "{MK_ACCEL,16,%s%d.%06d,%s%d.%06d,%s%d.%06d,%s%d.%06d,%s%d.%06d,%s%d.%"
-        "06d,%s%d.%06d,%s%d.%06d,%s%d.%06d,%s%d.%06d,}(radius)\n",
-        CAL_ENCODE_FLOAT(acc->adf.rad[0], 6),
-        CAL_ENCODE_FLOAT(acc->adf.rad[1], 6),
-        CAL_ENCODE_FLOAT(acc->adf.rad[2], 6),
-        CAL_ENCODE_FLOAT(acc->adf.rad[3], 6),
-        CAL_ENCODE_FLOAT(acc->adf.rad[4], 6),
-        CAL_ENCODE_FLOAT(acc->adf.rad[5], 6),
-        CAL_ENCODE_FLOAT(acc->adf.rad[6], 6),
-        CAL_ENCODE_FLOAT(acc->adf.rad[7], 6),
-        CAL_ENCODE_FLOAT(acc->adf.rad[8], 6),
-        CAL_ENCODE_FLOAT(acc->adf.rad[9], 6));
+    CAL_DEBUG_LOG("[ACCEL_CAL]", "{16," CAL_FORMAT_ACCEL_HISTORY "}(radius)\n",
+                  CAL_ENCODE_FLOAT(acc->adf.rad[0], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.rad[1], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.rad[2], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.rad[3], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.rad[4], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.rad[5], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.rad[6], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.rad[7], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.rad[8], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.rad[9], 6));
     kk = 0;
   }
 
   if (kk == 750) {
     // Eigen Vector X.
-    CAL_DEBUG_LOG(
-        "[BMI160]",
-        "{MK_ACCEL, "
-        "7,%s%d.%06d,%s%d.%06d,%s%d.%06d,%s%d.%06d,%s%d.%06d,%s%d.%06d,%s%d.%"
-        "06d,%s%d.%06d,%s%d.%06d,%s%d.%06d,}(eigen x)\n",
-        CAL_ENCODE_FLOAT(acc->adf.e_x[0], 6),
-        CAL_ENCODE_FLOAT(acc->adf.e_x[1], 6),
-        CAL_ENCODE_FLOAT(acc->adf.e_x[2], 6),
-        CAL_ENCODE_FLOAT(acc->adf.e_x[3], 6),
-        CAL_ENCODE_FLOAT(acc->adf.e_x[4], 6),
-        CAL_ENCODE_FLOAT(acc->adf.e_x[5], 6),
-        CAL_ENCODE_FLOAT(acc->adf.e_x[6], 6),
-        CAL_ENCODE_FLOAT(acc->adf.e_x[7], 6),
-        CAL_ENCODE_FLOAT(acc->adf.e_x[8], 6),
-        CAL_ENCODE_FLOAT(acc->adf.e_x[9], 6));
+    CAL_DEBUG_LOG("[ACCEL_CAL]", "{ 7," CAL_FORMAT_ACCEL_HISTORY "}(eigen x)\n",
+                  CAL_ENCODE_FLOAT(acc->adf.e_x[0], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.e_x[1], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.e_x[2], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.e_x[3], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.e_x[4], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.e_x[5], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.e_x[6], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.e_x[7], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.e_x[8], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.e_x[9], 6));
     // Y.
-    CAL_DEBUG_LOG(
-        "[BMI160]",
-        "{MK_ACCEL, "
-        "8,%s%d.%06d,%s%d.%06d,%s%d.%06d,%s%d.%06d,%s%d.%06d,%s%d.%06d,%s%d.%"
-        "06d,%s%d.%06d,%s%d.%06d,%s%d.%06d,}(eigen y)\n",
-        CAL_ENCODE_FLOAT(acc->adf.e_y[0], 6),
-        CAL_ENCODE_FLOAT(acc->adf.e_y[1], 6),
-        CAL_ENCODE_FLOAT(acc->adf.e_y[2], 6),
-        CAL_ENCODE_FLOAT(acc->adf.e_y[3], 6),
-        CAL_ENCODE_FLOAT(acc->adf.e_y[4], 6),
-        CAL_ENCODE_FLOAT(acc->adf.e_y[5], 6),
-        CAL_ENCODE_FLOAT(acc->adf.e_y[6], 6),
-        CAL_ENCODE_FLOAT(acc->adf.e_y[7], 6),
-        CAL_ENCODE_FLOAT(acc->adf.e_y[8], 6),
-        CAL_ENCODE_FLOAT(acc->adf.e_y[9], 6));
+    CAL_DEBUG_LOG("[ACCEL_CAL]", "{ 8," CAL_FORMAT_ACCEL_HISTORY "}(eigen y)\n",
+                  CAL_ENCODE_FLOAT(acc->adf.e_y[0], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.e_y[1], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.e_y[2], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.e_y[3], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.e_y[4], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.e_y[5], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.e_y[6], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.e_y[7], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.e_y[8], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.e_y[9], 6));
     // Z.
-    CAL_DEBUG_LOG(
-        "[BMI160]",
-        "{MK_ACCEL, "
-        "9,%s%d.%06d,%s%d.%06d,%s%d.%06d,%s%d.%06d,%s%d.%06d,%s%d.%06d,%s%d.%"
-        "06d,%s%d.%06d,%s%d.%06d,%s%d.%06d,}(eigen z)\n",
-        CAL_ENCODE_FLOAT(acc->adf.e_z[0], 6),
-        CAL_ENCODE_FLOAT(acc->adf.e_z[1], 6),
-        CAL_ENCODE_FLOAT(acc->adf.e_z[2], 6),
-        CAL_ENCODE_FLOAT(acc->adf.e_z[3], 6),
-        CAL_ENCODE_FLOAT(acc->adf.e_z[4], 6),
-        CAL_ENCODE_FLOAT(acc->adf.e_z[5], 6),
-        CAL_ENCODE_FLOAT(acc->adf.e_z[6], 6),
-        CAL_ENCODE_FLOAT(acc->adf.e_z[7], 6),
-        CAL_ENCODE_FLOAT(acc->adf.e_z[8], 6),
-        CAL_ENCODE_FLOAT(acc->adf.e_z[9], 6));
+    CAL_DEBUG_LOG("[ACCEL_CAL]", "{ 9," CAL_FORMAT_ACCEL_HISTORY "}(eigen z)\n",
+                  CAL_ENCODE_FLOAT(acc->adf.e_z[0], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.e_z[1], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.e_z[2], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.e_z[3], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.e_z[4], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.e_z[5], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.e_z[6], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.e_z[7], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.e_z[8], 6),
+                  CAL_ENCODE_FLOAT(acc->adf.e_z[9], 6));
     // Accel Time in ns.
-    CAL_DEBUG_LOG(
-        "[BMI160]",
-        "{MK_ACCEL,10,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,}("
-        "timestamp ns)\n",
-        acc->adf.cal_time[0], acc->adf.cal_time[1], acc->adf.cal_time[2],
-        acc->adf.cal_time[3], acc->adf.cal_time[4], acc->adf.cal_time[5],
-        acc->adf.cal_time[6], acc->adf.cal_time[7], acc->adf.cal_time[8],
-        acc->adf.cal_time[9]);
+    CAL_DEBUG_LOG("[ACCEL_CAL]",
+                  "{10,%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64
+                  ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64
+                  "}(timestamp ns)\n",
+                  acc->adf.cal_time[0], acc->adf.cal_time[1],
+                  acc->adf.cal_time[2], acc->adf.cal_time[3],
+                  acc->adf.cal_time[4], acc->adf.cal_time[5],
+                  acc->adf.cal_time[6], acc->adf.cal_time[7],
+                  acc->adf.cal_time[8], acc->adf.cal_time[9]);
   }
 
   if (kk == 500) {
     // Total bucket count.
-    CAL_DEBUG_LOG(
-        "[BMI160]",
-        "{MK_ACCEL, 0,%2d, %2d, %2d, %2d, %2d, %2d, %2d,}(Total Bucket #)\n",
-        (unsigned)acc->adf.ntx, (unsigned)acc->adf.ntxb, (unsigned)acc->adf.nty,
-        (unsigned)acc->adf.ntyb, (unsigned)acc->adf.ntz,
-        (unsigned)acc->adf.ntzb, (unsigned)acc->adf.ntle);
+    CAL_DEBUG_LOG("[ACCEL_CAL]",
+                  "{ 0,%2d, %2d, %2d, %2d, %2d, %2d, %2d}(Total Bucket #)\n",
+                  (unsigned)acc->adf.ntx, (unsigned)acc->adf.ntxb,
+                  (unsigned)acc->adf.nty, (unsigned)acc->adf.ntyb,
+                  (unsigned)acc->adf.ntz, (unsigned)acc->adf.ntzb,
+                  (unsigned)acc->adf.ntle);
     // Live bucket count lower.
-    CAL_DEBUG_LOG(
-        "[BMI160]",
-        "{MK_ACCEL, 1,%2d, %2d, %2d, %2d, %2d, %2d, %2d, %3d,}(Bucket # "
-        "lower)\n",
-        (unsigned)acc->ac1[0].agd.nx, (unsigned)acc->ac1[0].agd.nxb,
-        (unsigned)acc->ac1[0].agd.ny, (unsigned)acc->ac1[0].agd.nyb,
-        (unsigned)acc->ac1[0].agd.nz, (unsigned)acc->ac1[0].agd.nzb,
-        (unsigned)acc->ac1[0].agd.nle, (unsigned)acc->ac1[0].akf.nsamples);
+    CAL_DEBUG_LOG("[ACCEL_CAL]",
+                  "{ 1,%2d, %2d, %2d, %2d, %2d, %2d, %2d, %3d}(Bucket # "
+                  "lower)\n",
+                  (unsigned)acc->ac1[0].agd.nx, (unsigned)acc->ac1[0].agd.nxb,
+                  (unsigned)acc->ac1[0].agd.ny, (unsigned)acc->ac1[0].agd.nyb,
+                  (unsigned)acc->ac1[0].agd.nz, (unsigned)acc->ac1[0].agd.nzb,
+                  (unsigned)acc->ac1[0].agd.nle,
+                  (unsigned)acc->ac1[0].akf.nsamples);
     // Live bucket count hogher.
-    CAL_DEBUG_LOG(
-        "[BMI160]",
-        "{MK_ACCEL, 2,%2d, %2d, %2d, %2d, %2d, %2d, %2d, %3d,}(Bucket # "
-        "higher)\n",
-        (unsigned)acc->ac1[1].agd.nx, (unsigned)acc->ac1[1].agd.nxb,
-        (unsigned)acc->ac1[1].agd.ny, (unsigned)acc->ac1[1].agd.nyb,
-        (unsigned)acc->ac1[1].agd.nz, (unsigned)acc->ac1[1].agd.nzb,
-        (unsigned)acc->ac1[1].agd.nle, (unsigned)acc->ac1[1].akf.nsamples);
+    CAL_DEBUG_LOG("[ACCEL_CAL]",
+                  "{ 2,%2d, %2d, %2d, %2d, %2d, %2d, %2d, %3d}(Bucket # "
+                  "higher)\n",
+                  (unsigned)acc->ac1[1].agd.nx, (unsigned)acc->ac1[1].agd.nxb,
+                  (unsigned)acc->ac1[1].agd.ny, (unsigned)acc->ac1[1].agd.nyb,
+                  (unsigned)acc->ac1[1].agd.nz, (unsigned)acc->ac1[1].agd.nzb,
+                  (unsigned)acc->ac1[1].agd.nle,
+                  (unsigned)acc->ac1[1].akf.nsamples);
     // Offset used.
-    CAL_DEBUG_LOG(
-        "[BMI160]",
-        "{MK_ACCEL, 3,%s%d.%06d, %s%d.%06d, %s%d.%06d, %2d,}(updated offset "
-        "x,y,z, total # of offsets)\n",
-        CAL_ENCODE_FLOAT(acc->x_bias, 6), CAL_ENCODE_FLOAT(acc->y_bias, 6),
-        CAL_ENCODE_FLOAT(acc->z_bias, 6), (unsigned)acc->adf.noff);
+    CAL_DEBUG_LOG("[ACCEL_CAL]",
+                  "{ 3,"CAL_FORMAT_6DIGITS_TRIPLET", %2d}(updated offset "
+                  "x,y,z, total # of offsets)\n",
+                  CAL_ENCODE_FLOAT(acc->x_bias, 6),
+                  CAL_ENCODE_FLOAT(acc->y_bias, 6),
+                  CAL_ENCODE_FLOAT(acc->z_bias, 6), (unsigned)acc->adf.noff);
     // Offset New.
-    CAL_DEBUG_LOG(
-        "[BMI160]",
-        "{MK_ACCEL, 4,%s%d.%06d, %s%d.%06d, %s%d.%06d, %s%d.%06d,}(New offset "
-        "x,y,z, live temp)\n",
-        CAL_ENCODE_FLOAT(acc->x_bias_new, 6),
-        CAL_ENCODE_FLOAT(acc->y_bias_new, 6),
-        CAL_ENCODE_FLOAT(acc->z_bias_new, 6), CAL_ENCODE_FLOAT(temp, 6));
+    CAL_DEBUG_LOG("[ACCEL_CAL]",
+                  "{ 4," CAL_FORMAT_6DIGITS_TRIPLET ", " CAL_FORMAT_6DIGITS
+                  "}(New offset x,y,z, live temp)\n",
+                  CAL_ENCODE_FLOAT(acc->x_bias_new, 6),
+                  CAL_ENCODE_FLOAT(acc->y_bias_new, 6),
+                  CAL_ENCODE_FLOAT(acc->z_bias_new, 6),
+                  CAL_ENCODE_FLOAT(temp, 6));
     // Temp Histogram.
-    CAL_DEBUG_LOG(
-        "[BMI160]",
-        "{MK_ACCEL, 5,%7d, %7d, %7d, %7d, %7d, %7d, %7d, %7d, %7d, %7d, %7d, "
-        "%7d, %7d,}(temp histo)\n",
-        (unsigned)acc->adf.t_hist[0], (unsigned)acc->adf.t_hist[1],
-        (unsigned)acc->adf.t_hist[2], (unsigned)acc->adf.t_hist[3],
-        (unsigned)acc->adf.t_hist[4], (unsigned)acc->adf.t_hist[5],
-        (unsigned)acc->adf.t_hist[6], (unsigned)acc->adf.t_hist[7],
-        (unsigned)acc->adf.t_hist[8], (unsigned)acc->adf.t_hist[9],
-        (unsigned)acc->adf.t_hist[10], (unsigned)acc->adf.t_hist[11],
-        (unsigned)acc->adf.t_hist[12]);
-    CAL_DEBUG_LOG(
-        "[BMI160]",
-        "M{K_ACCEL, 6,%7d, %7d, %7d,%7d, %7d, %7d, %7d, %7d, %7d, %7d, %7d, "
-        "%7d,}(temp histo)\n",
-        (unsigned)acc->adf.t_hist[13], (unsigned)acc->adf.t_hist[14],
-        (unsigned)acc->adf.t_hist[15], (unsigned)acc->adf.t_hist[16],
-        (unsigned)acc->adf.t_hist[17], (unsigned)acc->adf.t_hist[18],
-        (unsigned)acc->adf.t_hist[19], (unsigned)acc->adf.t_hist[20],
-        (unsigned)acc->adf.t_hist[21], (unsigned)acc->adf.t_hist[22],
-        (unsigned)acc->adf.t_hist[23], (unsigned)acc->adf.t_hist[24]);
+    CAL_DEBUG_LOG("[ACCEL_CAL]",
+                  "{ 5,%7d, %7d, %7d, %7d, %7d, %7d, %7d, %7d, %7d, %7d, %7d, "
+                  "%7d, %7d}(temp histo)\n",
+                  (unsigned)acc->adf.t_hist[0], (unsigned)acc->adf.t_hist[1],
+                  (unsigned)acc->adf.t_hist[2], (unsigned)acc->adf.t_hist[3],
+                  (unsigned)acc->adf.t_hist[4], (unsigned)acc->adf.t_hist[5],
+                  (unsigned)acc->adf.t_hist[6], (unsigned)acc->adf.t_hist[7],
+                  (unsigned)acc->adf.t_hist[8], (unsigned)acc->adf.t_hist[9],
+                  (unsigned)acc->adf.t_hist[10], (unsigned)acc->adf.t_hist[11],
+                  (unsigned)acc->adf.t_hist[12]);
+    CAL_DEBUG_LOG("[ACCEL_CAL]",
+                  "{ 6,%7d, %7d, %7d, %7d, %7d, %7d, %7d, %7d, %7d, %7d, %7d, "
+                  "%7d}(temp histo)\n",
+                  (unsigned)acc->adf.t_hist[13], (unsigned)acc->adf.t_hist[14],
+                  (unsigned)acc->adf.t_hist[15], (unsigned)acc->adf.t_hist[16],
+                  (unsigned)acc->adf.t_hist[17], (unsigned)acc->adf.t_hist[18],
+                  (unsigned)acc->adf.t_hist[19], (unsigned)acc->adf.t_hist[20],
+                  (unsigned)acc->adf.t_hist[21], (unsigned)acc->adf.t_hist[22],
+                  (unsigned)acc->adf.t_hist[23], (unsigned)acc->adf.t_hist[24]);
   }
 }
 #endif

@@ -39,10 +39,10 @@ using ::online_calibration::SensorType;
 #define NANO_CAL_LOGW(tag, format, ...) LOGW("%s " format, tag, ##__VA_ARGS__)
 #define NANO_CAL_LOGE(tag, format, ...) LOGE("%s " format, tag, ##__VA_ARGS__)
 #else
-#define NANO_CAL_LOGD(tag, format, ...) chreLogNull(format, ##__VA_ARGS__)
-#define NANO_CAL_LOGI(tag, format, ...) chreLogNull(format, ##__VA_ARGS__)
-#define NANO_CAL_LOGW(tag, format, ...) chreLogNull(format, ##__VA_ARGS__)
-#define NANO_CAL_LOGE(tag, format, ...) chreLogNull(format, ##__VA_ARGS__)
+#define NANO_CAL_LOGD(tag, format, ...) CHRE_LOG_NULL(format, ##__VA_ARGS__)
+#define NANO_CAL_LOGI(tag, format, ...) CHRE_LOG_NULL(format, ##__VA_ARGS__)
+#define NANO_CAL_LOGW(tag, format, ...) CHRE_LOG_NULL(format, ##__VA_ARGS__)
+#define NANO_CAL_LOGE(tag, format, ...) CHRE_LOG_NULL(format, ##__VA_ARGS__)
 #endif  // NANO_SENSOR_CAL_DBG_ENABLED
 
 }  // namespace
@@ -54,11 +54,7 @@ void NanoSensorCal::Initialize(OnlineCalibrationThreeAxis *accel_cal,
   accel_cal_ = accel_cal;
   if (accel_cal_ != nullptr) {
     if (accel_cal_->get_sensor_type() == SensorType::kAccelerometerMps2) {
-      if (LoadAshCalibration(CHRE_SENSOR_TYPE_ACCELEROMETER, accel_cal_,
-                             kAccelTag)) {
-        PrintCalibration(accel_cal_->GetSensorCalibration(),
-                         CalibrationTypeFlags::BIAS, kAccelTag);
-      }
+      LoadAshCalibration(CHRE_SENSOR_TYPE_ACCELEROMETER, accel_cal_, kAccelTag);
       NANO_CAL_LOGI(kAccelTag,
                     "Accelerometer runtime calibration initialized.");
     } else {
@@ -70,12 +66,7 @@ void NanoSensorCal::Initialize(OnlineCalibrationThreeAxis *accel_cal,
   gyro_cal_ = gyro_cal;
   if (gyro_cal_ != nullptr) {
     if (gyro_cal_->get_sensor_type() == SensorType::kGyroscopeRps) {
-      if (LoadAshCalibration(CHRE_SENSOR_TYPE_GYROSCOPE, gyro_cal_, kGyroTag)) {
-        PrintCalibration(
-            gyro_cal_->GetSensorCalibration(),
-            CalibrationTypeFlags::BIAS | CalibrationTypeFlags::OVER_TEMP,
-            kGyroTag);
-      }
+      LoadAshCalibration(CHRE_SENSOR_TYPE_GYROSCOPE, gyro_cal_, kGyroTag);
       NANO_CAL_LOGI(kGyroTag, "Gyroscope runtime calibration initialized.");
     } else {
       gyro_cal_ = nullptr;
@@ -86,11 +77,7 @@ void NanoSensorCal::Initialize(OnlineCalibrationThreeAxis *accel_cal,
   mag_cal_ = mag_cal;
   if (mag_cal != nullptr) {
     if (mag_cal->get_sensor_type() == SensorType::kMagnetometerUt) {
-      if (LoadAshCalibration(CHRE_SENSOR_TYPE_GEOMAGNETIC_FIELD, mag_cal_,
-                             kMagTag)) {
-        PrintCalibration(mag_cal_->GetSensorCalibration(),
-                         CalibrationTypeFlags::BIAS, kMagTag);
-      }
+      LoadAshCalibration(CHRE_SENSOR_TYPE_GEOMAGNETIC_FIELD, mag_cal_, kMagTag);
       NANO_CAL_LOGI(kMagTag, "Magnetometer runtime calibration initialized.");
     } else {
       mag_cal_ = nullptr;
@@ -188,8 +175,11 @@ void NanoSensorCal::ProcessSample(const SensorData &sample) {
                 sample.timestamp_nanos, gyro_notification_time_nanos_,
                 kNanoSensorCalMessageIntervalNanos)) {
           gyro_notification_time_nanos_ = sample.timestamp_nanos;
-          PrintCalibration(gyro_cal_->GetSensorCalibration(), gyro_cal_flags,
-                           kGyroTag);
+          PrintCalibration(
+              gyro_cal_->GetSensorCalibration(),
+              // Ensures that both bias and over-temp parameters are printed.
+              CalibrationTypeFlags::BIAS | CalibrationTypeFlags::OVER_TEMP,
+              kGyroTag);
         }
       }
     }
@@ -217,7 +207,23 @@ bool NanoSensorCal::NotifyAshCalibration(
   ash_cal_info.compMatrix[4] = 1.0f;
   ash_cal_info.compMatrix[8] = 1.0f;
   memcpy(ash_cal_info.bias, cal_data.offset, sizeof(ash_cal_info.bias));
-  ash_cal_info.accuracy = ASH_CAL_ACCURACY_HIGH;
+
+  // Sets the appropriate calibration accuracy level.
+  switch (cal_data.calibration_quality.level) {
+    case online_calibration::CalibrationQualityLevel::HIGH_QUALITY:
+      ash_cal_info.accuracy = ASH_CAL_ACCURACY_HIGH;
+      break;
+
+    case online_calibration::CalibrationQualityLevel::MEDIUM_QUALITY:
+      ash_cal_info.accuracy = ASH_CAL_ACCURACY_MEDIUM;
+      break;
+
+    case online_calibration::CalibrationQualityLevel::LOW_QUALITY:
+    // FALLTHROUGH_INTENTIONAL.
+    default:
+      ash_cal_info.accuracy = ASH_CAL_ACCURACY_LOW;
+      break;
+  }
 
   if (!ashSetCalibration(chreSensorType, &ash_cal_info)) {
     NANO_CAL_LOGE(sensor_tag, "ASH failed to apply calibration update.");
@@ -307,56 +313,38 @@ bool NanoSensorCal::DetectRuntimeCalibration(uint8_t chreSensorType,
                                              const char *sensor_tag,
                                              CalibrationTypeFlags *flags,
                                              ashCalParams *ash_cal_parameters) {
-  // Analyzes calibration source flags to determine whether factory calibration
-  // data was received. A valid factory calibration source will include at least
-  // an offset.
-  bool factory_cal_detected =
-      ash_cal_parameters->offsetSource == ASH_CAL_PARAMS_SOURCE_NONE &&
-      ash_cal_parameters->offsetTempCelsiusSource ==
-          ASH_CAL_PARAMS_SOURCE_FACTORY;
+  // Analyzes calibration source flags to determine whether runtime
+  // calibration values have been loaded and may be used for initialization. A
+  // valid runtime calibration source will include at least an offset.
 
+  // Uses the ASH calibration source flags to set the appropriate
+  // CalibrationTypeFlags. These will be used to determine which values to copy
+  // from 'ash_cal_parameters' and provide to the calibration algorithms for
+  // initialization.
   bool runtime_cal_detected = false;
-  if (factory_cal_detected) {
-    // Prints the retrieved factory calibration data.
-    NANO_CAL_LOGI(sensor_tag, "Factory calibration detected.");
+  if (ash_cal_parameters->offsetSource == ASH_CAL_PARAMS_SOURCE_RUNTIME &&
+      ash_cal_parameters->offsetTempCelsiusSource ==
+          ASH_CAL_PARAMS_SOURCE_RUNTIME) {
+    runtime_cal_detected = true;
+    *flags = CalibrationTypeFlags::BIAS;
+  }
+
+  if (ash_cal_parameters->tempSensitivitySource ==
+          ASH_CAL_PARAMS_SOURCE_RUNTIME &&
+      ash_cal_parameters->tempInterceptSource ==
+          ASH_CAL_PARAMS_SOURCE_RUNTIME) {
+    *flags |= CalibrationTypeFlags::OVER_TEMP;
+  }
+
+  if (runtime_cal_detected) {
+    // Prints the retrieved runtime calibration data.
+    NANO_CAL_LOGI(sensor_tag, "Runtime calibration data detected.");
     PrintAshCalParams(*ash_cal_parameters, sensor_tag);
-
-    // Since the factory calibration is applied lower in the sensor framework,
-    // initialization using these parameters must be skipped to avoid the
-    // possibility of double calibration. Returns 'false' to avoid further
-    // initialization. Note, the runtime calibration algorithms dynamically
-    // correct the residuals that the factory calibration doesn't or can't
-    // account for (e.g., aging induced error charateristics).
-    return false;
   } else {
-    // Analyzes calibration source flags to determine whether runtime
-    // calibration values have been loaded and may be used for initialization. A
-    // valid runtime calibration source will include at least an offset.
-
-    // Converts the ASH calibration source flags to CalibrationTypeFlags. These
-    // will be used to determine which values to copy from 'ash_cal_parameters'
-    // and provide to the calibration algorithms for initialization.
-    if (ash_cal_parameters->offsetSource == ASH_CAL_PARAMS_SOURCE_RUNTIME &&
-        ash_cal_parameters->offsetTempCelsiusSource ==
-            ASH_CAL_PARAMS_SOURCE_RUNTIME) {
-      runtime_cal_detected = true;
-      *flags = CalibrationTypeFlags::BIAS;
-    }
-
-    if (ash_cal_parameters->tempSensitivitySource ==
-            ASH_CAL_PARAMS_SOURCE_RUNTIME &&
-        ash_cal_parameters->tempInterceptSource ==
-            ASH_CAL_PARAMS_SOURCE_RUNTIME) {
-      runtime_cal_detected = true;
-      *flags |= CalibrationTypeFlags::OVER_TEMP;
-    }
-
-    if (!runtime_cal_detected) {
-      // This is a warning (not an error) since the runtime algorithms will
-      // function correctly with no recalled calibration values. They will
-      // eventually trigger and update the system with valid calibration data.
-      NANO_CAL_LOGW(sensor_tag, "No runtime offset calibration data found.");
-    }
+    // This is a warning (not an error) since the runtime algorithms will
+    // function correctly with no recalled calibration values. They will
+    // eventually trigger and update the system with valid calibration data.
+    NANO_CAL_LOGW(sensor_tag, "No runtime offset calibration data found.");
   }
 
   return runtime_cal_detected;
@@ -365,26 +353,37 @@ bool NanoSensorCal::DetectRuntimeCalibration(uint8_t chreSensorType,
 // Helper functions for logging calibration information.
 void NanoSensorCal::PrintAshCalParams(const ashCalParams &cal_params,
                                       const char *sensor_tag) {
-  NANO_CAL_LOGI(sensor_tag, "Offset | Temperature [C]: %.6f, %.6f, %.6f | %.2f",
-                cal_params.offset[0], cal_params.offset[1],
-                cal_params.offset[2], cal_params.offsetTempCelsius);
+  if (cal_params.offsetSource == ASH_CAL_PARAMS_SOURCE_RUNTIME) {
+    NANO_CAL_LOGI(sensor_tag,
+                  "Offset | Temperature [C]: %.6f, %.6f, %.6f | %.2f",
+                  cal_params.offset[0], cal_params.offset[1],
+                  cal_params.offset[2], cal_params.offsetTempCelsius);
+  }
 
-  NANO_CAL_LOGI(sensor_tag, "Temp Sensitivity [units/C]: %.6f, %.6f, %.6f",
-                cal_params.tempSensitivity[0], cal_params.tempSensitivity[1],
-                cal_params.tempSensitivity[2]);
+  if (cal_params.tempSensitivitySource == ASH_CAL_PARAMS_SOURCE_RUNTIME) {
+    NANO_CAL_LOGI(sensor_tag, "Temp Sensitivity [units/C]: %.6f, %.6f, %.6f",
+                  cal_params.tempSensitivity[0], cal_params.tempSensitivity[1],
+                  cal_params.tempSensitivity[2]);
+  }
 
-  NANO_CAL_LOGI(sensor_tag, "Temp Intercept [units]: %.6f, %.6f, %.6f",
-                cal_params.tempIntercept[0], cal_params.tempIntercept[1],
-                cal_params.tempIntercept[2]);
+  if (cal_params.tempInterceptSource == ASH_CAL_PARAMS_SOURCE_RUNTIME) {
+    NANO_CAL_LOGI(sensor_tag, "Temp Intercept [units]: %.6f, %.6f, %.6f",
+                  cal_params.tempIntercept[0], cal_params.tempIntercept[1],
+                  cal_params.tempIntercept[2]);
+  }
 
-  NANO_CAL_LOGI(sensor_tag, "Scale Factor: %.6f, %.6f, %.6f",
-                cal_params.scaleFactor[0], cal_params.scaleFactor[1],
-                cal_params.scaleFactor[2]);
+  if (cal_params.scaleFactorSource == ASH_CAL_PARAMS_SOURCE_RUNTIME) {
+    NANO_CAL_LOGI(sensor_tag, "Scale Factor: %.6f, %.6f, %.6f",
+                  cal_params.scaleFactor[0], cal_params.scaleFactor[1],
+                  cal_params.scaleFactor[2]);
+  }
 
-  NANO_CAL_LOGI(sensor_tag,
-                "Cross-Axis in [yx, zx, zy] order: %.6f, %.6f, %.6f",
-                cal_params.crossAxis[0], cal_params.crossAxis[1],
-                cal_params.crossAxis[2]);
+  if (cal_params.crossAxisSource == ASH_CAL_PARAMS_SOURCE_RUNTIME) {
+    NANO_CAL_LOGI(sensor_tag,
+                  "Cross-Axis in [yx, zx, zy] order: %.6f, %.6f, %.6f",
+                  cal_params.crossAxis[0], cal_params.crossAxis[1],
+                  cal_params.crossAxis[2]);
+  }
 }
 
 void NanoSensorCal::PrintCalibration(const CalibrationDataThreeAxis &cal_data,
