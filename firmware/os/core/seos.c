@@ -513,6 +513,24 @@ struct Segment *osSegmentGetEnd()
     return (struct Segment *)(start + size);
 }
 
+uint32_t osSegmentGetFree()
+{
+    struct SegmentIterator it;
+    const struct Segment *storageSeg = NULL;
+
+    osSegmentIteratorInit(&it);
+    while (osSegmentIteratorNext(&it)) {
+        if (osSegmentGetState(it.seg) == SEG_ST_EMPTY) {
+            storageSeg = it.seg;
+            break;
+        }
+    }
+    if (!storageSeg || storageSeg > it.sharedEnd)
+        return 0;
+
+    return (uint8_t *)it.sharedEnd - (uint8_t *)storageSeg;
+}
+
 struct Segment *osGetSegment(const struct AppHdr *app)
 {
     uint32_t size;
@@ -614,13 +632,13 @@ bool osAppSegmentClose(struct AppHdr *app, uint32_t segDataSize, uint32_t segSta
     footerLen = (-fullSize) & 3;
     memset(footer, 0x00, footerLen);
 
-#ifdef SEGMENT_CRC_SUPPORT
-    struct SegmentFooter segFooter {
-        .crc = ~crc32(storageSeg, fullSize, ~0),
+    wdtDisableClk();
+    struct SegmentFooter segFooter = {
+        .crc = ~soft_crc32(storageSeg, fullSize, ~0),
     };
+    wdtEnableClk();
     memcpy(&footer[footerLen], &segFooter, sizeof(segFooter));
     footerLen += sizeof(segFooter);
-#endif
 
     if (ret && footerLen)
         ret = osWriteShared((uint8_t*)storageSeg + fullSize, footer, footerLen);
@@ -673,10 +691,10 @@ static inline bool osAppIsValid(const struct AppHdr *app)
 
 static bool osExtAppIsValid(const struct AppHdr *app, uint32_t len)
 {
-    //TODO: when CRC support is ready, add CRC check here
     return  osAppIsValid(app) &&
             len >= sizeof(*app) &&
             osAppSegmentGetState(app) == SEG_ST_VALID &&
+            osAppSegmentCalcCrcResidue(app) == CRC_RESIDUE &&
             !(app->hdr.fwFlags & FL_APP_HDR_INTERNAL);
 }
 
@@ -781,20 +799,20 @@ void osTaskAbort(struct Task *task)
     osStopTask(task, true);
 }
 
-static bool matchDelayStart(const void *cookie, const struct AppHdr *app)
+static bool matchAutoStart(const void *cookie, const struct AppHdr *app)
 {
     bool match = (bool)cookie;
 
     if (app->hdr.fwFlags & FL_APP_HDR_CHRE) {
         if (app->hdr.chreApiMajor == 0xFF && app->hdr.chreApiMinor == 0xFF)
-            return !match;
+            return match;
         else if ((app->hdr.chreApiMajor < 0x01) ||
                  (app->hdr.chreApiMajor == 0x01 && app->hdr.chreApiMinor < 0x01))
-            return !match;
-        else
             return match;
+        else
+            return !match;
     } else {
-        return !match;
+        return match;
     }
 }
 
@@ -964,11 +982,6 @@ uint32_t osExtAppStartAppsByAppId(uint64_t appId)
     return osExtAppStartApps(matchAppId, &appId);
 }
 
-uint32_t osExtAppStartAppsDelayed()
-{
-    return osExtAppStartApps(matchDelayStart, (void *)true);
-}
-
 static void osStartTasks(void)
 {
     const struct AppHdr *app;
@@ -1019,7 +1032,7 @@ static void osStartTasks(void)
     }
 
     osLog(LOG_DEBUG, "Starting external apps...\n");
-    status = osExtAppStartApps(matchDelayStart, (void *)false);
+    status = osExtAppStartApps(matchAutoStart, (void *)true);
     osLog(LOG_DEBUG, "Started %" PRIu32 " internal apps; EXT status: %08" PRIX32 "\n", taskCnt, status);
 }
 
@@ -1395,7 +1408,7 @@ bool osEnqueuePrivateEvtAsApp(uint32_t evtType, void *evtData, uint32_t toTid)
     return osEnqueuePrivateEvtEx(evtType & EVT_MASK, evtData, taggedPtrMakeFromUint(osGetCurrentTid()), toTid);
 }
 
-bool osTidById(uint64_t *appId, uint32_t *tid)
+bool osTidById(const uint64_t *appId, uint32_t *tid)
 {
     struct Task *task;
 

@@ -22,6 +22,7 @@ extern "C" {
 #endif
 
 #include <plat/taggedPtr.h>
+#include <plat/wdt.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdarg.h>
@@ -30,11 +31,10 @@ extern "C" {
 #include <plat/app.h>
 #include <eventnums.h>
 #include <variant/variant.h>
+#include <crc.h>
 #include "toolchain.h"
 
 #include <nanohub/nanohub.h>
-
-//#define SEGMENT_CRC_SUPPORT
 
 #ifndef MAX_TASKS
 /* Default to 16 tasks, override may come from variant.h */
@@ -177,7 +177,7 @@ void osRemovePendingEvents(bool (*match)(uint32_t evtType, const void *evtData, 
 
 bool osDefer(OsDeferCbkF callback, void *cookie, bool urgent);
 
-bool osTidById(uint64_t *appId, uint32_t *tid);
+bool osTidById(const uint64_t *appId, uint32_t *tid);
 bool osAppInfoById(uint64_t appId, uint32_t *appIdx, uint32_t *appVer, uint32_t *appSize);
 bool osAppInfoByIndex(uint32_t appIdx, uint64_t *appId, uint32_t *appVer, uint32_t *appSize);
 bool osExtAppInfoByIndex(uint32_t appIdx, uint64_t *appId, uint32_t *appVer, uint32_t *appSize);
@@ -189,8 +189,9 @@ bool osAppSegmentClose(struct AppHdr *app, uint32_t segSize, uint32_t segState);
 bool osAppSegmentSetState(const struct AppHdr *app, uint32_t segState);
 bool osSegmentSetSize(struct Segment *seg, uint32_t size);
 bool osAppWipeData(struct AppHdr *app);
-struct Segment *osGetSegment(const struct AppHdr *app);
 struct Segment *osSegmentGetEnd();
+uint32_t osSegmentGetFree();
+struct Segment *osGetSegment(const struct AppHdr *app);
 
 static inline int32_t osSegmentGetSize(const struct Segment *seg)
 {
@@ -207,17 +208,19 @@ static inline struct AppHdr *osSegmentGetData(const struct Segment *seg)
     return (struct AppHdr*)(&seg[1]);
 }
 
-#ifdef SEGMENT_CRC_SUPPORT
-
 struct SegmentFooter
 {
     uint32_t crc;
 };
 
 #define FOOTER_SIZE sizeof(struct SegmentFooter)
-#else
-#define FOOTER_SIZE 0
-#endif
+
+static inline uint32_t osSegmentGetCrc(const struct Segment *seg)
+{
+    struct SegmentFooter *footer = (struct SegmentFooter *)(((uint8_t*)seg) +
+        ((osSegmentGetSize(seg) + 3) & ~3) + sizeof(*seg));
+    return footer ? footer->crc : 0xFFFFFFFF;
+}
 
 static inline uint32_t osSegmentSizeAlignedWithFooter(uint32_t size)
 {
@@ -241,6 +244,24 @@ static inline const struct Segment *osSegmentGetNext(const struct Segment *seg)
 static inline uint32_t osAppSegmentGetState(const struct AppHdr *app)
 {
     return osSegmentGetState(osGetSegment(app));
+}
+
+static inline uint32_t osAppSegmentGetCrc(const struct AppHdr *app)
+{
+    return osSegmentGetCrc(osGetSegment(app));
+}
+
+static inline uint32_t osAppSegmentCalcCrcResidue(const struct AppHdr *app)
+{
+    struct Segment *seg = osGetSegment(app);
+    uint32_t size = osSegmentSizeAlignedWithFooter(osSegmentGetSize(seg));
+    uint32_t crc;
+
+    wdtDisableClk();
+    crc = soft_crc32((uint8_t*)seg, size + sizeof(*seg), ~0);
+    wdtEnableClk();
+
+    return crc;
 }
 
 struct SegmentIterator {
@@ -272,7 +293,6 @@ void osFreeRetainedEvent(uint32_t evtType, void *evtData, TaggedPtr *evtFreeingI
 uint32_t osExtAppStopAppsByAppId(uint64_t appId);
 uint32_t osExtAppEraseAppsByAppId(uint64_t appId);
 uint32_t osExtAppStartAppsByAppId(uint64_t appId);
-uint32_t osExtAppStartAppsDelayed();
 
 bool osAppIsChre(uint16_t tid);
 uint32_t osAppChreVersion(uint16_t tid);
@@ -293,15 +313,33 @@ void osLog(enum LogLevel level, const char *str, ...) PRINTF_ATTRIBUTE(2, 3);
 #define INTERNAL_APP_INIT(_id, _ver, _init, _end, _event)                               \
 SET_INTERNAL_LOCATION(location, ".internal_app_init")static const struct AppHdr         \
 SET_INTERNAL_LOCATION_ATTRIBUTES(used, section (".internal_app_init")) mAppHdr = {      \
-    .hdr.magic   = APP_HDR_MAGIC,                                                       \
-    .hdr.fwVer   = APP_HDR_VER_CUR,                                                     \
-    .hdr.fwFlags = FL_APP_HDR_INTERNAL | FL_APP_HDR_APPLICATION,                        \
-    .hdr.appId   = (_id),                                                               \
-    .hdr.appVer  = (_ver),                                                              \
+    .hdr.magic       = APP_HDR_MAGIC,                                                   \
+    .hdr.fwVer       = APP_HDR_VER_CUR,                                                 \
+    .hdr.fwFlags     = FL_APP_HDR_INTERNAL | FL_APP_HDR_APPLICATION,                    \
+    .hdr.appId       = (_id),                                                           \
+    .hdr.appVer      = (_ver),                                                          \
     .hdr.payInfoType = LAYOUT_APP,                                                      \
-    .vec.init    = (uint32_t)(_init),                                                   \
-    .vec.end     = (uint32_t)(_end),                                                    \
-    .vec.handle  = (uint32_t)(_event)                                                   \
+    .vec.init        = (uint32_t)(_init),                                               \
+    .vec.end         = (uint32_t)(_end),                                                \
+    .vec.handle      = (uint32_t)(_event)                                               \
+}
+#endif
+
+#ifndef INTERNAL_CHRE_APP_INIT
+#define INTERNAL_CHRE_APP_INIT(_id, _ver, _init, _end, _event)                          \
+SET_INTERNAL_LOCATION(location, ".internal_app_init")static const struct AppHdr         \
+SET_INTERNAL_LOCATION_ATTRIBUTES(used, section (".internal_app_init")) mAppHdr = {      \
+    .hdr.magic        = APP_HDR_MAGIC,                                                  \
+    .hdr.fwVer        = APP_HDR_VER_CUR,                                                \
+    .hdr.fwFlags      = FL_APP_HDR_INTERNAL | FL_APP_HDR_APPLICATION | FL_APP_HDR_CHRE, \
+    .hdr.chreApiMajor = 0x01,                                                           \
+    .hdr.chreApiMinor = 0x02,                                                           \
+    .hdr.appId        = (_id),                                                          \
+    .hdr.appVer       = (_ver),                                                         \
+    .hdr.payInfoType  = LAYOUT_APP,                                                     \
+    .vec.init         = (uint32_t)(_init),                                              \
+    .vec.end          = (uint32_t)(_end),                                               \
+    .vec.handle       = (uint32_t)(_event)                                              \
 }
 #endif
 
