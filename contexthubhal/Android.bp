@@ -12,80 +12,77 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-cc_library {
-    name: "context_hub.default",
+cc_defaults {
+    name: "contexthub_libs_default",
     relative_install_path: "hw",
     srcs: [
         "nanohubhal.cpp",
-        "system_comms.cpp",
         "nanohubhal_default.cpp",
-        "legacyhal.cpp",
+        "system_comms.cpp",
     ],
     cflags: ["-Wall", "-Werror", "-Wextra"],
     shared_libs: [
         "liblog",
         "libcutils",
+        "libutils",
+        "libstagefright_foundation",
+    ],
+    static_libs: [
+        "libjsoncpp",
+        "libhubutilcommon",
     ],
     header_libs: [
         "libnanohub_common_headers",
         "libhardware_headers",
         "libutils_headers",
     ],
-    proprietary: true,
+    vendor: true,
 }
 
-cc_library_shared {
-    name: "android.hardware.contexthub@1.0-impl.nanohub",
-    proprietary: true,
-    relative_install_path: "hw",
+cc_defaults {
+    name: "contexthub_hidl_libs_default",
     srcs: [
         "NanohubHidlAdapter.cpp",
-        "nanohubhal.cpp",
-        "nanohubhal_default.cpp",
-        "system_comms.cpp",
     ],
-    cflags: ["-Wall", "-Werror", "-Wextra"],
     shared_libs: [
-        "liblog",
-        "libbase",
-        "libcutils",
-        "libutils",
         "libhidlbase",
         "libhidltransport",
         "android.hardware.contexthub@1.0",
     ],
-    header_libs: [
-        "libnanohub_common_headers",
-        "libhardware_headers",
-        "libutils_headers",
+}
+
+cc_library {
+    name: "context_hub.default",
+    srcs: [
+        "legacyhal.cpp",
+    ],
+    defaults: [
+        "contexthub_libs_default",
+    ],
+}
+
+cc_library_shared {
+    name: "android.hardware.contexthub@1.0-impl.nanohub",
+    shared_libs: [
+        "libbase",
+    ],
+    defaults: [
+        "contexthub_libs_default",
+        "contexthub_hidl_libs_default",
     ],
 }
 
 cc_binary {
     name: "android.hardware.contexthub@1.0-service.nanohub",
-    relative_install_path: "hw",
     init_rc: ["android.hardware.contexthub@1.0-service.nanohub.rc"],
     srcs: [
         "service.cpp",
-        "NanohubHidlAdapter.cpp",
-        "nanohubhal.cpp",
-        "nanohubhal_default.cpp",
-        "system_comms.cpp",
     ],
-    cflags: ["-Wall", "-Werror"],
     shared_libs: [
-        "libhidlbase",
-        "libhidltransport",
         "libhwbinder",
-        "liblog",
-        "libutils",
-        "libcutils",
-        "android.hardware.contexthub@1.0",
     ],
-    header_libs: [
-        "libnanohub_common_headers",
-        "libhardware_headers",
-        "libutils_headers",
+    defaults: [
+        "contexthub_libs_default",
+        "contexthub_hidl_libs_default",
     ],
-    proprietary: true,
 }
