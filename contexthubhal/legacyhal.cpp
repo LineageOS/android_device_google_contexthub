@@ -37,7 +37,7 @@ static int legacy_subscribe_messages(uint32_t hub_id, context_hub_callback *cbk,
 
 static int legacy_send_message(uint32_t hub_id, const hub_message_t *msg)
 {
-    return NanoHub::sendToNanohub(hub_id, msg, ENDPOINT_UNSPECIFIED);
+    return NanoHub::sendToNanohub(hub_id, msg, 0, ENDPOINT_UNSPECIFIED);
 }
 
 static int legacy_get_hubs(context_hub_module_t*, const context_hub_t ** list)
