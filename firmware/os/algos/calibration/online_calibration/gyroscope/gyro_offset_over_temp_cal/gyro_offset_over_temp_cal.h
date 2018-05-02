@@ -1,3 +1,19 @@
+/*
+ * Copyright (C) 2018 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 #ifndef LOCATION_LBS_CONTEXTHUB_NANOAPPS_CALIBRATION_ONLINE_CALIBRATION_GYROSCOPE_GYRO_OFFSET_OVER_TEMP_CAL_GYRO_OFFSET_OVER_TEMP_CAL_H_
 #define LOCATION_LBS_CONTEXTHUB_NANOAPPS_CALIBRATION_ONLINE_CALIBRATION_GYROSCOPE_GYRO_OFFSET_OVER_TEMP_CAL_GYRO_OFFSET_OVER_TEMP_CAL_H_
 
@@ -13,10 +29,23 @@ namespace online_calibration {
 /*
  * This class is a wrapper for the gyroscope offset calibration with
  * over-temperature compensation (OTC).
+ *
+ * NOTE: Calibration quality reporting:
+ *   Initialize             --> CalibrationQualityLevel::UNDETERMINED
+ *                              CalibrationQuality.value =
+ *                                kUndeterminedCalibrationQuality
+ *   SetInitialCalibration  --> CalibrationQualityLevel::MEDIUM_QUALITY
+ *                              CalibrationQuality.value = kMediumQualityRps
+ *   New Calibration Update --> CalibrationQualityLevel::HIGH_QUALITY
+ *                              CalibrationQuality.value = kHighQualityRps
  */
 class GyroOffsetOtcCal final
     : public OnlineCalibration<CalibrationDataThreeAxis> {
  public:
+  // Estimated upper bounds on gyro offset error (i.e., 3-sigma values).
+  static constexpr float kMediumQualityRps = 5.23599e-3f;  // 300 mDPS
+  static constexpr float kHighQualityRps   = 1.04720e-3f;  // 60 mDPS
+
   // Default constructor.
   GyroOffsetOtcCal() = default;
 

@@ -1,8 +1,28 @@
+/*
+ * Copyright (C) 2018 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 #include "calibration/online_calibration/gyroscope/gyro_offset_over_temp_cal/gyro_offset_over_temp_cal.h"
 
 #include "calibration/util/cal_log.h"
 
 namespace online_calibration {
+
+// Estimated upper bounds on gyro offset error (i.e., 3-sigma values).
+constexpr float GyroOffsetOtcCal::kMediumQualityRps;
+constexpr float GyroOffsetOtcCal::kHighQualityRps;
 
 void GyroOffsetOtcCal::Initialize(const GyroCalParameters& gyro_cal_parameters,
                                   const OverTempCalParameters& otc_parameters) {
@@ -87,9 +107,11 @@ CalibrationTypeFlags GyroOffsetOtcCal::SetMeasurement(
                         cal_data_.temp_sensitivity, cal_data_.temp_intercept);
   }
 
-  // Sets the new-calibration polling flag, and notifies a calibration callback
-  // listener of the new update.
+  // Sets the new calibration quality, polling flag, and notifies a calibration
+  // callback listener of the new update.
   if (new_otc_model_update || new_otc_offset) {
+    cal_data_.calibration_quality.level = CalibrationQualityLevel::HIGH_QUALITY;
+    cal_data_.calibration_quality.value = kHighQualityRps;
     cal_update_polling_flags_ |= cal_update_callback_flags;
     OnNotifyCalibrationUpdate(cal_update_callback_flags);
   }
@@ -127,6 +149,10 @@ bool GyroOffsetOtcCal::SetInitialCalibration(
                       cal_data_.cal_update_time_nanos,
                       cal_data_.temp_sensitivity, cal_data_.temp_intercept,
                       /*jump_start_model=*/false);
+
+  // Sets the calibration quality.
+  cal_data_.calibration_quality.level = CalibrationQualityLevel::MEDIUM_QUALITY;
+  cal_data_.calibration_quality.value = kMediumQualityRps;
 
   const bool load_new_model_dataset =
       (input_cal_data.otc_model_data != nullptr &&
