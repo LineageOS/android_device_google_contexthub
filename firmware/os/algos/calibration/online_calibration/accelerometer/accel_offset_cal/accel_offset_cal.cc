@@ -1,3 +1,19 @@
+/*
+ * Copyright (C) 2018 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 #include "calibration/online_calibration/accelerometer/accel_offset_cal/accel_offset_cal.h"
 
 #include "calibration/util/cal_log.h"
@@ -40,6 +56,8 @@ CalibrationTypeFlags AccelOffsetCal::SetMeasurement(const SensorData& sample) {
     accelCalUpdateBias(&accel_cal_, &cal_data_.offset[0], &cal_data_.offset[1],
                        &cal_data_.offset[2]);
 
+    cal_data_.calibration_quality.level = CalibrationQualityLevel::HIGH_QUALITY;
+    cal_data_.calibration_quality.value = kUndeterminedCalibrationQuality;
     cal_data_.offset_temp_celsius = temperature_celsius_;
     cal_data_.cal_update_time_nanos = sample.timestamp_nanos;
     cal_update_polling_flags_ = CalibrationTypeFlags::BIAS;
@@ -64,6 +82,10 @@ bool AccelOffsetCal::SetInitialCalibration(
 
   // Sync's all initial calibration data.
   cal_data_ = input_cal_data;
+
+  // Sets the calibration quality.
+  cal_data_.calibration_quality.level = CalibrationQualityLevel::LOW_QUALITY;
+  cal_data_.calibration_quality.value = kUndeterminedCalibrationQuality;
 
   return true;
 }

@@ -81,8 +81,8 @@ class NanoSensorCal {
   NanoSensorCal() = default;
 
   // Sets the sensor calibration object pointers and initializes the algorithms
-  // using factory or runtime values recalled using Android Sensor Hub (ASH). A
-  // nullptr may be passed in to disable a particular sensor calibration.
+  // using runtime values recalled using Android Sensor Hub (ASH). A nullptr may
+  // be passed in to disable a particular sensor calibration.
   void Initialize(OnlineCalibrationThreeAxis *accel_cal,
                   OnlineCalibrationThreeAxis *gyro_cal,
                   OnlineCalibrationThreeAxis *mag_cal);
@@ -99,10 +99,10 @@ class NanoSensorCal {
   // Passes sensor data to the runtime calibration algorithms.
   void ProcessSample(const online_calibration::SensorData &sample);
 
-  // Loads factory and runtime calibration data using the Android Sensor Hub
-  // API. Returns 'true' when runtime calibration values were successfully
-  // recalled and used for algorithm initialization. 'sensor_tag' is a string
-  // that identifies a sensor-specific identifier for log meassages.
+  // Loads runtime calibration data using the Android Sensor Hub API. Returns
+  // 'true' when runtime calibration values were successfully recalled and used
+  // for algorithm initialization. 'sensor_tag' is a string that identifies a
+  // sensor-specific identifier for log meassages.
   bool LoadAshCalibration(uint8_t chreSensorType,
                           OnlineCalibrationThreeAxis *online_cal,
                           const char *sensor_tag);

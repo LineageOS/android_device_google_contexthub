@@ -14,23 +14,30 @@
  * limitations under the License.
  */
 
-#include "calibration/magnetometer/mag_cal.h"
+#include "calibration/magnetometer/mag_cal/mag_cal.h"
 
 #include <errno.h>
+#include <inttypes.h>
 #include <string.h>
 
 #include "calibration/util/cal_log.h"
 
-// clang-format off
-#ifdef MAG_CAL_ORIGINAL_TUNING
-#define MAX_EIGEN_RATIO 25.0f
-#define MAX_EIGEN_MAG 80.0f          // uT
-#define MIN_EIGEN_MAG 10.0f          // uT
-#define MAX_FIT_MAG 80.0f
-#define MIN_FIT_MAG 10.0f
-#define MAX_BATCH_WINDOW 15000000UL  // 15 sec
-#define MIN_BATCH_SIZE 25            // samples
+// Local helper macro for printing log messages.
+#ifdef MAG_CAL_DEBUG_ENABLE
+#ifdef CAL_NO_FLOAT_FORMAT_STRINGS
+#define CAL_FORMAT_MAG_MEMORY                                          \
+  "%s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d, " \
+  "%s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d, " \
+  "%s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d, " \
+  "%s%d.%03d, %s%d.%03d"
 #else
+#define CAL_FORMAT_MAG_MEMORY                                                \
+  "%.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, " \
+  "%.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f"
+#endif  // CAL_NO_FLOAT_FORMAT_STRINGS
+#endif  // MAG_CAL_DEBUG_ENABLE
+
+// clang-format off
 #define MAX_EIGEN_RATIO 15.0f
 #define MAX_EIGEN_MAG 70.0f          // uT
 #define MIN_EIGEN_MAG 20.0f          // uT
@@ -38,23 +45,12 @@
 #define MIN_FIT_MAG 20.0f
 #define MAX_BATCH_WINDOW 15000000UL  // 15 sec
 #define MIN_BATCH_SIZE 25            // samples
-#endif
-
-#ifdef DIVERSITY_CHECK_ENABLED
 #define MAX_DISTANCE_VIOLATIONS 2
-#ifdef SPHERE_FIT_ENABLED
-#define MAX_ITERATIONS 30
-#define INITIAL_U_SCALE 1.0e-4f
-#define GRADIENT_THRESHOLD 1.0e-16f
-#define RELATIVE_STEP_THRESHOLD 1.0e-7f
-#define FROM_MICRO_SEC_TO_SEC 1.0e-6f
-#endif
-#endif
 // clang-format
 
-// eigen value magnitude and ratio test
+// eigen value magnitude and ratio test.
 static int moc_eigen_test(struct KasaFit *kasa) {
-  // covariance matrix
+  // covariance matrix.
   struct Mat33 S;
   S.elem[0][0] = kasa->acc_xx - kasa->acc_x * kasa->acc_x;
   S.elem[0][1] = S.elem[1][0] = kasa->acc_xy - kasa->acc_x * kasa->acc_y;
@@ -86,9 +82,7 @@ static int moc_eigen_test(struct KasaFit *kasa) {
 
 void magCalReset(struct MagCal *moc) {
   kasaReset(&moc->kasa);
-#ifdef DIVERSITY_CHECK_ENABLED
   diversityCheckerReset(&moc->diversity_checker);
-#endif
   moc->start_time = 0;
   moc->kasa_batching = false;
 }
@@ -110,12 +104,8 @@ static bool moc_batch_complete(struct MagCal *moc, uint64_t sample_time_us) {
 }
 
 void initMagCal(struct MagCal *moc,
-                const struct MagCalParameters *mag_cal_parameters
-#ifdef DIVERSITY_CHECK_ENABLED
-                ,
-                const struct DiversityCheckerParameters *diverse_parameters
-#endif
-) {
+                const struct MagCalParameters *mag_cal_parameters,
+                const struct DiversityCheckerParameters *diverse_parameters) {
   magCalReset(moc);
   moc->update_time = 0;
   moc->min_batch_window_in_micros =
@@ -139,12 +129,10 @@ void initMagCal(struct MagCal *moc,
 #ifdef MAG_CAL_DEBUG_ENABLE
   moc->mag_dbg.mag_trigger_count = 0;
   moc->mag_dbg.kasa_count = 0;
-#endif
+#endif  // MAG_CAL_DEBUG_ENABLE
 
-#ifdef DIVERSITY_CHECK_ENABLED
   // Diversity Checker
   diversityCheckerInit(&moc->diversity_checker, diverse_parameters);
-#endif
 }
 
 void magCalDestroy(struct MagCal *moc) { (void)moc; }
@@ -153,10 +141,8 @@ enum MagUpdate magCalUpdate(struct MagCal *moc, uint64_t sample_time_us,
                             float x, float y, float z) {
   enum MagUpdate new_bias = NO_UPDATE;
 
-#ifdef DIVERSITY_CHECK_ENABLED
   // Diversity Checker Update.
   diversityCheckerUpdate(&moc->diversity_checker, x, y, z);
-#endif
 
   // 1. run accumulators
   kasaAccumulate(&moc->kasa, x, y, z);
@@ -178,15 +164,13 @@ enum MagUpdate magCalUpdate(struct MagCal *moc, uint64_t sample_time_us,
       if (kasaFit(&moc->kasa, &bias, &radius, MAX_FIT_MAG, MIN_FIT_MAG)) {
 #ifdef MAG_CAL_DEBUG_ENABLE
         moc->mag_dbg.kasa_count++;
-        CAL_DEBUG_LOG("[MAG_CAL:KASA UPDATE] :,",
-                      "%s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d, %lu, %lu",
+        CAL_DEBUG_LOG("[MAG_CAL:KASA UPDATE] :", CAL_FORMAT_3DIGITS_TRIPLET
+                      ", " CAL_FORMAT_3DIGITS ", %" PRIu32 ", %" PRIu32,
                       CAL_ENCODE_FLOAT(bias.x, 3), CAL_ENCODE_FLOAT(bias.y, 3),
                       CAL_ENCODE_FLOAT(bias.z, 3), CAL_ENCODE_FLOAT(radius, 3),
-                      (unsigned long int)moc->mag_dbg.kasa_count,
-                      (unsigned long int)moc->mag_dbg.mag_trigger_count);
-#endif
+                      moc->mag_dbg.kasa_count, moc->mag_dbg.mag_trigger_count);
+#endif  // MAG_CAL_DEBUG_ENABLE
 
-#ifdef DIVERSITY_CHECK_ENABLED
         // Update the local field.
         diversityCheckerLocalFieldUpdate(&moc->diversity_checker, radius);
 
@@ -198,14 +182,13 @@ enum MagUpdate magCalUpdate(struct MagCal *moc, uint64_t sample_time_us,
           // DEBUG PRINT OUT.
 #ifdef MAG_CAL_DEBUG_ENABLE
           moc->mag_dbg.mag_trigger_count++;
-#ifdef DIVERSE_DEBUG_ENABLE
           moc->diversity_checker.diversity_dbg.new_trigger = 1;
           CAL_DEBUG_LOG(
-              "[MAG_CAL:BIAS UPDATE] :, ",
-              "%s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%06d,"
-              "%s%d.%03d, %s%d.%03d, %s%d.%03d, %zu, %s%d.%03d, "
-              "%s%d.%03d, %lu, %lu, %llu, %s%d.%03d, %s%d.%03d, "
-              "%s%d.%03d, %llu",
+              "[MAG_CAL:BIAS UPDATE] :", CAL_FORMAT_3DIGITS_TRIPLET ", "
+              CAL_FORMAT_3DIGITS ", " CAL_FORMAT_6DIGITS ", "
+              CAL_FORMAT_3DIGITS_TRIPLET ", %zu, " CAL_FORMAT_3DIGITS ", "
+              CAL_FORMAT_3DIGITS ", %" PRIu32 ", %" PRIu32 ", %" PRIu64 ", "
+              CAL_FORMAT_3DIGITS_TRIPLET ", %" PRIu64 "",
               CAL_ENCODE_FLOAT(bias.x, 3), CAL_ENCODE_FLOAT(bias.y, 3),
               CAL_ENCODE_FLOAT(bias.z, 3), CAL_ENCODE_FLOAT(radius, 3),
               CAL_ENCODE_FLOAT(moc->diversity_checker.diversity_dbg.var_log, 6),
@@ -216,16 +199,14 @@ enum MagUpdate magCalUpdate(struct MagCal *moc, uint64_t sample_time_us,
               moc->diversity_checker.num_points,
               CAL_ENCODE_FLOAT(moc->diversity_checker.threshold, 3),
               CAL_ENCODE_FLOAT(moc->diversity_checker.max_distance, 3),
-              (unsigned long int)moc->mag_dbg.mag_trigger_count,
-              (unsigned long int)moc->mag_dbg.kasa_count,
-              (unsigned long long int)sample_time_us,
+              moc->mag_dbg.mag_trigger_count,
+              moc->mag_dbg.kasa_count,
+              sample_time_us,
               CAL_ENCODE_FLOAT(moc->x_bias, 3),
               CAL_ENCODE_FLOAT(moc->y_bias, 3),
               CAL_ENCODE_FLOAT(moc->z_bias, 3),
-              (unsigned long long int)moc->update_time);
-#endif
-#endif
-#endif
+              moc->update_time);
+#endif  // MAG_CAL_DEBUG_ENABLE
           moc->x_bias = bias.x;
           moc->y_bias = bias.y;
           moc->z_bias = bias.z;
@@ -234,13 +215,9 @@ enum MagUpdate magCalUpdate(struct MagCal *moc, uint64_t sample_time_us,
           moc->update_time = sample_time_us;
 
           new_bias = UPDATE_BIAS;
-
-#ifdef DIVERSITY_CHECK_ENABLED
         }
-#endif
       }
     }
-
     // 5. reset for next batch
     magCalReset(moc);
   }
@@ -248,7 +225,7 @@ enum MagUpdate magCalUpdate(struct MagCal *moc, uint64_t sample_time_us,
   return new_bias;
 }
 
-void magCalGetBias(struct MagCal *moc, float *x, float *y, float *z) {
+void magCalGetBias(const struct MagCal *moc, float *x, float *y, float *z) {
   *x = moc->x_bias;
   *y = moc->y_bias;
   *z = moc->z_bias;
@@ -288,7 +265,7 @@ void magCalRemoveSoftiron(struct MagCal *moc, float xi, float yi, float zi,
   *zo = moc->c20 * xi + moc->c21 * yi + moc->c22 * zi;
 }
 
-#if defined MAG_CAL_DEBUG_ENABLE && defined DIVERSE_DEBUG_ENABLE
+#if defined MAG_CAL_DEBUG_ENABLE
 // This function prints every second sample parts of the dbg diverse_data_log,
 // which ensures that all the messages get printed into the log file.
 void magLogPrint(struct DiversityChecker *diverse_data, float temp) {
@@ -299,13 +276,9 @@ void magLogPrint(struct DiversityChecker *diverse_data, float temp) {
     sample_counter++;
     if (sample_counter == 2) {
       CAL_DEBUG_LOG(
-          "[MAG_CAL:MEMORY X] :,",
-          "%lu, %s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d"
-          ", %s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d, "
-          "%s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d, "
-          "%s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d, "
-          "%s%d.%03d",
-          (unsigned long int)diverse_data->diversity_dbg.diversity_count,
+          "[MAG_CAL:MEMORY X] :", "%" PRIu32 ", " CAL_FORMAT_MAG_MEMORY ", "
+          CAL_FORMAT_3DIGITS,
+          diverse_data->diversity_dbg.diversity_count,
           CAL_ENCODE_FLOAT(data_log_ptr[0 * 3], 3),
           CAL_ENCODE_FLOAT(data_log_ptr[1 * 3], 3),
           CAL_ENCODE_FLOAT(data_log_ptr[2 * 3], 3),
@@ -330,12 +303,8 @@ void magLogPrint(struct DiversityChecker *diverse_data, float temp) {
 
     if (sample_counter == 4) {
       CAL_DEBUG_LOG(
-          "[MAG_CAL:MEMORY Y] :,",
-          "%lu, %s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d"
-          ", %s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d, "
-          "%s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d, "
-          "%s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d, ",
-          (unsigned long int)diverse_data->diversity_dbg.diversity_count,
+          "[MAG_CAL:MEMORY Y] :", "%" PRIu32 ", " CAL_FORMAT_MAG_MEMORY,
+          diverse_data->diversity_dbg.diversity_count,
           CAL_ENCODE_FLOAT(data_log_ptr[0 * 3 + 1], 3),
           CAL_ENCODE_FLOAT(data_log_ptr[1 * 3 + 1], 3),
           CAL_ENCODE_FLOAT(data_log_ptr[2 * 3 + 1], 3),
@@ -359,12 +328,8 @@ void magLogPrint(struct DiversityChecker *diverse_data, float temp) {
     }
     if (sample_counter == 6) {
       CAL_DEBUG_LOG(
-          "[MAG_CAL:MEMORY Z] :,",
-          "%lu, %s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d"
-          ", %s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d, "
-          "%s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d, "
-          "%s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d, %s%d.%03d, ",
-          (unsigned long int)diverse_data->diversity_dbg.diversity_count,
+          "[MAG_CAL:MEMORY Z] :", "%" PRIu32 ", " CAL_FORMAT_MAG_MEMORY,
+          diverse_data->diversity_dbg.diversity_count,
           CAL_ENCODE_FLOAT(data_log_ptr[0 * 3 + 2], 3),
           CAL_ENCODE_FLOAT(data_log_ptr[1 * 3 + 2], 3),
           CAL_ENCODE_FLOAT(data_log_ptr[2 * 3 + 2], 3),
@@ -390,4 +355,4 @@ void magLogPrint(struct DiversityChecker *diverse_data, float temp) {
     }
   }
 }
-#endif
+#endif  // MAG_CAL_DEBUG_ENABLE

@@ -17,6 +17,7 @@
 #include "calibration/over_temp/over_temp_cal.h"
 
 #include <float.h>
+#include <inttypes.h>
 #include <math.h>
 #include <string.h>
 
@@ -582,13 +583,12 @@ void overTempCalUpdateSensorEstimate(struct OverTempCal *over_temp_cal,
       CAL_DEBUG_LOG(
           over_temp_cal->otc_debug_tag,
           "Offset|Temperature|Time [%s|C|nsec]: " CAL_FORMAT_3DIGITS_TRIPLET
-          ", " CAL_FORMAT_3DIGITS ", %llu",
+          ", " CAL_FORMAT_3DIGITS ", %" PRIu64,
           over_temp_cal->otc_unit_tag,
           CAL_ENCODE_FLOAT(offset[0] * over_temp_cal->otc_unit_conversion, 3),
           CAL_ENCODE_FLOAT(offset[1] * over_temp_cal->otc_unit_conversion, 3),
           CAL_ENCODE_FLOAT(offset[2] * over_temp_cal->otc_unit_conversion, 3),
-          CAL_ENCODE_FLOAT(temperature_celsius, 3),
-          (unsigned long long int)timestamp_nanos);
+          CAL_ENCODE_FLOAT(temperature_celsius, 3), timestamp_nanos);
 #endif  // OVERTEMPCAL_DBG_ENABLED
 
       return;  // Outlier detected: skips adding this offset to the model.
@@ -699,9 +699,9 @@ void overTempCalSetTemperature(struct OverTempCal *over_temp_cal,
     // Prints out temperature and the current timestamp.
     createDebugTag(over_temp_cal, ":TEMP]");
     CAL_DEBUG_LOG(over_temp_cal->otc_debug_tag,
-                  "Temperature|Time [C|nsec] = " CAL_FORMAT_3DIGITS ", %llu",
-                  CAL_ENCODE_FLOAT(temperature_celsius, 3),
-                  (unsigned long long int)timestamp_nanos);
+                  "Temperature|Time [C|nsec] = " CAL_FORMAT_3DIGITS
+                  ", %" PRIu64,
+                  CAL_ENCODE_FLOAT(temperature_celsius, 3), timestamp_nanos);
   }
 #endif  // OVERTEMPCAL_DBG_LOG_TEMP
 #endif  // OVERTEMPCAL_DBG_ENABLED
@@ -969,16 +969,23 @@ void updateCalOffset(struct OverTempCal *over_temp_cal,
   // To properly evaluate the logic paths that use the latest and nearest offset
   // data below, the current age of the nearest and latest offset estimates are
   // computed.
-  const uint64_t latest_offset_age_nanos =
-      (over_temp_cal->latest_offset != NULL)
-          ? over_temp_cal->latest_offset->offset_age_nanos + timestamp_nanos -
-                over_temp_cal->last_age_update_nanos
-          : 0;
-  const uint64_t nearest_offset_age_nanos =
-      (over_temp_cal->nearest_offset != NULL)
-          ? over_temp_cal->nearest_offset->offset_age_nanos + timestamp_nanos -
-                over_temp_cal->last_age_update_nanos
-          : 0;
+  uint64_t latest_offset_age_nanos = 0;
+  if (over_temp_cal->latest_offset != NULL) {
+    latest_offset_age_nanos =
+        (over_temp_cal->last_age_update_nanos < timestamp_nanos)
+            ? over_temp_cal->latest_offset->offset_age_nanos +
+                  timestamp_nanos - over_temp_cal->last_age_update_nanos
+            : over_temp_cal->latest_offset->offset_age_nanos;
+  }
+
+  uint64_t nearest_offset_age_nanos = 0;
+  if (over_temp_cal->nearest_offset != NULL) {
+    nearest_offset_age_nanos =
+        (over_temp_cal->last_age_update_nanos < timestamp_nanos)
+            ? over_temp_cal->nearest_offset->offset_age_nanos +
+                  timestamp_nanos - over_temp_cal->last_age_update_nanos
+            : over_temp_cal->nearest_offset->offset_age_nanos;
+  }
 
   // True when the latest offset estimate will be used to compute a sensor
   // offset calibration estimate.
@@ -1159,14 +1166,14 @@ void computeModelUpdate(struct OverTempCal *over_temp_cal,
       CAL_DEBUG_LOG(
           over_temp_cal->otc_debug_tag,
           "%c-Axis Parameters|Time [%s/C|%s|nsec]: " CAL_FORMAT_3DIGITS
-          ", " CAL_FORMAT_3DIGITS ", %llu",
+          ", " CAL_FORMAT_3DIGITS ", %" PRIu64,
           kDebugAxisLabel[i], over_temp_cal->otc_unit_tag,
           over_temp_cal->otc_unit_tag,
           CAL_ENCODE_FLOAT(
               temp_sensitivity[i] * over_temp_cal->otc_unit_conversion, 3),
           CAL_ENCODE_FLOAT(
               sensor_intercept[i] * over_temp_cal->otc_unit_conversion, 3),
-          (unsigned long long int)timestamp_nanos);
+          timestamp_nanos);
 #endif  // OVERTEMPCAL_DBG_ENABLED
     }
   }
@@ -1251,7 +1258,7 @@ bool removeModelDataByIndex(struct OverTempCal *over_temp_cal,
   CAL_DEBUG_LOG(
       over_temp_cal->otc_debug_tag,
       "Offset|Temp|Age [%s|C|nsec]: " CAL_FORMAT_3DIGITS_TRIPLET
-      ", " CAL_FORMAT_3DIGITS ", %llu",
+      ", " CAL_FORMAT_3DIGITS ", %" PRIu64,
       over_temp_cal->otc_unit_tag,
       CAL_ENCODE_FLOAT(over_temp_cal->model_data[model_index].offset[0] *
                            over_temp_cal->otc_unit_conversion,
@@ -1264,8 +1271,7 @@ bool removeModelDataByIndex(struct OverTempCal *over_temp_cal,
                        3),
       CAL_ENCODE_FLOAT(
           over_temp_cal->model_data[model_index].offset_temp_celsius, 3),
-      (unsigned long long int)over_temp_cal->model_data[model_index]
-          .offset_age_nanos);
+      over_temp_cal->model_data[model_index].offset_age_nanos);
 #endif  // OVERTEMPCAL_DBG_ENABLED
 
   // Remove the model data at 'model_index'.
@@ -1327,8 +1333,8 @@ bool jumpStartModelData(struct OverTempCal *over_temp_cal) {
   createDebugTag(over_temp_cal, ":INIT]");
   if (over_temp_cal->num_model_pts > 0) {
     CAL_DEBUG_LOG(over_temp_cal->otc_debug_tag,
-                  "Model Jump-Start:  #Points = %lu.",
-                  (unsigned long int)over_temp_cal->num_model_pts);
+                  "Model Jump-Start:  #Points = %zu.",
+                  over_temp_cal->num_model_pts);
   }
 #endif  // OVERTEMPCAL_DBG_ENABLED
 
@@ -1478,6 +1484,11 @@ float evaluateWeightingFunction(const struct OverTempCal *over_temp_cal,
 void modelDataSetAgeUpdate(struct OverTempCal *over_temp_cal,
                            uint64_t timestamp_nanos) {
   ASSERT_NOT_NULL(over_temp_cal);
+  if (over_temp_cal->last_age_update_nanos >= timestamp_nanos) {
+    // Age updates must be monotonic.
+    return;
+  }
+
   uint64_t age_increment_nanos =
       timestamp_nanos - over_temp_cal->last_age_update_nanos;
 
@@ -1589,10 +1600,9 @@ void overTempCalDebugPrint(struct OverTempCal *over_temp_cal,
       // Prints out the latest offset estimate (input data).
       CAL_DEBUG_LOG(
           over_temp_cal->otc_debug_tag,
-          "Cal#|Offset|Temp|Age [%s|C|nsec]: %lu, " CAL_FORMAT_3DIGITS_TRIPLET
-          ", " CAL_FORMAT_3DIGITS ", %llu",
-          over_temp_cal->otc_unit_tag,
-          (unsigned long int)over_temp_cal->debug_num_estimates,
+          "Cal#|Offset|Temp|Age [%s|C|nsec]: %zu, " CAL_FORMAT_3DIGITS_TRIPLET
+          ", " CAL_FORMAT_3DIGITS ", %" PRIu64,
+          over_temp_cal->otc_unit_tag, over_temp_cal->debug_num_estimates,
           CAL_ENCODE_FLOAT(
               over_temp_cal->debug_overtempcal.latest_offset.offset[0] *
                   over_temp_cal->otc_unit_conversion,
@@ -1608,8 +1618,7 @@ void overTempCalDebugPrint(struct OverTempCal *over_temp_cal,
           CAL_ENCODE_FLOAT(over_temp_cal->debug_overtempcal.latest_offset
                                .offset_temp_celsius,
                            3),
-          (unsigned long long int)
-              over_temp_cal->debug_overtempcal.latest_offset.offset_age_nanos);
+          over_temp_cal->debug_overtempcal.latest_offset.offset_age_nanos);
 
       // clang-format off
       over_temp_cal->wait_timer_nanos =
@@ -1623,9 +1632,9 @@ void overTempCalDebugPrint(struct OverTempCal *over_temp_cal,
     case OTC_PRINT_MODEL_PARAMETERS:
       // Prints out the model parameters.
       CAL_DEBUG_LOG(over_temp_cal->otc_debug_tag,
-                    "Cal#|Sensitivity [%s/C]: %lu, " CAL_FORMAT_3DIGITS_TRIPLET,
+                    "Cal#|Sensitivity [%s/C]: %zu, " CAL_FORMAT_3DIGITS_TRIPLET,
                     over_temp_cal->otc_unit_tag,
-                    (unsigned long int)over_temp_cal->debug_num_estimates,
+                    over_temp_cal->debug_num_estimates,
                     CAL_ENCODE_FLOAT(
                         over_temp_cal->debug_overtempcal.temp_sensitivity[0] *
                             over_temp_cal->otc_unit_conversion,
@@ -1640,9 +1649,9 @@ void overTempCalDebugPrint(struct OverTempCal *over_temp_cal,
                         3));
 
       CAL_DEBUG_LOG(over_temp_cal->otc_debug_tag,
-                    "Cal#|Intercept [%s]: %lu, " CAL_FORMAT_3DIGITS_TRIPLET,
+                    "Cal#|Intercept [%s]: %zu, " CAL_FORMAT_3DIGITS_TRIPLET,
                     over_temp_cal->otc_unit_tag,
-                    (unsigned long int)over_temp_cal->debug_num_estimates,
+                    over_temp_cal->debug_num_estimates,
                     CAL_ENCODE_FLOAT(
                         over_temp_cal->debug_overtempcal.sensor_intercept[0] *
                             over_temp_cal->otc_unit_conversion,
@@ -1667,12 +1676,11 @@ void overTempCalDebugPrint(struct OverTempCal *over_temp_cal,
       // Computes the maximum error over all of the model data.
       CAL_DEBUG_LOG(
           over_temp_cal->otc_debug_tag,
-          "Cal#|#Updates|#ModelPts|Model Error [%s]: %lu, "
-          "%lu, %lu, " CAL_FORMAT_3DIGITS_TRIPLET,
-          over_temp_cal->otc_unit_tag,
-          (unsigned long int)over_temp_cal->debug_num_estimates,
-          (unsigned long int)over_temp_cal->debug_num_model_updates,
-          (unsigned long int)over_temp_cal->debug_overtempcal.num_model_pts,
+          "Cal#|#Updates|#ModelPts|Model Error [%s]: %zu, "
+          "%zu, %zu, " CAL_FORMAT_3DIGITS_TRIPLET,
+          over_temp_cal->otc_unit_tag, over_temp_cal->debug_num_estimates,
+          over_temp_cal->debug_num_model_updates,
+          over_temp_cal->debug_overtempcal.num_model_pts,
           CAL_ENCODE_FLOAT(over_temp_cal->debug_overtempcal.max_error[0] *
                                over_temp_cal->otc_unit_conversion,
                            3),
@@ -1695,10 +1703,9 @@ void overTempCalDebugPrint(struct OverTempCal *over_temp_cal,
       if (over_temp_cal->model_counter < over_temp_cal->num_model_pts) {
         CAL_DEBUG_LOG(
             over_temp_cal->otc_debug_tag,
-            "  Model[%lu] [%s|C|nsec] = " CAL_FORMAT_3DIGITS_TRIPLET
-            ", " CAL_FORMAT_3DIGITS ", %llu",
-            (unsigned long int)over_temp_cal->model_counter,
-            over_temp_cal->otc_unit_tag,
+            "  Model[%zu] [%s|C|nsec] = " CAL_FORMAT_3DIGITS_TRIPLET
+            ", " CAL_FORMAT_3DIGITS ", %" PRIu64,
+            over_temp_cal->model_counter, over_temp_cal->otc_unit_tag,
             CAL_ENCODE_FLOAT(
                 over_temp_cal->model_data[over_temp_cal->model_counter]
                         .offset[0] *
@@ -1718,8 +1725,7 @@ void overTempCalDebugPrint(struct OverTempCal *over_temp_cal,
                 over_temp_cal->model_data[over_temp_cal->model_counter]
                     .offset_temp_celsius,
                 3),
-            (unsigned long long int)over_temp_cal
-                ->model_data[over_temp_cal->model_counter]
+            over_temp_cal->model_data[over_temp_cal->model_counter]
                 .offset_age_nanos);
 
         over_temp_cal->model_counter++;

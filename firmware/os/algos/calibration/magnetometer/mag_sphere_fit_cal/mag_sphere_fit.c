@@ -14,12 +14,10 @@
  * limitations under the License.
  */
 
-#include "calibration/magnetometer/mag_sphere_fit.h"
+#include "calibration/magnetometer/mag_sphere_fit_cal/mag_sphere_fit.h"
 
 #include <errno.h>
 #include <string.h>
-
-#include "calibration/util/cal_log.h"
 
 #define MAX_ITERATIONS 30
 #define INITIAL_U_SCALE 1.0e-4f
