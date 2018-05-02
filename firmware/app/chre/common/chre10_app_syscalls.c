@@ -28,6 +28,9 @@
 #include <syscall.h>
 #include <syscall_defs.h>
 
+/* not defined in chre 1.0 */
+#define CHRE_HOST_ENDPOINT_BROADCAST  UINT16_C(0xFFFF)
+
 #define SYSCALL_CHRE_API(name) \
     SYSCALL_NO(SYSCALL_DOMAIN_CHRE, SYSCALL_CHRE_MAIN, SYSCALL_CHRE_MAIN_API, SYSCALL_CHRE_MAIN_API_ ## name)
 
