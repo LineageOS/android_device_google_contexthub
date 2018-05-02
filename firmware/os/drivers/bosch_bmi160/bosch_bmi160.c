@@ -41,7 +41,7 @@
 #include <variant/variant.h>
 
 #ifdef MAG_SLAVE_PRESENT
-#include <calibration/magnetometer/mag_cal.h>
+#include <calibration/magnetometer/mag_cal/mag_cal.h>
 #endif
 
 #ifdef ACCEL_CAL_ENABLED
@@ -64,13 +64,13 @@
 #include <calibration/gyroscope/gyro_cal.h>
 #endif  // GYRO_CAL_ENABLED
 
-#if defined(GYRO_CAL_DBG_ENABLED) || defined(OVERTEMPCAL_DBG_ENABLED)
-#include <calibration/util/cal_log.h>
-#endif  // GYRO_CAL_DBG_ENABLED || OVERTEMPCAL_DBG_ENABLED
-
 #ifdef OVERTEMPCAL_ENABLED
 #include <calibration/over_temp/over_temp_cal.h>
 #endif  // OVERTEMPCAL_ENABLED
+
+#if defined(GYRO_CAL_DBG_ENABLED) || defined(OVERTEMPCAL_DBG_ENABLED) || defined(ACCEL_CAL_DBG_ENABLED)
+#include <calibration/util/cal_log.h>
+#endif  // GYRO_CAL_DBG_ENABLED || OVERTEMPCAL_DBG_ENABLED || ACCEL_CAL_DBG_ENABLED
 
 #include <limits.h>
 #include <stdlib.h>
@@ -108,7 +108,7 @@
 #define DBG_WM_CALC               0
 #define TIMESTAMP_DBG             0
 
-#define BMI160_APP_VERSION 18
+#define BMI160_APP_VERSION 19
 
 // fixme: to list required definitions for a slave mag
 #ifdef USE_BMM150
@@ -2196,7 +2196,8 @@ static void parseRawData(struct BMI160Sensor *mSensor, uint8_t *buf, float kScal
                 mSensor->data_evt->samples[0].firstSample.numSamples;
         sample = &mSensor->data_evt->samples[mSensor->data_evt->samples[0].firstSample.numSamples++];
         magCalGetBias(&mTask.moc, &sample->x, &sample->y, &sample->z);
-        // bias is non-discardable, if we fail to enqueue, don't clear new_mag_bias
+
+        // Bias is non-discardable, if we fail to enqueue, don't clear magBiasPosted.
         if (flushData(mSensor, sensorGetMyEventType(mSensorInfo[MAG].biasType))) {
             mTask.magBiasPosted = true;
         }
@@ -2205,7 +2206,8 @@ static void parseRawData(struct BMI160Sensor *mSensor, uint8_t *buf, float kScal
             return;
         }
     }
-#endif
+#endif  // MAG_SLAVE_PRESENT
+
 #ifdef GYRO_CAL_ENABLED
     if (mSensor->idx == GYR) {
       // GyroCal -- Checks for a new offset estimate update.
@@ -2263,17 +2265,6 @@ static void parseRawData(struct BMI160Sensor *mSensor, uint8_t *buf, float kScal
         sample->y = gyro_offset[1];
         sample->z = gyro_offset[2];
 
-#if defined(GYRO_CAL_DBG_ENABLED) || defined(OVERTEMPCAL_DBG_ENABLED)
-        CAL_DEBUG_LOG("[GYRO_OFFSET:STORED]",
-                      "Offset|Temp|Time: %s%d.%06d, %s%d.%06d, %s%d.%06d | "
-                      "%s%d.%06d | %llu",
-                      CAL_ENCODE_FLOAT(sample->x, 6),
-                      CAL_ENCODE_FLOAT(sample->y, 6),
-                      CAL_ENCODE_FLOAT(sample->z, 6),
-                      CAL_ENCODE_FLOAT(gyro_offset_temperature_celsius, 6),
-                      (unsigned long long int)rtc_time);
-#endif  // GYRO_CAL_DBG_ENABLED || OVERTEMPCAL_DBG_ENABLED
-
         flushData(mSensor, sensorGetMyEventType(mSensorInfo[GYR].biasType));
         if (!allocateDataEvt(mSensor, rtc_time)) {
           return;
@@ -2304,7 +2295,7 @@ static void parseRawData(struct BMI160Sensor *mSensor, uint8_t *buf, float kScal
 
     //DEBUG_PRINT("bmi160: x: %d, y: %d, z: %d\n", (int)(1000*x), (int)(1000*y), (int)(1000*z));
 
-    //TODO: This was added to prevent to much data of the same type accumulate in internal buffer.
+    //TODO: This was added to prevent too much data of the same type accumulate in internal buffer.
     //      It might no longer be necessary and can be removed.
     if (mSensor->data_evt->samples[0].firstSample.numSamples == MAX_NUM_COMMS_EVENT_SAMPLES) {
         flushAllData();
@@ -3240,9 +3231,8 @@ static bool magCfgData(void *data, void *cookie)
                 (int)(d->inclination * 180 / M_PI + 0.5f));
 
         // Passing local field information to mag calibration routine
-#ifdef DIVERSITY_CHECK_ENABLED
         diversityCheckerLocalFieldUpdate(&mTask.moc.diversity_checker, d->strength);
-#endif
+
         // TODO: pass local field information to rotation vector sensor.
     } else {
         ERROR_PRINT("magCfgData: unknown type 0x%04x, size %d", p->type, p->size);
@@ -3870,7 +3860,7 @@ static bool startTask(uint32_t task_id)
         0.00025f             // th
     };
     accelCalInit(&mTask.acc, &accel_cal_parameters);
-#endif
+#endif  // ACCEL_CAL_ENABLED
 
 #ifdef GYRO_CAL_ENABLED
     // Initializes the gyroscope offset calibration algorithm.
@@ -3934,7 +3924,7 @@ static bool startTask(uint32_t task_id)
         0.0f,     // c21
         1.0f      // c22
     };
-#ifdef DIVERSITY_CHECK_ENABLED
+
     // Initializes the magnetometer offset calibration algorithm with diversity
     // checker.
     const struct DiversityCheckerParameters mag_diversity_parameters = {
@@ -3947,11 +3937,7 @@ static bool startTask(uint32_t task_id)
         1        // max_num_max_distance
     };
     initMagCal(&mTask.moc, &mag_cal_parameters, &mag_diversity_parameters);
-#else
-    // Initializes the magnetometer offset calibration algorithm.
-    initMagCal(&mTask.moc, &mag_cal_parameters);
-#endif
-#endif
+#endif  // MAG_SLAVE_PRESENT
 
     slabSize = sizeof(struct TripleAxisDataEvent) +
                MAX_NUM_COMMS_EVENT_SAMPLES * sizeof(struct TripleAxisDataPoint);
