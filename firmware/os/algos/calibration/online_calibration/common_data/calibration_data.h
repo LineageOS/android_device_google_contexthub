@@ -1,4 +1,20 @@
 /*
+ * Copyright (C) 2018 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/*
  * This module provides the component definitions used to represent sensor
  * calibration data, labeled flags/enumerators, and the callback functionality
  * employed by the online sensor calibration algorithms.
@@ -11,6 +27,7 @@
 #include <string.h>
 #include <sys/types.h>
 
+#include "calibration/online_calibration/common_data/calibration_quality.h"
 #include "calibration/online_calibration/common_data/sensor_data.h"
 #include "calibration/over_temp/over_temp_model.h"
 
@@ -21,14 +38,16 @@ namespace online_calibration {
  * calibration update.
  *
  * [Bit Flag]   | [Affected Sensor Calibration Value]
- * BIAS         - Quasi-static non-zero sensor output (offset), given conditions
- *                where the sensor should ideally output zero. Includes
- *                corrections for over-temperature compensation.
- * SCALE_FACTOR - Sensor axis scaling (ideally unity).
- * CROSS_AXIS   - Output sensitivity due to variations of perpendicular sensing
- *                axes (ideally zero).
- * OVER_TEMP    - Model parameters that capture variations in sensor behavior
- *                with temperature (e.g., linear bias sensitivity model).
+ * BIAS             - Quasi-static non-zero sensor output (offset), given
+ *                    conditions where the sensor should ideally output zero.
+ *                    Includes corrections for over-temperature compensation.
+ * SCALE_FACTOR     - Sensor axis scaling (ideally unity).
+ * CROSS_AXIS       - Output sensitivity due to variations of perpendicular
+ *                    sensing axes (ideally zero).
+ * OVER_TEMP        - Model parameters that capture variations in sensor
+ *                    behavior with temperature (e.g., linear bias sensitivity
+ *                    model).
+ * QUALITY_DEGRADED - Indicates a degradation in calibration quality.
  */
 enum class CalibrationTypeFlags : uint8_t {
   NONE = 0x00,
@@ -36,6 +55,7 @@ enum class CalibrationTypeFlags : uint8_t {
   SCALE_FACTOR = 0x02,
   CROSS_AXIS = 0x04,
   OVER_TEMP = 0x08,
+  QUALITY_DEGRADED = 0x10,
   ALL = 0xFF
 };
 
@@ -102,11 +122,16 @@ struct CalibrationDataThreeAxis {
   // The cross-axis factors in order: [0=yx, 1=zx, 2=zy].
   float cross_axis[3];
 
+  // Metrics used for the reported calibration accuracy. The behavior and
+  // definition depends on the sensor calibration type. See the calibration
+  // algorithm documentation for details.
+  CalibrationQuality calibration_quality;
+
   // Indicates the type of sensing device being calibrated.
   SensorType type = SensorType::kUndefined;
 
   // Optional pointer to an array of over-temperature model data (null when not
-  // used). For initialization, populating a model dataset will take precendence
+  // used). For initialization, populating a model dataset will take precedence
   // over the linear model parameters provided in the calibration data.
   OverTempModelThreeAxis* otc_model_data = nullptr;
   int16_t num_model_pts = 0;
@@ -115,6 +140,7 @@ struct CalibrationDataThreeAxis {
   // reference values where no calibration correction would be applied if used.
   void reset() {
     otc_model_data = nullptr;
+    calibration_quality.reset();
     offset_temp_celsius = 0.0f;
     scale_factor[0] = 1.0f;
     scale_factor[1] = 1.0f;
@@ -168,11 +194,16 @@ struct CalibrationDataSingleAxis {
   // The sensor's scale factor.
   float scale_factor;
 
+  // Metrics used for the reported calibration accuracy. The behavior and
+  // definition depends on the sensor calibration type. See the calibration
+  // algorithm documentation for details.
+  CalibrationQuality calibration_quality;
+
   // Indicates the type of sensing device being calibrated.
   SensorType type = SensorType::kUndefined;
 
   // Optional pointer to an array of over-temperature model data (null when not
-  // used). For initialization, populating a model dataset will take precendence
+  // used). For initialization, populating a model dataset will take precedence
   // over the linear model parameters provided in the calibration data.
   OverTempModelSingleAxis* otc_model_data = nullptr;
   int16_t num_model_pts = 0;
@@ -181,6 +212,7 @@ struct CalibrationDataSingleAxis {
   // reference values where no calibration correction would be applied if used.
   void reset() {
     otc_model_data = nullptr;
+    calibration_quality.reset();
     scale_factor = 1.0f;
     offset_temp_celsius = 0.0f;
     offset = 0.0f;

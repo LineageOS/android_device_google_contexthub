@@ -28,7 +28,7 @@
 
 #ifdef MAG_CAL_ENABLED
 #include "calibration/diversity_checker/diversity_checker.h"
-#include "calibration/magnetometer/mag_cal.h"
+#include "calibration/magnetometer/mag_cal/mag_cal.h"
 #endif  // MAG_CAL_ENABLED
 
 #include "common/math/macros.h"
