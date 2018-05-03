@@ -1,8 +1,24 @@
+/*
+ * Copyright (C) 2018 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 #ifndef LOCATION_LBS_CONTEXTHUB_NANOAPPS_CALIBRATION_ONLINE_CALIBRATION_MAGNETOMETER_MAG_DIVERSE_CAL_MAG_DIVERSE_CAL_H_
 #define LOCATION_LBS_CONTEXTHUB_NANOAPPS_CALIBRATION_ONLINE_CALIBRATION_MAGNETOMETER_MAG_DIVERSE_CAL_MAG_DIVERSE_CAL_H_
 
 #include "calibration/diversity_checker/diversity_checker.h"
-#include "calibration/magnetometer/mag_cal.h"
+#include "calibration/magnetometer/mag_cal/mag_cal.h"
 #include "calibration/online_calibration/common_data/calibration_callback.h"
 #include "calibration/online_calibration/common_data/calibration_data.h"
 #include "calibration/online_calibration/common_data/online_calibration.h"
@@ -13,9 +29,22 @@ namespace online_calibration {
 /*
  * This class is a wrapper for the magnetometer offset calibration with
  * diversity checking.
+ *
+ * NOTE: Calibration quality reporting:
+ *   Initialize             --> CalibrationQualityLevel::UNDETERMINED
+ *                              CalibrationQuality.value =
+ *                                kUndeterminedCalibrationQuality
+ *   SetInitialCalibration  --> CalibrationQualityLevel::LOW_QUALITY
+ *                              CalibrationQuality.value = kLowQualityUt
+ *   New Calibration Update --> CalibrationQualityLevel::HIGH_QUALITY
+ *                              CalibrationQuality.value = kHighQualityUt
  */
 class MagDiverseCal final : public OnlineCalibration<CalibrationDataThreeAxis> {
  public:
+  // Empirically estimated upper bounds on offset error.
+  static constexpr float kLowQualityUt = 1000.0f;  // Units of micro Tesla
+  static constexpr float kHighQualityUt = 5.0f;    // Units of micro Tesla
+
   MagDiverseCal() = default;
 
   // Creates an MagDiverseCal with specified algorithm parameters.

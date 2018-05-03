@@ -85,8 +85,8 @@ void sampleRateEstimatorUpdate(
   if (sample_rate_estimator->num_intervals_collected >
       sample_rate_estimator->num_intervals_to_collect) {
     sample_rate_estimator->mean_sampling_rate_estimate_hz =
-        SEC_TO_NANOS(1) * sample_rate_estimator->num_intervals_collected /
-        sample_rate_estimator->interval_accumulator_nanos;
+        sample_rate_estimator->num_intervals_collected *
+        (SEC_TO_NANOS(1) / sample_rate_estimator->interval_accumulator_nanos);
 
     // Sets the polling flag to indicate that a new estimate is ready.
     sample_rate_estimator->new_sampling_rate_estimate_ready = true;

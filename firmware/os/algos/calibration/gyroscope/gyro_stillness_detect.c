@@ -15,6 +15,7 @@
  */
 
 #include "calibration/gyroscope/gyro_stillness_detect.h"
+
 #include <string.h>
 
 /////// FORWARD DECLARATIONS /////////////////////////////////////////

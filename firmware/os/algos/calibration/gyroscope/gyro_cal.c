@@ -17,6 +17,7 @@
 #include "calibration/gyroscope/gyro_cal.h"
 
 #include <float.h>
+#include <inttypes.h>
 #include <math.h>
 #include <string.h>
 
@@ -222,12 +223,12 @@ void gyroCalSetBias(struct GyroCal* gyro_cal, float bias_x, float bias_y,
 #ifdef GYRO_CAL_DBG_ENABLED
   CAL_DEBUG_LOG("[GYRO_CAL:SET BIAS]",
                 "Offset|Temp|Time [mDPS|C|nsec]: " CAL_FORMAT_3DIGITS_TRIPLET
-                ", " CAL_FORMAT_3DIGITS ", %llu",
+                ", " CAL_FORMAT_3DIGITS ", %" PRIu64,
                 CAL_ENCODE_FLOAT(bias_x * RAD_TO_MDEG, 3),
                 CAL_ENCODE_FLOAT(bias_y * RAD_TO_MDEG, 3),
                 CAL_ENCODE_FLOAT(bias_z * RAD_TO_MDEG, 3),
                 CAL_ENCODE_FLOAT(temperature_celsius, 3),
-                (unsigned long long int)calibration_time_nanos);
+                calibration_time_nanos);
 #endif  // GYRO_CAL_DBG_ENABLED
 }
 
@@ -471,7 +472,7 @@ void computeGyroCal(struct GyroCal* gyro_cal, uint64_t calibration_time_nanos) {
     CAL_DEBUG_LOG(
         "[GYRO_CAL:REJECT]",
         "Offset|Temp|Time [mDPS|C|nsec]: " CAL_FORMAT_3DIGITS_TRIPLET
-        ", " CAL_FORMAT_3DIGITS ", %llu",
+        ", " CAL_FORMAT_3DIGITS ", %" PRIu64,
         CAL_ENCODE_FLOAT(
             gyro_cal->gyro_stillness_detect.prev_mean_x * RAD_TO_MDEG, 3),
         CAL_ENCODE_FLOAT(
@@ -479,7 +480,7 @@ void computeGyroCal(struct GyroCal* gyro_cal, uint64_t calibration_time_nanos) {
         CAL_ENCODE_FLOAT(
             gyro_cal->gyro_stillness_detect.prev_mean_z * RAD_TO_MDEG, 3),
         CAL_ENCODE_FLOAT(gyro_cal->temperature_mean_celsius, 3),
-        (unsigned long long int)calibration_time_nanos);
+        calibration_time_nanos);
 #endif  // GYRO_CAL_DBG_ENABLED
 
     // Outside of range. Ignore, reset, and continue.
@@ -540,21 +541,17 @@ void checkWatchdog(struct GyroCal* gyro_cal, uint64_t sample_time_nanos) {
 #ifdef GYRO_CAL_DBG_ENABLED
     gyro_cal->debug_watchdog_count++;
     if (sample_time_nanos < gyro_cal->gyro_watchdog_start_nanos) {
-      CAL_DEBUG_LOG(
-          "[GYRO_CAL:WATCHDOG]",
-          "Total#, Timestamp | Delta [nsec]: %lu, %llu, -%llu",
-          (unsigned long int)gyro_cal->debug_watchdog_count,
-          (unsigned long long int)sample_time_nanos,
-          (unsigned long long int)(gyro_cal->gyro_watchdog_start_nanos -
-                                   sample_time_nanos));
+      CAL_DEBUG_LOG("[GYRO_CAL:WATCHDOG]",
+                    "Total#, Timestamp | Delta [nsec]: %zu, %" PRIu64
+                    ", -%" PRIu64,
+                    gyro_cal->debug_watchdog_count, sample_time_nanos,
+                    gyro_cal->gyro_watchdog_start_nanos - sample_time_nanos);
     } else {
-      CAL_DEBUG_LOG(
-          "[GYRO_CAL:WATCHDOG]",
-          "Total#, Timestamp | Delta  [nsec]: %lu, %llu, %llu",
-          (unsigned long int)gyro_cal->debug_watchdog_count,
-          (unsigned long long int)sample_time_nanos,
-          (unsigned long long int)(sample_time_nanos -
-                                   gyro_cal->gyro_watchdog_start_nanos));
+      CAL_DEBUG_LOG("[GYRO_CAL:WATCHDOG]",
+                    "Total#, Timestamp | Delta  [nsec]: %zu, %" PRIu64
+                    ", %" PRIu64,
+                    gyro_cal->debug_watchdog_count, sample_time_nanos,
+                    sample_time_nanos - gyro_cal->gyro_watchdog_start_nanos);
     }
 #endif  // GYRO_CAL_DBG_ENABLED
 
@@ -884,8 +881,9 @@ void gyroCalDebugPrintData(const struct GyroCal* gyro_cal, char* debug_tag,
       CAL_DEBUG_LOG(
           debug_tag,
           "Cal#|Offset|Temp|Time [mDPS|C|nsec]: "
-          "%lu, " CAL_FORMAT_3DIGITS_TRIPLET ", " CAL_FORMAT_3DIGITS ", %llu",
-          (unsigned long int)gyro_cal->debug_calibration_count,
+          "%zu, " CAL_FORMAT_3DIGITS_TRIPLET ", " CAL_FORMAT_3DIGITS
+          ", %" PRIu64,
+          gyro_cal->debug_calibration_count,
           CAL_ENCODE_FLOAT(
               gyro_cal->debug_gyro_cal.calibration[0] * RAD_TO_MDEG, 3),
           CAL_ENCODE_FLOAT(
@@ -894,8 +892,7 @@ void gyroCalDebugPrintData(const struct GyroCal* gyro_cal, char* debug_tag,
               gyro_cal->debug_gyro_cal.calibration[2] * RAD_TO_MDEG, 3),
           CAL_ENCODE_FLOAT(gyro_cal->debug_gyro_cal.temperature_mean_celsius,
                            3),
-          (unsigned long long int)
-              gyro_cal->debug_gyro_cal.end_still_time_nanos);
+          gyro_cal->debug_gyro_cal.end_still_time_nanos);
       break;
 
     case STILLNESS_DATA:
@@ -904,13 +901,11 @@ void gyroCalDebugPrintData(const struct GyroCal* gyro_cal, char* debug_tag,
                      : -1.0f;  // Signals that magnetometer was not used.
       CAL_DEBUG_LOG(
           debug_tag,
-          "Cal#|Stillness|Confidence [nsec]: %lu, "
-          "%llu, " CAL_FORMAT_3DIGITS_TRIPLET,
-          (unsigned long int)gyro_cal->debug_calibration_count,
-          (unsigned long long int)(gyro_cal->debug_gyro_cal
-                                       .end_still_time_nanos -
-                                   gyro_cal->debug_gyro_cal
-                                       .start_still_time_nanos),
+          "Cal#|Stillness|Confidence [nsec]: %zu, "
+          "%" PRIu64 ", " CAL_FORMAT_3DIGITS_TRIPLET,
+          gyro_cal->debug_calibration_count,
+          gyro_cal->debug_gyro_cal.end_still_time_nanos -
+              gyro_cal->debug_gyro_cal.start_still_time_nanos,
           CAL_ENCODE_FLOAT(gyro_cal->debug_gyro_cal.gyro_stillness_conf, 3),
           CAL_ENCODE_FLOAT(gyro_cal->debug_gyro_cal.accel_stillness_conf, 3),
           CAL_ENCODE_FLOAT(mag_data, 3));
@@ -920,9 +915,9 @@ void gyroCalDebugPrintData(const struct GyroCal* gyro_cal, char* debug_tag,
       CAL_DEBUG_LOG(
           debug_tag,
           "Cal#|Mean|Min|Max|Delta|Sample Rate [C|Hz]: "
-          "%lu, " CAL_FORMAT_3DIGITS_TRIPLET ", " CAL_FORMAT_3DIGITS
+          "%zu, " CAL_FORMAT_3DIGITS_TRIPLET ", " CAL_FORMAT_3DIGITS
           ", " CAL_FORMAT_3DIGITS,
-          (unsigned long int)gyro_cal->debug_calibration_count,
+          gyro_cal->debug_calibration_count,
           CAL_ENCODE_FLOAT(gyro_cal->debug_gyro_cal.temperature_mean_celsius,
                            3),
           CAL_ENCODE_FLOAT(gyro_cal->debug_gyro_cal.temperature_min_celsius, 3),
@@ -939,8 +934,8 @@ void gyroCalDebugPrintData(const struct GyroCal* gyro_cal, char* debug_tag,
       CAL_DEBUG_LOG(
           debug_tag,
           "Cal#|Gyro Peak Stillness Variation [mDPS]: "
-          "%lu, " CAL_FORMAT_3DIGITS_TRIPLET,
-          (unsigned long int)gyro_cal->debug_calibration_count,
+          "%zu, " CAL_FORMAT_3DIGITS_TRIPLET,
+          gyro_cal->debug_calibration_count,
           CAL_ENCODE_FLOAT((gyro_cal->debug_gyro_cal.gyro_winmean_max[0] -
                             gyro_cal->debug_gyro_cal.gyro_winmean_min[0]) *
                                RAD_TO_MDEG,
@@ -958,9 +953,9 @@ void gyroCalDebugPrintData(const struct GyroCal* gyro_cal, char* debug_tag,
     case ACCEL_STATS:
       CAL_DEBUG_LOG(debug_tag,
                     "Cal#|Accel Mean|Var [m/sec^2|(m/sec^2)^2]: "
-                    "%lu, " CAL_FORMAT_3DIGITS_TRIPLET
+                    "%zu, " CAL_FORMAT_3DIGITS_TRIPLET
                     ", " CAL_FORMAT_6DIGITS_TRIPLET,
-                    (unsigned long int)gyro_cal->debug_calibration_count,
+                    gyro_cal->debug_calibration_count,
                     CAL_ENCODE_FLOAT(gyro_cal->debug_gyro_cal.accel_mean[0], 3),
                     CAL_ENCODE_FLOAT(gyro_cal->debug_gyro_cal.accel_mean[1], 3),
                     CAL_ENCODE_FLOAT(gyro_cal->debug_gyro_cal.accel_mean[2], 3),
@@ -972,9 +967,9 @@ void gyroCalDebugPrintData(const struct GyroCal* gyro_cal, char* debug_tag,
     case GYRO_STATS:
       CAL_DEBUG_LOG(
           debug_tag,
-          "Cal#|Gyro Mean|Var [mDPS|mDPS^2]: %lu, " CAL_FORMAT_3DIGITS_TRIPLET
+          "Cal#|Gyro Mean|Var [mDPS|mDPS^2]: %zu, " CAL_FORMAT_3DIGITS_TRIPLET
           ", " CAL_FORMAT_3DIGITS_TRIPLET,
-          (unsigned long int)gyro_cal->debug_calibration_count,
+          gyro_cal->debug_calibration_count,
           CAL_ENCODE_FLOAT(gyro_cal->debug_gyro_cal.gyro_mean[0] * RAD_TO_MDEG,
                            3),
           CAL_ENCODE_FLOAT(gyro_cal->debug_gyro_cal.gyro_mean[1] * RAD_TO_MDEG,
@@ -996,9 +991,9 @@ void gyroCalDebugPrintData(const struct GyroCal* gyro_cal, char* debug_tag,
       if (gyro_cal->debug_gyro_cal.using_mag_sensor) {
         CAL_DEBUG_LOG(
             debug_tag,
-            "Cal#|Mag Mean|Var [uT|uT^2]: %lu, " CAL_FORMAT_3DIGITS_TRIPLET
+            "Cal#|Mag Mean|Var [uT|uT^2]: %zu, " CAL_FORMAT_3DIGITS_TRIPLET
             ", " CAL_FORMAT_6DIGITS_TRIPLET,
-            (unsigned long int)gyro_cal->debug_calibration_count,
+            gyro_cal->debug_calibration_count,
             CAL_ENCODE_FLOAT(gyro_cal->debug_gyro_cal.mag_mean[0], 3),
             CAL_ENCODE_FLOAT(gyro_cal->debug_gyro_cal.mag_mean[1], 3),
             CAL_ENCODE_FLOAT(gyro_cal->debug_gyro_cal.mag_mean[2], 3),
@@ -1007,9 +1002,9 @@ void gyroCalDebugPrintData(const struct GyroCal* gyro_cal, char* debug_tag,
             CAL_ENCODE_FLOAT(gyro_cal->debug_gyro_cal.mag_var[2], 6));
       } else {
         CAL_DEBUG_LOG(debug_tag,
-                      "Cal#|Mag Mean|Var [uT|uT^2]: %lu, 0, 0, 0, -1.0, -1.0, "
+                      "Cal#|Mag Mean|Var [uT|uT^2]: %zu, 0, 0, 0, -1.0, -1.0, "
                       "-1.0",
-                      (unsigned long int)gyro_cal->debug_calibration_count);
+                      gyro_cal->debug_calibration_count);
       }
       break;
 
