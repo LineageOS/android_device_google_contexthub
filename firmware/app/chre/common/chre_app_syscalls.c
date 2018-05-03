@@ -163,7 +163,10 @@ bool chreSendMessageToHostEndpoint(void *message, size_t messageSize,
                                    uint32_t messageType, uint16_t hostEndpoint,
                                    chreMessageFreeFunction *freeCallback)
 {
-    return syscallDo5P(SYSCALL_NO(SYSCALL_DOMAIN_CHRE, SYSCALL_CHRE_MAIN, SYSCALL_CHRE_MAIN_EVENT, SYSCALL_CHRE_MAIN_EVENT_SEND_MSG), message, messageSize, messageType, hostEndpoint, freeCallback);
+    if (chreGetApiVersion() == CHRE_API_VERSION_1_0)
+        return syscallDo4P(SYSCALL_CHRE_API(SEND_MSG), message, messageSize, messageType, freeCallback);
+    else
+        return syscallDo5P(SYSCALL_NO(SYSCALL_DOMAIN_CHRE, SYSCALL_CHRE_MAIN, SYSCALL_CHRE_MAIN_EVENT, SYSCALL_CHRE_MAIN_EVENT_SEND_MSG), message, messageSize, messageType, hostEndpoint, freeCallback);
 }
 
 bool chreGetNanoappInfoByAppId(uint64_t appId, struct chreNanoappInfo *info)
