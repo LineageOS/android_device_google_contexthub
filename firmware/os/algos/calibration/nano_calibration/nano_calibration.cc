@@ -208,7 +208,7 @@ bool NanoSensorCal::NotifyAshCalibration(
   ash_cal_info.compMatrix[8] = 1.0f;
   memcpy(ash_cal_info.bias, cal_data.offset, sizeof(ash_cal_info.bias));
 
-  // Sets the appropriate calibration accuracy level.
+  // Maps CalibrationQualityLevel to ASH calibration accuracy.
   switch (cal_data.calibration_quality.level) {
     case online_calibration::CalibrationQualityLevel::HIGH_QUALITY:
       ash_cal_info.accuracy = ASH_CAL_ACCURACY_HIGH;
@@ -219,9 +219,11 @@ bool NanoSensorCal::NotifyAshCalibration(
       break;
 
     case online_calibration::CalibrationQualityLevel::LOW_QUALITY:
-    // FALLTHROUGH_INTENTIONAL.
-    default:
       ash_cal_info.accuracy = ASH_CAL_ACCURACY_LOW;
+      break;
+
+    default:
+      ash_cal_info.accuracy = ASH_CAL_ACCURACY_UNRELIABLE;
       break;
   }
 
@@ -233,6 +235,7 @@ bool NanoSensorCal::NotifyAshCalibration(
   // Uses the ASH API to store ONLY the algorithm calibration parameters that
   // have been modified by the calibration algorithm.
   ashCalParams ash_cal_parameters;
+  memset(&ash_cal_parameters, 0, sizeof(ashCalParams));
   if (flags & CalibrationTypeFlags::BIAS) {
     ash_cal_parameters.offsetTempCelsius = cal_data.offset_temp_celsius;
     memcpy(ash_cal_parameters.offset, cal_data.offset,
