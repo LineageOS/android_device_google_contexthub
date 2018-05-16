@@ -34,8 +34,9 @@ namespace online_calibration {
  *   Initialize             --> CalibrationQualityLevel::UNDETERMINED
  *                              CalibrationQuality.value =
  *                                kUndeterminedCalibrationQuality
- *   SetInitialCalibration  --> CalibrationQualityLevel::LOW_QUALITY
- *                              CalibrationQuality.value = kLowQualityUt
+ *   SetInitialCalibration  --> CalibrationQualityLevel::UNDETERMINED
+ *                              CalibrationQuality.value =
+ *                                kUndeterminedCalibrationQuality
  *   New Calibration Update --> CalibrationQualityLevel::HIGH_QUALITY
  *                              CalibrationQuality.value = kHighQualityUt
  */

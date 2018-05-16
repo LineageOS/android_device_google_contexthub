@@ -17,11 +17,6 @@
 #ifndef LOCATION_LBS_CONTEXTHUB_NANOAPPS_CALIBRATION_MAGNETOMETER_MAG_CAL_MAG_CAL_H_
 #define LOCATION_LBS_CONTEXTHUB_NANOAPPS_CALIBRATION_MAGNETOMETER_MAG_CAL_MAG_CAL_H_
 
-#ifdef MAG_CAL_DEBUG_ENABLE
-// Enables diversity debug messages if mag_cal debugging is enabled.
-#define DIVERSE_DEBUG_ENABLE
-#endif  // MAG_CAL_DEBUG_ENABLE
-
 #include <stdbool.h>
 #include <stdint.h>
 #include <sys/types.h>

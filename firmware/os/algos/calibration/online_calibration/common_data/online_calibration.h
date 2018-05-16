@@ -91,17 +91,6 @@ class OnlineCalibration {
     calibration_callback_ = calibration_callback;
   }
 
-  // This provides operational feedback to the system based on status such as
-  // active sensors and sampling rates. Feedback may include adjusting
-  // system-level settings including sensor sampling rate, latency,
-  // active/passive subscription, etc. Returns "true" if a system setting is
-  // requested to change.
-  // TODO(davejacobs) -- Determine implementation details.
-  virtual bool UpdateDynamicSystemSettings(
-      /*System Parameters In, System Feedback Out*/) const {
-    return false;
-  }
-
   // Returns the sensor-type this calibration algorithm provides updates for.
   virtual SensorType get_sensor_type() const = 0;
 

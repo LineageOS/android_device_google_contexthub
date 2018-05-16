@@ -84,9 +84,9 @@ bool MagDiverseCal::SetInitialCalibration(
   // Sync's all initial calibration data.
   cal_data_ = input_cal_data;
 
-  // Sets the calibration quality.
-  cal_data_.calibration_quality.level = CalibrationQualityLevel::LOW_QUALITY;
-  cal_data_.calibration_quality.value = kLowQualityUt;
+  // Sets the calibration quality to undetermined (uncertain magnetic history
+  // makes the usefulness of the input calibration value unknown).
+  cal_data_.calibration_quality.reset();
 
   return true;
 }
