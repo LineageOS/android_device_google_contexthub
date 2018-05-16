@@ -48,6 +48,11 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#if defined(MAG_CAL_DEBUG_ENABLE) && !defined(DIVERSE_DEBUG_ENABLE)
+// Ensures that diversity messaging is set when mag_cal debugging is enabled.
+#define DIVERSE_DEBUG_ENABLE
+#endif  // MAG_CAL_DEBUG_ENABLE && !DIVERSE_DEBUG_ENABLE
+
 #ifdef __cplusplus
 extern "C" {
 #endif
