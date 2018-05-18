@@ -242,7 +242,8 @@ private:
     uint8_t mMagAccuracy;
     uint8_t mMagAccuracyRestore;
 
-    float mGyroBias[3], mAccelBias[3];
+    float mGyroBias[3], mAccelBias[3], mAccelEnabledBias[3];
+    bool mAccelEnabledBiasStored;
     GyroOtcData mGyroOtcData;
 
     float mScaleAccel, mScaleMag;
