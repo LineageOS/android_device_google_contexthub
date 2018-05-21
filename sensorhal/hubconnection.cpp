@@ -1414,25 +1414,33 @@ ssize_t HubConnection::processBuf(uint8_t *buf, size_t len)
             if (isActivitySensor(sensor) && mActivityEventHandler != NULL) {
                 mActivityEventHandler->OnFlush();
             } else {
-                struct Flush& flush = mFlushesPending[primary].front();
-                memset(&ev, 0x00, sizeof(sensors_event_t));
-                ev.version = META_DATA_VERSION;
-                ev.timestamp = 0;
-                ev.type = SENSOR_TYPE_META_DATA;
-                ev.sensor = 0;
-                ev.meta_data.what = META_DATA_FLUSH_COMPLETE;
-                ev.meta_data.sensor = flush.handle;
+                bool internal = false;
 
-                if (flush.internal) {
-                    if (flush.handle == COMMS_SENSOR_ACCEL_WRIST_AWARE)
-                        mLefty.accel = !mLefty.accel;
-                    else if (flush.handle == COMMS_SENSOR_GYRO_WRIST_AWARE)
-                        mLefty.gyro = !mLefty.gyro;
-                } else
+                {
+                    Mutex::Autolock autoLock(mLock);
+                    struct Flush& flush = mFlushesPending[primary].front();
+                    memset(&ev, 0x00, sizeof(sensors_event_t));
+                    ev.version = META_DATA_VERSION;
+                    ev.timestamp = 0;
+                    ev.type = SENSOR_TYPE_META_DATA;
+                    ev.sensor = 0;
+                    ev.meta_data.what = META_DATA_FLUSH_COMPLETE;
+                    ev.meta_data.sensor = flush.handle;
+
+                    if (flush.internal) {
+                        internal = true;
+                        if (flush.handle == COMMS_SENSOR_ACCEL_WRIST_AWARE)
+                            mLefty.accel = !mLefty.accel;
+                        else if (flush.handle == COMMS_SENSOR_GYRO_WRIST_AWARE)
+                            mLefty.gyro = !mLefty.gyro;
+                    }
+
+                    if (--flush.count == 0)
+                        mFlushesPending[primary].pop_front();
+                }
+
+                if (!internal)
                     write(&ev, 1);
-
-                if (--flush.count == 0)
-                    mFlushesPending[primary].pop_front();
 
                 ALOGV("flushing %d", ev.meta_data.sensor);
             }
