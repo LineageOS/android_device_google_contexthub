@@ -107,9 +107,6 @@
 extern "C" {
 #endif
 
-// Defines the maximum size of the 'model_data' array.
-#define OTC_MODEL_SIZE (40)
-
 // A common sensor operating temperature at which to begin the model jump-start
 // data.
 #define JUMPSTART_START_TEMP_CELSIUS (30.0f)
@@ -124,9 +121,6 @@ extern "C" {
 // Valid sensor temperature operating range.
 #define OTC_TEMP_MIN_CELSIUS (-40.0f)
 #define OTC_TEMP_MAX_CELSIUS (85.0f)
-
-// Invalid sensor temperature.
-#define OTC_TEMP_INVALID_CELSIUS (-274.0f)
 
 // Number of time-interval levels used to define the least-squares weighting
 // function.

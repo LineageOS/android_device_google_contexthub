@@ -54,7 +54,8 @@ void NanoSensorCal::Initialize(OnlineCalibrationThreeAxis *accel_cal,
   accel_cal_ = accel_cal;
   if (accel_cal_ != nullptr) {
     if (accel_cal_->get_sensor_type() == SensorType::kAccelerometerMps2) {
-      LoadAshCalibration(CHRE_SENSOR_TYPE_ACCELEROMETER, accel_cal_, kAccelTag);
+      LoadAshCalibration(CHRE_SENSOR_TYPE_ACCELEROMETER, accel_cal_,
+                         &accel_cal_update_flags_, kAccelTag);
       NANO_CAL_LOGI(kAccelTag,
                     "Accelerometer runtime calibration initialized.");
     } else {
@@ -66,7 +67,8 @@ void NanoSensorCal::Initialize(OnlineCalibrationThreeAxis *accel_cal,
   gyro_cal_ = gyro_cal;
   if (gyro_cal_ != nullptr) {
     if (gyro_cal_->get_sensor_type() == SensorType::kGyroscopeRps) {
-      LoadAshCalibration(CHRE_SENSOR_TYPE_GYROSCOPE, gyro_cal_, kGyroTag);
+      LoadAshCalibration(CHRE_SENSOR_TYPE_GYROSCOPE, gyro_cal_,
+                         &gyro_cal_update_flags_, kGyroTag);
       NANO_CAL_LOGI(kGyroTag, "Gyroscope runtime calibration initialized.");
     } else {
       gyro_cal_ = nullptr;
@@ -77,7 +79,8 @@ void NanoSensorCal::Initialize(OnlineCalibrationThreeAxis *accel_cal,
   mag_cal_ = mag_cal;
   if (mag_cal != nullptr) {
     if (mag_cal->get_sensor_type() == SensorType::kMagnetometerUt) {
-      LoadAshCalibration(CHRE_SENSOR_TYPE_GEOMAGNETIC_FIELD, mag_cal_, kMagTag);
+      LoadAshCalibration(CHRE_SENSOR_TYPE_GEOMAGNETIC_FIELD, mag_cal_,
+                         &mag_cal_update_flags_, kMagTag);
       NANO_CAL_LOGI(kMagTag, "Magnetometer runtime calibration initialized.");
     } else {
       mag_cal_ = nullptr;
@@ -151,47 +154,47 @@ void NanoSensorCal::ProcessSample(const SensorData &sample) {
   // Sends a new sensor sample to each active calibration algorithm and sends
   // out notifications for new calibration updates.
   if (accel_cal_ != nullptr) {
-    const CalibrationTypeFlags accel_cal_flags =
+    const CalibrationTypeFlags new_cal_flags =
         accel_cal_->SetMeasurement(sample);
-    if (accel_cal_flags != CalibrationTypeFlags::NONE) {
+    if (new_cal_flags != CalibrationTypeFlags::NONE) {
+      accel_cal_update_flags_ |= new_cal_flags;
       NotifyAshCalibration(CHRE_SENSOR_TYPE_ACCELEROMETER,
-                           accel_cal_->GetSensorCalibration(), accel_cal_flags,
-                           kAccelTag);
-      PrintCalibration(accel_cal_->GetSensorCalibration(), accel_cal_flags,
-                       kAccelTag);
+                           accel_cal_->GetSensorCalibration(),
+                           accel_cal_update_flags_, kAccelTag);
+      PrintCalibration(accel_cal_->GetSensorCalibration(),
+                       accel_cal_update_flags_, kAccelTag);
     }
   }
 
   if (gyro_cal_ != nullptr) {
-    const CalibrationTypeFlags gyro_cal_flags =
+    const CalibrationTypeFlags new_cal_flags =
         gyro_cal_->SetMeasurement(sample);
-    if (gyro_cal_flags != CalibrationTypeFlags::NONE) {
+    if (new_cal_flags != CalibrationTypeFlags::NONE) {
+      gyro_cal_update_flags_ |= new_cal_flags;
       if (NotifyAshCalibration(CHRE_SENSOR_TYPE_GYROSCOPE,
                                gyro_cal_->GetSensorCalibration(),
-                               gyro_cal_flags, kGyroTag)) {
+                               gyro_cal_update_flags_, kGyroTag)) {
         // Limits the log messaging update rate for the gyro calibrations since
         // these can occur frequently with rapid temperature changes.
         if (NANO_TIMER_CHECK_T1_GEQUAL_T2_PLUS_DELTA(
                 sample.timestamp_nanos, gyro_notification_time_nanos_,
                 kNanoSensorCalMessageIntervalNanos)) {
           gyro_notification_time_nanos_ = sample.timestamp_nanos;
-          PrintCalibration(
-              gyro_cal_->GetSensorCalibration(),
-              // Ensures that both bias and over-temp parameters are printed.
-              CalibrationTypeFlags::BIAS | CalibrationTypeFlags::OVER_TEMP,
-              kGyroTag);
+          PrintCalibration(gyro_cal_->GetSensorCalibration(),
+                           gyro_cal_update_flags_, kGyroTag);
         }
       }
     }
   }
 
   if (mag_cal_ != nullptr) {
-    const CalibrationTypeFlags mag_cal_flags = mag_cal_->SetMeasurement(sample);
-    if (mag_cal_flags != CalibrationTypeFlags::NONE) {
+    const CalibrationTypeFlags new_cal_flags = mag_cal_->SetMeasurement(sample);
+    if (new_cal_flags != CalibrationTypeFlags::NONE) {
+      mag_cal_update_flags_ |= new_cal_flags;
       NotifyAshCalibration(CHRE_SENSOR_TYPE_GEOMAGNETIC_FIELD,
-                           mag_cal_->GetSensorCalibration(), mag_cal_flags,
-                           kMagTag);
-      PrintCalibration(mag_cal_->GetSensorCalibration(), mag_cal_flags,
+                           mag_cal_->GetSensorCalibration(),
+                           mag_cal_update_flags_, kMagTag);
+      PrintCalibration(mag_cal_->GetSensorCalibration(), mag_cal_update_flags_,
                        kMagTag);
     }
   }
@@ -232,8 +235,8 @@ bool NanoSensorCal::NotifyAshCalibration(
     return false;
   }
 
-  // Uses the ASH API to store ONLY the algorithm calibration parameters that
-  // have been modified by the calibration algorithm.
+  // Uses the ASH API to store all calibration parameters relevant to a given
+  // algorithm as indicated by the input calibration type flags.
   ashCalParams ash_cal_parameters;
   memset(&ash_cal_parameters, 0, sizeof(ashCalParams));
   if (flags & CalibrationTypeFlags::BIAS) {
@@ -263,14 +266,14 @@ bool NanoSensorCal::NotifyAshCalibration(
 
 bool NanoSensorCal::LoadAshCalibration(uint8_t chreSensorType,
                                        OnlineCalibrationThreeAxis *online_cal,
+                                       CalibrationTypeFlags* flags,
                                        const char *sensor_tag) {
   ashCalParams recalled_ash_cal_parameters;
   if (ashLoadCalibrationParams(chreSensorType, ASH_CAL_STORAGE_ASH,
                                &recalled_ash_cal_parameters)) {
     // Checks whether a valid set of runtime calibration parameters was received
     // and can be used for initialization.
-    CalibrationTypeFlags flags = CalibrationTypeFlags::NONE;
-    if (DetectRuntimeCalibration(chreSensorType, sensor_tag, &flags,
+    if (DetectRuntimeCalibration(chreSensorType, sensor_tag, flags,
                                  &recalled_ash_cal_parameters)) {
       CalibrationDataThreeAxis cal_data;
       cal_data.type = online_cal->get_sensor_type();
@@ -278,14 +281,14 @@ bool NanoSensorCal::LoadAshCalibration(uint8_t chreSensorType,
 
       // Analyzes the calibration flags and sets only the runtime calibration
       // values that were received.
-      if (flags & CalibrationTypeFlags::BIAS) {
+      if (*flags & CalibrationTypeFlags::BIAS) {
         cal_data.offset_temp_celsius =
             recalled_ash_cal_parameters.offsetTempCelsius;
         memcpy(cal_data.offset, recalled_ash_cal_parameters.offset,
                sizeof(cal_data.offset));
       }
 
-      if (flags & CalibrationTypeFlags::OVER_TEMP) {
+      if (*flags & CalibrationTypeFlags::OVER_TEMP) {
         memcpy(cal_data.temp_sensitivity,
                recalled_ash_cal_parameters.tempSensitivity,
                sizeof(cal_data.temp_sensitivity));
@@ -298,7 +301,7 @@ bool NanoSensorCal::LoadAshCalibration(uint8_t chreSensorType,
       // the recalled calibration data.
       if (online_cal->SetInitialCalibration(cal_data)) {
         return NotifyAshCalibration(chreSensorType,
-                                    online_cal->GetSensorCalibration(), flags,
+                                    online_cal->GetSensorCalibration(), *flags,
                                     sensor_tag);
       } else {
         NANO_CAL_LOGE(sensor_tag,
@@ -319,6 +322,7 @@ bool NanoSensorCal::DetectRuntimeCalibration(uint8_t chreSensorType,
   // Analyzes calibration source flags to determine whether runtime
   // calibration values have been loaded and may be used for initialization. A
   // valid runtime calibration source will include at least an offset.
+  *flags = CalibrationTypeFlags::NONE;  // Resets the calibration flags.
 
   // Uses the ASH calibration source flags to set the appropriate
   // CalibrationTypeFlags. These will be used to determine which values to copy

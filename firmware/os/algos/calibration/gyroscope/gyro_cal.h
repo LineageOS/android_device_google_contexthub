@@ -35,7 +35,6 @@
  *       - Temperature   [Celsius]
  *
  * #define GYRO_CAL_DBG_ENABLED to enable debug printout statements.
- * data to assist in tuning the GyroCal parameters.
  */
 
 #ifndef LOCATION_LBS_CONTEXTHUB_NANOAPPS_CALIBRATION_GYROSCOPE_GYRO_CAL_H_

@@ -26,10 +26,13 @@
 #include <string.h>
 #include <sys/types.h>
 
+#include "common/math/macros.h"
+
 namespace online_calibration {
 
-// Defines an invalid or uninitialized temperature value.
-constexpr float kInvalidTemperatureCelsius = -274.0f;
+// Defines an invalid or uninitialized temperature value (referenced from
+// common/math/macros.h).
+constexpr float kInvalidTemperatureCelsius = INVALID_TEMPERATURE_CELSIUS;
 
 // Unit conversion from nanoseconds to microseconds.
 constexpr uint64_t NanoToMicroseconds(uint64_t x) { return x / 1000; }
