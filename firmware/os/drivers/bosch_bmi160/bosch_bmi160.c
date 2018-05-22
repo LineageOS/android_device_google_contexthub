@@ -68,10 +68,6 @@
 #include <calibration/over_temp/over_temp_cal.h>
 #endif  // OVERTEMPCAL_ENABLED
 
-#if defined(GYRO_CAL_DBG_ENABLED) || defined(OVERTEMPCAL_DBG_ENABLED) || defined(ACCEL_CAL_DBG_ENABLED)
-#include <calibration/util/cal_log.h>
-#endif  // GYRO_CAL_DBG_ENABLED || OVERTEMPCAL_DBG_ENABLED || ACCEL_CAL_DBG_ENABLED
-
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
@@ -108,7 +104,7 @@
 #define DBG_WM_CALC               0
 #define TIMESTAMP_DBG             0
 
-#define BMI160_APP_VERSION 19
+#define BMI160_APP_VERSION 20
 
 // fixme: to list required definitions for a slave mag
 #ifdef USE_BMM150
@@ -1214,13 +1210,6 @@ static void configFifo(void)
     int i;
     uint8_t val = 0x12;
     bool any_fifo_enabled_prev = anyFifoEnabled();
-#ifdef ACCEL_CAL_ENABLED
-    struct BMI160Sensor *mSensorAcc;
-    bool accelCalNewBiasAvailable;
-    struct TripleAxisDataPoint *sample;
-    float accelCalBiasX, accelCalBiasY, accelCalBiasZ;
-    bool fallThrough;
-#endif
 
     // if ACC is configed, enable ACC bit in fifo_config reg.
     if (mTask.sensors[ACC].configed && mTask.sensors[ACC].latency != SENSOR_LATENCY_NODATA) {
@@ -1228,42 +1217,6 @@ static void configFifo(void)
         mTask.fifo_enabled[ACC] = true;
     } else {
         mTask.fifo_enabled[ACC] = false;
-#ifdef ACCEL_CAL_ENABLED
-        // https://source.android.com/devices/sensors/sensor-types.html
-        // "The bias and scale calibration must only be updated while the sensor is deactivated,
-        // so as to avoid causing jumps in values during streaming."
-        accelCalNewBiasAvailable = accelCalUpdateBias(&mTask.acc, &accelCalBiasX, &accelCalBiasY, &accelCalBiasZ);
-
-        mSensorAcc = &mTask.sensors[ACC];
-        // notify HAL about new accel bias calibration
-        if (accelCalNewBiasAvailable) {
-            fallThrough = true;
-            if (mSensorAcc->data_evt->samples[0].firstSample.numSamples > 0) {
-                // flush existing samples so the bias appears after them
-                flushData(mSensorAcc,
-                        EVENT_TYPE_BIT_DISCARDABLE | sensorGetMyEventType(mSensorInfo[ACC].sensorType));
-
-                // try to allocate another data event and break if unsuccessful
-                if (!allocateDataEvt(mSensorAcc, sensorGetTime())) {
-                    fallThrough = false;
-                }
-            }
-
-            if (fallThrough) {
-                mSensorAcc->data_evt->samples[0].firstSample.biasCurrent = true;
-                mSensorAcc->data_evt->samples[0].firstSample.biasPresent = 1;
-                mSensorAcc->data_evt->samples[0].firstSample.biasSample =
-                        mSensorAcc->data_evt->samples[0].firstSample.numSamples;
-                sample = &mSensorAcc->data_evt->samples[mSensorAcc->data_evt->samples[0].firstSample.numSamples++];
-                sample->x = accelCalBiasX;
-                sample->y = accelCalBiasY;
-                sample->z = accelCalBiasZ;
-                flushData(mSensorAcc, sensorGetMyEventType(mSensorInfo[ACC].biasType));
-
-                allocateDataEvt(mSensorAcc, sensorGetTime());
-            }
-        }
-#endif
     }
 
     // if GYR is configed, enable GYR bit in fifo_config reg.
@@ -2177,12 +2130,54 @@ static void parseRawData(struct BMI160Sensor *mSensor, uint8_t *buf, float kScal
         return;
     }
 
+#ifdef ACCEL_CAL_ENABLED
+    // https://source.android.com/devices/sensors/sensor-types.html
+    // "The bias and scale calibration must only be updated while the sensor is deactivated,
+    // so as to avoid causing jumps in values during streaming." Note, this is now regulated
+    // by the SensorHAL.
+    if (mSensor->idx == ACC) {
+        float accel_offset[3] = {0.0f, 0.0f, 0.0f};
+        bool accelCalNewBiasAvailable = accelCalUpdateBias(
+            &mTask.acc, &accel_offset[0], &accel_offset[1], &accel_offset[2]);
+        if (accelCalNewBiasAvailable) {
+            if (mSensor->data_evt->samples[0].firstSample.numSamples > 0) {
+                // Flushes existing samples so the bias appears after them.
+                flushData(mSensor,
+                          EVENT_TYPE_BIT_DISCARDABLE |
+                          sensorGetMyEventType(mSensorInfo[ACC].sensorType));
+
+                // Tries to allocate another data event and breaks if unsuccessful.
+                if (!allocateDataEvt(mSensor, rtc_time)) {
+                    return;
+                }
+            }
+            mSensor->data_evt->samples[0].firstSample.biasCurrent = true;
+            mSensor->data_evt->samples[0].firstSample.biasPresent = 1;
+            mSensor->data_evt->samples[0].firstSample.biasSample =
+                mSensor->data_evt->samples[0].firstSample.numSamples;
+            sample = &mSensor->data_evt->
+                samples[mSensor->data_evt->samples[0].firstSample.numSamples++];
+
+            // Updates the accel offset in HAL.
+            sample->x = accel_offset[0];
+            sample->y = accel_offset[1];
+            sample->z = accel_offset[2];
+
+            flushData(mSensor, sensorGetMyEventType(mSensorInfo[ACC].biasType));
+            if (!allocateDataEvt(mSensor, rtc_time)) {
+                return;
+            }
+        }
+    }
+#endif  // ACCEL_CAL_ENABLED
+
 #ifdef MAG_SLAVE_PRESENT
     if (mSensor->idx == MAG && (newMagBias || !mTask.magBiasPosted)) {
         if (mSensor->data_evt->samples[0].firstSample.numSamples > 0) {
             // flush existing samples so the bias appears after them
             flushData(mSensor,
-                    EVENT_TYPE_BIT_DISCARDABLE | sensorGetMyEventType(mSensorInfo[MAG].sensorType));
+                      EVENT_TYPE_BIT_DISCARDABLE |
+                      sensorGetMyEventType(mSensorInfo[MAG].sensorType));
             if (!allocateDataEvt(mSensor, rtc_time)) {
                 return;
             }
@@ -2194,7 +2189,10 @@ static void parseRawData(struct BMI160Sensor *mSensor, uint8_t *buf, float kScal
         mSensor->data_evt->samples[0].firstSample.biasPresent = 1;
         mSensor->data_evt->samples[0].firstSample.biasSample =
                 mSensor->data_evt->samples[0].firstSample.numSamples;
-        sample = &mSensor->data_evt->samples[mSensor->data_evt->samples[0].firstSample.numSamples++];
+        sample = &mSensor->data_evt->
+            samples[mSensor->data_evt->samples[0].firstSample.numSamples++];
+
+        // Updates the mag offset in HAL.
         magCalGetBias(&mTask.moc, &sample->x, &sample->y, &sample->z);
 
         // Bias is non-discardable, if we fail to enqueue, don't clear magBiasPosted.
