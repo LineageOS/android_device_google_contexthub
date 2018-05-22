@@ -102,20 +102,25 @@ class NanoSensorCal {
   // Loads runtime calibration data using the Android Sensor Hub API. Returns
   // 'true' when runtime calibration values were successfully recalled and used
   // for algorithm initialization. 'sensor_tag' is a string that identifies a
-  // sensor-specific identifier for log meassages.
+  // sensor-specific identifier for log messages. Updates 'flags' to indicate
+  // which runtime calibration parameters were recalled.
   bool LoadAshCalibration(uint8_t chreSensorType,
                           OnlineCalibrationThreeAxis *online_cal,
+                          online_calibration::CalibrationTypeFlags* flags,
                           const char *sensor_tag);
 
-  // Provides sensor calibration updates using the ASH API. Returns 'true' with
-  // a successful ASH update.
+  // Provides sensor calibration updates using the ASH API for the specified
+  // sensor type. 'cal_data' contains the new calibration data. 'flags' is used
+  // to indicate all of the valid calibration values that should be provided
+  // with the update. Returns 'true' with a successful ASH update.
   bool NotifyAshCalibration(
       uint8_t chreSensorType,
       const online_calibration::CalibrationDataThreeAxis &cal_data,
       online_calibration::CalibrationTypeFlags flags, const char *sensor_tag);
 
   // Checks whether 'ash_cal_parameters' is a valid set of runtime calibration
-  // data and can be used for algorithm initialization.
+  // data and can be used for algorithm initialization. Updates 'flags' to
+  // indicate which runtime calibration parameters were detected.
   bool DetectRuntimeCalibration(uint8_t chreSensorType, const char *sensor_tag,
                                 online_calibration::CalibrationTypeFlags *flags,
                                 ashCalParams *ash_cal_parameters);
@@ -140,6 +145,19 @@ class NanoSensorCal {
 
   // Pointer to the magnetometer runtime calibration object.
   OnlineCalibrationThreeAxis *mag_cal_ = nullptr;
+
+  // Flags that determine which calibration elements are updated with the ASH
+  // API. These are reset during initialization, and latched when a particular
+  // calibration update is detected upon a valid recall of parameters and/or
+  // during runtime. The latching behavior is used to start sending calibration
+  // values of a given type (e.g., bias, over-temp model, etc.) once they are
+  // detected and thereafter.
+  online_calibration::CalibrationTypeFlags accel_cal_update_flags_ =
+      online_calibration::CalibrationTypeFlags::NONE;
+  online_calibration::CalibrationTypeFlags gyro_cal_update_flags_ =
+      online_calibration::CalibrationTypeFlags::NONE;
+  online_calibration::CalibrationTypeFlags mag_cal_update_flags_ =
+      online_calibration::CalibrationTypeFlags::NONE;
 };
 
 }  // namespace nano_calibration

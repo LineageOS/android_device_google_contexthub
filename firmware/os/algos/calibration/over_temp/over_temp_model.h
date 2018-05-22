@@ -23,6 +23,9 @@
 extern "C" {
 #endif
 
+// Defines the maximum size of the OverTempCal 'model_data' array.
+#define OTC_MODEL_SIZE (40)
+
 /*
  * Over-temperature data structures that contain a modeled sensor offset
  * estimate, an associated temperature, and the age of the data point since it
