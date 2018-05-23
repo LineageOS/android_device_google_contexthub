@@ -283,7 +283,7 @@ void overTempCalInit(struct OverTempCal *over_temp_cal,
 
   // Initializes the over-temperature compensated offset temperature.
   over_temp_cal->compensated_offset.offset_temp_celsius =
-      OTC_TEMP_INVALID_CELSIUS;
+      INVALID_TEMPERATURE_CELSIUS;
 
 #ifdef OVERTEMPCAL_DBG_ENABLED
   // Sets the default sensor descriptors for debugging.
@@ -860,7 +860,7 @@ void compensateWithEstimate(struct OverTempCal *over_temp_cal,
   memcpy(compensated_offset, estimate->offset, sizeof(compensated_offset));
 
   // Checks that the offset temperature is valid.
-  if (estimate->offset_temp_celsius > OTC_TEMP_INVALID_CELSIUS) {
+  if (estimate->offset_temp_celsius > INVALID_TEMPERATURE_CELSIUS) {
     const float delta_temp_celsius =
         temperature_celsius - estimate->offset_temp_celsius;
 
@@ -908,7 +908,7 @@ void compareAndCompensateWithNearest(struct OverTempCal *over_temp_cal,
         // Adds a delta term to the compensated offset using the temperature
         // difference defined by 'delta_temp_celsius'.
         if (over_temp_cal->compensated_offset.offset_temp_celsius <=
-            OTC_TEMP_INVALID_CELSIUS) {
+            INVALID_TEMPERATURE_CELSIUS) {
           // If temperature is invalid, then skip further processing.
           break;
         }
@@ -940,7 +940,7 @@ void updateCalOffset(struct OverTempCal *over_temp_cal,
 
   // If 'temperature_celsius' is invalid, then no changes to the compensated
   // offset are computed.
-  if (temperature_celsius <= OTC_TEMP_INVALID_CELSIUS) {
+  if (temperature_celsius <= INVALID_TEMPERATURE_CELSIUS) {
     return;
   }
 
@@ -1196,7 +1196,7 @@ void findNearestEstimate(struct OverTempCal *over_temp_cal,
   ASSERT_NOT_NULL(over_temp_cal);
 
   // If 'temperature_celsius' is invalid, then do not search.
-  if (temperature_celsius <= OTC_TEMP_INVALID_CELSIUS) {
+  if (temperature_celsius <= INVALID_TEMPERATURE_CELSIUS) {
     return;
   }
 

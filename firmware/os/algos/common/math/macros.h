@@ -14,15 +14,16 @@
  * limitations under the License.
  */
 
-// This file contains helper macros and definitions.
+// This file contains frequently used constants and helper macros.
 
 #include <stdint.h>
 
 #ifndef LOCATION_LBS_CONTEXTHUB_NANOAPPS_COMMON_MATH_MACROS_H_
 #define LOCATION_LBS_CONTEXTHUB_NANOAPPS_COMMON_MATH_MACROS_H_
 
-// Mathematical constants.
-#define NANO_PI (3.14159265359f)
+// Constants.
+#define NANO_PI                     (3.14159265359f)
+#define INVALID_TEMPERATURE_CELSIUS (-274.0f)
 
 // Common math operations.
 #define NANO_ABS(x) ((x) > 0 ? (x) : -(x))
@@ -75,7 +76,7 @@ extern "C" {
 
 // This conversion function may be necessary for embedded hardware that can't
 // cast a uint64_t to a float directly. This conversion function was taken from:
-// /third_party/contexthub/firmware/core/floatRt.c
+// [android]//device/google/contexthub/firmware/os/core/floatRt.c
 static inline float floatFromUint64(uint64_t v) {
   uint32_t hi = v >> 32;
   uint32_t lo = (uint32_t) v;
