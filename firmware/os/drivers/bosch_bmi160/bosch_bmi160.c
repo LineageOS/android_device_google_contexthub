@@ -3344,7 +3344,7 @@ static void processPendingEvt(void)
         }
     }
     if (mTask.sensors[STEPCNT].flush > 0 || T(pending_step_cnt)) {
-        T(pending_step_cnt) = T(pending_step_cnt) && !stepCntFlushGetData();
+        T(pending_step_cnt) = !stepCntFlushGetData() && T(pending_step_cnt);
         return;
     }
     if (mTask.pending_calibration_save) {
