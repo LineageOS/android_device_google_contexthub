@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 The Android Open Source Project
+ * Copyright (C) 2017 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,6 +27,9 @@
 #include <chreApi.h>
 #include <syscall.h>
 #include <syscall_defs.h>
+
+/* not defined in chre 1.0 */
+#define CHRE_HOST_ENDPOINT_BROADCAST  UINT16_C(0xFFFF)
 
 #define SYSCALL_CHRE_API(name) \
     SYSCALL_NO(SYSCALL_DOMAIN_CHRE, SYSCALL_CHRE_MAIN, SYSCALL_CHRE_MAIN_API, SYSCALL_CHRE_MAIN_API_ ## name)
@@ -113,23 +116,12 @@ bool chreSensorConfigure(uint32_t sensorHandle,
                        interval_lo, interval_hi, latency_lo, latency_hi);
 }
 
-bool chreSendEvent(uint16_t eventType, void *eventData,
-                   chreEventCompleteFunction *freeCallback,
-                   uint32_t targetInstanceId)
-{
-    return syscallDo4P(SYSCALL_CHRE_API(SEND_EVENT), eventType, eventData, freeCallback, targetInstanceId);
-}
-
-bool chreSendMessageToHost(void *message, uint32_t messageSize,
-                           uint32_t reservedMessageType,
-                           chreMessageFreeFunction *freeCallback)
-{
-    return syscallDo4P(SYSCALL_CHRE_API(SEND_MSG), message, messageSize, reservedMessageType, freeCallback);
-}
-
 uint32_t chreGetApiVersion(void)
 {
-    return syscallDo0P(SYSCALL_CHRE_API(GET_OS_API_VERSION));
+    static uint32_t apiVersion = 0;
+    if (!apiVersion)
+        apiVersion = syscallDo0P(SYSCALL_CHRE_API(GET_OS_API_VERSION));
+    return apiVersion;
 }
 
 uint32_t chreGetVersion(void)
@@ -142,4 +134,24 @@ uint64_t chreGetPlatformId(void)
     uint64_t plat = 0;
     (void)syscallDo1P(SYSCALL_CHRE_API(GET_PLATFORM_ID), &plat);
     return plat;
+}
+
+bool chreSendEvent(uint16_t eventType, void *eventData,
+                   chreEventCompleteFunction *freeCallback,
+                   uint32_t targetInstanceId)
+{
+    if (chreGetApiVersion() == CHRE_API_VERSION_1_0)
+        return syscallDo4P(SYSCALL_CHRE_API(SEND_EVENT), eventType, eventData, freeCallback, targetInstanceId);
+    else
+        return syscallDo4P(SYSCALL_NO(SYSCALL_DOMAIN_CHRE, SYSCALL_CHRE_MAIN, SYSCALL_CHRE_MAIN_EVENT, SYSCALL_CHRE_MAIN_EVENT_SEND_EVENT), eventType, eventData, freeCallback, targetInstanceId);
+}
+
+bool chreSendMessageToHost(void *message, uint32_t messageSize,
+                           uint32_t reservedMessageType,
+                           chreMessageFreeFunction *freeCallback)
+{
+    if (chreGetApiVersion() == CHRE_API_VERSION_1_0)
+        return syscallDo4P(SYSCALL_CHRE_API(SEND_MSG), message, messageSize, reservedMessageType, freeCallback);
+    else
+        return syscallDo5P(SYSCALL_NO(SYSCALL_DOMAIN_CHRE, SYSCALL_CHRE_MAIN, SYSCALL_CHRE_MAIN_EVENT, SYSCALL_CHRE_MAIN_EVENT_SEND_MSG), message, messageSize, reservedMessageType, CHRE_HOST_ENDPOINT_BROADCAST, freeCallback);
 }

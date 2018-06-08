@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-/////////////////////////////////////////////////////////////////////////////
+
 /*
  * This module contains a data structure and corresponding helper functions for
  * a three-axis sensor calibration.  The calibration consists of a bias vector,
@@ -23,8 +23,9 @@
  *
  * corrected_data = scale_skew_mat * (impaired_data - bias).
  */
-#ifndef LOCATION_LBS_CONTEXTHUB_NANOAPPS_CALIBRATION_COMMON_CALIBRATION_DATA_H_
-#define LOCATION_LBS_CONTEXTHUB_NANOAPPS_CALIBRATION_COMMON_CALIBRATION_DATA_H_
+
+#ifndef LOCATION_LBS_CONTEXTHUB_NANOAPPS_CALIBRATION_SPHERE_FIT_CALIBRATION_DATA_H_
+#define LOCATION_LBS_CONTEXTHUB_NANOAPPS_CALIBRATION_SPHERE_FIT_CALIBRATION_DATA_H_
 
 #include <stdint.h>
 
@@ -57,7 +58,7 @@ struct ThreeAxisCalData {
 
 // Set calibration data to identity scale factors, zero skew and
 // zero bias.
-void calDataReset(struct ThreeAxisCalData *calstruct);
+void calDataReset(struct ThreeAxisCalData* calstruct);
 
 // Apply a stored calibration to correct a single sample of impaired sensor
 // data.
@@ -69,4 +70,4 @@ void calDataCorrectData(const struct ThreeAxisCalData* calstruct,
 }
 #endif
 
-#endif  // LOCATION_LBS_CONTEXTHUB_NANOAPPS_CALIBRATION_COMMON_CALIBRATION_DATA_H_
+#endif  // LOCATION_LBS_CONTEXTHUB_NANOAPPS_CALIBRATION_SPHERE_FIT_CALIBRATION_DATA_H_

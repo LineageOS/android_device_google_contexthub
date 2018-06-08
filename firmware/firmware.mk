@@ -85,9 +85,7 @@ SRCS_bl += os/core/bl.c
 #some help for bootloader
 SRCS_bl += os/core/printf.c
 
-ifndef PLATFORM_HAS_HARDWARE_CRC
 SRCS_os += ../lib/nanohub/softcrc.c
-endif
 
 #extra deps
 DEPS += $(wildcard inc/*.h)

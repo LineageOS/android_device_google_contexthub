@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2016 The Android Open Source Project
+# Copyright (C) 2017 The Android Open Source Project
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -26,8 +26,9 @@ include $(NANOHUB_DIR)/firmware_conf.mk
 
 CFLAGS += $(COMMON_FLAGS)
 
-# CHRE API 1.1
-BIN_POSTPROCESS_ARGS := -c 0x0101
+# CHRE API 1.2
+BIN_POSTPROCESS_ARGS := -c 0x0102
 CFLAGS += -I$(NANOHUB_DIR)/../../../../system/chre/chre_api/include/chre_api
+CFLAGS += -I$(NANOHUB_DIR)/../../../../system/chre/util/include
 
 include $(NANOHUB_DIR)/app/app.mk

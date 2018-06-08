@@ -74,13 +74,16 @@ C_STATIC_ASSERT(uintptr_size, sizeof(uintptr_t) >= sizeof(uint32_t));
 #define SYSCALL_CHRE_MAIN_EVENT_INFO_BY_APP_ID       2 // (uint64_t, struct chreNanoappInfo *) -> bool
 #define SYSCALL_CHRE_MAIN_EVENT_INFO_BY_INST_ID      3 // (uint32_t, struct chreNanoappInfo *) -> bool
 #define SYSCALL_CHRE_MAIN_EVENT_CFG_INFO             4 // (bool) -> void
-#define SYSCALL_CHRE_MAIN_EVENT_LAST                 5 // always last. holes are allowed, but not immediately before this
+#define SYSCALL_CHRE_MAIN_EVENT_HOST_SLEEP           5 // (bool) -> void
+#define SYSCALL_CHRE_MAIN_EVENT_IS_HOST_AWAKE        6 // (void) -> bool
+#define SYSCALL_CHRE_MAIN_EVENT_LAST                 7 // always last. holes are allowed, but not immediately before this
 
 //level 2 indices in the CHRE.drivers table
 #define SYSCALL_CHRE_DRV_GNSS             0
 #define SYSCALL_CHRE_DRV_WIFI             1
 #define SYSCALL_CHRE_DRV_WWAN             2
-#define SYSCALL_CHRE_DRV_LAST             3 // always last. holes are allowed, but not immediately before this
+#define SYSCALL_CHRE_DRV_AUDIO            3
+#define SYSCALL_CHRE_DRV_LAST             4 // always last. holes are allowed, but not immediately before this
 
 //level 3 indices in the CHRE.drivers.gnss table
 #define SYSCALL_CHRE_DRV_GNSS_GET_CAP               0 // (void) -> uint32_t
@@ -88,7 +91,8 @@ C_STATIC_ASSERT(uintptr_size, sizeof(uintptr_t) >= sizeof(uint32_t));
 #define SYSCALL_CHRE_DRV_GNSS_LOC_STOP_ASYNC        2 // (const void *) -> bool
 #define SYSCALL_CHRE_DRV_GNSS_MEAS_START_ASYNC      3 // (uint32_t, const void *) -> bool
 #define SYSCALL_CHRE_DRV_GNSS_MEAS_STOP_ASYNC       4 // (const void *) -> bool
-#define SYSCALL_CHRE_DRV_GNSS_LAST                  5 // always last. holes are allowed, but not immediately before this
+#define SYSCALL_CHRE_DRV_GNSS_CONF_PASV_LOC_LIS     5 // (bool) -> bool
+#define SYSCALL_CHRE_DRV_GNSS_LAST                  6 // always last. holes are allowed, but not immediately before this
 
 //level 3 indices in the CHRE.drivers.wifi table
 #define SYSCALL_CHRE_DRV_WIFI_GET_CAP               0 // (void) -> uint32_t
@@ -98,8 +102,14 @@ C_STATIC_ASSERT(uintptr_size, sizeof(uintptr_t) >= sizeof(uint32_t));
 
 //level 3 indices in the CHRE.drivers.wwan table
 #define SYSCALL_CHRE_DRV_WWAN_GET_CAP               0 // (void) -> uint32_t
-#define SYSCALL_CHRE_DRV_WWAN_GET_CELL_INFO_ASYNC   1 // (const void *cookie) -> bool
+#define SYSCALL_CHRE_DRV_WWAN_GET_CELL_INFO_ASYNC   1 // (const void *) -> bool
 #define SYSCALL_CHRE_DRV_WWAN_LAST                  2 // always last. holes are allowed, but not immediately before this
+
+//level 3 indicies in the CHRE.drivers.audio table
+#define SYSCALL_CHRE_DRV_AUDIO_GET_SRC              0 // (uint32_t, struct chreAudioSource *) -> bool
+#define SYSCALL_CHRE_DRV_AUDIO_CONF_SRC             1 // (uint32_t, bool, uint64_t, uint64_t) -> bool
+#define SYSCALL_CHRE_DRV_AUDIO_GET_STATUS           2 // (uint32_t, struct chreAudioSourceStatus *) -> bool
+#define SYSCALL_CHRE_DRV_AUDIO_LAST                 3 // always last. holes are allowed, but not immediately before this
 
 //called by os entry point to export the api
 void osChreApiExport(void);

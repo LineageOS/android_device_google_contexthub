@@ -300,12 +300,25 @@ static inline bool osTaskInit(struct Task *task)
 
 static void osTaskRelease(struct Task *task)
 {
-    uint32_t task_tid = task->tid;
+    uint32_t taskTid = task->tid;
+    uint32_t platErr, sensorErr;
+    int timErr, heapErr;
+    uint64_t appId;
 
-    platFreeResources(task_tid); // HW resources cleanup (IRQ, DMA etc)
-    sensorFreeAll(task_tid);
-    timTimerCancelAll(task_tid);
-    heapFreeAll(task_tid);
+    if (task->app)
+        appId = task->app->hdr.appId;
+    else
+        appId = 0;
+
+    platErr = platFreeResources(taskTid); // HW resources cleanup (IRQ, DMA etc)
+    sensorErr = sensorFreeAll(taskTid);
+    timErr = timTimerCancelAll(taskTid);
+    heapErr = heapFreeAll(taskTid);
+
+    if (platErr || sensorErr || timErr || heapErr)
+        osLog(LOG_WARN, "released app ID 0x%" PRIx64 "; plat:%08" PRIx32 " sensor:%08" PRIx32 " tim:%d heap:%d; TID %04" PRIX32 "\n", appId, platErr, sensorErr, timErr, heapErr, taskTid);
+    else
+        osLog(LOG_INFO, "released app ID 0x%" PRIx64 "; TID %04" PRIX32 "\n", appId, taskTid);
 }
 
 static inline void osTaskEnd(struct Task *task)
@@ -500,6 +513,24 @@ struct Segment *osSegmentGetEnd()
     return (struct Segment *)(start + size);
 }
 
+uint32_t osSegmentGetFree()
+{
+    struct SegmentIterator it;
+    const struct Segment *storageSeg = NULL;
+
+    osSegmentIteratorInit(&it);
+    while (osSegmentIteratorNext(&it)) {
+        if (osSegmentGetState(it.seg) == SEG_ST_EMPTY) {
+            storageSeg = it.seg;
+            break;
+        }
+    }
+    if (!storageSeg || storageSeg > it.sharedEnd)
+        return 0;
+
+    return (uint8_t *)it.sharedEnd - (uint8_t *)storageSeg;
+}
+
 struct Segment *osGetSegment(const struct AppHdr *app)
 {
     uint32_t size;
@@ -601,13 +632,13 @@ bool osAppSegmentClose(struct AppHdr *app, uint32_t segDataSize, uint32_t segSta
     footerLen = (-fullSize) & 3;
     memset(footer, 0x00, footerLen);
 
-#ifdef SEGMENT_CRC_SUPPORT
-    struct SegmentFooter segFooter {
-        .crc = ~crc32(storageSeg, fullSize, ~0),
+    wdtDisableClk();
+    struct SegmentFooter segFooter = {
+        .crc = ~soft_crc32(storageSeg, fullSize, ~0),
     };
+    wdtEnableClk();
     memcpy(&footer[footerLen], &segFooter, sizeof(segFooter));
     footerLen += sizeof(segFooter);
-#endif
 
     if (ret && footerLen)
         ret = osWriteShared((uint8_t*)storageSeg + fullSize, footer, footerLen);
@@ -660,10 +691,10 @@ static inline bool osAppIsValid(const struct AppHdr *app)
 
 static bool osExtAppIsValid(const struct AppHdr *app, uint32_t len)
 {
-    //TODO: when CRC support is ready, add CRC check here
     return  osAppIsValid(app) &&
             len >= sizeof(*app) &&
             osAppSegmentGetState(app) == SEG_ST_VALID &&
+            osAppSegmentCalcCrcResidue(app) == CRC_RESIDUE &&
             !(app->hdr.fwFlags & FL_APP_HDR_INTERNAL);
 }
 
@@ -721,7 +752,7 @@ static bool osStartApp(const struct AppHdr *app)
         // print external NanoApp info to facilitate NanoApp debugging
         if (!(task->app->hdr.fwFlags & FL_APP_HDR_INTERNAL))
             osLog(LOG_INFO,
-                  "loaded app ID 0x%" PRIx64 " at flash base 0x%" PRIxPTR " ram base 0x%" PRIxPTR "; TID %04X\n",
+                  "loaded app ID 0x%" PRIx64 " at flash base 0x%" PRIxPTR " ram base 0x%" PRIxPTR "; TID %04" PRIX16 "\n",
                   task->app->hdr.appId, (uintptr_t) task->app, (uintptr_t) task->platInfo.data, task->tid);
 
         done = osTaskInit(task);
@@ -768,20 +799,20 @@ void osTaskAbort(struct Task *task)
     osStopTask(task, true);
 }
 
-static bool matchDelayStart(const void *cookie, const struct AppHdr *app)
+static bool matchAutoStart(const void *cookie, const struct AppHdr *app)
 {
     bool match = (bool)cookie;
 
     if (app->hdr.fwFlags & FL_APP_HDR_CHRE) {
         if (app->hdr.chreApiMajor == 0xFF && app->hdr.chreApiMinor == 0xFF)
-            return !match;
+            return match;
         else if ((app->hdr.chreApiMajor < 0x01) ||
                  (app->hdr.chreApiMajor == 0x01 && app->hdr.chreApiMinor < 0x01))
-            return !match;
-        else
             return match;
+        else
+            return !match;
     } else {
-        return !match;
+        return match;
     }
 }
 
@@ -951,11 +982,6 @@ uint32_t osExtAppStartAppsByAppId(uint64_t appId)
     return osExtAppStartApps(matchAppId, &appId);
 }
 
-uint32_t osExtAppStartAppsDelayed()
-{
-    return osExtAppStartApps(matchDelayStart, (void *)true);
-}
-
 static void osStartTasks(void)
 {
     const struct AppHdr *app;
@@ -1006,7 +1032,7 @@ static void osStartTasks(void)
     }
 
     osLog(LOG_DEBUG, "Starting external apps...\n");
-    status = osExtAppStartApps(matchDelayStart, (void *)false);
+    status = osExtAppStartApps(matchAutoStart, (void *)true);
     osLog(LOG_DEBUG, "Started %" PRIu32 " internal apps; EXT status: %08" PRIX32 "\n", taskCnt, status);
 }
 
@@ -1203,13 +1229,22 @@ static void osDeferredActionFreeF(void* event)
 
 static bool osEventsSubscribeUnsubscribeV(bool sub, uint32_t numEvts, va_list ap)
 {
-    union SeosInternalSlabData *act = slabAllocatorAlloc(mMiscInternalThingsSlab);
+    struct Task *task = osGetCurrentTask();
+    union SeosInternalSlabData *act;
     int i;
 
-    if (!act || numEvts > MAX_EVT_SUB_CNT)
+    if (!sub && osTaskTestFlags(task, FL_TASK_STOPPED)) // stopping, so this is a no-op
+        return true;
+
+    if (numEvts > MAX_EVT_SUB_CNT)
         return false;
 
-    act->evtSub.tid = osGetCurrentTid();
+    act = slabAllocatorAlloc(mMiscInternalThingsSlab);
+
+    if (!act)
+        return false;
+
+    act->evtSub.tid = task->tid;
     act->evtSub.numEvts = numEvts;
     for (i = 0; i < numEvts; i++)
         act->evtSub.evts[i] = va_arg(ap, uint32_t);
@@ -1272,12 +1307,8 @@ static bool osEnqueueEvtCommon(uint32_t evt, void *evtData, TaggedPtr evtFreeInf
 
     osTaskAddIoCount(task, 1);
 
-    if (osTaskTestFlags(task, FL_TASK_STOPPED)) {
-        handleEventFreeing(evtType, evtData, evtFreeInfo);
-        return true;
-    }
-
-    if (!evtQueueEnqueue(mEvtsInternal, evtType, evtData, evtFreeInfo, urgent)) {
+    if (osTaskTestFlags(task, FL_TASK_STOPPED) ||
+        !evtQueueEnqueue(mEvtsInternal, evtType, evtData, evtFreeInfo, urgent)) {
         osTaskAddIoCount(task, -1);
         return false;
     }
@@ -1377,7 +1408,7 @@ bool osEnqueuePrivateEvtAsApp(uint32_t evtType, void *evtData, uint32_t toTid)
     return osEnqueuePrivateEvtEx(evtType & EVT_MASK, evtData, taggedPtrMakeFromUint(osGetCurrentTid()), toTid);
 }
 
-bool osTidById(uint64_t *appId, uint32_t *tid)
+bool osTidById(const uint64_t *appId, uint32_t *tid)
 {
     struct Task *task;
 

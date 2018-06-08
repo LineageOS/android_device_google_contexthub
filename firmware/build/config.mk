@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2016 The Android Open Source Project
+# Copyright (C) 2017 The Android Open Source Project
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -37,6 +37,8 @@ BUILD_NANOHUB_BL_EXECUTABLE := $(NANO_BUILD)/bl_executable.mk
 BUILD_NANOHUB_OS_EXECUTABLE := $(NANO_BUILD)/os_executable.mk
 BUILD_NANOHUB_OS_IMAGE := $(NANO_BUILD)/os_image.mk
 BUILD_NANOHUB_APP_EXECUTABLE := $(NANO_BUILD)/app_executable.mk
+BUILD_NANOHUB_APP_CHRE10_EXECUTABLE := $(NANO_BUILD)/app_chre10_executable.mk
+BUILD_NANOHUB_APP_CHRE11_EXECUTABLE := $(NANO_BUILD)/app_chre11_executable.mk
 BUILD_NANOHUB_APP_CHRE_EXECUTABLE := $(NANO_BUILD)/app_chre_executable.mk
 
 NANOAPP_POSTPROCESS := $(HOST_OUT_EXECUTABLES)/nanoapp_postprocess

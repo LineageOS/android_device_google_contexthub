@@ -32,6 +32,7 @@
 #define EVT_APP_TO_SENSOR_HAL_DATA       0x00000404    //sensor driver out of band data update to sensor hal
 #define EVT_APP_STARTED                  0x00000405    //sent when a app has successfully started
 #define EVT_APP_STOPPED                  0x00000406    //sent when a app has stopped
+#define EVT_APP_TO_HOST_CHRE             0x00000407    //app data to host. Type is struct HostHubChrePacket
 #define EVT_DEBUG_LOG                    0x00007F01    //send message payload to Linux kernel log
 #define EVT_MASK                         0x0000FFFF
 
@@ -51,6 +52,18 @@ SET_PACKED_STRUCT_MODE_ON
 struct HostHubRawPacket {
     uint64_t appId;
     uint8_t dataLen; //not incl this header, 128 bytes max
+    //raw data in unspecified format here
+}ATTRIBUTE_PACKED;
+SET_PACKED_STRUCT_MODE_OFF
+
+#define HOST_HUB_CHRE_PACKET_MAX_LEN     128
+
+SET_PACKED_STRUCT_MODE_ON
+struct HostHubChrePacket {
+    uint64_t appId;
+    uint8_t messageSize; //not incl this header, 128 bytes max
+    uint32_t messageType;
+    uint16_t hostEndpoint;
     //raw data in unspecified format here
 }ATTRIBUTE_PACKED;
 SET_PACKED_STRUCT_MODE_OFF
