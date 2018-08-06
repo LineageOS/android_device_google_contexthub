@@ -1,4 +1,20 @@
-#include "calibration/common/sphere_fit_calibration.h"
+/*
+ * Copyright (C) 2016 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+#include "calibration/sphere_fit/sphere_fit_calibration.h"
 
 #include <errno.h>
 #include <stdarg.h>
@@ -19,7 +35,7 @@ static bool runCalibration(struct SphereFitCal *sphere_cal,
                            const struct SphereFitData *data,
                            uint64_t timestamp_nanos);
 
-#define MIN_VALID_DATA_NORM (1e-4)
+#define MIN_VALID_DATA_NORM (1e-4f)
 
 // FUNCTION IMPLEMENTATIONS
 //////////////////////////////////////////////////////////////////////////////
@@ -103,7 +119,7 @@ void sphereFitResidAndJacobianFunc(const float *state, const void *f_data,
   ASSERT_NOT_NULL(f_data);
   ASSERT_NOT_NULL(residual);
 
-  const struct SphereFitData *data = (const struct SphereFitData*)f_data;
+  const struct SphereFitData *data = (const struct SphereFitData *)f_data;
 
   // Verify that expected norm is non-zero, else use default of 1.0.
   float expected_norm = 1.0;
@@ -204,10 +220,9 @@ bool runCalibration(struct SphereFitCal *sphere_cal,
   float x_sol[SF_STATE_DIM];
 
   // Run calibration
-  const enum LmStatus status = lmSolverSolve(&sphere_cal->lm_solver,
-                                             sphere_cal->x0, (void *)data,
-                                             SF_STATE_DIM, data->num_fit_points,
-                                             x_sol);
+  const enum LmStatus status =
+      lmSolverSolve(&sphere_cal->lm_solver, sphere_cal->x0, (void *)data,
+                    SF_STATE_DIM, data->num_fit_points, x_sol);
 
   // Check if solver was successful
   if (status == RELATIVE_STEP_SUFFICIENTLY_SMALL ||
@@ -215,32 +230,34 @@ bool runCalibration(struct SphereFitCal *sphere_cal,
     // TODO(dvitus): Check quality of new fit before using.
     // Store new fit.
 #ifdef SPHERE_FIT_DBG_ENABLED
-    CAL_DEBUG_LOG(
-        "[SPHERE CAL]",
-        "Solution found in %d iterations with status %d.\n",
-        sphere_cal->lm_solver.num_iter, status);
-    CAL_DEBUG_LOG(
-        "[SPHERE CAL]",
-        "Solution:\n {%s%d.%06d [M(1,1)], %s%d.%06d [M(2,1)], "
-        "%s%d.%06d [M(2,2)], \n"
-        "%s%d.%06d [M(3,1)], %s%d.%06d [M(3,2)], %s%d.%06d [M(3,3)], \n"
-        "%s%d.%06d [b(1)], %s%d.%06d [b(2)], %s%d.%06d [b(3)]}.",
-        CAL_ENCODE_FLOAT(x_sol[0], 6), CAL_ENCODE_FLOAT(x_sol[1], 6),
-        CAL_ENCODE_FLOAT(x_sol[2], 6), CAL_ENCODE_FLOAT(x_sol[3], 6),
-        CAL_ENCODE_FLOAT(x_sol[4], 6), CAL_ENCODE_FLOAT(x_sol[5], 6),
-        CAL_ENCODE_FLOAT(x_sol[6], 6), CAL_ENCODE_FLOAT(x_sol[7], 6),
-        CAL_ENCODE_FLOAT(x_sol[8], 6));
-#endif
+    CAL_DEBUG_LOG("[SPHERE CAL]",
+                  "Solution found in %d iterations with status %d.\n",
+                  sphere_cal->lm_solver.num_iter, status);
+    CAL_DEBUG_LOG("[SPHERE CAL]", "Solution:\n {"
+                  CAL_FORMAT_6DIGITS " [M(1,1)], "
+                  CAL_FORMAT_6DIGITS " [M(2,1)], "
+                  CAL_FORMAT_6DIGITS " [M(2,2)], \n"
+                  CAL_FORMAT_6DIGITS " [M(3,1)], "
+                  CAL_FORMAT_6DIGITS " [M(3,2)], "
+                  CAL_FORMAT_6DIGITS " [M(3,3)], \n"
+                  CAL_FORMAT_6DIGITS " [b(1)], "
+                  CAL_FORMAT_6DIGITS " [b(2)], "
+                  CAL_FORMAT_6DIGITS " [b(3)]}.",
+                  CAL_ENCODE_FLOAT(x_sol[0], 6), CAL_ENCODE_FLOAT(x_sol[1], 6),
+                  CAL_ENCODE_FLOAT(x_sol[2], 6), CAL_ENCODE_FLOAT(x_sol[3], 6),
+                  CAL_ENCODE_FLOAT(x_sol[4], 6), CAL_ENCODE_FLOAT(x_sol[5], 6),
+                  CAL_ENCODE_FLOAT(x_sol[6], 6), CAL_ENCODE_FLOAT(x_sol[7], 6),
+                  CAL_ENCODE_FLOAT(x_sol[8], 6));
+#endif  // SPHERE_FIT_DBG_ENABLED
     memcpy(sphere_cal->x, x_sol, sizeof(x_sol));
     sphere_cal->estimate_time_nanos = timestamp_nanos;
     return true;
   } else {
 #ifdef SPHERE_FIT_DBG_ENABLED
-     CAL_DEBUG_LOG(
-        "[SPHERE CAL]",
-        "Solution failed in %d iterations with status %d.\n",
-        sphere_cal->lm_solver.num_iter, status);
-#endif
+    CAL_DEBUG_LOG("[SPHERE CAL]",
+                  "Solution failed in %d iterations with status %d.\n",
+                  sphere_cal->lm_solver.num_iter, status);
+#endif  // SPHERE_FIT_DBG_ENABLED
   }
 
   return false;

@@ -207,7 +207,7 @@ static bool osChreSendMessageToHost(void *message, uint32_t messageSize,
                            chreMessageFreeFunction *freeCallback)
 {
     bool result = false;
-    struct HostHubRawPacket *hostMsg = NULL;
+    struct HostHubChrePacket *hostMsg = NULL;
 
     if (messageSize > CHRE_MESSAGE_TO_HOST_MAX_SIZE || (messageSize && !message))
         goto out;
@@ -220,8 +220,10 @@ static bool osChreSendMessageToHost(void *message, uint32_t messageSize,
         memcpy(hostMsg+1, message, messageSize);
 
     hostMsg->appId = osChreGetAppId();
-    hostMsg->dataLen = messageSize;
-    result = osEnqueueEvtOrFree(EVT_APP_TO_HOST, hostMsg, heapFree);
+    hostMsg->messageSize = messageSize;
+    hostMsg->messageType = messageType;
+    hostMsg->hostEndpoint = hostEndpoint;
+    result = osEnqueueEvtOrFree(EVT_APP_TO_HOST_CHRE, hostMsg, heapFree);
 
 out:
     if (freeCallback)
@@ -538,6 +540,16 @@ static void osChreEventCfgInfo(uintptr_t *retValP, va_list args)
         osEventsUnsubscribe(2, EVT_APP_STARTED, EVT_APP_STOPPED);
 }
 
+static void osChreEventHostSleep(uintptr_t *retValP, va_list args)
+{
+    // bool enable = va_arg(args, int();
+}
+
+static void osChreEventIsHostAwake(uintptr_t *retValP, va_list args)
+{
+    *retValP = true;
+}
+
 static void osChreDrvGnssGetCap(uintptr_t *retValP, va_list args)
 {
     *retValP = CHRE_GNSS_CAPABILITIES_NONE;
@@ -567,6 +579,12 @@ static void osChreDrvGnssMeasStartAsync(uintptr_t *retValP, va_list args)
 static void osChreDrvGnssMeasStopAsync(uintptr_t *retValP, va_list args)
 {
     // const void *cookie = va_args(args, void *);
+    *retValP = false;
+}
+
+static void osChreDrvGnssConfLocMon(uintptr_t *retValP, va_list args)
+{
+    // bool enable = va_args(args, bool);
     *retValP = false;
 }
 
@@ -600,6 +618,33 @@ static void osChreDrvWwanGetCallInfoAsync(uintptr_t *retValP, va_list args)
     *retValP = false;
 }
 
+static void osChreDrvAudioGetSrc(uintptr_t *retValP, va_list args)
+{
+    // uint32_t handle = va_args(args, uint32_t);
+    // struct chreAudioSource *audioSource = va_args(args, struct chreAudioSource *);
+    *retValP = false;
+}
+
+static void osChreDrvAudioConfSrc(uintptr_t *retValP, va_list args)
+{
+    // uint32_t handle = va_args(args, uint32_t);
+    // bool enable = va_args(args, int);
+    // uint32_t duration_lo = va_arg(args, uint32_t);
+    // uint32_t duration_hi = va_arg(args, uint32_t);
+    // uint64_t bufferDuration = (((uint64_t)dur_hi) << 32) | dur_lo;
+    // uint32_t interval_lo = va_args(args, uint32_t);
+    // uint32_t interval_hi = va_args(args, uint32_t);
+    // uint64_t deliveryInterval = (((uint64_t)del_hi) << 32) | del_lo;
+    *retValP = false;
+}
+
+static void osChreDrvAudioGetStatus(uintptr_t *retValP, va_list args)
+{
+    // uint32_t handle = va_args(args, uint32_t);
+    // struct chreAudioSourceStatus *status = va_args(args, struct chreAudioSourceStatus *);
+    *retValP = false;
+}
+
 static const struct SyscallTable chreMainApiTable = {
     .numEntries = SYSCALL_CHRE_MAIN_API_LAST,
     .entry = {
@@ -618,7 +663,7 @@ static const struct SyscallTable chreMainApiTable = {
         [SYSCALL_CHRE_MAIN_API_SEND_MSG]                = { .func = osChreApiSendMessageToHost },
         [SYSCALL_CHRE_MAIN_API_SENSOR_FIND_DEFAULT]     = { .func = osChreApiSensorFindDefault },
         [SYSCALL_CHRE_MAIN_API_SENSOR_GET_INFO_OLD]     = { .func = osChreApiSensorGetInfoOld },
-        [SYSCALL_CHRE_MAIN_API_SENSOR_GET_INFO]     = { .func = osChreApiSensorGetInfo },
+        [SYSCALL_CHRE_MAIN_API_SENSOR_GET_INFO]         = { .func = osChreApiSensorGetInfo },
         [SYSCALL_CHRE_MAIN_API_SENSOR_GET_STATUS]       = { .func = osChreApiSensorGetStatus },
         [SYSCALL_CHRE_MAIN_API_SENSOR_CONFIG]           = { .func = osChreApiSensorConfig },
         [SYSCALL_CHRE_MAIN_API_GET_OS_API_VERSION]      = { .func = osChreApiChreApiVersion },
@@ -635,6 +680,8 @@ static const struct SyscallTable chreMainEventTable = {
         [SYSCALL_CHRE_MAIN_EVENT_INFO_BY_APP_ID]       = { .func = osChreEventInfoByAppId },
         [SYSCALL_CHRE_MAIN_EVENT_INFO_BY_INST_ID]      = { .func = osChreEeventInfoByInstId },
         [SYSCALL_CHRE_MAIN_EVENT_CFG_INFO]             = { .func = osChreEventCfgInfo },
+        [SYSCALL_CHRE_MAIN_EVENT_HOST_SLEEP]           = { .func = osChreEventHostSleep },
+        [SYSCALL_CHRE_MAIN_EVENT_IS_HOST_AWAKE]        = { .func = osChreEventIsHostAwake },
     },
 };
 
@@ -654,6 +701,7 @@ static const struct SyscallTable chreDrvGnssTable = {
         [SYSCALL_CHRE_DRV_GNSS_LOC_STOP_ASYNC]          = { .func = osChreDrvGnssLocStopAsync },
         [SYSCALL_CHRE_DRV_GNSS_MEAS_START_ASYNC]        = { .func = osChreDrvGnssMeasStartAsync },
         [SYSCALL_CHRE_DRV_GNSS_MEAS_STOP_ASYNC]         = { .func = osChreDrvGnssMeasStopAsync },
+        [SYSCALL_CHRE_DRV_GNSS_CONF_PASV_LOC_LIS]       = { .func = osChreDrvGnssConfLocMon },
     },
 };
 
@@ -674,12 +722,22 @@ static const struct SyscallTable chreDrvWwanTable = {
     },
 };
 
+static const struct SyscallTable chreDrvAudioTable = {
+    .numEntries = SYSCALL_CHRE_DRV_AUDIO_LAST,
+    .entry = {
+        [SYSCALL_CHRE_DRV_AUDIO_GET_SRC]                = { .func = osChreDrvAudioGetSrc },
+        [SYSCALL_CHRE_DRV_AUDIO_CONF_SRC]               = { .func = osChreDrvAudioConfSrc },
+        [SYSCALL_CHRE_DRV_AUDIO_GET_STATUS]             = { .func = osChreDrvAudioGetStatus },
+    },
+};
+
 static const struct SyscallTable chreDriversTable = {
     .numEntries = SYSCALL_CHRE_DRV_LAST,
     .entry = {
         [SYSCALL_CHRE_DRV_GNSS]     = { .subtable = (struct SyscallTable*)&chreDrvGnssTable,     },
         [SYSCALL_CHRE_DRV_WIFI]     = { .subtable = (struct SyscallTable*)&chreDrvWifiTable,     },
         [SYSCALL_CHRE_DRV_WWAN]     = { .subtable = (struct SyscallTable*)&chreDrvWwanTable,     },
+        [SYSCALL_CHRE_DRV_AUDIO]    = { .subtable = (struct SyscallTable*)&chreDrvAudioTable     },
     },
 };
 

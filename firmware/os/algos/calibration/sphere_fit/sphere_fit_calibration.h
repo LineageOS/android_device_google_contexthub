@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-/////////////////////////////////////////////////////////////////////////////
+
 /*
  * This module contains an algorithm for performing a sphere fit calibration.
  * A sphere fit calibration solves the following non-linear least squares
@@ -34,13 +34,14 @@
  * M and b.  M is assumed to be a lower diagonal, consisting of 6 parameters.
  *
  */
-#ifndef LOCATION_LBS_CONTEXTHUB_NANOAPPS_CALIBRATION_COMMON_SPHERE_FIT_CALIBRATION_H_
-#define LOCATION_LBS_CONTEXTHUB_NANOAPPS_CALIBRATION_COMMON_SPHERE_FIT_CALIBRATION_H_
+
+#ifndef LOCATION_LBS_CONTEXTHUB_NANOAPPS_CALIBRATION_SPHERE_FIT_SPHERE_FIT_CALIBRATION_H_
+#define LOCATION_LBS_CONTEXTHUB_NANOAPPS_CALIBRATION_SPHERE_FIT_SPHERE_FIT_CALIBRATION_H_
 
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "calibration/common/calibration_data.h"
+#include "calibration/sphere_fit/calibration_data.h"
 #include "common/math/levenberg_marquardt.h"
 
 #ifdef __cplusplus
@@ -140,4 +141,4 @@ void sphereFitResidAndJacobianFunc(const float *state, const void *f_data,
 }
 #endif
 
-#endif  //  LOCATION_LBS_CONTEXTHUB_NANOAPPS_CALIBRATION_COMMON_SPHERE_FIT_CALIBRATION_H_
+#endif  //  LOCATION_LBS_CONTEXTHUB_NANOAPPS_CALIBRATION_SPHERE_FIT_SPHERE_FIT_CALIBRATION_H_

@@ -41,12 +41,17 @@
  * full. This has been done in order to save processing power.
  */
 
-#ifndef LOCATION_LBS_CONTEXTHUB_NANOAPPS_CALIBRATION_COMMON_DIVERSITY_CHECKER_H_
-#define LOCATION_LBS_CONTEXTHUB_NANOAPPS_CALIBRATION_COMMON_DIVERSITY_CHECKER_H_
+#ifndef LOCATION_LBS_CONTEXTHUB_NANOAPPS_CALIBRATION_DIVERSITY_CHECKER_DIVERSITY_CHECKER_H_
+#define LOCATION_LBS_CONTEXTHUB_NANOAPPS_CALIBRATION_DIVERSITY_CHECKER_DIVERSITY_CHECKER_H_
 
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+
+#if defined(MAG_CAL_DEBUG_ENABLE) && !defined(DIVERSE_DEBUG_ENABLE)
+// Ensures that diversity messaging is set when mag_cal debugging is enabled.
+#define DIVERSE_DEBUG_ENABLE
+#endif  // MAG_CAL_DEBUG_ENABLE && !DIVERSE_DEBUG_ENABLE
 
 #ifdef __cplusplus
 extern "C" {
@@ -68,6 +73,17 @@ struct DiversityDbg {
 };
 #endif
 
+// DiversityChecker parameters container.
+struct DiversityCheckerParameters {
+  float var_threshold;
+  float max_min_threshold;
+  float local_field;
+  float threshold_tuning_param;
+  float max_distance_tuning_param;
+  size_t min_num_diverse_vectors;
+  size_t max_num_max_distance;
+};
+
 // Main data struct.
 struct DiversityChecker {
   // Data memory.
@@ -82,7 +98,7 @@ struct DiversityChecker {
   // Threshold value that is used to check k against.
   float threshold;
 
-  // Threshold tuning paramter used to calculate threshold (k_algo):
+  // Threshold tuning parameter used to calculate threshold (k_algo):
   // threshold = threshold_tuning_param_sq * (local_field)^2.
   float threshold_tuning_param_sq;
 
@@ -97,7 +113,6 @@ struct DiversityChecker {
   bool data_full;
 
   // Setup variables for NormQuality check.
-
   size_t min_num_diverse_vectors;
   size_t max_num_max_distance;
   float var_threshold;
@@ -109,7 +124,7 @@ struct DiversityChecker {
 #endif
 };
 
-// Initialization of the function/struct, input:
+// Initialization of the function/struct, input parameters struct consists of:
 // min_num_diverse_vectors -> sets the gate for a minimum number of data points
 //                           in the memory
 // max_num_max_distance -> sets the value for a max distance violation number
@@ -123,15 +138,17 @@ struct DiversityChecker {
 // max_distance_tuning_param -> Max distance tuning parameter used to calculate
 //                             max_distance.
 void diversityCheckerInit(struct DiversityChecker* diverse_data,
-                          size_t min_num_diverse_vectors,
-                          size_t max_num_max_distance, float var_threshold,
-                          float max_min_threshold, float local_field,
-                          float threshold_tuning_param,
-                          float max_distance_tuning_param);
+                          const struct DiversityCheckerParameters* parameters);
 
 // Resetting the memory and the counters, leaves threshold and max_distance
 // as well as the setup variables for NormQuality check untouched.
 void diversityCheckerReset(struct DiversityChecker* diverse_data);
+
+// Checks if data point (x, y, z) is diverse against the diverse_data set.
+// Returns true when the input point is diverse.
+// Returns false when a maximum distance check is violated.
+bool diversityCheckerFindNearestPoint(struct DiversityChecker* diverse_data,
+                                      float x, float y, float z);
 
 // Main function. Tests the data (x,y,z) against the memory if diverse and
 // stores it, if so.
@@ -149,9 +166,7 @@ void diversityCheckerUpdate(struct DiversityChecker* diverse_data, float x,
 // -> norm must be within a MAX/MIN window.
 // Returned value will only be true if all 4 gates are passed.
 bool diversityCheckerNormQuality(struct DiversityChecker* diverse_data,
-                                 float x_bias,
-                                 float y_bias,
-                                 float z_bias);
+                                 float x_bias, float y_bias, float z_bias);
 
 // This function updates the threshold value and max distance value based on the
 // local field. This ensures a local field independent operation of the
@@ -165,4 +180,4 @@ void diversityCheckerLocalFieldUpdate(struct DiversityChecker* diverse_data,
 }
 #endif
 
-#endif  // LOCATION_LBS_CONTEXTHUB_NANOAPPS_CALIBRATION_COMMON_DIVERSITY_CHECKER_H_
+#endif  // LOCATION_LBS_CONTEXTHUB_NANOAPPS_CALIBRATION_DIVERSITY_CHECKER_DIVERSITY_CHECKER_H_

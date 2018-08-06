@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 The Android Open Source Project
+ * Copyright (C) 2017 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -163,7 +163,10 @@ bool chreSendMessageToHostEndpoint(void *message, size_t messageSize,
                                    uint32_t messageType, uint16_t hostEndpoint,
                                    chreMessageFreeFunction *freeCallback)
 {
-    return syscallDo5P(SYSCALL_NO(SYSCALL_DOMAIN_CHRE, SYSCALL_CHRE_MAIN, SYSCALL_CHRE_MAIN_EVENT, SYSCALL_CHRE_MAIN_EVENT_SEND_MSG), message, messageSize, messageType, hostEndpoint, freeCallback);
+    if (chreGetApiVersion() == CHRE_API_VERSION_1_0)
+        return syscallDo4P(SYSCALL_CHRE_API(SEND_MSG), message, messageSize, messageType, freeCallback);
+    else
+        return syscallDo5P(SYSCALL_NO(SYSCALL_DOMAIN_CHRE, SYSCALL_CHRE_MAIN, SYSCALL_CHRE_MAIN_EVENT, SYSCALL_CHRE_MAIN_EVENT_SEND_MSG), message, messageSize, messageType, hostEndpoint, freeCallback);
 }
 
 bool chreGetNanoappInfoByAppId(uint64_t appId, struct chreNanoappInfo *info)
@@ -181,6 +184,16 @@ bool chreGetNanoappInfoByInstanceId(uint32_t instanceId, struct chreNanoappInfo 
 void chreConfigureNanoappInfoEvents(bool enable)
 {
     syscallDo1P(SYSCALL_NO(SYSCALL_DOMAIN_CHRE, SYSCALL_CHRE_MAIN, SYSCALL_CHRE_MAIN_EVENT, SYSCALL_CHRE_MAIN_EVENT_CFG_INFO), enable);
+}
+
+void chreConfigureHostSleepStateEvents(bool enable)
+{
+    syscallDo1P(SYSCALL_NO(SYSCALL_DOMAIN_CHRE, SYSCALL_CHRE_MAIN, SYSCALL_CHRE_MAIN_EVENT, SYSCALL_CHRE_MAIN_EVENT_HOST_SLEEP), enable);
+}
+
+bool chreIsHostAwake(void)
+{
+    return syscallDo0P(SYSCALL_NO(SYSCALL_DOMAIN_CHRE, SYSCALL_CHRE_MAIN, SYSCALL_CHRE_MAIN_EVENT, SYSCALL_CHRE_MAIN_EVENT_IS_HOST_AWAKE));
 }
 
 uint32_t chreGnssGetCapabilities(void)
@@ -208,6 +221,11 @@ bool chreGnssMeasurementSessionStopAsync(const void *cookie)
     return syscallDo1P(SYSCALL_NO(SYSCALL_DOMAIN_CHRE, SYSCALL_CHRE_DRIVERS, SYSCALL_CHRE_DRV_GNSS, SYSCALL_CHRE_DRV_GNSS_MEAS_STOP_ASYNC), cookie);
 }
 
+bool chreGnssConfigurePassiveLocationListener(bool enable)
+{
+    return syscallDo1P(SYSCALL_NO(SYSCALL_DOMAIN_CHRE, SYSCALL_CHRE_DRIVERS, SYSCALL_CHRE_DRV_GNSS, SYSCALL_CHRE_DRV_GNSS_CONF_PASV_LOC_LIS), enable);
+}
+
 uint32_t chreWifiGetCapabilities(void)
 {
     return syscallDo0P(SYSCALL_NO(SYSCALL_DOMAIN_CHRE, SYSCALL_CHRE_DRIVERS, SYSCALL_CHRE_DRV_WIFI, SYSCALL_CHRE_DRV_WIFI_GET_CAP));
@@ -231,4 +249,26 @@ uint32_t chreWwanGetCapabilities(void)
 bool chreWwanGetCellInfoAsync(const void *cookie)
 {
     return syscallDo1P(SYSCALL_NO(SYSCALL_DOMAIN_CHRE, SYSCALL_CHRE_DRIVERS, SYSCALL_CHRE_DRV_WWAN, SYSCALL_CHRE_DRV_WWAN_GET_CELL_INFO_ASYNC), cookie);
+}
+
+bool chreAudioGetSource(uint32_t handle, struct chreAudioSource *audioSource)
+{
+    return syscallDo2P(SYSCALL_NO(SYSCALL_DOMAIN_CHRE, SYSCALL_CHRE_DRIVERS, SYSCALL_CHRE_DRV_AUDIO, SYSCALL_CHRE_DRV_AUDIO_GET_SRC), handle, audioSource);
+}
+
+bool chreAudioConfigureSource(uint32_t handle, bool enable,
+                              uint64_t bufferDuration,
+                              uint64_t deliveryInterval)
+{
+    uint32_t duration_lo = bufferDuration;
+    uint32_t duration_hi = bufferDuration >> 32;
+    uint32_t interval_lo = deliveryInterval;
+    uint32_t interval_hi = deliveryInterval >> 32;
+
+    return syscallDo6P(SYSCALL_NO(SYSCALL_DOMAIN_CHRE, SYSCALL_CHRE_DRIVERS, SYSCALL_CHRE_DRV_AUDIO, SYSCALL_CHRE_DRV_AUDIO_CONF_SRC), handle, enable, duration_lo, duration_hi, interval_lo, interval_hi);
+}
+
+bool chreAudioGetStatus(uint32_t handle, struct chreAudioSourceStatus *status)
+{
+    return syscallDo2P(SYSCALL_NO(SYSCALL_DOMAIN_CHRE, SYSCALL_CHRE_DRIVERS, SYSCALL_CHRE_DRV_AUDIO, SYSCALL_CHRE_DRV_AUDIO_GET_STATUS), handle, status);
 }

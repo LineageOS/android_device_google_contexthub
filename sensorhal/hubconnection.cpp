@@ -132,6 +132,8 @@ HubConnection::HubConnection()
     mMagAccuracyRestore = SENSOR_STATUS_UNRELIABLE;
     mGyroBias[0] = mGyroBias[1] = mGyroBias[2] = 0.0f;
     mAccelBias[0] = mAccelBias[1] = mAccelBias[2] = 0.0f;
+    mAccelEnabledBias[0] = mAccelEnabledBias[1] = mAccelEnabledBias[2] = 0.0f;
+    mAccelEnabledBiasStored = true;
     memset(&mGyroOtcData, 0, sizeof(mGyroOtcData));
 
     mLefty.accel = false;
@@ -238,7 +240,6 @@ HubConnection::HubConnection()
     mSensorState[COMMS_SENSOR_DOUBLE_TAP].sensorType = SENS_TYPE_DOUBLE_TAP;
     mSensorState[COMMS_SENSOR_DOUBLE_TAP].rate = SENSOR_RATE_ONCHANGE;
     mSensorState[COMMS_SENSOR_WRIST_TILT].sensorType = SENS_TYPE_WRIST_TILT;
-    mSensorState[COMMS_SENSOR_WRIST_TILT].rate = SENSOR_RATE_ONCHANGE;
     mSensorState[COMMS_SENSOR_DOUBLE_TOUCH].sensorType = SENS_TYPE_DOUBLE_TOUCH;
     mSensorState[COMMS_SENSOR_DOUBLE_TOUCH].rate = SENSOR_RATE_ONESHOT;
     mSensorState[COMMS_SENSOR_ACTIVITY_IN_VEHICLE_START].sensorType = SENS_TYPE_ACTIVITY_IN_VEHICLE_START;
@@ -733,6 +734,22 @@ void HubConnection::processSample(uint64_t timestamp, uint32_t type, uint32_t se
 
         sendDirectReportEvent(&nev[cnt], 1);
         if (mSensorState[sensor].enable && isSampleIntervalSatisfied(sensor, timestamp)) {
+            if (!mAccelEnabledBiasStored) {
+                // accel is enabled, but no enabled bias. Store latest bias and use
+                // for accel and uncalibrated accel due to:
+                // https://source.android.com/devices/sensors/sensor-types.html
+                // "The bias and scale calibration must only be updated while the sensor is deactivated,
+                // so as to avoid causing jumps in values during streaming."
+                mAccelEnabledBiasStored = true;
+                mAccelEnabledBias[0] = mAccelBias[0];
+                mAccelEnabledBias[1] = mAccelBias[1];
+                mAccelEnabledBias[2] = mAccelBias[2];
+            }
+            // samples arrive using latest bias
+            // adjust for enabled bias being different from lastest bias
+            sv->x += mAccelBias[0] - mAccelEnabledBias[0];
+            sv->y += mAccelBias[1] - mAccelEnabledBias[1];
+            sv->z += mAccelBias[2] - mAccelEnabledBias[2];
             ++cnt;
         }
 
@@ -742,9 +759,17 @@ void HubConnection::processSample(uint64_t timestamp, uint32_t type, uint32_t se
         ue->x_uncalib = sample->ix * mScaleAccel + mAccelBias[0];
         ue->y_uncalib = sample->iy * mScaleAccel + mAccelBias[1];
         ue->z_uncalib = sample->iz * mScaleAccel + mAccelBias[2];
-        ue->x_bias = mAccelBias[0];
-        ue->y_bias = mAccelBias[1];
-        ue->z_bias = mAccelBias[2];
+        if (!mAccelEnabledBiasStored) {
+            // No enabled bias (which means accel is disabled). Use latest bias.
+            ue->x_bias = mAccelBias[0];
+            ue->y_bias = mAccelBias[1];
+            ue->z_bias = mAccelBias[2];
+        } else {
+            // enabled bias is valid, so use it
+            ue->x_bias = mAccelEnabledBias[0];
+            ue->y_bias = mAccelEnabledBias[1];
+            ue->z_bias = mAccelEnabledBias[2];
+        }
 
         sendDirectReportEvent(&nev[cnt], 1);
         if (mSensorState[COMMS_SENSOR_ACCEL_UNCALIBRATED].enable
@@ -1674,6 +1699,11 @@ void HubConnection::queueActivate(int handle, bool enable)
     Mutex::Autolock autoLock(mLock);
 
     if (isValidHandle(handle)) {
+        // disabling accel, so no longer need to use the bias from when
+        // accel was first enabled
+        if (handle == COMMS_SENSOR_ACCEL && !enable)
+            mAccelEnabledBiasStored = false;
+
         mSensorState[handle].enable = enable;
 
         initConfigCmd(&cmd, handle);
