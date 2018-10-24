@@ -14,34 +14,29 @@
 // limitations under the License.
 //
 
-cc_library_headers {
-    name: "libnanohub_common_headers",
-    vendor_available: true,
-    export_include_dirs: ["include"],
-}
+cc_binary {
+    name: "nanoapp_cmd",
 
-cc_library_static {
-    name: "libnanohub_common",
-    host_supported: true,
+    srcs: ["nanoapp_cmd.c"],
 
-    srcs: ["nanohub/nanoapp.c"],
+    header_libs: [
+        "libnanohub_common_headers",
+    ],
+    include_dirs: [
+        "device/google/contexthub/firmware/os/inc",
+    ],
 
-    export_include_dirs: ["include"],
+    cflags: [
+        "-Wall",
+        "-Werror",
+        "-Wextra",
+    ],
 
-    target: {
-        host: {
-            cflags: [
-                "-DHOST_BUILD",
-                "-DRSA_SUPPORT_PRIV_OP_BIGRAM",
-            ],
+    shared_libs: [
+        "liblog",
+        "libutils",
+    ],
 
-            srcs: [
-                "nanohub/aes.c",
-                "nanohub/rsa.c",
-                "nanohub/sha2.c",
-
-                "nanohub/softcrc.c",
-            ],
-        },
-    },
+    owner: "google",
+    vendor: true,
 }
