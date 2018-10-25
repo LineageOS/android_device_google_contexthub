@@ -14,34 +14,26 @@
 // limitations under the License.
 //
 
-cc_library_headers {
-    name: "libnanohub_common_headers",
-    vendor_available: true,
-    export_include_dirs: ["include"],
-}
+cc_test {
+    name: "nanohub_hal_test",
+    gtest: false,
 
-cc_library_static {
-    name: "libnanohub_common",
-    host_supported: true,
+    srcs: ["main.cpp"],
 
-    srcs: ["nanohub/nanoapp.c"],
+    cflags: [
+        "-Wall",
+        "-Werror",
+        "-Wextra",
+        "-DHOST_BUILD",
+        "-DBOOTLOADER=",
+        "-DBOOTLOADER_RO=",
+    ],
 
-    export_include_dirs: ["include"],
+    static_libs: ["libnanohub_common"],
 
-    target: {
-        host: {
-            cflags: [
-                "-DHOST_BUILD",
-                "-DRSA_SUPPORT_PRIV_OP_BIGRAM",
-            ],
-
-            srcs: [
-                "nanohub/aes.c",
-                "nanohub/rsa.c",
-                "nanohub/sha2.c",
-
-                "nanohub/softcrc.c",
-            ],
-        },
-    },
+    shared_libs: [
+        "libhardware",
+        "liblog",
+        "libcutils",
+    ],
 }

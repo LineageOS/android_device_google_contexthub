@@ -14,34 +14,19 @@
 // limitations under the License.
 //
 
-cc_library_headers {
-    name: "libnanohub_common_headers",
-    vendor_available: true,
-    export_include_dirs: ["include"],
-}
+cc_binary_host {
+    name: "nanoapp_encr",
 
-cc_library_static {
-    name: "libnanohub_common",
-    host_supported: true,
+    srcs: ["nanoapp_encr.c"],
 
-    srcs: ["nanohub/nanoapp.c"],
+    cflags: [
+        "-Wall",
+        "-Werror",
+        "-Wextra",
+        "-DHOST_BUILD",
+        "-DBOOTLOADER=",
+        "-DBOOTLOADER_RO=",
+    ],
 
-    export_include_dirs: ["include"],
-
-    target: {
-        host: {
-            cflags: [
-                "-DHOST_BUILD",
-                "-DRSA_SUPPORT_PRIV_OP_BIGRAM",
-            ],
-
-            srcs: [
-                "nanohub/aes.c",
-                "nanohub/rsa.c",
-                "nanohub/sha2.c",
-
-                "nanohub/softcrc.c",
-            ],
-        },
-    },
+    static_libs: ["libnanohub_common"],
 }
