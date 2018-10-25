@@ -14,34 +14,23 @@
 // limitations under the License.
 //
 
-cc_library_headers {
-    name: "libnanohub_common_headers",
-    vendor_available: true,
-    export_include_dirs: ["include"],
-}
+cc_binary {
+    name: "stm32_flash",
 
-cc_library_static {
-    name: "libnanohub_common",
-    host_supported: true,
+    shared_libs: ["libcutils"],
 
-    srcs: ["nanohub/nanoapp.c"],
+    srcs: [
+        "flash.c",
+        "i2c.c",
+        "spi.c",
+        "stm32_bl.c",
+        "stm32f4_crc.c",
+        "uart.c",
+    ],
 
-    export_include_dirs: ["include"],
-
-    target: {
-        host: {
-            cflags: [
-                "-DHOST_BUILD",
-                "-DRSA_SUPPORT_PRIV_OP_BIGRAM",
-            ],
-
-            srcs: [
-                "nanohub/aes.c",
-                "nanohub/rsa.c",
-                "nanohub/sha2.c",
-
-                "nanohub/softcrc.c",
-            ],
-        },
-    },
+    cflags: [
+        "-Wall",
+        "-Werror",
+        "-Wextra",
+    ],
 }
