@@ -771,6 +771,7 @@ void HubConnection::processSample(uint64_t timestamp, uint32_t type, uint32_t se
                 && isSampleIntervalSatisfied(COMMS_SENSOR_MAG_UNCALIBRATED, timestamp)) {
             ++cnt;
         }
+        break;
     default:
         break;
     }
@@ -2195,15 +2196,14 @@ uint64_t HubConnection::rateLevelToDeviceSamplingPeriodNs(int handle, int rateLe
 
     switch (rateLevel) {
         case SENSOR_DIRECT_RATE_VERY_FAST:
-            // No sensor support VERY_FAST, fall through
+            [[fallthrough]]; // No sensor support VERY_FAST, fall through
         case SENSOR_DIRECT_RATE_FAST:
             if (handle != COMMS_SENSOR_MAG && handle != COMMS_SENSOR_MAG_UNCALIBRATED) {
                 return 2500*1000; // 400Hz
             }
-            // fall through
+            [[fallthrough]];
         case SENSOR_DIRECT_RATE_NORMAL:
             return 20*1000*1000; // 50 Hz
-            // fall through
         default:
             return INT64_MAX;
     }
