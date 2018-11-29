@@ -78,7 +78,7 @@ LOCAL_CFLAGS += \
 DEBUG ?= -DDEBUG
 RELEASE ?=
 
-ifneq (,$(filter userdebug eng, $(TARGET_BUILD_VARIANT)))
+ifneq (,$(filter eng, $(TARGET_BUILD_VARIANT)))
 LOCAL_CFLAGS += \
     $(DEBUG) \
 
