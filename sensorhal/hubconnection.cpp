@@ -1555,9 +1555,18 @@ void HubConnection::initConfigCmd(struct ConfigCmd *cmd, int handle)
 
     cmd->evtType = EVT_NO_SENSOR_CONFIG_EVENT;
     cmd->sensorType = mSensorState[handle].sensorType;
-    cmd->cmd = mSensorState[handle].enable ? CONFIG_CMD_ENABLE : CONFIG_CMD_DISABLE;
-    cmd->rate = mSensorState[handle].rate;
-    cmd->latency = mSensorState[handle].latency;
+
+    if (mSensorState[handle].enable) {
+        cmd->cmd = CONFIG_CMD_ENABLE;
+        cmd->rate = mSensorState[handle].rate;
+        cmd->latency = mSensorState[handle].latency;
+    } else {
+        cmd->cmd = CONFIG_CMD_DISABLE;
+        // set rate and latency to values that will always be overwritten by the
+        // first enabled alt sensor
+        cmd->rate = UINT32_C(0);
+        cmd->latency = UINT64_MAX;
+    }
 
     for (int i=0; i<MAX_ALTERNATES; ++i) {
         uint8_t alt = mSensorState[handle].alt[i];
