@@ -22,19 +22,18 @@ cc_defaults {
     ],
     cflags: ["-Wall", "-Werror", "-Wextra"],
     shared_libs: [
-        "liblog",
         "libcutils",
-        "libutils",
+        "libjsoncpp",
+        "liblog",
         "libstagefright_foundation",
+        "libutils",
     ],
     static_libs: [
-        "libjsoncpp",
         "libhubutilcommon",
     ],
     header_libs: [
         "libnanohub_common_headers",
         "libhardware_headers",
-        "libutils_headers",
     ],
     vendor: true,
 }
@@ -51,7 +50,7 @@ cc_defaults {
     ],
 }
 
-cc_library {
+cc_library_shared {
     name: "context_hub.default",
     srcs: [
         "legacyhal.cpp",
