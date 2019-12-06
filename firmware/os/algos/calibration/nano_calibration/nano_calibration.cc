@@ -334,7 +334,9 @@ bool NanoSensorCal::LoadAshCalibration(uint8_t chreSensorType,
       }
     }
   } else {
-    NANO_CAL_LOGE(sensor_tag, "ASH failed to recall calibration data.");
+    // This is not necessarily an error since there may not be any previously
+    // stored runtime calibration data to load yet (e.g., first device boot).
+    NANO_CAL_LOGW(sensor_tag, "ASH did not recall calibration data.");
   }
 
   return false;
