@@ -30,20 +30,23 @@ using ::online_calibration::SensorIndex;
 using ::online_calibration::SensorType;
 
 // NanoSensorCal logging macros.
-#ifdef NANO_SENSOR_CAL_DBG_ENABLED
 #ifndef LOG_TAG
 #define LOG_TAG "[ImuCal]"
 #endif
+
+#ifdef NANO_SENSOR_CAL_DBG_ENABLED
 #define NANO_CAL_LOGD(tag, format, ...) LOGD("%s " format, tag, ##__VA_ARGS__)
-#define NANO_CAL_LOGI(tag, format, ...) LOGI("%s " format, tag, ##__VA_ARGS__)
 #define NANO_CAL_LOGW(tag, format, ...) LOGW("%s " format, tag, ##__VA_ARGS__)
 #define NANO_CAL_LOGE(tag, format, ...) LOGE("%s " format, tag, ##__VA_ARGS__)
 #else
 #define NANO_CAL_LOGD(tag, format, ...) CHRE_LOG_NULL(format, ##__VA_ARGS__)
-#define NANO_CAL_LOGI(tag, format, ...) CHRE_LOG_NULL(format, ##__VA_ARGS__)
 #define NANO_CAL_LOGW(tag, format, ...) CHRE_LOG_NULL(format, ##__VA_ARGS__)
 #define NANO_CAL_LOGE(tag, format, ...) CHRE_LOG_NULL(format, ##__VA_ARGS__)
 #endif  // NANO_SENSOR_CAL_DBG_ENABLED
+
+// NOTE: LOGI is defined to ensure calibration updates are always logged for
+// field diagnosis and verification.
+#define NANO_CAL_LOGI(tag, format, ...) LOGI("%s " format, tag, ##__VA_ARGS__)
 
 }  // namespace
 
