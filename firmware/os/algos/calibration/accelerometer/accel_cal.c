@@ -16,7 +16,6 @@
 
 #include "calibration/accelerometer/accel_cal.h"
 
-#include <errno.h>
 #include <inttypes.h>
 #include <math.h>
 #include <stdio.h>
