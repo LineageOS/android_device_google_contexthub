@@ -400,7 +400,7 @@ enum SensorState {
 static const char * getStateName(int32_t s) {
     // keep this in sync with SensorState
     static const char* const l[] = {"BOOT", "VERIFY_ID", "INIT", "IDLE", "PWR_UP",
-            "PWR-DN", "CFG_CHANGE", "INT1", "INT2", "CALIB", "STEP_CNT", "SYNC", "SAVE_CALIB"};
+            "PWR-DN", "CFG_CHANGE", "INT1", "INT2", "CALIB", "TEST", "STEP_CNT", "SYNC", "SAVE_CALIB"};
     if (s >= 0 && s < SENSOR_NUM_OF_STATE) {
         return l[s];
     }
