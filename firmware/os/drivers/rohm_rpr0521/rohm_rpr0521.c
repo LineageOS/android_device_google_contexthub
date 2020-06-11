@@ -328,7 +328,7 @@ static struct I2cTransfer *allocXfer(uint8_t state)
         }
     }
 
-    osLog(LOG_ERROR, "[BMP280]: Ran out of i2c buffers!");
+    ERROR_PRINT("Ran out of i2c buffers!\n");
     return NULL;
 }
 
