@@ -129,9 +129,16 @@
 #define BMI160_SPI_WRITE          0x00
 #define BMI160_SPI_READ           0x80
 
+#ifndef BMI160_SPI_BUS_ID
 #define BMI160_SPI_BUS_ID         1
+#endif
+#ifndef BMI160_SPI_SPEED_HZ
 #define BMI160_SPI_SPEED_HZ       8000000
+#endif
 #define BMI160_SPI_MODE           3
+#ifndef BMI160_SPI_CS_PIN
+#define BMI160_SPI_CS_PIN         GPIO_PB(12)
+#endif
 
 #ifndef BMI160_INT1_IRQ
 #define BMI160_INT1_IRQ           EXTI9_5_IRQn
@@ -3825,7 +3832,7 @@ static bool startTask(uint32_t task_id)
     T(mode).cpha = SPI_CPHA_TRAILING_EDGE;
     T(mode).nssChange = true;
     T(mode).format = SPI_FORMAT_MSB_FIRST;
-    T(cs) = GPIO_PB(12);
+    T(cs) = BMI160_SPI_CS_PIN;
 
     T(watermark) = 0;
 
