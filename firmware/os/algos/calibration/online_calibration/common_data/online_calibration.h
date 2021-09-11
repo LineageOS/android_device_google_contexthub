@@ -26,6 +26,14 @@
 
 namespace online_calibration {
 
+// Device physical state change types.
+enum class PhysicalStateType : uint8_t {
+  kUnknownPhysicalState = 0,
+  kFoldableOpen,
+  kFoldableClosed,
+  kNumPhysicalStateTypes,
+};
+
 /*
  * This abstract base class provides a set of general interface functions for
  * calibration algorithms. The data structures used are intended to be lean and
@@ -129,6 +137,13 @@ class OnlineCalibration {
 
   // Returns the sensor-type this calibration algorithm provides updates for.
   virtual SensorType get_sensor_type() const = 0;
+
+  // Tells the calibrator that the device's physical state has changed. This is
+  // useful, for example, if there is a need for the calibration algorithm to be
+  // aware of and take some sort of internal action in response to a physical
+  // state change (e.g., for foldable devices, MagCal may adjust internal states
+  // to implement specific transition behavior between open/closed states).
+  virtual void UpdatePhysicalState(PhysicalStateType physical_state) {}
 
  protected:
   // Helper function that activates the registered callback.
