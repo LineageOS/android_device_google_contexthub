@@ -54,6 +54,24 @@ using ::online_calibration::SensorType;
 #define LOG_TAG "[ImuCal]"
 #endif
 
+// Some devices do not have multisensor ASH API support. These macros remap to
+// single-sensor functions.
+#ifndef ASH_MULTI_CAL_SUPPORTED
+#define ashSetMultiCalibration(chre_sensor_type, sensor_index,  \
+                               calibration_index, ash_cal_info) \
+  ashSetCalibration(chre_sensor_type, ash_cal_info)
+
+#define ashSaveMultiCalibrationParams(chre_sensor_type, sensor_index,        \
+                                      calibration_index, ash_cal_parameters) \
+  ashSaveCalibrationParams(chre_sensor_type, ash_cal_parameters)
+
+#define ashLoadMultiCalibrationParams(chre_sensor_type, sensor_index, \
+                                      calibration_index,              \
+                                      recalled_ash_cal_parameters)    \
+  ashLoadCalibrationParams(chre_sensor_type, ASH_CAL_STORAGE_ASH,     \
+                           recalled_ash_cal_parameters)
+#endif  // ASH_MULTI_CAL_SUPPORTED
+
 #ifdef NANO_SENSOR_CAL_DBG_ENABLED
 #define NANO_CAL_LOGD(tag, format, ...) \
   TECHENG_LOGD("%s " format, tag, ##__VA_ARGS__)
@@ -146,7 +164,7 @@ bool NanoSensorCal::NotifyAshCalibration(
   if (result_callback_ != nullptr && send_results_callback) {
     result_callback_->SetCalibrationEvent(cal_data.cal_update_time_nanos,
                                           cal_data.type, sensor_index,
-                                          calibration_index, flags);
+                                          calibration_index, flags, cal_data);
   }
 
   // Updates the sensor offset calibration using the ASH API.
