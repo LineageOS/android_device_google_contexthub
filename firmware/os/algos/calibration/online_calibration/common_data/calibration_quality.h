@@ -65,7 +65,7 @@ enum class CalibrationQualityLevel : uint8_t {
 // Sets the calibration quality value when this metric is either not
 // implemented, or has not yet been determined (e.g., a calibration hasn't
 // occurred).
-constexpr float kUndeterminedCalibrationQuality = -1.0f;
+constexpr float kUndeterminedCalibrationQuality = FLT_MAX;
 
 /*
  * Calibration quality structure that contains a quantitative (float) and
