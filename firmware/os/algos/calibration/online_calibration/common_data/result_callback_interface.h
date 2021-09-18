@@ -29,10 +29,10 @@ class ResultCallbackInterface {
   //                    states of a foldable device]).
   // flags: What kind of update the calibration was, e.g. offset, quality
   //        degradation (like a magnetization event), over temperature, etc.
-  virtual void SetCalibrationEvent(uint64_t event_timestamp_nanos,
-                                   SensorType sensor_type, uint8_t sensor_index,
-                                   uint8_t calibration_index,
-                                   CalibrationTypeFlags flags) = 0;
+  virtual void SetCalibrationEvent(
+      uint64_t event_timestamp_nanos, SensorType sensor_type,
+      uint8_t sensor_index, uint8_t calibration_index,
+      CalibrationTypeFlags flags, const CalibrationDataThreeAxis &cal_data) = 0;
 };
 
 }  // namespace online_calibration
