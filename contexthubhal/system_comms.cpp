@@ -31,6 +31,7 @@
 #include <log/log.h>
 
 #include <endian.h>
+#include <fcntl.h>
 #include <sys/stat.h>
 
 #include <media/stagefright/foundation/ADebug.h>
