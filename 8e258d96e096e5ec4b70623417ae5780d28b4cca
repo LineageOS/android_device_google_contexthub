@@ -1,0 +1,21 @@
+{
+  "comments": [
+    {
+      "unresolved": false,
+      "key": {
+        "uuid": "701d20ce_5e5967e9",
+        "filename": "/PATCHSET_LEVEL",
+        "patchSetId": 1
+      },
+      "lineNbr": 0,
+      "author": {
+        "id": 16185
+      },
+      "writtenOn": "2024-11-05T17:20:01Z",
+      "side": 1,
+      "message": "For this cycle I think this is fine, as I don\u0027t see msm8996 living through 23.0.",
+      "revId": "8e258d96e096e5ec4b70623417ae5780d28b4cca",
+      "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
+    }
+  ]
+}
