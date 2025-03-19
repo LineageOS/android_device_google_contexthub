@@ -1,0 +1,74 @@
+COMMON_CFLAGS = [
+    "-Wall",
+    "-Werror",
+    "-Wextra",
+]
+
+cc_library_shared {
+    name: "sensors.nanohub",
+    relative_install_path: "hw",
+    vendor: true,
+    cflags: COMMON_CFLAGS + select(soong_config_variable("nanohub_sensorhal", "direct_report_enabled"), {
+        "true": [ "-DDIRECT_REPORT_ENABLED" ],
+        default: [],
+    }) + select(soong_config_variable("nanohub_sensorhal", "dynamic_sensor_ext_enabled"), {
+        "true": [ "-DDYNAMIC_SENSOR_EXT_ENABLED" ],
+        default: [],
+    }),
+    include_dirs: [
+        "device/google/contexthub/firmware/os/inc",
+        "device/google/contexthub/util/common",
+    ],
+    srcs: [
+        "sensors.cpp",
+    ],
+    header_libs: ["libhardware_headers"],
+    shared_libs: [
+        "liblog",
+        "libcutils",
+        "libhubconnection",
+        "libstagefright_foundation",
+        "libutils",
+    ] + select(soong_config_variable("nanohub_sensorhal", "dynamic_sensor_ext_enabled"), {
+        "true": [ "libdynamic_sensor_ext" ],
+        default: [],
+    }),
+    static_libs: select(soong_config_variable("nanohub_sensorhal", "sensorlist_library"), {
+        any @ value: [ value ],
+        default: [],
+    }),
+}
+
+cc_library_shared {
+    name: "libhubconnection",
+    vendor: true,
+    cflags: COMMON_CFLAGS + select(soong_config_variable("nanohub_sensorhal", "lid_state_enabled"), {
+        "true": [ "-DLID_STATE_REPORTING_ENABLED" ],
+        default: [],
+    }) + select(soong_config_variable("nanohub_sensorhal", "usb_mag_bias_enabled"), {
+        "true": [ "-DUSB_MAG_BIAS_REPORTING_ENABLED" ],
+        default: [],
+    }) + select(soong_config_variable("nanohub_sensorhal", "double_touch_enabled"), {
+        "true": [ "-DDOUBLE_TOUCH_ENABLED" ],
+        default: [],
+    }) + select(soong_config_variable("nanohub_sensorhal", "direct_report_enabled"), {
+        "true": [ "-DDIRECT_REPORT_ENABLED" ],
+        default: [],
+    }),
+    include_dirs: ["device/google/contexthub/firmware/os/inc"],
+    srcs: [
+        "hubconnection.cpp",
+        "directchannel.cpp",
+    ],
+    static_libs: [
+        "libhubutilcommon",
+    ],
+    shared_libs: [
+        "libcutils",
+        "libhardware",
+        "libhardware_legacy",
+        "liblog",
+        "libstagefright_foundation",
+        "libutils",
+    ],
+}
