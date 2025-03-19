@@ -1,0 +1,21 @@
+{
+  "comments": [
+    {
+      "unresolved": true,
+      "key": {
+        "uuid": "a37df6c8_35642943",
+        "filename": "CleanSpec.mk",
+        "patchSetId": 2
+      },
+      "lineNbr": 54,
+      "author": {
+        "id": 4550
+      },
+      "writtenOn": "2025-03-19T04:16:33Z",
+      "side": 0,
+      "message": "This file is still in AOSP, no point removing it",
+      "revId": "78cc9f7b4718fb2232b119194edb70d47f4bf4d2",
+      "serverId": "1ec6b3db-b2c1-4fa4-84a2-4c7efe89ba71"
+    }
+  ]
+}
